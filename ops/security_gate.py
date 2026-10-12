@@ -48,6 +48,13 @@ DB_MAX_AGE_H = 24
 PII_MAX = 10  # emails / phones per file before it counts (normal source peaks at 3 / 2)
 SHOW = 25  # findings printed per check; the report carries all of them
 UNFIXED_SEVERITIES = ("CRITICAL", "HIGH")  # D-181: counted and reported, never blocking
+# D-182: licence findings on OS packages are reported, never blocking. Trivy's licence scan puts every OS package in one
+# result (Target "OS Packages", Class "license"); its vuln results say Class "os-pkgs" and Type = the distro. Anything
+# that is not recognisably an OS-package result is a language package (or unknown) and keeps blocking.
+OS_LICENSE_TARGET = "OS Packages"
+OS_PKG_TYPES = {"debian", "ubuntu", "alpine", "redhat", "centos", "rocky", "alma", "fedora", "amazon", "oracle", "suse",
+                "photon", "wolfi", "chainguard", "cbl-mariner", "azurelinux"}
+LICENSE_SEVERITIES = ("CRITICAL", "HIGH", "UNKNOWN")  # forbidden, restricted, unknown: trivy's UNKNOWN is the unrecognised licence
 
 DENY_EXT = {".sqlite", ".sqlite3", ".db", ".parquet", ".csv", ".tsv", ".xlsx", ".xls", ".joblib", ".pkl",
             ".pickle", ".jsonl", ".ndjson", ".wav", ".mp3", ".mp4", ".m4a", ".flac",
@@ -299,7 +306,7 @@ def load_exceptions(path, ci, decisions_path, today):
 class Gate:
     def __init__(self, args):
         self.args = args
-        self.results, self.versions, self.unfixed = [], {}, {}
+        self.results, self.versions, self.unfixed, self.os_licenses = [], {}, {}, {}
         self.tmp = Path(tempfile.mkdtemp(prefix="secgate-"))
         self.ex, self.ex_problems = load_exceptions(args.exceptions, args.ci, args.decisions, dt.date.today())
         self._n = 0
@@ -909,6 +916,31 @@ def trivy_unfixed(g, ref):
     return counts
 
 
+def is_os_package_result(res):
+    return (res.get("Class") == "os-pkgs" or res.get("Target") == OS_LICENSE_TARGET
+            or str(res.get("Type") or "").lower() in OS_PKG_TYPES)
+
+
+def trivy_licenses(g, ref):
+    """D-182: licence findings by class -> (blocking language-package findings, OS-package severity counts).
+    A separate run so UNKNOWN can be listed for licences without turning UNKNOWN vulnerabilities into findings.
+    Fail closed: any trouble here fails the gate."""
+    out = g.tmpfile("trivy-license.json")
+    rc, _, _ = g.tool("trivy", ["image", "--scanners", "license", "--severity", ",".join(LICENSE_SEVERITIES),
+                                "--format", "json", "--output", str(out), ref])
+    if rc != 0:
+        raise GateError(f"trivy licence scan exited {rc} on {ref.split('@')[0]} (tool error)")
+    fs, os_counts = [], dict.fromkeys(LICENSE_SEVERITIES, 0)
+    for res in load_json(out, "trivy licence report").get("Results") or []:
+        subj = f"{ref.split('@')[0]}: {res.get('Target', '?')}"
+        for lic in res.get("Licenses") or []:
+            if is_os_package_result(res):
+                os_counts[lic.get("Severity") if lic.get("Severity") in os_counts else "UNKNOWN"] += 1
+            else:
+                fs.append((subj, f"license {lic.get('Name')} {lic.get('PkgName')} {lic.get('Severity')}"))
+    return fs, os_counts
+
+
 def check_trivy(g):
     if not g.args.image:
         raise GateError("no --image given")
@@ -918,7 +950,7 @@ def check_trivy(g):
     findings = []
     for ref in g.args.image:
         out = g.tmpfile("trivy.json")
-        rc, _, _ = g.tool("trivy", ["image", "--scanners", "vuln,misconfig,secret,license", "--severity",
+        rc, _, _ = g.tool("trivy", ["image", "--scanners", "vuln,misconfig,secret", "--severity",
                                     "HIGH,CRITICAL", "--ignore-unfixed", "--exit-code", "1", "--format", "json",
                                     "--output", str(out), ref])
         if rc not in (0, 1):
@@ -933,11 +965,11 @@ def check_trivy(g):
                 fs.append((subj, f"misconfig {m.get('ID')} {m.get('Severity')}"))
             for s in res.get("Secrets") or []:  # rule + severity only, never the match text
                 fs.append((subj, f"secret rule {s.get('RuleID')} {s.get('Severity')}"))
-            for lic in res.get("Licenses") or []:
-                fs.append((subj, f"license {lic.get('Name')} {lic.get('PkgName')} {lic.get('Severity')}"))
         if rc == 1 and not fs:
             raise GateError(f"trivy exited 1 on {ref.split('@')[0]} with no parseable finding")
         findings += fs
+        lic_fs, g.os_licenses[ref] = trivy_licenses(g, ref)
+        findings += lic_fs
         g.unfixed[ref] = trivy_unfixed(g, ref)
     _, out, _ = g.tool("trivy", ["version", "--format", "json"])
     db = (parse_json(out, "trivy version") or {}).get("VulnerabilityDB") or {}
@@ -953,7 +985,11 @@ def check_trivy(g):
     for ref, counts in g.unfixed.items():
         shown = ", ".join(f"{s} {counts[s]}" for s in UNFIXED_SEVERITIES) if "error" not in counts else counts["error"]
         print(f"INFO images/trivy: {ref.split('@')[0]} unfixed, not blocking (D-181): {shown}")
-    return findings, f"{len(g.args.image)} image(s), no fixable HIGH/CRITICAL findings"
+    for ref, counts in g.os_licenses.items():
+        print(f"INFO images/trivy: {ref.split('@')[0]} OS-package licences, not blocking (D-182): "
+              + ", ".join(f"{s} {counts[s]}" for s in LICENSE_SEVERITIES))
+    return findings, (f"{len(g.args.image)} image(s), no fixable HIGH/CRITICAL findings, "
+                      "no forbidden or unknown language-package licences")
 
 
 def _published_ip(port):
@@ -1091,7 +1127,7 @@ def main(argv=None) -> int:
             Path(args.report).write_text(json.dumps({
                 "gate": "security_gate", "stage": args.stage, "ci": args.ci, "result": "PASS" if ok else "FAIL",
                 "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                "tools": g.versions, "unfixed": g.unfixed, "checks": g.results}, indent=2), encoding="utf-8")
+                "tools": g.versions, "unfixed": g.unfixed, "os_licenses": g.os_licenses, "checks": g.results}, indent=2), encoding="utf-8")
         return 0 if ok else 1
     finally:
         shutil.rmtree(g.tmp, ignore_errors=True)

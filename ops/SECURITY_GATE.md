@@ -14,7 +14,7 @@ never printed (gitleaks `Secret`/`Match` fields are never read; exact-secret hit
 | `export` | gitleaks (`detect --no-git`, JSON), data_leak, exact_secrets (local only) on each `--target` dir |
 | `packages` | safe_unpack each archive (`.zip` `.tar.gz` `.tgz`; no traversal, absolute paths, links or special files), then gitleaks + data_leak + exact_secrets on the contents; a directory target is scanned and its archives unpacked |
 | `farm` | the release's data farm: denied_names (`DENY_NAMES` plus `ops/release_lib/data.py` `DENY_PATTERNS`, on files and directories) and exact_secrets (local only). No data_leak: data files are expected there |
-| `images` | trivy per `--image REF@sha256:...` (`vuln,misconfig,secret,license`, HIGH+CRITICAL, `--ignore-unfixed`: D-181) and compose_policy on `--compose-json` (`docker compose config --format json`) |
+| `images` | trivy per `--image REF@sha256:...` (`vuln,misconfig,secret`, HIGH+CRITICAL, `--ignore-unfixed`: D-181; licences in their own run, language packages block and OS packages are reported: D-182) and compose_policy on `--compose-json` (`docker compose config --format json`) |
 | `all` | export + deps (`pip-audit -r <lock> --require-hashes --strict`, `npm audit --omit=dev --audit-level=high` in `<terrier-dir>/frontend`, osv-scanner) + static (bandit HIGH, semgrep `p/python p/django p/secrets` + `ops/security/semgrep`) + terrier (`manage.py check --deploy --fail-level WARNING` and a hosted-mode no-local-admin assert, both with `CU_DEPLOYMENT=hosted` and dummy non-secret env) + images |
 
 Tools are found on PATH, then in `ops/security/bin/` (gitignored). Versions used are printed and written to the
@@ -49,12 +49,23 @@ is refused in a hosted deployment ...`, exit 3) or a clean start that exits 0 pr
 a message that merely contains "admin" fails.
 
 **trivy and unfixed findings (D-181, 2026-10-12).** The blocking run is `trivy image --severity HIGH,CRITICAL --ignore-unfixed`, so the gate
-fails only on HIGH/CRITICAL vulnerabilities that have a fixed version (and on misconfig, secret and license findings, which have no
+fails only on HIGH/CRITICAL vulnerabilities that have a fixed version (and on misconfig and secret findings, which have no
 "unfixed" notion). A second, report-only run (`--scanners vuln`, no `--ignore-unfixed`) counts the HIGH/CRITICAL vulnerabilities
 with no `FixedVersion`; the count is printed as `INFO images/trivy: <image> unfixed, not blocking (D-181): CRITICAL n, HIGH n` and
 written to the `--report` JSON as `unfixed` (`{<REF@sha256:...>: {"CRITICAL": n, "HIGH": n}}`). That run never fails the gate: if it
 cannot complete, the entry is `{"error": ...}` and the blocking result stands. Base images are Debian 13 (trixie), pinned in
 `ops/images.lock`; a vulnerability left unfixed upstream is reported on every release and is Paul's to accept or not.
+
+**trivy licences (D-182, 2026-10-12).** Licences have their own run per image (`--scanners license --severity CRITICAL,HIGH,UNKNOWN`), and
+the gate splits the findings by class. A licence finding on an **OS package** (Debian GPL, LGPL and the like) is reported, never blocking:
+trivy's licence scan puts them in the result with Target `OS Packages` (a result with Class `os-pkgs`, or a Type that is a distro such as
+`debian`, counts too). They are printed as `INFO images/trivy: <image> OS-package licences, not blocking (D-182): CRITICAL n, HIGH n, UNKNOWN n`
+and written to the `--report` JSON as `os_licenses` (`{<REF@sha256:...>: {"CRITICAL": n, "HIGH": n, "UNKNOWN": n}}`). A licence finding on
+anything else, i.e. a **language package** we add (pip, npm) that is forbidden (CRITICAL), restricted (HIGH) or unknown (UNKNOWN), blocks
+as a finding named `license <licence> <package> <severity>`. A result that is not recognisably an OS-package result also blocks (fail
+closed). The licence run is fail closed too: a trivy error or an unreadable report fails the gate. The images are private and never
+redistributed; if one is distributed outside Paul's accounts, or a language-package licence slips through, D-182 is reopened.
+Terrier's own release workflow (the Geo repo, job `scan`) applies the same policy with a stand-alone copy of this stage, `tools/image_gate.py`; change the rules in both.
 
 **compose_policy**: every service except `cloudflared` needs `read_only: true`, `cap_drop: [ALL]`,
 `no-new-privileges:true` and a non-root `user`; no service may publish a port except on a loopback address, run

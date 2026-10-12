@@ -40,6 +40,11 @@ if name == "trivy":
     doc = json.loads(os.environ.get("FAKE_TRIVY", '{"Results": []}'))
     if os.environ.get("FAKE_TRIVY_LOG"):
         open(os.environ["FAKE_TRIVY_LOG"], "a").write(json.dumps(a) + "\n")
+    if arg("--scanners") == "license":                                            # the licence-only run (D-182)
+        if os.environ.get("FAKE_TRIVY_LICENSE_RC"):
+            sys.exit(int(os.environ["FAKE_TRIVY_LICENSE_RC"]))
+        open(arg("--output"), "w").write(os.environ.get("FAKE_TRIVY_LICENSES", '{"Results": []}'))
+        sys.exit(0)
     if os.environ.get("FAKE_TRIVY_UNFIXED_RC") and "--ignore-unfixed" not in a:   # the report-only run
         sys.exit(int(os.environ["FAKE_TRIVY_UNFIXED_RC"]))
     if "--ignore-unfixed" in a:                                                   # what trivy does: hide vulns with no fix
@@ -620,10 +625,11 @@ class GateTest(unittest.TestCase):
         self.assertEqual(data["unfixed"], {DIGEST: {"CRITICAL": 1, "HIGH": 2}})
         runs = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
         blocking = [a for a in runs if "--exit-code" in a]
-        reporting = [a for a in runs if "--exit-code" not in a]
+        reporting = [a for a in runs if "--exit-code" not in a and a[a.index("--scanners") + 1] == "vuln"]
         self.assertEqual(len(blocking), 1)
         self.assertIn("--ignore-unfixed", blocking[0])
         self.assertEqual(blocking[0][blocking[0].index("--severity") + 1], "HIGH,CRITICAL")
+        self.assertEqual(blocking[0][blocking[0].index("--scanners") + 1], "vuln,misconfig,secret")   # licences have their own run
         self.assertEqual(len(reporting), 1)
         self.assertNotIn("--ignore-unfixed", reporting[0])                            # the report run sees the unfixed ones
         doc["Results"][0]["Vulnerabilities"].pop()                                    # now nothing has a fix
@@ -632,6 +638,89 @@ class GateTest(unittest.TestCase):
         self.assertIn("PASS images/trivy: 1 image(s), no fixable HIGH/CRITICAL findings", out)
         self.assertIn("CRITICAL 1, HIGH 2", out)
         self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["unfixed"][DIGEST], {"CRITICAL": 1, "HIGH": 2})
+
+    # ---- D-182: OS-package licences are reported, language-package licences still block
+
+    def lic(self, name, pkg, sev="HIGH"):
+        return {"Severity": sev, "Category": "restricted", "PkgName": pkg, "Name": name}
+
+    def licences_doc(self, os_lics=(), lang_lics=(), lang_target="Python", lang_class="license"):
+        results = []
+        if os_lics:
+            results.append({"Target": "OS Packages", "Class": "license", "Licenses": list(os_lics)})
+        if lang_lics:
+            results.append({"Target": lang_target, "Class": lang_class, "Licenses": list(lang_lics)})
+        return {"Results": results}
+
+    def test_os_package_licences_are_reported_not_blocking(self):
+        good = {"services": {"app": compliant_service()}}
+        report = self.tmp / "images.json"
+        doc = self.licences_doc(os_lics=[self.lic("GPL-3.0-only", "bash"), self.lic("LGPL-2.1-or-later", "libc6"),
+                                         self.lic("GPL-2.0-only", "tar", "CRITICAL"), self.lic("Foo", "odd", "UNKNOWN")])
+        rc, out = self.images(good, "--report", report, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("PASS images/trivy:", out)
+        self.assertIn("INFO images/trivy: ghcr.io/example/app OS-package licences, not blocking (D-182): "
+                      "CRITICAL 1, HIGH 2, UNKNOWN 1", out)
+        self.assertNotIn("GPL-3.0-only", out)                                         # not a finding
+        self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["os_licenses"],
+                         {DIGEST: {"CRITICAL": 1, "HIGH": 2, "UNKNOWN": 1}})
+
+    def test_os_package_result_shapes(self):
+        for label, res in {"licence scan target": {"Target": "OS Packages", "Class": "license"},
+                           "vuln-style class": {"Target": "debian 13.1", "Class": "os-pkgs", "Type": "debian"},
+                           "type only": {"Target": "x", "Class": "license", "Type": "Debian"}}.items():
+            with self.subTest(label):
+                self.assertTrue(gate.is_os_package_result(res))
+        for label, res in {"python": {"Target": "Python", "Class": "license"},
+                           "lang-pkgs": {"Target": "app/requirements.txt", "Class": "lang-pkgs", "Type": "python-pkg"},
+                           "node": {"Target": "Node.js", "Class": "license", "Type": "node-pkg"},
+                           "loose files": {"Target": "Loose File License(s)", "Class": "license-file"}, "empty": {}}.items():
+            with self.subTest(label):
+                self.assertFalse(gate.is_os_package_result(res))
+
+    def test_a_forbidden_or_unknown_language_package_licence_blocks_even_beside_os_licences(self):
+        good = {"services": {"app": compliant_service()}}
+        os_lics = [self.lic("GPL-3.0-only", "bash")]
+        for label, lang in {"forbidden pip": self.lic("AGPL-3.0-only", "somelib", "CRITICAL"),
+                            "restricted pip": self.lic("GPL-3.0-only", "otherlib"),
+                            "unknown pip": self.lic("Foo License", "thirdlib", "UNKNOWN")}.items():
+            with self.subTest(label):
+                doc = self.licences_doc(os_lics=os_lics, lang_lics=[lang])
+                rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+                self.assertEqual(rc, 1, out)
+                self.assertIn(f"license {lang['Name']} {lang['PkgName']} {lang['Severity']}", out)
+                self.assertIn("ghcr.io/example/app: Python:", out)
+                self.assertNotIn("bash", out.split("FAIL images/trivy")[1])           # the OS licence is not among the findings
+        doc = self.licences_doc(lang_lics=[self.lic("MIT-ish", "npmthing", "UNKNOWN")], lang_target="Node.js")
+        rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+        self.assertEqual(rc, 1, out)                                                  # npm too
+        self.assertIn("license MIT-ish npmthing UNKNOWN", out)
+
+    def test_an_unrecognised_licence_result_blocks(self):                             # fail closed: not provably an OS package
+        good = {"services": {"app": compliant_service()}}
+        for res in ({"Target": "mystery", "Class": "license-file"}, {"Target": "mystery", "Class": "something-new"}):
+            with self.subTest(res):
+                doc = {"Results": [{**res, "Licenses": [self.lic("GPL-3.0-only", "p")]}]}
+                rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+                self.assertEqual(rc, 1, out)
+
+    def test_other_findings_still_block_beside_os_licences(self):
+        good = {"services": {"app": compliant_service()}}
+        env = {"FAKE_TRIVY_LICENSES": json.dumps(self.licences_doc(os_lics=[self.lic("GPL-3.0-only", "bash")]))}
+        mis = {"Results": [{"Target": "Dockerfile", "Misconfigurations": [{"ID": "DS002", "Severity": "HIGH"}]}]}
+        sec = {"Results": [{"Target": "app/.env", "Secrets": [{"RuleID": "aws-key", "Severity": "CRITICAL", "Match": "x"}]}]}
+        for label, doc, expect in (("misconfig", mis, "misconfig DS002 HIGH"), ("secret", sec, "secret rule aws-key CRITICAL")):
+            with self.subTest(label):
+                rc, out = self.images(good, env={**env, "FAKE_TRIVY": json.dumps(doc)})
+                self.assertEqual(rc, 1, out)
+                self.assertIn(expect, out)
+
+    def test_a_failed_licence_scan_fails_the_gate(self):
+        good = {"services": {"app": compliant_service()}}
+        rc, out = self.images(good, env={"FAKE_TRIVY_LICENSE_RC": "2"})
+        self.assertEqual(rc, 1, out)
+        self.assertIn("FAIL images/trivy: trivy licence scan exited 2", out)
 
     def test_a_failed_unfixed_report_never_fails_the_gate(self):
         good = {"services": {"app": compliant_service()}}
