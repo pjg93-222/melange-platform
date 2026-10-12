@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-current-staffer-link-v1",
+  "title": "Current staffer link",
+  "description": "One row for every entry in the current congressional staff directory, carrying the outcome of the link rule (normalized name equality AND the staffer's member bioguide equal to the spine person's office bioguide in the latest House reporting period, exactly one candidate) and the spine person's office history where the link held. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "quorum_staff_id", "display_name",
+    "display_name_key", "title_raw", "member_display", "member_bioguide",
+    "member_resolution_source", "spine_person_id", "link_status",
+    "candidate_count", "hill_history", "review_status", "canonical_eligible",
+    "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-current-staffer-link-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "quorum_staff_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "display_name_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last", "first", "middle_initial"],
+      "properties": {
+        "last": {"type": ["string", "null"], "minLength": 1},
+        "first": {"type": ["string", "null"], "minLength": 1},
+        "middle_initial": {"type": ["string", "null"], "minLength": 1, "maxLength": 1}
+      }
+    },
+    "title_raw": {"type": ["string", "null"], "minLength": 1},
+    "member_display": {"type": "string", "minLength": 1},
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_resolution_source": {
+      "enum": ["MEMBER_DISPLAY_NAME_INDEX", "ROSTER_STRICT_FALLBACK", "UNRESOLVED"]
+    },
+    "spine_person_id": {
+      "type": ["string", "null"],
+      "pattern": "^hill:person:[0-9a-f]{64}$"
+    },
+    "link_status": {
+      "enum": ["LINKED", "NAME_COLLISION", "NOT_ON_PAYROLL", "MEMBER_UNRESOLVED"]
+    },
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "hill_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "chamber", "office_key", "member_bioguide", "container_kind",
+          "first_period", "last_period", "periods_observed", "status",
+          "title_last"
+        ],
+        "properties": {
+          "chamber": {"enum": ["house", "senate"]},
+          "office_key": {"type": "string", "minLength": 1},
+          "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+          "container_kind": {
+            "enum": ["member_office", "committee", "leadership", "admin", "unresolved"]
+          },
+          "first_period": {"type": "string", "minLength": 1},
+          "last_period": {"type": "string", "minLength": 1},
+          "periods_observed": {"type": "integer", "minimum": 1},
+          "status": {"enum": ["current", "departed"]},
+          "title_last": {"type": ["string", "null"], "minLength": 1}
+        }
+      }
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

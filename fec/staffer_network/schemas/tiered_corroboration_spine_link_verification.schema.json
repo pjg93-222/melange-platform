@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-tiered-corroboration-spine-link-verification-v1",
+  "title": "Tiered corroboration spine-link verification receipt",
+  "description": "Independent verification of a v3 spine-link generation: the link is re-derived from the bound inputs by a second implementation, the carried-forward v2 fields are re-compared byte for byte, INV-5 is re-measured, and primary/twin are compared.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "stage_id",
+    "status",
+    "assertions",
+    "counts",
+    "detail",
+    "failures",
+    "hashes",
+    "primary",
+    "twin",
+    "inv5_reproduction"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-tiered-corroboration-spine-link-verification-v1"
+    },
+    "stage_id": {
+      "const": "tiered-corroboration-sidecar-part-a-spine-link"
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "assertions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "boolean"
+      }
+    },
+    "counts": {
+      "type": "object"
+    },
+    "detail": {
+      "type": "object"
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "hashes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "primary": {
+      "type": "string"
+    },
+    "twin": {
+      "type": "string"
+    },
+    "inv5_reproduction": {
+      "type": "object"
+    }
+  }
+}

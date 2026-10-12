@@ -1,0 +1,37 @@
+:root{color-scheme:light;--bg:#f7ede4;--bar:#eee3db;--panel:#fcf7f4;--panel2:#eee3db;--panel-hover:#e2d5e8;--ink:#342649;--text:#342649;--text-soft:#51405f;--muted:#6b5e73;--faint:#6b5e73;--border:#bcaaa0;--rule:#d8cbbc;--line:#d8cbbc;--line2:#bcaaa0;--blue:#57447b;--blue-bright:#57447b;--blue-hover:#403153;--green-text:#216444;--red-text:#a12e39;--amber-text:#785310;--purple:#765399;--teal:#246776;--ui-display:freight-text-pro,Georgia,serif}
+*{scrollbar-width:thin;scrollbar-color:#bcaaa0 #f7ede4}body{font-family:articulat-cf,Aptos,'Segoe UI',sans-serif}::selection{background:#e2d5e8;color:#342649}input,textarea{caret-color:#57447b}a{color:#57447b}button,input,select,textarea{font-family:inherit}h1,h2,h3{font-family:freight-text-pro,Georgia,serif;letter-spacing:0!important;text-transform:none!important}h1{font-weight:500!important}.product-header>.tabstrip,.product-title>.eyebrow,.brand>.kick,.brand-glyph,.deskhome{display:none!important}.product-header{background:#fcf7f4}.product-title h1{font-size:28px}.product-title p{color:#6b5e73}.product-header .family-nav{display:none!important}.product-header .sitenav{display:flex}main{max-width:none}table{font-variant-numeric:tabular-nums}.seg button.on,.toggle button.active{background:#57447b!important;color:#fcf7f4!important}.restored-desk #integritybar{background:#eee3db!important}.restored-desk header{align-items:flex-start}.restored-desk .brand h1{font-size:25px}.restored-desk .topnav{gap:10px}.restored-desk .ghostbtn{color:#51405f}.restored-desk .netlink{color:#57447b}.restored-desk .fig .v{color:#342649}.restored-desk .fig[accent] .v{color:#765399}.restored-desk [style*="background:#282113"]{background:#eee3db!important}.restored-desk .eyebrow{color:#51405f}.restored-desk .view{padding:20px}.restored-desk .mel-over-open{overflow:auto}
+.dossier-page #view-member:not([hidden]){position:static!important;inset:auto!important;width:100%!important;max-width:none!important;height:auto!important;max-height:none!important;box-shadow:none!important;border:0!important;overflow:visible!important;transform:none!important;animation:none!important}.dossier-page #melscrim,.dossier-page .mel-over-close{display:none!important}.dossier-page{overflow:auto!important}.dossier-page #memberbody{max-width:1500px;margin:auto}.dossier-tabs{display:flex;overflow-x:auto;gap:0;border-bottom:1px solid #bcaaa0;margin:20px 0 24px;scrollbar-width:thin}.dossier-tabs button{flex:0 0 auto;white-space:nowrap;border:0;border-bottom:3px solid transparent;background:transparent;padding:13px 16px;color:#6b5e73;font-size:14px;cursor:pointer}.dossier-tabs button[aria-selected=true]{color:#342649;border-bottom-color:#57447b;font-weight:600}.dossier-tabs button:hover{background:#eee3db}[data-dossier-panel][hidden]{display:none!important}.dossier-page details.sec[data-dossier-panel]{border:0;background:transparent}.dossier-page details.sec[data-dossier-panel]>.body{padding:0}.dossier-page details.sec[data-dossier-panel]>summary{display:none}.restore-loading{margin:24px;font-size:16px}.dossier-page .mhead h2{font-size:32px}.dossier-page .gen{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}:focus-visible:not(.mlk-select>select){outline:2px solid var(--ml-accent)!important;outline-offset:3px}
+@media(max-width:760px){.product-titlerow{flex-wrap:wrap}.product-title h1{font-size:24px}.restored-desk .view{padding:14px}.restored-desk .seg{max-width:100%;overflow-x:auto}.restored-desk .seg button{white-space:nowrap}.dossier-page .mhead{flex-wrap:wrap;gap:16px}.dossier-page .gen{grid-template-columns:1fr}.dossier-page .figs{grid-template-columns:repeat(2,minmax(0,1fr))}.dossier-tabs{margin:16px 0;max-width:100%}.dossier-tabs button{padding:12px}.restored-desk .controls{gap:8px}.restored-desk .controls select{max-width:100%}}
+@media print{.dossier-tabs{display:none}[data-dossier-panel][hidden]{display:block!important}.dossier-page details.sec[data-dossier-panel]>summary{display:block}}
+
+.dossier-page #view-member:not([hidden]){background:var(--bg)!important}.restored-desk .mrow b{color:var(--ink)}.restored-desk #memberbody [style*='color:#F3F3E6'],.restored-desk #memberbody [style*='color:#D2CDBC']{color:var(--ink)!important}
+
+
+.restored-desk [style*="color:#86efac" i]{color:#216444!important}
+.restored-desk [style*="color:#34d399" i]{color:#216444!important}
+.restored-desk [style*="color:#7ee787" i]{color:#216444!important}
+.restored-desk [style*="color:#fbbf24" i]{color:#785310!important}
+.restored-desk [style*="color:#eab308" i]{color:#785310!important}
+.restored-desk [style*="color:#f59e0b" i]{color:#785310!important}
+.restored-desk [style*="color:#f87171" i]{color:#a12e39!important}
+.restored-desk [style*="color:#ef4444" i]{color:#a12e39!important}
+.restored-desk [style*="color:#60a5fa" i]{color:#355d92!important}
+.restored-desk [style*="color:#9ca3af" i]{color:#6b5e73!important}
+.restored-desk [style*="color:#EECD5C" i]{color:#57447b!important}
+.restored-desk button,.restored-desk .backbtn{color:var(--ink)}
+@media(max-width:760px){
+ .product-header{height:auto!important;min-height:80px;padding:16px 20px!important}
+ .product-titlerow{height:auto!important;min-height:0;align-items:flex-start;gap:12px}
+ .product-title{min-width:0}.product-title h1{line-height:1.3;margin:0}
+ .panelhead{flex-direction:column;align-items:flex-start;gap:12px}.panelhead>div{min-width:0;max-width:100%}
+ .filters{display:flex!important;flex-direction:column;align-items:stretch;gap:12px}.filters>.field{width:100%;min-width:0}
+ .toggle{display:flex;flex-wrap:wrap;max-width:100%}.toggle button{white-space:normal;min-height:36px}
+}
+/* Build 01: the shell's page head replaces each engine's title row and the desk's freshness line (now the head's data chip).
+   Kept in the DOM, hidden only here. Desk .topnav (#viewseg, import/export) stays for prompt 02; lobby .sitenav stays. */
+.restored-desk header>.brand,.restored-desk #integritybar{display:none!important}
+.restored-desk header{justify-content:flex-start}
+.product-header .product-title{display:none!important}
+.product-header{position:static!important;height:auto!important;min-height:0!important;padding:8px var(--ml-gutter-end) 0 var(--ml-gutter)!important;background:transparent!important;border-bottom:0!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+.product-header .product-titlerow{justify-content:flex-end;width:100%;min-height:0}
+.product-header:not(:has(.sitenav)){display:none!important}

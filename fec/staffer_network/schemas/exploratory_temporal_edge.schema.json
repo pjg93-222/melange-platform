@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:exploratory-temporal-edge:v1",
+  "title": "Exploratory temporal tier edge",
+  "description": "Review-only temporal edge over strict one-to-one review candidates. Never a primary weight, never an identity finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "edge_id", "exploratory", "primary", "layer", "direction",
+    "status", "subject_id", "subject_kind", "subject_tier", "object_id",
+    "object_kind", "object_tier", "tier_strength", "w_lower", "w_upper",
+    "w_tiered_lower", "guaranteed_days", "possible_days", "container_ids",
+    "container_count", "contributing_person_count", "strength_sum",
+    "contributions", "gap_min_days", "gap_max_days", "gap_decay_lower",
+    "gap_decay_upper", "strength_sum_gap_decayed_lower",
+    "strength_sum_gap_decayed_upper", "surviving_tier_thresholds",
+    "endpoint_record_tiers", "endpoint_max_tiers",
+    "support_digest", "review_status", "canonical_eligible",
+    "canonical_employment_promoted", "rule_version"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-exploratory-temporal-edge-v1"},
+    "edge_id": {"type": "string", "pattern": "^exploratory:edge:[0-9a-f]{64}$"},
+    "exploratory": {"const": true},
+    "primary": {"const": false},
+    "layer": {"enum": ["co_tenure", "revolving", "membership"]},
+    "direction": {"enum": ["undirected", "member_to_organization"]},
+    "status": {"enum": ["GUARANTEED", "POSSIBLE_ONLY", "ZERO_OVERLAP", "WRONG_ORDER", "INTERVAL_BLOCKED"]},
+    "subject_id": {"type": "string", "pattern": "^(person|container|organization):", "minLength": 8},
+    "subject_kind": {"enum": ["person", "container", "organization"]},
+    "subject_tier": {"enum": ["L2", "L3", "L4", "L5", null]},
+    "object_id": {"type": "string", "pattern": "^(person|container|organization):", "minLength": 8},
+    "object_kind": {"enum": ["person", "container", "organization"]},
+    "object_tier": {"enum": ["L2", "L3", "L4", "L5", null]},
+    "tier_strength": {"type": "number", "minimum": 0, "maximum": 1},
+    "w_lower": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "w_upper": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "w_tiered_lower": {"type": "number", "minimum": 0},
+    "guaranteed_days": {"type": ["integer", "null"], "minimum": 0},
+    "possible_days": {"type": ["integer", "null"], "minimum": 0},
+    "container_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "container_count": {"type": "integer", "minimum": 0},
+    "contributing_person_count": {"type": ["integer", "null"], "minimum": 0},
+    "strength_sum": {"type": ["number", "null"], "minimum": 0},
+    "contributions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lda_source_person_id", "max_tier", "hill_tier", "registrant_tier", "strength", "gap_min_days", "gap_max_days"],
+        "properties": {
+          "lda_source_person_id": {"type": "string", "minLength": 1},
+          "max_tier": {"enum": ["L2", "L3", "L4", "L5"]},
+          "hill_tier": {"enum": ["L2", "L3", "L4", "L5"]},
+          "registrant_tier": {"enum": ["R0", "R1", "R2"]},
+          "strength": {"type": "number", "minimum": 0, "maximum": 1},
+          "gap_min_days": {"type": ["integer", "null"], "minimum": 0},
+          "gap_max_days": {"type": ["integer", "null"], "minimum": 0}
+        }
+      }
+    },
+    "gap_min_days": {"type": ["integer", "null"], "minimum": 0},
+    "gap_max_days": {"type": ["integer", "null"], "minimum": 0},
+    "gap_decay_lower": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "gap_decay_upper": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "strength_sum_gap_decayed_lower": {"type": ["number", "null"], "minimum": 0},
+    "strength_sum_gap_decayed_upper": {"type": ["number", "null"], "minimum": 0},
+    "surviving_tier_thresholds": {"type": "array", "uniqueItems": true, "items": {"enum": ["L2", "L3", "L4"]}},
+    "endpoint_record_tiers": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["subject", "object"],
+      "properties": {
+        "subject": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["container_id", "tier"],
+            "properties": {
+              "container_id": {"type": "string", "minLength": 1},
+              "tier": {"enum": ["L2", "L3", "L4", "L5"]}
+            }
+          }
+        },
+        "object": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["container_id", "tier"],
+            "properties": {
+              "container_id": {"type": "string", "minLength": 1},
+              "tier": {"enum": ["L2", "L3", "L4", "L5"]}
+            }
+          }
+        }
+      }
+    },
+    "endpoint_max_tiers": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["subject", "object"],
+      "properties": {
+        "subject": {"enum": ["L2", "L3", "L4", "L5", null]},
+        "object": {"enum": ["L2", "L3", "L4", "L5", null]}
+      }
+    },
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "rule_version": {"const": "exploratory-temporal-tier-v1"}
+  }
+}

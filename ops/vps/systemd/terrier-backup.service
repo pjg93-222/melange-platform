@@ -1,0 +1,10 @@
+[Unit]
+Description=Nightly age-encrypted backup of each Terrier district's accounts database
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/melange/melange-ops.sh backup
+TimeoutStartSec=1h
+NoNewPrivileges=yes

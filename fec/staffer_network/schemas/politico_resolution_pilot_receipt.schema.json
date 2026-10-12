@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:politico-resolution-pilot-receipt:v1",
+  "title": "Politico-to-legacy staff identity-resolution pilot receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version",
+    "normalization_receipt_sha256", "legacy_directory_sha256", "politico_persons",
+    "legacy_staff_rows", "exact_name_overlap_profiles", "exact_name_overlap_legacy_rows",
+    "candidate_count", "dispositions", "legacy_outcomes", "strict_candidate_count", "review_sample_count",
+    "review_sample_requested", "adjudicated_sample_count", "estimated_precision",
+    "canonical_entity_merges", "auto_merge_enabled", "adjudication_required",
+    "candidate_file_sha256", "review_sample_sha256", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "politico-directory-resolution-pilot-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["REPORT", "FAIL"]},
+    "method_version": {"type": "string", "minLength": 1},
+    "normalization_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "legacy_directory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "politico_persons": {"type": "integer", "minimum": 1},
+    "legacy_staff_rows": {"type": "integer", "minimum": 1},
+    "exact_name_overlap_profiles": {"type": "integer", "minimum": 0},
+    "exact_name_overlap_legacy_rows": {"type": "integer", "minimum": 0},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "dispositions": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "STRICT_CANDIDATE_NAME_TITLE_OFFICE",
+        "REVIEW_NAME_TITLE_NO_OFFICE_EVIDENCE",
+        "REVIEW_NAME_TITLE_OFFICE_CONFLICT",
+        "REVIEW_NAME_ONLY", "REVIEW_NAME_COLLISION"
+      ],
+      "properties": {
+        "STRICT_CANDIDATE_NAME_TITLE_OFFICE": {"type": "integer", "minimum": 0},
+        "REVIEW_NAME_TITLE_NO_OFFICE_EVIDENCE": {"type": "integer", "minimum": 0},
+        "REVIEW_NAME_TITLE_OFFICE_CONFLICT": {"type": "integer", "minimum": 0},
+        "REVIEW_NAME_ONLY": {"type": "integer", "minimum": 0},
+        "REVIEW_NAME_COLLISION": {"type": "integer", "minimum": 0}
+      }
+    },
+    "legacy_outcomes": {
+      "type": "object", "additionalProperties": false,
+      "required": ["PENDING_UNIQUE_NAME_CANDIDATE", "REVIEW_NAME_COLLISION", "NO_EXACT_NAME_OVERLAP"],
+      "properties": {
+        "PENDING_UNIQUE_NAME_CANDIDATE": {"type": "integer", "minimum": 0},
+        "REVIEW_NAME_COLLISION": {"type": "integer", "minimum": 0},
+        "NO_EXACT_NAME_OVERLAP": {"type": "integer", "minimum": 0}
+      }
+    },
+    "strict_candidate_count": {"type": "integer", "minimum": 0},
+    "review_sample_count": {"type": "integer", "minimum": 0},
+    "review_sample_requested": {"type": "integer", "minimum": 1},
+    "adjudicated_sample_count": {"type": "integer", "minimum": 0},
+    "estimated_precision": {"type": ["number", "null"], "minimum": 0},
+    "canonical_entity_merges": {"type": "integer", "minimum": 0},
+    "auto_merge_enabled": {"type": "boolean"},
+    "adjudication_required": {"type": "boolean"},
+    "candidate_file_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_sample_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

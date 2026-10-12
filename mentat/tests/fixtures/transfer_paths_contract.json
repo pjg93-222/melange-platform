@@ -1,0 +1,449 @@
+{
+ "name": "transfer_paths_contract",
+ "version": 1,
+ "rule": "F14 (Paul approved option (a), 2026-09-26). The payload's transfer_paths, the Overview and Data workbooks' Transfer Paths sheets and the tidy staging table transfer_paths carry ONE row per transfer edge and cycle: amount and dates, how many funded roots' breadth-first routes reach it, the shortest depth, up to five of those roots (largest funding first), and the F12 date-rule and carryover fields of its source. The root x committee x edge expansion is only the staging store's transfer_path_detail table, written while it streams, with indexes for lookups by root and by edge.",
+ "grain": [
+  "cycle",
+  "source",
+  "destination"
+ ],
+ "payload_fields": [
+  "cycle",
+  "source",
+  "destination",
+  "amount",
+  "record_count",
+  "first_date",
+  "last_date",
+  "status",
+  "roots_reaching",
+  "min_depth",
+  "top_roots",
+  "roots_via_carryover",
+  "date_rule",
+  "source_gate",
+  "source_gate_source",
+  "excluded_before_gate_records",
+  "excluded_before_gate_amount",
+  "source_carryover_route",
+  "carryover_status"
+ ],
+ "overview_headers": [
+  "Cycle",
+  "Source Committee",
+  "Destination Committee",
+  "Reported Net Transfer",
+  "Record Count",
+  "First Transfer",
+  "Last Transfer",
+  "Traversal Status",
+  "Funded Roots Reaching",
+  "Shortest Depth",
+  "Top Funded Roots",
+  "Roots via Carryover",
+  "Date Rule",
+  "Source Gate",
+  "Source Gate From",
+  "Records Before Gate",
+  "Excluded Before Gate Amount",
+  "Carryover Route",
+  "Carryover Status"
+ ],
+ "staging_columns": [
+  [
+   "cycle_label",
+   "TEXT"
+  ],
+  [
+   "cycle",
+   "INTEGER"
+  ],
+  [
+   "source_committee",
+   "TEXT"
+  ],
+  [
+   "destination_committee",
+   "TEXT"
+  ],
+  [
+   "reported_net_transfer",
+   "REAL"
+  ],
+  [
+   "record_count",
+   "INTEGER"
+  ],
+  [
+   "first_transfer_date",
+   "TEXT"
+  ],
+  [
+   "last_transfer_date",
+   "TEXT"
+  ],
+  [
+   "traversal_status",
+   "TEXT"
+  ],
+  [
+   "funded_roots_reaching",
+   "INTEGER"
+  ],
+  [
+   "shortest_depth",
+   "INTEGER"
+  ],
+  [
+   "top_funded_roots",
+   "TEXT"
+  ],
+  [
+   "roots_via_carryover",
+   "INTEGER"
+  ],
+  [
+   "date_rule",
+   "TEXT"
+  ],
+  [
+   "source_gate",
+   "TEXT"
+  ],
+  [
+   "source_gate_source",
+   "TEXT"
+  ],
+  [
+   "excluded_before_gate_records",
+   "INTEGER"
+  ],
+  [
+   "excluded_before_gate_amount",
+   "REAL"
+  ],
+  [
+   "source_carryover_route",
+   "TEXT"
+  ],
+  [
+   "carryover_status",
+   "TEXT"
+  ]
+ ],
+ "data_headers": [
+  "Election Cycle",
+  "Cycle End Year",
+  "Source Committee",
+  "Destination Committee",
+  "Reported Net Transfer",
+  "Record Count",
+  "First Transfer",
+  "Last Transfer",
+  "Traversal Status",
+  "Funded Roots Reaching",
+  "Shortest Depth",
+  "Top Funded Roots",
+  "Roots via Carryover",
+  "Date Rule",
+  "Source Gate",
+  "Source Gate From",
+  "Records Before Gate",
+  "Excluded Before Gate Amount",
+  "Carryover Route",
+  "Carryover Status"
+ ],
+ "data_key": [
+  "cycle_label",
+  "source_committee",
+  "destination_committee"
+ ],
+ "console_required_headers": [
+  "Cycle",
+  "Source Committee",
+  "Destination Committee",
+  "Reported Net Transfer",
+  "Traversal Status"
+ ],
+ "detail": {
+  "table": "transfer_path_detail",
+  "columns": [
+   [
+    "cycle_label",
+    "TEXT"
+   ],
+   [
+    "cycle",
+    "INTEGER"
+   ],
+   [
+    "funded_committee",
+    "TEXT"
+   ],
+   [
+    "source_committee",
+    "TEXT"
+   ],
+   [
+    "destination_committee",
+    "TEXT"
+   ],
+   [
+    "reported_net_transfer",
+    "REAL"
+   ],
+   [
+    "depth",
+    "INTEGER"
+   ],
+   [
+    "representative_path",
+    "TEXT"
+   ],
+   [
+    "traversal_status",
+    "TEXT"
+   ],
+   [
+    "via_carryover",
+    "INTEGER"
+   ]
+  ],
+  "indexes": [
+   [
+    "transfer_path_detail_root",
+    [
+     "cycle",
+     "funded_committee"
+    ]
+   ],
+   [
+    "transfer_path_detail_edge",
+    [
+     "cycle",
+     "source_committee",
+     "destination_committee"
+    ]
+   ]
+  ]
+ },
+ "case": {
+  "about": "Two funded roots (C90000021 funded 100, C90000022 funded 50) share committee A (C90000023); A pays B (C90000024), which pays A back (a loop), and A pays a candidate committee K (C90000025). C90000031 was opened by C90000021's 2022 money (carryover) and pays C90000032.",
+  "payload": {
+   "metadata": {
+    "industry": "Fixture",
+    "transfer_coverage": [
+     {
+      "cycle": 2024,
+      "status": "indexed",
+      "counts": {},
+      "date_rule": {
+       "rule": "earliest_arrival",
+       "carryover": "onward",
+       "carryover_status": "known"
+      }
+     }
+    ]
+   },
+   "cycles": [
+    {
+     "cycle": 2024
+    }
+   ],
+   "raw_rows": [
+    {
+     "cycle": 2024,
+     "company": "Alpha",
+     "committee_id": "C90000021",
+     "amount": 100,
+     "include_in_analysis": "Yes"
+    },
+    {
+     "cycle": 2024,
+     "company": "Beta",
+     "committee_id": "C90000022",
+     "amount": 50,
+     "include_in_analysis": "Yes"
+    }
+   ],
+   "committee_map": [],
+   "downstream_activity": [],
+   "candidate_master": [],
+   "candidate_committee_links": [
+    {
+     "cycle": 2024,
+     "committee_id": "C90000025",
+     "candidate_id": "H0XX00001",
+     "designation": "P"
+    }
+   ],
+   "transfer_edges": [
+    {
+     "cycle": 2024,
+     "source": "C90000021",
+     "destination": "C90000023",
+     "amount": 30,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-01-01",
+     "source_gate_source": "root",
+     "excluded_before_gate_records": 0,
+     "excluded_before_gate_amount": 0,
+     "source_carryover_route": "",
+     "records": "[]"
+    },
+    {
+     "cycle": 2024,
+     "source": "C90000022",
+     "destination": "C90000023",
+     "amount": 20,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-01-01",
+     "source_gate_source": "root",
+     "excluded_before_gate_records": 0,
+     "excluded_before_gate_amount": 0,
+     "source_carryover_route": "",
+     "records": "[]"
+    },
+    {
+     "cycle": 2024,
+     "source": "C90000023",
+     "destination": "C90000024",
+     "amount": 12,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-03-01",
+     "source_gate_source": "in-cycle",
+     "excluded_before_gate_records": 1,
+     "excluded_before_gate_amount": 4.5,
+     "source_carryover_route": "",
+     "records": "[]"
+    },
+    {
+     "cycle": 2024,
+     "source": "C90000023",
+     "destination": "C90000025",
+     "amount": 8,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-03-01",
+     "source_gate_source": "in-cycle",
+     "excluded_before_gate_records": 0,
+     "excluded_before_gate_amount": 0,
+     "source_carryover_route": "",
+     "records": "[]"
+    },
+    {
+     "cycle": 2024,
+     "source": "C90000024",
+     "destination": "C90000023",
+     "amount": 3,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-04-01",
+     "source_gate_source": "in-cycle",
+     "excluded_before_gate_records": 0,
+     "excluded_before_gate_amount": 0,
+     "source_carryover_route": "",
+     "records": "[]"
+    },
+    {
+     "cycle": 2024,
+     "source": "C90000031",
+     "destination": "C90000032",
+     "amount": 9,
+     "record_count": 1,
+     "first_date": "2023-05-01",
+     "last_date": "2023-05-01",
+     "source_gate": "2023-01-01",
+     "source_gate_source": "carryover",
+     "excluded_before_gate_records": 0,
+     "excluded_before_gate_amount": 0,
+     "source_carryover_route": "C90000021 > C90000031 [gate opened by 2021-2022 transfers]",
+     "records": "[]"
+    }
+   ]
+  },
+  "expected_rows": [
+   {
+    "source": "C90000021",
+    "destination": "C90000023",
+    "status": "followed",
+    "roots_reaching": 1,
+    "min_depth": 1,
+    "top_roots": "C90000021",
+    "roots_via_carryover": 0
+   },
+   {
+    "source": "C90000022",
+    "destination": "C90000023",
+    "status": "followed",
+    "roots_reaching": 1,
+    "min_depth": 1,
+    "top_roots": "C90000022",
+    "roots_via_carryover": 0
+   },
+   {
+    "source": "C90000023",
+    "destination": "C90000024",
+    "status": "followed",
+    "roots_reaching": 2,
+    "min_depth": 2,
+    "top_roots": "C90000021; C90000022",
+    "roots_via_carryover": 0,
+    "excluded_before_gate_amount": 4.5
+   },
+   {
+    "source": "C90000023",
+    "destination": "C90000025",
+    "status": "candidate_committee",
+    "roots_reaching": 2,
+    "min_depth": 2,
+    "top_roots": "C90000021; C90000022",
+    "roots_via_carryover": 0
+   },
+   {
+    "source": "C90000024",
+    "destination": "C90000023",
+    "status": "cycle",
+    "roots_reaching": 2,
+    "min_depth": 3,
+    "top_roots": "C90000021; C90000022",
+    "roots_via_carryover": 0
+   },
+   {
+    "source": "C90000031",
+    "destination": "C90000032",
+    "status": "followed",
+    "roots_reaching": 1,
+    "min_depth": 2,
+    "top_roots": "C90000021",
+    "roots_via_carryover": 1,
+    "source_gate_source": "carryover",
+    "source_carryover_route": "C90000021 > C90000031 [gate opened by 2021-2022 transfers]"
+   }
+  ],
+  "expected_detail_rows": 9,
+  "expected_detail_paths": {
+   "C90000021": [
+    "C90000021 > C90000023",
+    "C90000021 > C90000023 > C90000024",
+    "C90000021 > C90000023 > C90000025",
+    "C90000021 > C90000023 > C90000024 > C90000023",
+    "C90000021 > C90000031 [gate opened by 2021-2022 transfers] > C90000032"
+   ],
+   "C90000022": [
+    "C90000022 > C90000023",
+    "C90000022 > C90000023 > C90000024",
+    "C90000022 > C90000023 > C90000025",
+    "C90000022 > C90000023 > C90000024 > C90000023"
+   ]
+  }
+ }
+}

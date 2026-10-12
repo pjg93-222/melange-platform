@@ -1,0 +1,158 @@
+/* Cross-reference, laid out to board B16 (console redesign, build 05, 2026-09-22).
+   boards\B16_cross_reference.webp is a 1600x900 frame at 1.25x; every size and
+   colour here is measured off it, and where 05_cross_reference.md's numbers
+   differ, the board wins (00_README). workspace-polish.css loads after this
+   file, so a rule here that must beat one of its #view-cross-reference rules
+   carries one more class. Nothing here styles a total, because none is printed
+   (D-040). The view has no width cap. */
+#view-cross-reference{--xref-ink:#3b3a51;--xref-ink-2:#414158;--xref-ink-3:#46465c;--xref-ink-4:#4a4a60;--xref-soft:#525064;--xref-strong:#1a1537;--xref-faint:#787885;--xref-head:#f8f8f8;--xref-head-rule:#ebebeb;--xref-row-rule:#f1f1f1;--xref-tab-rule:#e1dfde;--xref-control:#e6e4e3;--xref-pill:#e9e3fc;--xref-pill-ink:#2a1f58;--xref-radius:8px;--xref-control-radius:6px}
+#view-cross-reference .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#view-cross-reference .xref-muted{color:var(--muted)}
+
+/* Header: the subtitle under the shell's title, Refresh at the top right. */
+#view-cross-reference .xref-subtitle{margin:0 0 28.8px;padding-top:1px;font:400 15px/20px var(--font-sans);color:var(--xref-soft)}
+#view-cross-reference .xref-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;margin:0;flex-wrap:nowrap}
+#view-cross-reference .xref-actions .secondary{height:39px;min-height:39px;padding:0 18.5px;border:1px solid var(--xref-control);border-radius:var(--xref-control-radius);background:white;color:#1e1a31;font:500 13px/1 var(--font-sans)}
+#view-cross-reference .xref-actions .secondary:hover:not(:disabled){background:#f7f2fa;border-color:#cfc6d8}
+#view-cross-reference .xref-refresh-note{font:400 12px/16px var(--font-sans);color:var(--muted);white-space:nowrap}
+#view-cross-reference .xref-refresh-note.is-failed{color:#9b322c}
+@media(min-width:1100px){#view-cross-reference .xref-actions{position:absolute;top:25px;right:22px}}
+
+/* Run strip: one line, a lilac status pill, the facts, the companies disclosure. */
+#view-cross-reference .xref-run{display:flex;align-items:center;flex-wrap:wrap;column-gap:30px;min-height:48px;margin:0;padding:8px 18px 8px 13px;border-radius:var(--xref-radius)}
+/* workspace-polish.css:100 still gives .xref-run 12px text and a 10px margin; both are retired here. */
+#view-cross-reference #xref-results>.xref-run{margin:0;font-size:13px}
+#view-cross-reference .xref-run .badge{display:inline-flex;align-items:center;height:23px;padding:0 13px;border-radius:var(--xref-radius);background:var(--xref-pill);color:var(--xref-pill-ink);font:500 13.5px/1 var(--font-sans);white-space:nowrap}
+#view-cross-reference .xref-run .xref-scope{display:flex;flex-wrap:wrap;align-items:center;gap:0;margin:0;padding:0;font:400 13px/18px var(--font-sans);color:var(--xref-ink-3)}
+#view-cross-reference .xref-run .xref-scope>span+span::before{content:"\00b7";display:inline-block;margin:0 15.5px;color:#7d7d83;font-weight:700}
+#view-cross-reference .xref-disclose{display:inline-flex;align-items:center;gap:10px;width:auto;height:auto;min-height:0;margin:0;padding:6px 0;border:0;border-radius:4px;background:none;color:var(--xref-ink-3);font:400 13px/18px var(--font-sans);white-space:nowrap;cursor:pointer}
+#view-cross-reference .xref-disclose:hover{color:var(--acu-plum)}
+#view-cross-reference .xref-companies-toggle{margin-left:auto}
+#view-cross-reference .xref-companies{flex:1 0 100%;padding:2px 0 14px;border-top:1px solid var(--xref-row-rule)}
+#view-cross-reference .xref-companies p{margin:10px 0 0;font:400 13px/20px var(--font-sans);color:var(--xref-ink-2);overflow-wrap:anywhere}
+#view-cross-reference .xref-companies p.xref-muted{font-size:12px;color:var(--muted)}
+#view-cross-reference .xref-icon{flex:none;width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+#view-cross-reference [aria-expanded=true]>.xref-icon--next{transform:rotate(90deg)}
+#view-cross-reference [aria-expanded=true]>.xref-icon--down{transform:rotate(180deg)}
+#view-cross-reference .xref-notice{margin:12px 0 0;padding:8px 14px;border:1px solid #d6b26d;border-left:4px solid #b77b0b;border-radius:var(--xref-control-radius);background:#fff5e3}
+#view-cross-reference .xref-notice p{margin:4px 0;font:400 13px/19px var(--font-sans);color:#5a4214}
+
+/* Tabs carry row counts, never money. The active one is bold with a 3px gold
+   underline 8px above the rule; a hidden bold twin holds every tab at its bold
+   width, so a tab change never shifts its neighbours. */
+#view-cross-reference .xref-tabs{display:flex;align-items:flex-end;gap:24px;margin:22px 0 0;padding:0;border-bottom:1px solid var(--xref-tab-rule);overflow-x:auto;scrollbar-width:none}
+#view-cross-reference .xref-tab{position:relative;display:inline-grid;justify-items:start;align-items:end;flex:none;width:auto;height:auto;min-height:0;margin:0;padding:0 12px 19px 0;border:0;border-radius:0;background:none;color:var(--xref-ink-3);font:400 15px/20px var(--font-serif);text-align:left;white-space:nowrap;cursor:pointer}
+#view-cross-reference .xref-tab[aria-selected=true]{color:var(--xref-strong);font-weight:700}
+#view-cross-reference .xref-tab::after{content:"";position:absolute;left:0;right:0;bottom:8px;height:3px;border-radius:2px;background:transparent;transform-origin:left center}
+#view-cross-reference .xref-tab[aria-selected=true]::after{background:var(--acu-gold)}
+#view-cross-reference .xref-tab:hover:not([aria-selected=true]){color:var(--acu-plum)}
+#view-cross-reference .xref-tab:focus-visible{outline:2px solid var(--acu-purple);outline-offset:2px}
+#view-cross-reference .xref-tab-face{grid-area:1/1;display:inline-flex;align-items:baseline;gap:15px}
+#view-cross-reference .xref-tab-ghost{visibility:hidden;font-weight:700;pointer-events:none}
+#view-cross-reference .xref-tab-count{font:400 13px/20px var(--font-sans);color:#525162;font-variant-numeric:tabular-nums}
+#view-cross-reference .xref-tab[aria-selected=true] .xref-tab-count{color:#342f42}
+
+/* Filter row: Company, Cycle, Description (Entity on Large receipts), search.
+   The selects are build 01's .chip-select, set to the board's single line. */
+#view-cross-reference .xref-filters{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.1fr) minmax(0,1.85fr);gap:15px;margin:20px 0 0}
+#view-cross-reference .xref-filters .chip-select{width:100%;min-width:0;height:40px;padding:0;border:1px solid var(--xref-control);border-radius:var(--xref-control-radius);background:white;color:var(--xref-ink-3)}
+#view-cross-reference .xref-filters .chip-select select{padding:0 38px 0 16px;border-radius:var(--xref-control-radius);color:var(--xref-ink-3);font:400 13px/38px var(--font-sans);white-space:nowrap;overflow:hidden}
+#view-cross-reference .xref-filters .chip-select::after{right:17px;color:var(--xref-ink)}
+#view-cross-reference .xref-search{position:relative;display:flex;align-items:center;min-width:0;height:40px;border:1px solid var(--xref-control);border-radius:var(--xref-control-radius);background:white;cursor:text}
+#view-cross-reference .xref-search>.xref-icon{position:absolute;left:17px;top:50%;width:16px;height:16px;margin-top:-8px;stroke-width:1.5;color:#5d5c70;pointer-events:none}
+#view-cross-reference .xref-search input{width:100%;height:100%;min-height:0;margin:0;padding:0 16px 0 50px;border:0;border-radius:var(--xref-control-radius);background:transparent;color:var(--xref-ink);font:400 13px/1 var(--font-sans)}
+#view-cross-reference .xref-search input::placeholder{color:var(--xref-faint);opacity:1}
+#view-cross-reference .xref-search input:focus-visible{outline:none}
+#view-cross-reference .xref-search:focus-within{outline:2px solid var(--acu-purple);outline-offset:2px}
+#view-cross-reference .xref-filters .chip-select:hover,#view-cross-reference .xref-search:hover{border-color:#d3cdd9}
+
+/* One full-width table card. The rows scroll inside it under a sticky header,
+   so at 900px the header, ten rows and the pager all fit, as on the board. */
+#view-cross-reference .xref-table-card{margin:23.4px 0 0;padding:0;overflow:hidden;border-radius:var(--xref-radius)}
+#view-cross-reference .xref-scroll{max-height:max(270px,calc(100vh - 419px));overflow:auto;scrollbar-width:thin;scrollbar-color:#cfc8d6 transparent}
+#view-cross-reference .xref-scroll:focus-visible{outline:2px solid var(--acu-purple);outline-offset:-2px}
+#view-cross-reference .xref-table{width:100%;min-width:900px;margin:0;border-collapse:separate;border-spacing:0;table-layout:auto;font:400 13px/18px var(--font-sans);color:var(--xref-ink)}
+#view-cross-reference .xref-table :is(th,td){padding:15px 16px 9px;background:white;border:0;border-bottom:1px solid var(--xref-row-rule);font:inherit;line-height:18px;text-align:left;vertical-align:top;min-width:0}
+#view-cross-reference .xref-table th{position:sticky;top:0;z-index:1;padding-top:18px;padding-bottom:14px;background:var(--xref-head);border-bottom-color:var(--xref-head-rule);color:var(--xref-ink-2);font-weight:400;letter-spacing:0;text-transform:none;white-space:nowrap}
+#view-cross-reference .xref-table td{overflow-wrap:anywhere}
+#view-cross-reference .xref-table tbody tr:last-child td{border-bottom:0}
+#view-cross-reference .xref-table :is(th,td):first-child{padding-left:22px}
+#view-cross-reference .xref-table :is(th,td).number{text-align:right;padding-right:32px;white-space:nowrap;font-variant-numeric:tabular-nums}
+#view-cross-reference .xref-table :is(th,td).xref-col-record{padding-left:32px;padding-right:23px}
+#view-cross-reference .xref-table :is(th,td).xref-col-record:not(:last-child){padding-right:16px}
+/* Column shares are B16's; Company takes what the others leave (28.9% at the
+   board's width). Automatic layout keeps each share but never squeezes a
+   column below its own content, so "Amount removed" cannot spill past its
+   figures at 1440; under 900px of card the table scrolls inside the card. */
+#view-cross-reference .xref-table .xref-col-cycle{width:7.66%;white-space:nowrap}
+#view-cross-reference .xref-table .xref-col-detail{width:16.95%}
+#view-cross-reference .xref-table .xref-col-role{width:14.76%}
+#view-cross-reference .xref-table .xref-col-amount{width:11.23%}
+#view-cross-reference .xref-table .xref-col-record{width:20.48%}
+#view-cross-reference .xref-table--linked .xref-col-money{width:12.5%}
+#view-cross-reference .xref-table--linked .xref-col-record{width:19.21%}
+#view-cross-reference .xref-table--unlinked .xref-col-detail{width:31.71%}
+#view-cross-reference .xref-record{display:flex;align-items:center;gap:12px;min-width:0}
+#view-cross-reference .xref-id{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+#view-cross-reference .xref-open{display:inline-flex;align-items:center;justify-content:center;flex:none;width:23px;height:23px;margin:-3px -4px -3px auto;border-radius:4px;color:#4b4a61;text-decoration:none}
+#view-cross-reference .xref-open .xref-icon{width:15px;height:15px;stroke-width:1.45}
+#view-cross-reference .xref-open:hover{color:var(--acu-purple);background:rgba(214,200,226,.35)}
+#view-cross-reference .xref-empty{margin:0;padding:22px;font:400 13px/20px var(--font-sans);color:var(--muted)}
+#view-cross-reference .xref-scroll .xref-adjustments{margin:0;padding:0;border-top:1px solid var(--xref-head-rule)}
+#view-cross-reference .xref-subhead{margin:0;padding:16px 22px 10px;font:600 13px/18px var(--font-sans);color:var(--xref-ink)}
+
+/* Card foot: the pager at the left, the capped-list note, the disclosure right. */
+#view-cross-reference .xref-foot{display:flex;align-items:center;flex-wrap:wrap;gap:8px 24px;min-height:64px;padding:0 19px 0 16px;border-top:1px solid var(--xref-row-rule);background:white}
+#view-cross-reference .xref-pager{display:flex;align-items:center;gap:18px}
+#view-cross-reference .xref-page{display:inline-flex;align-items:center;justify-content:center;flex:none;width:34px;height:34px;min-height:34px;margin:0;padding:0;border:1px solid var(--xref-control);border-radius:var(--xref-control-radius);background:white;color:#3b374d;cursor:pointer}
+#view-cross-reference .xref-page .xref-icon{width:14px;height:14px}
+#view-cross-reference .xref-page:hover:not(:disabled){background:#f7f2fa;border-color:#cfc6d8}
+#view-cross-reference .xref-page:disabled{opacity:1;color:#a09dad;cursor:default}
+#view-cross-reference .xref-rows{min-width:0;font:400 12.5px/16px var(--font-sans);color:var(--xref-ink-4);font-variant-numeric:tabular-nums;white-space:nowrap}
+#view-cross-reference .xref-capped{flex:1 1 280px;margin:0;font:400 12px/17px var(--font-sans);color:var(--muted)}
+#view-cross-reference .xref-method-toggle{margin-left:auto;font-size:13.5px;color:var(--xref-ink-4)}
+#view-cross-reference .xref-method{padding:6px 22px 20px;border-top:1px solid var(--xref-row-rule);background:white}
+#view-cross-reference .xref-method p{max-width:96ch;margin:8px 0 0;font:400 13px/20px var(--font-sans);color:var(--xref-ink-2)}
+#view-cross-reference .xref-method h3{margin:16px 0 0;font:600 13px/18px var(--font-sans);color:var(--xref-ink)}
+#view-cross-reference .xref-method h4{margin:10px 0 0;font:600 12.5px/18px var(--font-sans);color:var(--xref-ink-2)}
+
+/* Messages: no saved run, unreadable evidence, a running job, no digest. */
+#view-cross-reference .xref-message{margin:24px 0 0;padding:20px 22px;border-radius:var(--xref-radius)}
+#view-cross-reference .xref-message>h2:not(.sr-only){margin:0 0 6px;font:500 22px/28px var(--font-serif);color:var(--acu-plum)}
+#view-cross-reference .xref-message>p{max-width:96ch;margin:8px 0 0;font:400 13px/20px var(--font-sans);color:var(--xref-ink-2)}
+#view-cross-reference .xref-message>p.xref-empty{padding:0;color:var(--xref-ink-2)}
+#view-cross-reference .xref-message>p.xref-muted{color:var(--muted)}
+#view-cross-reference .xref-message.xref-warning{border-color:#d6b26d;border-left:4px solid #b77b0b;background:#fff5e3}
+#view-cross-reference .xref-message.xref-warning>p{color:#5a4214}
+
+@media(max-width:1099px){
+  #view-cross-reference .xref-subtitle{margin-bottom:12px}
+  #view-cross-reference .xref-actions{margin:0 0 14px}
+}
+@media(max-width:760px){
+  #view-cross-reference .xref-actions{justify-content:flex-start}
+  #view-cross-reference .xref-run{padding:10px 14px;row-gap:6px}
+  #view-cross-reference .xref-run .xref-scope{flex:1 0 100%;flex-direction:column;align-items:flex-start}
+  #view-cross-reference .xref-run .xref-scope>span+span::before{display:none}
+  #view-cross-reference .xref-companies-toggle{margin-left:0}
+  #view-cross-reference .xref-tabs{flex-wrap:wrap;column-gap:20px;row-gap:4px;overflow:visible}
+  #view-cross-reference .xref-tab{padding-bottom:14px}
+  #view-cross-reference .xref-tab::after{bottom:4px}
+  #view-cross-reference .xref-page{width:44px}
+  #view-cross-reference .xref-filters{grid-template-columns:repeat(2,minmax(0,1fr))}
+  #view-cross-reference .xref-filters .chip-select,#view-cross-reference .xref-search{height:44px}
+  #view-cross-reference .xref-search{grid-column:1/-1}
+  #view-cross-reference .xref-foot{padding:10px 14px}
+  #view-cross-reference .xref-method-toggle{margin-left:0}
+}
+@media(max-width:480px){#view-cross-reference .xref-filters{grid-template-columns:minmax(0,1fr)}}
+
+/* Motion (2026-09-19 ruling: expressive, and off under reduced motion). */
+@media(prefers-reduced-motion:no-preference){
+  #view-cross-reference .xref-icon{transition:transform .16s cubic-bezier(.2,.7,.2,1)}
+  #view-cross-reference :is(.xref-tab,.xref-page,.xref-open,.xref-disclose){transition:color .12s ease,background-color .12s ease,border-color .12s ease}
+  #view-cross-reference .xref-enter .xref-tab[aria-selected=true]::after{animation:xref-underline .24s cubic-bezier(.2,.7,.2,1) both}
+  #view-cross-reference .xref-table-card.xref-enter .xref-scroll{animation:xref-rise .22s cubic-bezier(.2,.7,.2,1) both}
+}
+@keyframes xref-underline{from{opacity:0;transform:scaleX(.25)}to{opacity:1;transform:none}}
+@keyframes xref-rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}

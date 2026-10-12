@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:littlesis-entity-assertion:v1",
+  "title": "Restricted source-native LittleSis entity assertion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "source_system_id", "source_entity_id", "source_numeric_id",
+    "name", "aliases", "primary_ext", "types", "blurb",
+    "parent_source_entity_id", "raw_start_date", "raw_end_date",
+    "source_updated_at", "source_url"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-littlesis-entity-assertion-v1"},
+    "source_system_id": {"const": "littlesis-bulk"},
+    "source_entity_id": {"type": "string", "pattern": "^littlesis:entity:[1-9][0-9]*$"},
+    "source_numeric_id": {"type": "integer", "minimum": 1},
+    "name": {"type": "string", "minLength": 1},
+    "aliases": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "primary_ext": {"type": ["string", "null"]},
+    "types": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "blurb": {"type": ["string", "null"]},
+    "parent_source_entity_id": {"type": ["string", "null"], "pattern": "^littlesis:entity:[1-9][0-9]*$"},
+    "raw_start_date": {"type": ["string", "null"]},
+    "raw_end_date": {"type": ["string", "null"]},
+    "source_updated_at": {"type": ["string", "null"]},
+    "source_url": {"type": ["string", "null"]}
+  }
+}

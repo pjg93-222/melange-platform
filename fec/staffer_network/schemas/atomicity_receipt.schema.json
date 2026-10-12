@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:atomicity-receipt:v1",
+  "title": "Staffer network determinism and atomicity receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "schema_sha256", "logical_table_count",
+    "nonempty_table_count", "clean_build_digest_a", "clean_build_digest_b",
+    "incremental_build_digest", "clean_builds_equal", "clean_incremental_equal",
+    "clean_integrity_check", "incremental_integrity_check", "fault_injection_raised",
+    "pointer_unchanged_after_fault", "reader_old_after_fault", "reader_new_after_success",
+    "reader_generation_observations", "mixed_generation_observations", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-atomicity-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "logical_table_count": {"type": "integer", "minimum": 1},
+    "nonempty_table_count": {"type": "integer", "minimum": 0},
+    "clean_build_digest_a": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "clean_build_digest_b": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "incremental_build_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "clean_builds_equal": {"type": "boolean"},
+    "clean_incremental_equal": {"type": "boolean"},
+    "clean_integrity_check": {"type": "string"},
+    "incremental_integrity_check": {"type": "string"},
+    "fault_injection_raised": {"type": "boolean"},
+    "pointer_unchanged_after_fault": {"type": "boolean"},
+    "reader_old_after_fault": {"type": "boolean"},
+    "reader_new_after_success": {"type": "boolean"},
+    "reader_generation_observations": {"type": "array", "items": {"type": "string"}, "minItems": 2},
+    "mixed_generation_observations": {"type": "integer", "minimum": 0},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:privacy-license-receipt:v1",
+  "title": "Staffer network privacy and license receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "repository_scope", "staff_artifacts",
+    "staff_rows_scanned", "prohibited_field_findings", "contact_pattern_rows",
+    "unexpected_staff_fields", "source_manifests", "source_manifest_count",
+    "manifest_policy_violations", "restricted_raw_leak_paths", "legacy_registry_path",
+    "legacy_registry_sha256", "legacy_original_backup_verified", "legacy_current_scrubbed",
+    "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-privacy-license-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "repository_scope": {"type": "string", "minLength": 1},
+    "staff_artifacts": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "kind", "bytes", "sha256", "staff_rows", "allowed_fields", "unexpected_fields", "prohibited_field_findings", "contact_pattern_rows"], "properties": {"path": {"type": "string"}, "kind": {"type": "string"}, "bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "staff_rows": {"type": "integer", "minimum": 0}, "allowed_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "unexpected_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}, "prohibited_field_findings": {"type": "integer", "minimum": 0}, "contact_pattern_rows": {"type": "integer", "minimum": 0}}}},
+    "staff_rows_scanned": {"type": "integer", "minimum": 1},
+    "prohibited_field_findings": {"type": "integer", "minimum": 0},
+    "contact_pattern_rows": {"type": "integer", "minimum": 0},
+    "unexpected_staff_fields": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "source_manifests": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "authorization_status", "redistribution_class", "enabled", "manifest_sha256"], "properties": {"path": {"type": "string"}, "authorization_status": {"type": "string"}, "redistribution_class": {"type": "string"}, "enabled": {"type": "boolean"}, "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "source_manifest_count": {"type": "integer", "minimum": 1},
+    "manifest_policy_violations": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "restricted_raw_leak_paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "legacy_registry_path": {"type": "string", "minLength": 1},
+    "legacy_registry_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "legacy_original_backup_verified": {"type": "boolean"},
+    "legacy_current_scrubbed": {"type": "boolean"},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:legacy-source-native-record:v1",
+  "title": "Restricted legacy source-native staff record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_system_id", "source_entity_id", "member_office_source_key",
+    "display_name", "title", "featured"
+  ],
+  "properties": {
+    "source_system_id": {"const": "quorum-legacy-derived"},
+    "source_entity_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "member_office_source_key": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string", "minLength": 1},
+    "title": {"type": "string", "minLength": 1},
+    "featured": {"type": "boolean"}
+  }
+}

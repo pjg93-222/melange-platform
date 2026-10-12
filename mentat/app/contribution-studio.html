@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Contribution Studio · MENTAT</title><link rel="icon" href="/mentat-icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/contribution-studio.css">
+<script src="/theme.js" defer></script><script src="/chart-export.js" defer></script>
+<script src="/contribution-plot.js" defer></script><script src="/contribution-map.js" defer></script><script src="/chart-studio-contributions.js" defer></script><script src="/contribution-studio.js" defer></script>
+</head><body>
+<a class="skip" href="#visualization">Skip to analysis</a>
+<header class="topbar"><a class="wordmark" href="/">MENTAT</a><span class="product">Contribution Studio</span><nav aria-label="Mentat workspaces"><a href="/#collection">Collection</a><a href="/#cross-reference">Cross-reference</a><a href="/?worksheet=1#chart-studio">Worksheet explorer</a></nav><span class="local">Local workspace</span></header>
+<main class="workbench">
+<aside class="data-pane" aria-label="Data and fields">
+<div class="pane-heading"><h2>Data</h2><button id="refresh" type="button" title="Refresh available sources" aria-label="Refresh sources">↻</button></div>
+<label for="source">Industry / source</label><select id="source"><option>Loading sources…</option></select>
+<label for="basis">Accounting basis</label><select id="basis"></select><p id="basis-help" class="muted"></p>
+<label for="cycle">Election cycle</label><select id="cycle"><option value="">All available cycles</option></select>
+<label for="company">Company</label><select id="company"><option value="">All tracked companies</option></select>
+<div class="field-heading"><h2>Fields</h2><span class="muted">Drag or select +</span></div>
+<label class="sr-only" for="field-search">Search fields</label><input id="field-search" type="search" placeholder="Find a field…" autocomplete="off">
+<div id="fields"></div>
+<details class="source-details"><summary>Source &amp; accounting</summary><div id="source-info"></div></details>
+</aside>
+<section class="analysis-pane" aria-label="Contribution analysis">
+<div class="view-heading"><div><p class="eyebrow">EXPLORE THE MONEY</p><h1 id="view-title">Giving by company</h1></div><div class="view-actions"><button id="undo" title="Undo the last view change" disabled>Undo</button><button id="reset">Reset view</button><button id="export-csv">Export CSV</button><button id="export-svg">SVG</button><button id="export-png">PNG</button></div></div>
+<div class="shelves"><div class="shelf"><span>Dimensions</span><div id="dimension-shelf" class="dropzone" data-role="dimension" aria-label="Dimensions shelf"></div></div><div class="shelf"><span>Measures</span><div id="measure-shelf" class="dropzone" data-role="measure" aria-label="Measures shelf"></div></div></div>
+<div class="filter-bar"><span class="filter-caption">Filters</span><div id="filter-chips"></div><button id="add-filter" type="button">+ Add filter</button></div>
+<form id="filter-editor" class="filter-editor" hidden><label>Field<select id="filter-field"></select></label><label>Match<select id="filter-op"><option value="eq">Equals</option><option value="contains">Contains</option><option value="gte">At least</option><option value="lte">At most</option></select></label><label>Value<input id="filter-value" required autocomplete="off"></label><label>Apply to<select id="filter-stage"><option value="row">Source records</option><option value="aggregate">Grouped measure</option></select></label><button type="submit" class="primary">Apply</button><button id="cancel-filter" type="button">Cancel</button></form>
+<div class="chart-toolbar"><div id="chart-types" role="group" aria-label="Chart type"><button data-chart="bar" aria-pressed="true">Bars</button><button data-chart="line" aria-pressed="false">Line</button><button data-chart="area" aria-pressed="false">Area</button><button data-chart="scatter" aria-pressed="false">Scatter</button><button data-chart="map" aria-pressed="false">Map</button><button data-chart="table" aria-pressed="false">Table</button></div><span id="grain-label" class="muted"></span></div>
+<div id="status" class="status" role="status" aria-live="polite">Connecting to saved contribution sources…</div><div id="error" class="error" role="alert" hidden></div>
+<div id="visualization" tabindex="-1" class="visualization" aria-label="Contribution visualization"></div>
+<div class="results-footer"><span id="result-count"></span><div><button id="previous-page" disabled>Previous</button><button id="next-page" disabled>Next</button></div></div>
+<section id="inspection" class="inspection" hidden><div class="pane-heading"><div><h2 id="inspection-title">Underlying records</h2><p id="inspection-scope" class="muted"></p></div><button id="close-inspection" aria-label="Close underlying records">×</button></div><div id="record-table" class="table-scroll"></div><div class="results-footer"><span id="record-count"></span><button id="more-records">Next records</button></div></section>
+<div class="saved-views"><label class="sr-only" for="view-name">View name</label><input id="view-name" value="Giving by company" maxlength="80"><button id="save-view">Save view</button><label class="sr-only" for="saved-view">Saved views</label><select id="saved-view"><option value="">Open a saved view…</option></select><span id="save-status" class="muted" role="status"></span></div>
+</section>
+<aside class="settings-pane" aria-label="View settings"><div class="mark-controls"><h2>View settings</h2>
+<label for="color">Colour by</label><select id="color"><option value="">Single colour</option></select>
+<label for="sort">Order</label><select id="sort"><option value="amount-desc">Largest measure first</option><option value="amount-asc">Smallest measure first</option><option value="label">Dimension order</option></select>
+<label for="limit">Groups per page</label><select id="limit"><option>25</option><option selected>50</option><option>100</option><option>500</option></select>
+<label class="check"><input id="labels" type="checkbox" checked> Show values</label>
+<div id="map-settings" hidden><h3>Map layers</h3><label class="check"><input id="layer-states" type="checkbox" checked> State outlines</label><label class="check"><input id="layer-districts" type="checkbox"> Congressional districts</label><label class="check"><input id="layer-zips" type="checkbox"> ZIP areas</label><label for="congress">Congressional boundaries</label><select id="congress"><option value="119">119th Congress</option><option value="120">120th Congress</option></select><p class="muted">ZIP areas use Census ZCTAs. Boundaries add context; they do not allocate dollars.</p><div id="map-coverage" class="muted"></div></div>
+</div><section class="receipt"><h2>Accounting receipt</h2><p id="receipt-basis" class="basis-tag">Awaiting source</p><dl id="receipt-values"></dl><p id="receipt-scope" class="muted"></p><button id="inspect-all">Inspect selected records</button><details><summary>Reconciliation &amp; coverage</summary><div id="reconciliation"></div></details></section>
+<section class="guide"><h3>A question to start with</h3><button data-preset="company">Which companies gave?</button><button data-preset="recipient">Who received it?</button><button data-preset="cycle">How did giving change?</button><button data-preset="zip">Where did giving originate?</button></section>
+</aside>
+</main><footer class="app-footer"><span>MENTAT · Evidence behind every view</span><span id="source-stamp"></span></footer>
+</body></html>

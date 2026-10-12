@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:temporal-edge:v1",
+  "title": "Conservative employment temporal edge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "edge_id", "predicate", "subject_id", "object_id",
+    "organization_role", "raw_weight", "possible_weight", "guaranteed_days",
+    "possible_days", "contributing_person_count", "gap_decay_lower",
+    "gap_decay_upper", "support_path_ids", "support_digest"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-temporal-edge-v1"},
+    "edge_id": {"type": "string", "pattern": "^temporal:edge:[0-9a-f]{64}$"},
+    "predicate": {"enum": ["CO_TENURE", "FORMER_STAFFER_EMPLOYED_BY_REGISTRANT", "FORMER_STAFFER_NAMED_ON_ACTIVITY_FOR_CLIENT"]},
+    "subject_id": {"type": "string", "minLength": 1},
+    "object_id": {"type": "string", "minLength": 1},
+    "organization_role": {"enum": ["employment_container", "registrant_employer", "client_activity"]},
+    "raw_weight": {"type": "number", "minimum": 0},
+    "possible_weight": {"type": "number", "minimum": 0},
+    "guaranteed_days": {"type": ["integer", "null"], "minimum": 0},
+    "possible_days": {"type": ["integer", "null"], "minimum": 0},
+    "contributing_person_count": {"type": ["integer", "null"], "minimum": 1},
+    "gap_decay_lower": {"type": ["number", "null"], "minimum": 0},
+    "gap_decay_upper": {"type": ["number", "null"], "minimum": 0},
+    "support_path_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^temporal:path:[0-9a-f]{64}$"}},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

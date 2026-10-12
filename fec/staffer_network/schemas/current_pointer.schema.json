@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:current-pointer:v1",
+  "title": "Staffer network current generation pointer",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generation_id", "manifest_sha256"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-current-pointer-v1"},
+    "generation_id": {"type": "string", "minLength": 1},
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
+

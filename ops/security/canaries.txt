@@ -1,0 +1,7 @@
+# Canary tokens for ops/security_gate.py (data_leak check). One token per line.
+# They are synthetic and unlock nothing. A token found in any file leaving the laptop means that
+# file came from a place canaries were planted (a data store, a scratch export): the gate FAILs.
+# The gate skips only this exact file (ops/security/canaries.txt) when searching for them.
+# Add more tokens by appending lines; never reuse a real credential here.
+MLG-CANARY-0b7e41d29c5f48a3a1d68e02f7c93b55
+MLG-CANARY-7d3a90e1458c4f6b8e2a15c0d9f4b762

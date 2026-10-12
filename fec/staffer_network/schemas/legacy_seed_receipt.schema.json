@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:legacy-seed-receipt:v1",
+  "title": "Restricted legacy source-native seed receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "source_system_id", "source_path",
+    "source_sha256", "source_bytes", "source_manifest_sha256", "observed_rows",
+    "accepted_rows", "rejected_rows", "represented_offices", "record_file",
+    "contact_fields_retained", "source_native_ingest_enabled", "analysis_enabled",
+    "canonical_use_enabled", "canonical_entity_merges", "redistribution_class",
+    "raw_quorum_workbooks_authorized", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-legacy-seed-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"const": "PASS"},
+    "source_system_id": {"const": "quorum-legacy-derived"},
+    "source_path": {"type": "string", "minLength": 1},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_bytes": {"type": "integer", "minimum": 1},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "observed_rows": {"const": 5773},
+    "accepted_rows": {"const": 5773},
+    "rejected_rows": {"const": 0},
+    "represented_offices": {"const": 533},
+    "record_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["records", "sha256", "bytes"],
+      "properties": {
+        "records": {"const": 5773},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "contact_fields_retained": {"const": 0},
+    "source_native_ingest_enabled": {"const": true},
+    "analysis_enabled": {"const": false},
+    "canonical_use_enabled": {"const": false},
+    "canonical_entity_merges": {"const": 0},
+    "redistribution_class": {"const": "restricted-local-only"},
+    "raw_quorum_workbooks_authorized": {"const": false},
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

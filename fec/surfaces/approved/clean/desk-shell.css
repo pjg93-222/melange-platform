@@ -1,0 +1,43 @@
+/* desk-shell.css: overlay for original-desk.html (desk frame chrome, Member desk tab group); owner: prompt 02. Loaded after restored.css. */
+/* Build 02 (board #27). The legacy title row is hidden: build 01 already hid header > .brand and #integritybar; the .topnav
+   (#viewseg, Main dashboard, Industry, Notes & exports, import/export) goes too. Its nodes stay in the DOM; the tab group's
+   "Notes and overrides" menu drives #importfile, #povexport and #povimport (desk-shell.js). */
+body.restored-desk>header{display:none!important}
+
+/* Member desk tab group: the same MLK.deskTabs markup the shell shows on Contact log / Notes & exports, at the same place
+   under the page head (1px below its rule, like app.css "#content>.mlk-pagehead+.mlk-deskbar"). */
+.dsk-bar{box-sizing:border-box;margin:0;padding:1px var(--ml-gutter-end) 0 var(--ml-gutter)}
+.dsk-bar .mlk-deskbar:not(#mlk){justify-content:flex-start}
+.dsk-bar .mlk-anchor:not(#mlk){margin-left:auto}
+.dsk-povhint{margin-left:auto;color:var(--ml-muted);font:400 12px/1.2 var(--sans);white-space:nowrap}
+.dsk-povhint[hidden]{display:none}
+.dsk-povhint:not([hidden])+.mlk-anchor:not(#mlk){margin-left:16px}
+/* r5: prompt 02 puts the quiet "Notes and overrides" menu at the far right of the Members tab row (board #27); boards
+   #31, #33, #34 and #35 draw the same tab row with nothing there. Three of its items act on the Members list (links to
+   ?view=members&deskaction=...) and the fourth opens Notes & exports, so it shows on Members, one tab away elsewhere. */
+body.dsk-v2:not(.dsk-view-ranked) .dsk-bar .mlk-anchor:not(#mlk){display:none}
+
+/* ?deskaction= arrived without a user gesture: one line under the tab group whose button runs the legacy control */
+.dsk-action{display:flex;align-items:center;gap:12px;box-sizing:border-box;height:44px;margin:8px var(--ml-gutter-end) 0 var(--ml-gutter);padding:0 6px 0 16px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);color:var(--ml-ink);font:500 13px/1 var(--sans)}
+.dsk-action__close:not(#mlk){margin-left:auto}
+
+/* Desk content fills the frame width inside the page head's gutters (build 01 request, HANDOFF known gap 9): the legacy
+   .view is centred at max-width 1280px with 20px padding. The profile (dossier) keeps its own layout (prompt 04). */
+body.restored-desk:not(.dsk-view-member) .view:not(#view-member){max-width:none;margin:0;padding:16px var(--ml-gutter-end) 24px var(--ml-gutter)}
+
+/* Kit focus ring on the tab group (restored.css draws a purple ring on every :focus-visible with !important) */
+.dsk-bar :focus-visible:not(#mlk),.dsk-action :focus-visible:not(#mlk){outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+
+/* The frame's viewport is the content column: 950px here is the shell's 1100px breakpoint minus the 150px rail;
+   760px is the shell's phone breakpoint (rail 0). Gutters follow app.css (20px, then 16px). */
+@media (max-width:950px){
+ .dsk-bar{padding-left:20px;padding-right:20px}
+ .dsk-action{margin-left:20px;margin-right:20px}
+ body.restored-desk:not(.dsk-view-member) .view:not(#view-member){padding-left:20px;padding-right:20px}
+}
+@media (max-width:760px){
+ .dsk-bar{padding-left:16px;padding-right:16px}
+ .dsk-action{margin-left:16px;margin-right:16px}
+ body.restored-desk:not(.dsk-view-member) .view:not(#view-member){padding-left:16px;padding-right:16px}
+ .dsk-povhint{display:none}
+}

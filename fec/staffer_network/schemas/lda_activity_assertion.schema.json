@@ -1,0 +1,8 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:melange:staffer-network:lda-activity-assertion:v1","title":"LDA source-native lobbying activity assertion","type":"object","additionalProperties":false,
+  "required":["schema_id","source_system_id","source_activity_id","filing_uuid","filing_year","activity_ordinal","dt_posted","filing_period","general_issue_code","general_issue_code_display","description","registrant_source_org_id","client_source_org_id","government_entities"],
+  "properties":{
+    "schema_id":{"const":"staffer-network-lda-activity-assertion-v1"},"source_system_id":{"const":"senate-lda-api"},"source_activity_id":{"type":"string","pattern":"^lda:activity:.+:[0-9]+$"},"filing_uuid":{"type":"string","minLength":1},"filing_year":{"type":"integer","minimum":2021,"maximum":2026},"activity_ordinal":{"type":"integer","minimum":0},"dt_posted":{"type":"string","format":"date-time"},"filing_period":{"type":["string","null"]},"general_issue_code":{"type":["string","null"]},"general_issue_code_display":{"type":["string","null"]},"description":{"type":["string","null"]},"registrant_source_org_id":{"type":"string","pattern":"^lda:registrant:[1-9][0-9]*$"},"client_source_org_id":{"type":"string","pattern":"^lda:client:[1-9][0-9]*$"},
+    "government_entities":{"type":"array","items":{"type":"object","additionalProperties":false,"required":["id","name"],"properties":{"id":{"type":["integer","null"]},"name":{"type":["string","null"]}}}}
+  }
+}

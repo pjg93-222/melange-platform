@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:exploratory-node-score:v1",
+  "title": "Exploratory temporal tier node score",
+  "description": "Review-only descriptive diagnostics on the exploratory temporal operator. Not a primary weight and not an identity finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "exploratory", "primary", "tier_threshold", "node_id",
+    "node_kind", "max_tier", "raw_strength", "isolate", "component_id",
+    "component_size", "co_tenure_degree", "revolving_degree",
+    "connectedness_pagerank_exploratory",
+    "eigenvector_component_local_exploratory",
+    "bridging_diversity_exploratory", "review_status", "canonical_eligible",
+    "canonical_employment_promoted", "rule_version"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-exploratory-node-score-v1"},
+    "exploratory": {"const": true},
+    "primary": {"const": false},
+    "tier_threshold": {"enum": ["L2", "L3", "L4"]},
+    "node_id": {"type": "string", "pattern": "^(person|container|organization):", "minLength": 8},
+    "node_kind": {"enum": ["person", "container", "organization"]},
+    "max_tier": {"enum": ["L2", "L3", "L4", "L5", null]},
+    "raw_strength": {"type": "number", "minimum": 0},
+    "isolate": {"type": "boolean"},
+    "component_id": {"type": "integer", "minimum": 0},
+    "component_size": {"type": "integer", "minimum": 1},
+    "co_tenure_degree": {"type": "integer", "minimum": 0},
+    "revolving_degree": {"type": "integer", "minimum": 0},
+    "connectedness_pagerank_exploratory": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["alpha", "score"],
+        "properties": {
+          "alpha": {"type": "number", "minimum": 0, "maximum": 1},
+          "score": {"type": "number", "minimum": 0, "maximum": 1}
+        }
+      }
+    },
+    "eigenvector_component_local_exploratory": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "bridging_diversity_exploratory": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "rule_version": {"const": "exploratory-temporal-tier-v1"}
+  }
+}

@@ -1,0 +1,125 @@
+/* Briefing tray. Render R4 is the contract: a 340px ivory drawer over the
+   Inspector, one white card per chart with its own scope and basis, and a
+   footer whose single gold action is the deck. */
+
+.studio-briefing {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(340px, 94vw); z-index: 12;
+  display: flex; flex-direction: column; gap: 0;
+  background: var(--acu-ivory); border-left: 1px solid var(--line);
+  box-shadow: -10px 0 28px rgba(52, 38, 73, .18); overflow: hidden;
+}
+.studio-briefing[hidden] { display: none; }
+/* Room for the drawer. It is fixed over the right edge, so without this gutter
+   it covers the studio toolbar's right-hand controls - Classic builder at every
+   width, and Company overview and the Inspector toggle on a narrower window -
+   and every click on them lands on the drawer instead. Below 900px the drawer
+   is most of the window and stands as an overlay, as R4 intends. */
+@media (min-width: 900px) {
+  body.studio-briefing-open #view-chart-studio { padding-right: 340px; }
+}
+.studio-briefing-head { display: flex; align-items: center; gap: 8px; padding: 14px 14px 10px; }
+.studio-briefing-title { font-family: var(--font-serif); font-weight: 400; font-size: 21px; margin: 0; color: var(--acu-plum); }
+.studio-briefing-count {
+  font-size: 11px; font-weight: 600; color: var(--acu-plum); background: var(--acu-lilac);
+  border-radius: 11px; padding: 3px 10px; white-space: nowrap;
+}
+.studio-briefing-close {
+  margin-left: auto; font: inherit; font-size: 11px; color: var(--acu-plum);
+  background: white; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer;
+}
+.studio-briefing-notice { margin: 0 14px 8px; font-size: 11px; line-height: 1.45; color: var(--muted); }
+.studio-briefing-notice[hidden] { display: none; }
+.studio-briefing-items { flex: 1; overflow-y: auto; padding: 0 14px 12px; display: flex; flex-direction: column; gap: 10px; }
+.studio-briefing-empty { font-size: 12px; color: var(--muted); margin: 6px 0; }
+
+.studio-briefing-card {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px;
+  background: white; border: 1px solid var(--line); border-radius: 6px; padding: 10px;
+}
+.studio-briefing-thumb {
+  width: 96px; height: 64px; overflow: hidden; border: 1px solid var(--line); border-radius: 4px;
+  background: white; display: flex; align-items: center; justify-content: center;
+}
+.studio-briefing-thumb svg { width: 100%; height: 100%; }
+.studio-briefing-card h4 {
+  font-family: var(--font-serif); font-weight: 400; font-size: 14px; line-height: 1.25;
+  margin: 0 0 4px; color: var(--acu-plum); overflow-wrap: anywhere;
+}
+.studio-briefing-line { font-size: 11px; line-height: 1.4; color: var(--muted); margin: 0 0 2px; overflow-wrap: anywhere; }
+.studio-briefing-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.studio-briefing-card-actions button {
+  font: inherit; font-size: 11px; color: var(--acu-purple); background: none;
+  border: 0; padding: 0; cursor: pointer; text-decoration: underline;
+}
+.studio-briefing-card-actions button:disabled { color: var(--muted); opacity: .55; cursor: default; text-decoration: none; }
+
+.studio-briefing-foot { border-top: 1px solid var(--line); padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 8px; }
+/* Exactly one gold action on this surface: the deck the briefing exists for. */
+.studio-briefing-primary {
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--acu-plum);
+  background: var(--acu-gold); border: 1px solid var(--acu-gold); border-radius: 6px;
+  padding: 9px 12px; cursor: pointer;
+}
+.studio-briefing-primary:disabled { opacity: .5; cursor: default; }
+.studio-briefing-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-briefing-foot button:not(.studio-briefing-primary) {
+  font: inherit; font-size: 12px; color: var(--acu-plum); background: white;
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; cursor: pointer;
+}
+.studio-briefing-foot button:not(.studio-briefing-primary):disabled { color: var(--muted); opacity: .6; cursor: default; }
+.studio-briefing-note { font-size: 11px; line-height: 1.45; color: var(--muted); margin: 2px 0 0; }
+
+/* The toolbar entry and its count. */
+.studio-briefing-add { position: relative; }
+.studio-briefing-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px;
+  border-radius: 8px; font-size: 10px; font-weight: 700; line-height: 1;
+  color: white; background: var(--acu-purple);
+}
+.studio-briefing-badge[hidden] { display: none; }
+
+/* Share bundle. */
+.studio-share {
+  border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px 18px;
+  background: var(--acu-paper); color: var(--acu-plum); max-width: 520px; width: 92vw;
+}
+.studio-share::backdrop { background: rgba(52, 38, 73, .28); }
+.studio-share-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.studio-share-head h3 { font-family: var(--font-serif); font-weight: 400; font-size: 19px; margin: 0; }
+.studio-share-head button {
+  margin-left: auto; font: inherit; font-size: 11px; color: var(--acu-plum);
+  background: white; border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; cursor: pointer;
+}
+.studio-share-datasets { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; margin: 8px 0 12px; }
+.studio-share-datasets label { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.4; }
+.studio-share-datasets input { margin-top: 2px; }
+.studio-share-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.studio-share-publish {
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--acu-plum);
+  background: var(--acu-gold); border: 1px solid var(--acu-gold); border-radius: 6px;
+  padding: 9px 12px; cursor: pointer;
+}
+.studio-share-publish:disabled { opacity: .5; cursor: default; }
+.studio-share-buttons button:not(.studio-share-publish) {
+  font: inherit; font-size: 12px; color: var(--acu-plum); background: white;
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 11px; cursor: pointer;
+}
+
+/* Printing the briefing: one page per chart, nothing of the console on it. */
+.studio-briefing-print-host { display: none; }
+@media print {
+  body.studio-briefing-printing > *:not(.studio-briefing-print-host) { display: none !important; }
+  body.studio-briefing-printing .studio-briefing-print-host { display: block; }
+  .studio-briefing-sheet { page-break-after: always; break-after: page; }
+  .studio-briefing-sheet:last-child { page-break-after: auto; break-after: auto; }
+  .studio-briefing-sheet svg { width: 100%; height: auto; max-height: 15cm; }
+  .studio-briefing-sheet h2 { font-family: var(--font-serif); font-weight: 400; font-size: 19px; margin: 0 0 4px; color: var(--acu-plum); }
+  .studio-briefing-sheet p { font-size: 10px; line-height: 1.45; color: var(--muted); margin: 0 0 2px; }
+  .studio-briefing-sheet .studio-briefing-sheet-mark { font-size: 10px; font-weight: 700; letter-spacing: .09em; color: var(--acu-plum); margin-top: 5px; }
+  .studio-briefing-rule { border: 0; border-top: 1px solid var(--acu-gold); margin: 8px 0 6px; }
+}
+
+@media (max-width: 700px) {
+  .studio-briefing { width: 100vw; }
+}

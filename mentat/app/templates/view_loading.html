@@ -1,0 +1,64 @@
+<section id="view-loading" role="tabpanel" aria-labelledby="tab-loading">
+<p class="view-intro">Build a company roster, review the names, then start collection.</p>
+<ol id="loading-steps" class="loading-steps" aria-label="Loading steps">
+<li class="loading-step is-active" data-step="1" aria-current="step"><span class="loading-step-mark" aria-hidden="true">1</span><span class="loading-step-label">Roster</span><span class="sr-only loading-step-state">, current step</span></li>
+<li class="loading-step" data-step="2"><span class="loading-step-mark" aria-hidden="true">2</span><span class="loading-step-label">Review names</span><span class="sr-only loading-step-state"></span></li>
+<li class="loading-step" data-step="3"><span class="loading-step-mark" aria-hidden="true">3</span><span class="loading-step-label">Choose cycles</span><span class="sr-only loading-step-state"></span></li>
+<li class="loading-step" data-step="4"><span class="loading-step-mark" aria-hidden="true">4</span><span class="loading-step-label">Collect</span><span class="sr-only loading-step-state">, opens Collection</span></li>
+</ol>
+<div id="roster-panel" class="loading-flow" data-step="1">
+<div class="card loading-main">
+<div id="loading-step-roster">
+<h2 class="sr-only">Roster</h2>
+<div class="segmented loading-mode" role="group" aria-label="How to add companies"><button id="roster-mode-type" type="button" aria-pressed="true">Type names</button><button id="roster-mode-upload" type="button" aria-pressed="false">Upload a spreadsheet</button></div>
+<input id="file" class="sr-only" type="file" accept=".csv,.tsv,.xlsx" tabindex="-1" aria-label="Choose a roster file">
+<form id="roster-form" class="loading-type">
+<label class="loading-label" for="sector">Sector</label><input id="sector" type="text" maxlength="31" list="sector-options" placeholder="e.g. Credit unions, Community banks" required autocomplete="off"><datalist id="sector-options"></datalist>
+<div class="loading-companies">
+<div class="loading-companies-head" aria-hidden="true"><span>Company name</span><span>Other names searched</span></div>
+<div id="company-editor"></div>
+<div class="loading-company-new"><label class="sr-only" for="new-company">Add a company</label><input id="new-company" type="text" maxlength="250" placeholder="Add a company…" autocomplete="off"><span class="loading-new-hint">Press Enter to add</span><button id="clear-new-company" type="button" class="loading-row-remove" aria-label="Clear the new company name"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg></button></div>
+</div>
+<div class="loading-editor-actions"><button id="add-company" type="button" class="secondary"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>Add company</button><button id="paste-roster" type="button" class="secondary"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3H4.2C3.5 3 3 3.5 3 4.2v8.6c0 .7.5 1.2 1.2 1.2h7.6c.7 0 1.2-.5 1.2-1.2V4.2C13 3.5 12.5 3 11.8 3h-1.3M6 2h4v2.2H6z"/></svg>Paste from spreadsheet</button></div>
+<button id="roster-drop" type="button" class="loading-drop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 15v4h16v-4"/></svg><span>Drop a roster file (.xlsx or .csv)</span></button>
+<p id="draft-status" class="loading-foot" role="status">Draft stays in this browser.</p>
+<button type="submit" class="sr-only" tabindex="-1" aria-hidden="true">Review names</button>
+</form>
+<div id="roster-upload" class="loading-upload" hidden>
+<button id="upload-drop" type="button" class="loading-drop loading-drop--upload"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5M4 15v4h16v-4"/></svg><span>Drop a roster file here, or choose one</span><small>Columns: canonical_name, alias, sector (industry also accepted), optional exclusion</small></button>
+<div id="upload-result" hidden>
+<div class="loading-file"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5"/></svg><div class="loading-file-text"><strong id="upload-file-name"></strong><span id="upload-file-meta"></span></div><button id="upload-replace" type="button" class="loading-link-button">Replace</button><button id="upload-remove" type="button" class="loading-link-button">Remove</button></div>
+<ul id="upload-columns" class="loading-columns" aria-label="Column check"></ul>
+<div id="upload-preview"></div>
+</div>
+<p id="upload-note" class="loading-note" role="alert" hidden></p>
+<div class="loading-upload-foot"><span>CSV, TSV or Excel · up to 5 MB · up to 10,000 rows</span><a class="loading-template-link" href="/template.csv" download="mentat-roster-template.csv">Download the upload template</a></div>
+</div>
+</div>
+<div id="upload-review" hidden>
+<h2 class="loading-title">Names that will be searched</h2>
+<p id="roster-counts" class="loading-counts"></p>
+<div id="roster-decisions" class="loading-decisions" hidden></div>
+<div id="roster-list"></div>
+</div>
+<div id="loading-step-cycles" hidden>
+<h2 class="loading-title">Election cycles</h2>
+<fieldset class="loading-cycles"><legend class="sr-only">Election cycles to collect</legend>
+<label class="loading-cycle"><input type="checkbox" name="cycle" value="2022" checked><span class="loading-cycle-name">2021-22</span><span class="loading-cycle-status" data-cycle="2022"></span></label>
+<label class="loading-cycle"><input type="checkbox" name="cycle" value="2024" checked><span class="loading-cycle-name">2023-24</span><span class="loading-cycle-status" data-cycle="2024"></span></label>
+<label class="loading-cycle"><input type="checkbox" name="cycle" value="2026" checked><span class="loading-cycle-name">2025-26</span><span class="loading-cycle-status" data-cycle="2026"></span></label>
+</fieldset>
+<div class="loading-keys"><h3>FEC API keys</h3><p id="key-status" class="loading-key-status" data-state="unknown">Checking saved keys…</p><button id="keys-toggle" type="button" class="loading-link-button" aria-expanded="false" aria-controls="key-editor">Add or replace keys</button></div>
+<div id="key-editor" class="loading-key-editor" hidden><label class="field" for="api-key">FEC API key <span id="key-hint">Saved encrypted for your Windows account. Separate multiple keys with commas.</span></label><div class="loading-key-row"><input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="Enter your API key"><button id="save-keys" type="button" class="secondary">Save keys securely</button></div></div>
+<h3 class="loading-next-title">What happens next</h3>
+<ol class="loading-next"><li id="next-searches">Searches 0 names across 3 cycles</li><li>Saves checkpoints as it runs; closing the browser does not stop collection</li><li>Progress appears in Collection</li></ol>
+</div>
+</div>
+<div class="card loading-setup"><h2 class="loading-title">Collection setup</h2>
+<div id="setup-summary" class="loading-summary"></div>
+<p id="setup-note" class="loading-setup-note">Nothing is collected until you press Start collection.</p>
+<div class="loading-actions"><button id="roster-back" type="button" class="secondary" hidden>Back</button><button id="review-roster" type="button" class="primary primary--gold">Review names <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button><button id="choose-cycles" type="button" class="primary primary--gold" hidden disabled>Choose cycles <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button><button id="start" type="button" class="primary primary--gold" hidden disabled>Start collection</button></div>
+</div>
+</div>
+<section class="card coverage-panel loading-coverage" aria-labelledby="loading-coverage-title"><div class="loading-coverage-head"><div><h2 id="loading-coverage-title" class="loading-title">Saved FEC coverage</h2><p class="loading-coverage-sub">What is already on this computer, by sector and cycle</p></div><details class="inline-help loading-popover"><summary>How coverage is assessed</summary><p>Coverage applies to the saved run’s roster and searches. Review changed company names and aliases before reusing it. An active cycle is flagged stale when its verified cutoff is more than 30 days behind today; a past cycle requires coverage through December 31.</p></details></div><div id="loading-coverage"><p>Unverifiable · Checking saved coverage evidence.</p></div></section>
+</section>

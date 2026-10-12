@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:isolation-receipt:v1",
+  "title": "Staffer network off-isolation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "production_python_files_scanned",
+    "reader_candidates", "approved_production_readers", "unexpected_reader_paths",
+    "missing_approved_reader_paths", "off_open_attempts", "off_results_null",
+    "physical_absence_result_null", "protected_outputs_before",
+    "protected_outputs_after", "protected_output_changes", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-isolation-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "production_python_files_scanned": {"type": "integer", "minimum": 1},
+    "reader_candidates": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "approved_production_readers": {"type": "array", "items": {"type": "string"}, "minItems": 1, "uniqueItems": true},
+    "unexpected_reader_paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "missing_approved_reader_paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "off_open_attempts": {"type": "integer", "minimum": 0},
+    "off_results_null": {"type": "boolean"},
+    "physical_absence_result_null": {"type": "boolean"},
+    "protected_outputs_before": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "sha256"], "properties": {"path": {"type": "string"}, "bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "protected_outputs_after": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["path", "bytes", "sha256"], "properties": {"path": {"type": "string"}, "bytes": {"type": "integer", "minimum": 0}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "protected_output_changes": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

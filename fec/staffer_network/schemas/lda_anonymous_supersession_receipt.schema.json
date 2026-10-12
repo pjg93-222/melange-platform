@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-anonymous-supersession-receipt:v1",
+  "title": "LDA anonymous generation supersession receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "meta_loop_run_id", "user_ratification", "reason", "replacement", "legacy_inventory_before_sha256", "legacy_inventory_after_sha256", "anonymous_generation", "corroborating_prefix"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-anonymous-supersession-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "meta_loop_run_id": {"type": "string", "minLength": 1},
+    "user_ratification": {"type": "string", "minLength": 1},
+    "reason": {"type": "string", "minLength": 1},
+    "replacement": {"type": "string", "minLength": 1},
+    "legacy_inventory_before_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "legacy_inventory_after_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "anonymous_generation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["generation_id", "path", "status", "completed_at", "error", "files", "bytes", "inventory_sha256", "status_sha256", "collector_log_sha256"],
+      "properties": {
+        "generation_id": {"type": "string", "minLength": 1},
+        "path": {"type": "string", "minLength": 1},
+        "status": {"const": "FAILED_BY_DELIBERATE_SUPERSESSION"},
+        "completed_at": {"type": "string", "format": "date-time"},
+        "error": {"type": "string", "minLength": 1},
+        "files": {"type": "integer", "minimum": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "inventory_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "collector_log_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "corroborating_prefix": {
+      "type": "object", "additionalProperties": false,
+      "required": ["filing_year", "pages", "filing_objects", "unique_filing_uuids", "duplicate_filing_uuid_occurrences", "uuid_absent_from_sealed_legacy"],
+      "properties": {
+        "filing_year": {"const": 2022},
+        "pages": {"type": "integer", "minimum": 1},
+        "filing_objects": {"type": "integer", "minimum": 1},
+        "unique_filing_uuids": {"type": "integer", "minimum": 1},
+        "duplicate_filing_uuid_occurrences": {"const": 0},
+        "uuid_absent_from_sealed_legacy": {"const": 0}
+      }
+    }
+  }
+}

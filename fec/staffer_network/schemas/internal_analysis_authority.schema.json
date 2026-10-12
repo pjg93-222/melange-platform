@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:internal-analysis-authority:v1",
+  "title": "Staffer network internal analysis authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "decision_authority", "scope", "raw_redistribution_claimed", "sources"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-internal-analysis-authority-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "decision_authority": {"type": "string", "minLength": 1},
+    "scope": {"const": "INTERNAL_ANALYSIS_ONLY"},
+    "raw_redistribution_claimed": {"const": false},
+    "sources": {
+      "type": "object",
+      "required": ["congress-legislators", "littlesis-bulk", "politico-pro-staffer-directory", "quorum-legacy-derived", "senate-lda-api"],
+      "minProperties": 5,
+      "maxProperties": 5,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enabled_internal_analysis", "authority_basis", "evidence_sha256"],
+        "properties": {
+          "enabled_internal_analysis": {"type": "boolean"},
+          "authority_basis": {"type": "string", "minLength": 1},
+          "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

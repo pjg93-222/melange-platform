@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply a signed Melange release as soon as the laptop finishes uploading it
+# The inbox is on the encrypted volume (bind mount); a watch set before the mount would sit on
+# the shadowed directory and never fire.
+RequiresMountsFor=/srv/melange/push
+
+[Path]
+# The laptop writes <name>.part and renames it into place, manifest.json last, so manifest.json appearing means all
+# three files are complete. While it is absent systemd watches the directory, so a .part upload can wake the service;
+# the updater reads only the three contract names, finds no manifest.json and exits: *.part files are never acted on.
+PathChanged=/srv/melange/push/inbox/manifest.json
+Unit=melange-update.service
+
+[Install]
+WantedBy=multi-user.target

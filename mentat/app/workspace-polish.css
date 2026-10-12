@@ -1,0 +1,905 @@
+/* Shared presentation for all seven workspaces. Specialized chart and map
+   layouts stay in their own stylesheets. */
+:root{--workspace-panel-radius:7px;--workspace-panel-border:#d9d4de;--workspace-heading-size:22px;--workspace-control-height:40px}
+body[data-view] .workspace{padding:24px 28px 40px;margin:0;max-width:none;width:100%}
+body[data-view] .workspace-heading{margin-bottom:14px}
+body[data-view] .workspace-heading h1{font-size:30px;font-weight:700;letter-spacing:-.5px}
+body[data-view] .workspace-tabs button[aria-selected=true]{background:var(--acu-plum);color:white;border-color:var(--acu-plum)}
+body[data-view] .workspace :is(input,textarea){caret-color:var(--acu-purple)}
+body[data-view] .workspace ::selection{background:#ddd0e8;color:var(--acu-plum)}
+body[data-view] .workspace :is(button,select,input,textarea,summary,a):focus-visible{outline:2px solid var(--acu-purple);outline-offset:3px}
+body[data-view] .workspace :is(.table-scroll,.studio-side,.studio-inspector){scrollbar-color:#b5a8bf #f5f1f5;scrollbar-width:thin}
+:is(#view-loading,#view-collection,#view-graph,#view-chart-studio,#view-insights,#view-cross-reference,#view-evidence) .panel{border-radius:var(--workspace-panel-radius);border-color:var(--workspace-panel-border)}
+:is(#view-loading,#view-collection,#view-graph,#view-insights,#view-cross-reference) :is(h2,h3){text-wrap:balance}
+:is(#view-loading,#view-collection,#view-cross-reference) .panel h2{font-size:var(--workspace-heading-size);font-weight:700;margin:0 0 12px}
+:is(#view-loading,#view-collection,#view-cross-reference) .panel h3{font-size:16px;margin:0 0 10px}
+:is(#view-loading,#view-collection,#view-cross-reference) .panel{padding:16px}
+:is(#view-loading,#view-collection,#view-cross-reference) :is(td,th){font-size:12px;padding:10px 12px;line-height:1.45}
+:is(#view-loading,#view-collection,#view-cross-reference) td small{font-size:11px;line-height:1.45}
+:is(#view-loading,#view-collection) .coverage-panel{border-left-width:1px}
+.view-intro{margin-bottom:16px}
+#view-loading .loading-grid{gap:18px;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+#view-loading .loading-grid>.panel{padding:18px}
+#view-loading .company-entry{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;padding:12px 0 0;margin-top:12px}
+#view-loading .company-entry-heading{margin-bottom:6px}
+#view-loading .loading-grid textarea{min-height:64px}
+#view-loading .loading-grid :is(input[type=text],textarea){margin:6px 0 12px;padding:9px 10px}
+#view-loading .editor-actions{gap:10px;margin-top:12px}
+#view-loading .editor-actions .primary{flex:0 1 auto}
+#view-loading .file-import{margin-top:16px;padding-top:14px}
+#view-loading .local-note{font-size:12px;line-height:1.5}
+#view-loading #upload-review>h3{font-size:15px;margin:8px 0}
+#view-loading #roster-list h3{font-size:15px;margin:8px 0}
+#view-loading .roster-company{padding:6px 0;font-size:13px}
+#view-loading fieldset{margin:12px 0 8px;padding:8px 0}
+#view-loading legend{padding-top:6px;font-size:14px}
+#view-loading .launch-panel .local-note{margin-top:10px;padding-top:10px}
+#view-loading .launch-panel #start{padding:10px;margin-top:8px}
+#view-loading .loading-grid input[type=password]{padding:8px 10px;font-size:14px}
+.coverage-table th{letter-spacing:0;text-transform:none;font-weight:600}
+.coverage-table td:nth-child(2){white-space:nowrap;font-variant-numeric:tabular-nums}
+.coverage-table details{margin-top:8px}
+.coverage-table summary{padding:5px 0}
+.coverage-table td:nth-child(5){width:30%}
+#view-collection .run-library{padding:14px 16px;margin-bottom:12px}
+#view-collection .run-collections{padding-bottom:10px;margin-bottom:10px}
+#view-collection .run-library-note:empty{display:none}
+#view-collection .run-heading{margin:12px 0 4px}
+#view-collection .run-library{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 16px}
+#view-collection .run-collections{grid-column:1/-1;margin:0;padding:0 0 8px}
+#view-collection .run-toolbar{grid-column:1/-1}
+#view-collection #run-library-note{margin:0;align-self:center}
+#view-collection .working-folders{align-self:center}
+#view-collection .working-folders[open]{grid-column:1/-1}
+#view-collection .metrics{margin:12px 0;background:#f0ecef;color:var(--acu-plum);padding:14px 0;border:1px solid var(--line);border-radius:6px}
+#view-collection .metrics>div{padding:0 16px;border-color:var(--line)}
+#view-collection .metrics :is(span,small){color:var(--muted);font-size:12px}
+#view-collection .metrics strong{color:var(--acu-plum);font-size:24px;font-variant-numeric:tabular-nums}
+#view-collection .metrics small{display:flex;gap:5px;flex-wrap:wrap}
+#view-collection .metrics small span{display:inline}
+#view-collection .quality-panel{border-left-width:1px;margin:12px 0;padding:12px 16px}
+#view-collection .quality-panel :is(p,summary){font-size:12px;line-height:1.5}
+#view-collection .quality-panel strong{font-size:14px}
+#run-controls .section-label{display:none}
+#view-collection #run-controls .editor-actions{margin-top:0}
+#view-collection .collection-work-grid{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);gap:16px;align-items:start}
+.collection-work-main,.collection-work-grid .bottom-grid{min-width:0}
+#view-collection .bottom-grid{display:flex;flex-direction:column;gap:0}
+#view-collection .bottom-grid>.panel{width:100%;margin:0 0 16px}
+#view-collection .bottom-grid>.panel:last-child{order:-1}
+#view-collection .collection-work-main>.panel{margin:0 0 16px}
+#view-collection .collection-work-grid .panel-heading{flex-wrap:wrap;gap:8px}
+#view-collection .collection-work-grid .panel-heading label{width:auto;max-width:100%;font-size:12px}
+#view-collection .collection-work-grid p{font-size:12px;line-height:1.55}
+#view-collection .collection-work-grid .table-scroll table{min-width:520px}
+#view-collection .collection-disclosure{margin:0 0 12px}
+.collection-disclosure>summary{font-size:14px;font-weight:600;padding:2px 0}
+.collection-disclosure[open]>summary{margin-bottom:14px}
+#view-chart-studio .studio{margin-top:0;border-radius:7px}
+#view-chart-studio .studio-header{padding:12px;flex-wrap:wrap;gap:8px}
+#view-chart-studio .studio-scope-block{flex:1 1 220px}
+#view-chart-studio .studio-toolbar{gap:6px;padding:10px 12px}
+#view-chart-studio .studio-toolbar :is(button,select,summary){min-height:32px}
+#view-chart-studio .studio-toolbar button{padding:5px 8px}
+#view-chart-studio .studio-panel-title{font:700 var(--workspace-heading-size) var(--font-serif);text-transform:none;letter-spacing:0}
+#view-chart-studio .studio-pane>h3:not(.studio-panel-title){font-size:12px;letter-spacing:0;text-transform:none;margin-top:16px}
+#view-chart-studio .studio-pane label{font-size:12px}
+#view-chart-studio .studio-source :is(select,input){font-size:12px;min-height:36px}
+#view-chart-studio .studio-shelf-name{letter-spacing:0;text-transform:none;font-size:12px}
+#view-chart-studio .studio-canvas-wrap{padding:16px}
+#view-chart-studio .studio-data-toggle{display:none}
+#view-chart-studio :is(.studio-side,.studio-inspector){padding:0}
+#view-chart-studio .studio-quick-tools{padding:8px 12px;font-size:12px}
+#view-chart-studio .studio-quick-tools label{width:auto;white-space:nowrap}
+#view-chart-studio .studio-canvas svg text{font-size:18px}
+#view-cross-reference .panel{margin-top:14px}
+#view-cross-reference .xref-scope{display:grid;grid-template-columns:1.15fr 1fr;column-gap:24px}
+#view-cross-reference .xref-scope>h2{grid-column:1}
+#view-cross-reference .xref-scope>p:not(.xref-caption),#view-cross-reference .xref-scope>details{grid-column:1;margin:3px 0;font-size:12px}
+#view-cross-reference .xref-scope>.xref-caption{grid-column:2;grid-row:1/5;margin:0;border-left:1px solid var(--line);padding-left:20px;font-size:12px;line-height:1.6;align-self:center}
+#view-cross-reference .xref-run{font-size:12px;margin:10px 0}
+#view-cross-reference .xref-intro{font-size:14px;margin-bottom:12px}
+#view-cross-reference .xref-toolbar{justify-content:flex-end;margin-bottom:8px}
+#view-cross-reference .xref-toolbar button{order:1}
+#view-cross-reference .xref-toolbar span{margin-right:auto}
+#view-cross-reference .panel>p{font-size:12px;line-height:1.6}
+#view-cross-reference .number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#view-cross-reference .xref-adjustments{border-top:1px solid var(--line);padding-top:10px;margin-top:12px}
+#view-cross-reference .xref-adjustments summary{padding:6px 0}
+#view-cross-reference .xref-adjustments summary h3{display:inline;font-family:var(--font-sans);font-size:13px}
+/* Same-role controls share size, typography and color across workspaces. */
+.workspace :is(.graph-filter-grid,.insights-filter-grid,.evidence-scope-grid,.run-toolbar) label{font-size:13px;font-weight:600;color:var(--acu-plum)}
+.workspace :is(.graph-filter-grid,.insights-filter-grid,.evidence-scope-grid,.run-toolbar) :is(select,input){height:var(--workspace-control-height);min-height:var(--workspace-control-height);padding:8px 10px;font:400 14px/1.3 var(--font-sans);border:1px solid #c8c0d1;border-radius:5px;background:white;color:var(--acu-plum);margin:6px 0 0}
+.workspace .insights-filter-grid label{gap:0}
+.workspace :is(.editor-actions,.graph-actions,.insights-export,.insights-scope-actions,.xref-toolbar,.evidence-scope-grid,.evidence-scope-actions,.run-toolbar) :is(.primary,.secondary){min-height:var(--workspace-control-height);padding:8px 12px;font-size:13px;line-height:1.4;border-radius:5px}
+.workspace :is(.primary,.secondary):disabled{cursor:default}
+.workspace .primary{background:var(--acu-plum);color:var(--acu-ivory)}
+.workspace .primary:hover{background:var(--acu-purple)}
+.workspace table th{font-family:var(--font-sans);font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--muted)}
+.workspace a:not(.primary):not(.secondary){color:var(--acu-purple);text-underline-offset:3px}
+.workspace a:not(.primary):not(.secondary):hover{color:var(--acu-plum)}
+#view-cross-reference .xref-intro{font-size:15px}
+#view-evidence{--s6-label:var(--muted)}
+#view-evidence :is(.evidence-scope,.evidence-pane,.evidence-compare){padding:16px}
+#view-evidence :is(.evidence-scope-grid,.evidence-panes){gap:16px}
+#view-evidence :is(.evidence-scope,.evidence-pane,.evidence-compare) h2{font-size:var(--workspace-heading-size);font-weight:700}
+#view-evidence .panel h2{font-size:var(--workspace-heading-size);font-weight:700}
+#view-evidence .evidence-scope-grid label{font-size:12px;font-weight:400;color:var(--muted)}
+#view-evidence .evidence-scope-grid :is(select,input){font:400 13px/1.3 var(--font-sans);border-color:#c6bab0}
+#view-evidence .evidence-scope-actions button{min-height:var(--workspace-control-height)}
+#view-evidence .evidence-scope{margin-bottom:16px}
+#view-evidence .evidence-follow{min-height:var(--workspace-control-height);font-size:12px}
+#view-evidence #evidence-status{font-size:12px}
+@media(max-width:760px){:root{--workspace-control-height:44px}}
+@media(min-width:1100px){
+  body[data-view] .app-navigation{width:180px;padding:24px 12px 20px}
+  body[data-view] .app-navigation .workspace-tabs{margin-top:16px;padding-top:8px;border-top:1px solid var(--line)}
+  body[data-view] .app-navigation .wordmark{padding:0 4px}
+  body[data-view] :is(main,footer){margin-left:180px}
+  #view-chart-studio .studio-grid{grid-template-columns:200px minmax(0,1fr) 210px}
+  #view-chart-studio .studio:not(.studio-options-hidden) .studio-inspector{position:static;inset:auto;width:auto;max-height:78vh;border-left:0;box-shadow:none}
+  #view-chart-studio .studio-side{max-height:78vh}
+  #view-chart-studio .studio:not(.studio-options-hidden) :is(.studio-inspector-toggle,.studio-inspector-close){display:none}
+}
+@media(min-width:1400px){#view-chart-studio .studio-grid{grid-template-columns:230px minmax(0,1fr) 230px}}
+@media(max-width:1099px){
+  #view-insights .insights-results{grid-template-columns:minmax(0,1fr)}
+  #view-chart-studio .studio-grid{grid-template-columns:220px minmax(0,1fr)}
+}
+@media(max-width:760px){
+  body[data-view] .workspace{padding:20px 16px 32px}
+  body[data-view] .workspace-heading h1{font-size:27px}
+  #view-loading .loading-grid,#view-collection .collection-work-grid{grid-template-columns:minmax(0,1fr)}
+  #view-loading .loading-grid>.panel{padding:16px}
+  #view-collection .run-library{display:block}
+  #view-collection .run-toolbar{margin:10px 0}
+  #view-collection .working-folders{margin-top:8px}
+  #view-collection .metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 0}
+  #view-collection .metrics>div:nth-child(odd){border-right:1px solid var(--line)}
+  #view-collection .metrics>div:nth-child(even){border-right:0}
+  .coverage-table{max-height:none;overflow:visible}
+  .coverage-table table{min-width:0;display:block}
+  .coverage-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .coverage-table tbody,.coverage-table tr{display:block}
+  .coverage-table tr{padding:12px 0;border-bottom:1px solid var(--line)}
+  .coverage-table tr:last-child{border-bottom:0}
+  .coverage-table td{display:block;max-width:none;width:auto!important;padding:5px 0!important;border:0}
+  .coverage-table td::before{content:attr(data-label);display:block;color:var(--muted);font-size:11px;margin-bottom:3px}
+  .coverage-table td:first-child{font-weight:600}
+  #view-chart-studio .studio-grid{grid-template-columns:minmax(0,1fr)}
+  #view-chart-studio .studio-data-toggle{display:inline-flex;align-items:center}
+  #view-chart-studio .studio:not(.studio-data-open) .studio-side{display:none}
+  #view-chart-studio .studio-data-open .studio-side{max-height:65vh;overflow-y:auto}
+  #view-chart-studio .studio-header-gap,#view-chart-studio .studio-toolbar-gap{display:none}
+  #view-chart-studio .studio-segmented{flex-wrap:wrap}
+  #view-chart-studio .studio-toolbar .studio-divider{display:none}
+  #view-chart-studio .studio-toolbar .studio-group{flex-wrap:wrap}
+  #view-chart-studio .studio-canvas-wrap{padding:12px}
+  #view-insights .insights-controls{grid-template-columns:1fr auto;gap:12px}
+  #view-insights .insights-scope-actions,#view-insights .insights-controls:has(.insights-comparison-options[open]) .insights-scope-actions{grid-column:2;grid-row:2/4}
+  #view-insights #insights-panel-picker{grid-column:1;grid-row:3}
+  #view-insights .insights-comparison-options[open]{grid-row:4}
+  #view-insights #insights-panel-picker[open]{grid-row:5}
+  #view-cross-reference .xref-scope{display:block}
+  #view-cross-reference .xref-scope>.xref-caption{border:0;border-top:1px solid var(--line);padding:12px 0 0;margin-top:12px}
+  #view-cross-reference .xref-toolbar{justify-content:flex-start}
+  #view-cross-reference .xref-toolbar button{order:0}
+  :is(#view-loading,#view-collection,#view-graph,#view-chart-studio,#view-insights,#view-cross-reference,#view-evidence) :is(button,select,input:not([type=checkbox]):not([type=radio]),summary){min-height:44px}
+  :is(#view-loading,#view-collection,#view-cross-reference) summary{align-content:center}
+}
+@media print{#view-chart-studio .studio-data-toggle{display:none}}
+/* Approved visual analysis system: PAC evidence and Insights. Graph is restored below. */
+:root{--analysis-teal:#327A7A;--analysis-purple:#57447B;--analysis-plum:#342649;--analysis-paper:#F7F3EE}
+body[data-view] .workspace{background:var(--analysis-paper)}
+.analysis-intro{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 16px}
+.analysis-intro p{margin:0;font-size:15px;color:var(--muted)}
+.analysis-page-actions,.analysis-chart-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.analysis-page-actions{flex:none}
+.analysis-page-actions :is(button,summary),.analysis-chart-actions :is(button,summary){min-height:40px;border:1px solid #b7a9c5;border-radius:5px;background:white;color:var(--acu-plum);padding:8px 12px;font:500 13px var(--font-sans);cursor:pointer}
+.analysis-segment{display:inline-flex;border:1px solid #b7a9c5;border-radius:5px;overflow:hidden;flex:none}
+.analysis-segment button{border:0!important;border-radius:0!important;margin:0;min-height:40px;padding:8px 12px;font:500 13px var(--font-sans);background:white;color:var(--acu-plum);cursor:pointer}
+.analysis-segment button[aria-pressed=true]{background:var(--acu-plum);color:white}
+.analysis-nav{display:flex;gap:8px;overflow-x:auto;border-bottom:1px solid var(--line);margin:12px 0 16px}
+.analysis-nav :is(button,a){font:500 14px var(--font-sans);color:var(--acu-plum);background:none;border:0;border-bottom:3px solid transparent;padding:12px;text-decoration:none;white-space:nowrap;min-height:40px}
+.analysis-nav [aria-current],.analysis-nav [aria-selected=true]{border-bottom-color:var(--acu-purple);font-weight:600}
+.analysis-scope-line{font-size:13px;line-height:1.6;color:var(--muted);margin:8px 0}
+.analysis-detail{padding:16px;background:white;border:1px solid var(--line);border-radius:7px;min-width:0}
+.analysis-detail h3{font:700 22px var(--font-serif);margin:0 0 12px}
+.analysis-detail p{font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.analysis-detail-amount{font:400 26px var(--font-serif);font-variant-numeric:tabular-nums}
+.analysis-selection{outline:2px solid var(--acu-purple);outline-offset:2px}
+@media(max-width:760px){.analysis-intro{align-items:start;flex-direction:column;gap:12px}.analysis-page-actions :is(button,summary),.analysis-segment button,.analysis-chart-actions :is(button,summary){min-height:44px}.analysis-nav{gap:0}.analysis-nav :is(button,a){padding:12px 8px;min-height:44px}}
+
+/* Page chrome shares one baseline; the chart owns the next line. */
+body[data-view] .workspace{position:relative}
+body[data-view] .workspace-heading{margin-bottom:4px}
+:is(#view-graph,#view-evidence,#view-insights) .analysis-intro{min-height:20px;margin:0 0 16px}
+:is(#view-graph,#view-evidence,#view-insights) .analysis-page-actions{position:absolute;right:28px;top:24px}
+body:is([data-view=graph],[data-view=evidence]) #split-view{margin-right:260px;min-height:40px;font-size:12px}
+.analysis-scope-disclosure{margin:0 0 8px}
+.analysis-scope-disclosure>summary{display:none;font-size:13px;font-weight:600;cursor:pointer;padding:12px;border:1px solid var(--line);border-radius:5px;background:white}
+@media(max-width:760px){
+ :is(#view-graph,#view-evidence,#view-insights) .analysis-page-actions{position:static;gap:8px}
+ :is(#view-graph,#view-evidence,#view-insights) .analysis-intro{margin-bottom:12px;gap:12px}
+ body:is([data-view=graph],[data-view=evidence]) #split-view{margin:0;min-height:44px;max-width:140px;font-size:12px;white-space:normal;line-height:1.4}
+ .analysis-scope-disclosure>summary{display:block;min-height:44px}
+ .analysis-scope-disclosure[open]>summary{margin-bottom:8px}
+ body[data-view] .app-navigation .build-stamp{display:none}
+}
+
+/* User-requested Graph rollback, from the saved pre-redesign presentation.
+   Keep these shell overrides scoped to Graph so other workspaces retain their UI. */
+body[data-view=graph]{--muted:#716a64;--line:#e4d9d0;--chart-grid:#e8e0da;--workspace-panel-border:#e7e0dc}
+body[data-view=graph] .workspace{max-width:1560px;margin:0 auto;width:auto}
+body[data-view=graph] .workspace-heading{margin-bottom:14px}
+body[data-view=graph] .app-navigation{background:white}
+body[data-view=graph] .app-navigation .wordmark{font:700 22px/1.5 var(--font-sans);letter-spacing:2px;padding:0 12px}
+body[data-view=graph] .app-navigation .workspace-tabs button{color:var(--muted);font-size:14px}
+body[data-view=graph] .app-navigation .workspace-tabs button[aria-selected=true]{color:white}
+body[data-view=graph] #split-view{margin-right:0;max-width:none}
+/* Build 06, fix round 1 (R06-12), applied by the integration pass: B19 draws Split with Graph flush with the content edge. */
+body[data-view=evidence] #split-view{margin-right:0}
+#view-graph{--muted:#716a64;--line:#e4d9d0;--chart-grid:#e8e0da;--workspace-panel-border:#e7e0dc}
+/* Build 02 (2026-09-22) retired the rollback's scope-card, tab, figure and card
+   rules that stood here: graph.css's build-02 block lays those out now. */
+#view-graph .graph-panel-tools{margin-left:auto;flex-wrap:wrap}
+#view-graph .graph-panel-foot{margin-top:auto}
+@media(min-width:1100px){
+ body[data-view=graph] .app-navigation{padding:28px 12px 20px}
+ body[data-view=graph] .app-navigation .workspace-tabs{margin-top:30px;padding-top:0;border-top:0}
+}
+
+/* ------------------------------------------- Console redesign, build 01 (2026-09-22)
+   One shell on every view (approved call 9), matched one-to-one to board M4
+   (boards\M4_graph_default.webp: a 1600x900 frame at 1.25x). Where 01_shell.md's
+   numbers differ from the board, the board wins (00_README). Sizes are set so the
+   fallback faces (Arial, Georgia; the brand faces are not installed and D-050
+   bars web fonts) land on the board's ink boxes; colours are sampled from M4.
+   This file loads last, so these rules win without !important. */
+
+/* The shell keeps the base palette on every view. Graph re-tints --muted and
+   --line for its own content (the Graph rollback above); the shell does not. */
+body[data-view] :is(.app-navigation,.workspace-heading,.graph-trail){--muted:var(--base-muted);--line:var(--base-line)}
+
+/* Page canvas: board M4's #f7f3ee (--analysis-paper, set above) on every view
+   and width. The body carries it too, so workspace.css's #faf8f6 never shows. */
+body[data-view]{background-color:var(--analysis-paper)}
+
+/* Sidebar, 200px. The column stays fixed so its items never scroll away; the
+   body paints the same rail behind it down the whole document. Text-only items,
+   exactly one active: a 28px lilac fill with a bar, on a 25.5px row pitch. */
+@media(min-width:1100px){
+  body[data-view]{background:linear-gradient(90deg,var(--sidebar-bg) 0 199px,var(--sidebar-line) 199px 200px,transparent 200px) var(--analysis-paper)}
+  body[data-view] :is(main,footer){margin-left:200px}
+  body[data-view] .app-navigation{display:grid;grid-template-columns:max-content minmax(0,1fr);grid-template-rows:auto auto auto minmax(0,1fr) auto auto;align-items:start;gap:0 6px;width:200px;padding:20px 10px 62px 16px;background:var(--sidebar-bg);border-right:1px solid var(--sidebar-line)}
+  body[data-view] .app-navigation>*{grid-column:1/-1;min-width:0}
+  /* The 20px top padding puts the wordmark's ink where M4 has it (1.25x). */
+  body[data-view] .app-navigation .wordmark{grid-row:1;display:block;margin:0;padding:0 8px;font:600 21px/26px var(--font-sans);letter-spacing:.1em;color:var(--acu-plum);text-decoration:none}
+  body[data-view] .app-navigation .brand-caption{grid-row:2;display:block;margin:4px 0 0;padding:0 8px;font:400 12.5px/16px var(--font-sans);color:#6c6d6e}
+  body[data-view] .app-navigation .workspace-tabs{grid-row:3;display:flex;flex-direction:column;align-items:stretch;gap:0;margin:1px 0 0;padding:0;border:0;overflow:visible}
+  body[data-view] .app-navigation .nav-group{display:block;margin:20px 0 4px;padding:0 8px;font:700 8.5px/11px var(--font-sans);letter-spacing:1px;text-transform:uppercase;color:#7e7c7b}
+  body[data-view] .app-navigation .workspace-tabs button{position:relative;isolation:isolate;display:flex;align-items:center;height:25.5px;min-height:0;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;box-shadow:none;color:#2f3236;font:400 13px/16px var(--font-sans);text-align:left;white-space:nowrap}
+  body[data-view] .app-navigation .workspace-tabs button::before{content:"";position:absolute;inset:-1.25px 0;z-index:-1;border-radius:6px;background:transparent}
+  body[data-view] .app-navigation .workspace-tabs button:hover{background:transparent;color:#2f3236}
+  body[data-view] .app-navigation .workspace-tabs button:hover::before{background:rgba(214,200,226,.35)}
+  body[data-view] .app-navigation .workspace-tabs button[aria-selected=true]{background:transparent;color:#2f273f;font-weight:600}
+  body[data-view] .app-navigation .workspace-tabs button[aria-selected=true]::before{background:#e9e2f2;box-shadow:inset 3px 0 0 #2f2452}
+  body[data-view] .app-navigation :is(.wordmark,.workspace-tabs button):focus-visible{outline:2px solid var(--acu-purple);outline-offset:2px}
+  /* Footer: "Local only" and #connection share a line, as on M4; the stamp
+     keeps its "up since" text (test_app_lazy_startup_browser.cjs asserts it). */
+  body[data-view] .app-navigation .local-indicator{grid-row:5;grid-column:1;display:block;margin:0;padding:0 0 0 8px;font:400 11px/16px var(--font-sans);color:#7e7c7b;white-space:nowrap}
+  body[data-view] .app-navigation #connection{grid-row:5;grid-column:2;display:block;margin:0;padding:0;max-width:none;font:400 11px/16px var(--font-sans);color:#7e7c7b;white-space:normal}
+  body[data-view] .app-navigation .build-stamp{grid-row:6;display:block;margin:0;padding:0 8px;max-width:none;font:400 11px/16px var(--font-sans);color:#7e7c7b;white-space:normal}
+  /* Content edge 226px at 1600 wide, as on M4. */
+  body[data-view] .workspace{padding:11px 22px 40px 26px}
+  :is(#view-graph,#view-evidence,#view-insights) .analysis-page-actions{top:8px;right:22px}
+}
+@media print{body[data-view]{background:none}}
+
+/* Page header: an overline (the scope trail on Graph), the serif title, 10px to
+   the first card. #split-view keeps its place until prompt 02; its 40px box no
+   longer sets the row height. */
+@media(min-width:761px){
+  body[data-view] .workspace-heading{margin:0 0 10px}
+  body[data-view] .workspace-heading h1{margin:0;font:500 31px/34px var(--font-serif);letter-spacing:0;color:#1d173b}
+  body[data-view] #split-view{margin-top:-3px;margin-bottom:-3px}
+  body[data-view] .graph-trail{margin:0}
+  body[data-view] .graph-trail-parts{font:400 12px/16px var(--font-sans);color:#69696e}
+  body[data-view] :is(.graph-trail-part,.graph-trail-mark){padding:0;min-height:0;font:inherit;color:#69696e}
+  body[data-view] .graph-trail-part[aria-current=page]{color:#69696e;font-weight:400}
+  body[data-view] .graph-trail-part[aria-current=page]:not(:only-of-type){color:var(--acu-plum);font-weight:600}
+}
+/* Loading and Collection keep their own boards' page head (r4, TD-06), as Chart
+   Studio (S1, 40px) and Insights (I1, 36px) do; the other views keep M4's 31px.
+   B20/L1-L4 and B22 draw a semibold serif title: Georgia 35px lands on their
+   233x28 and 181x30 ink. The spacing puts, at 1600x900, Loading's intro ink at
+   y70, stepper at y112 and cards at y182, and Collection's pill at y27, tabs'
+   underline at y121-124 over the rule at y124 and run card at y150. */
+@media(min-width:761px){
+  body:is([data-view=loading],[data-view=collection]) .workspace-heading h1{font:600 35px/42px var(--font-serif);letter-spacing:0;color:#1d173b}
+  body[data-view=loading] .workspace-heading{margin:7px 0 0}
+  body[data-view=loading] #view-loading .view-intro{margin:6px 0 24px}
+  body[data-view=collection] .workspace-heading{margin:10px 0 0}
+  body[data-view=collection] #view-collection .run-collections{margin-top:28px}
+}
+/* r5 (audit men-b F1, open item TC-02): Cross-reference (B16) and the PAC
+   evidence pane board (B19) draw the same semibold serif title as B20 and B22,
+   so they take the same 35px Georgia Bold. Georgia Bold runs wider than the
+   boards' face, and by a different amount for each word, so each title keeps
+   the tracking whose ink best overlaps its own board's (shift-tolerant ink
+   IoU, r5\men-shell\iou.py): "Cross-reference" -1.5px lands 263x26 on B16's
+   262x27 (IoU 0.67; 31px regular was 0.15), "PAC evidence" -0.5px lands 234x26
+   on B19's 233x29 (0.58; was 0.16). The spacing keeps B16's subtitle ink at
+   y60 and run strip at y105 (1600x900), and puts B19's title ink at y25-51,
+   "Split with Graph" at y21-53 and the rail and panes at y72. */
+@media(min-width:761px){
+  body:is([data-view=cross-reference],[data-view=evidence]) .workspace-heading h1{font:600 35px/42px var(--font-serif);color:#1d173b}
+  body[data-view=cross-reference] .workspace-heading h1{letter-spacing:-1.5px}
+  body[data-view=cross-reference] .workspace-heading{margin:2px 0 0}
+  body[data-view=evidence] .workspace-heading h1{letter-spacing:-.5px}
+  body[data-view=evidence] .workspace-heading{margin:7px 0 12px;align-items:flex-start}
+  body[data-view=evidence] #split-view{align-self:flex-start;height:32px;min-height:0;margin:3px 0 0}
+  /* Insights (I1): the title itself is set in insights.css; its header sits 3px under it. */
+  body[data-view=insights] .workspace-heading{margin:0 0 3px}
+}
+/* r5 (audit men-b F2): the enlarged PAC map, boards 6 and M13 at 1600x900.
+   Board 6 ends the toolbar row with "^ Collapse" (evidence.js collapseMap: the
+   map folds back into its pane). It shows its words where board 6 has room
+   for them; the compare row (M13 draws none) and rows narrower than the board
+   show the chevron alone, named "Collapse". The row gives up 4-6px of padding
+   per segment so the search keeps "Find a state, district or ZIP" whole. */
+body[data-view] #view-evidence #evidence-map #evidence-map-collapse{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:37px;min-height:0;padding:0 13px 0 11px;border:1px solid var(--ev-control);border-radius:6px;background:white;color:var(--acu-plum);font:400 14px/1 var(--font-sans);white-space:nowrap}
+body[data-view] #view-evidence #evidence-map #evidence-map-collapse:hover{border-color:var(--acu-purple);background:#f7f2fa}
+body[data-view] #view-evidence #evidence-map #evidence-map-collapse .map-button-icon{flex:none;width:15px;height:15px;stroke-width:1.8}
+body[data-view] #view-evidence #evidence-map.comparing #evidence-map-collapse{width:37px;padding:0}
+body[data-view] #view-evidence #evidence-map.comparing #evidence-map-collapse .map-collapse-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:1519px){
+  body[data-view] #view-evidence #evidence-map #evidence-map-collapse{width:37px;padding:0}
+  body[data-view] #view-evidence #evidence-map #evidence-map-collapse .map-collapse-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+}
+/* The compare row at 1440 holds both cycle selects; the chevron's 43px come
+   out of the segments' padding, so the row stays one row. */
+@media (min-width:681px) and (max-width:1519px){
+  body[data-view] #view-evidence #evidence-map.comparing .map-scope-controls .seg button{padding:0 12px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-layer-group .seg button{padding:0 7px}
+}
+@media (min-width:1520px){
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-toolbar{column-gap:8px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-scope-controls{gap:8px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-scope-controls .seg button{padding:0 16px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-layer-group .seg button{padding:0 8px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-toolbar select{padding:0 6px 0 9px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) :is(.map-view-controls,.map-zoom-buttons){gap:6px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) #evidence-map-reset{padding:0 12px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-toolbar{column-gap:8px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-scope-controls .seg button{padding:0 15px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-layer-group .seg button{padding:0 8px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-compare-controls{gap:5px}
+}
+/* The page's vertical rhythm on boards 6 and M13 (1600x900): toolbar card
+   y112-190, map and list cards from y208; board 6's cards end at y831 and
+   M13's at y815, the two compared maps at y677. Board 6's list runs 46px rows
+   (name, then its bar), ten to the card. */
+@media (min-width:1100px){
+  body[data-view] #view-evidence #evidence-map .map-head{margin-bottom:11px}
+  body[data-view] #view-evidence #evidence-map .map-toolbar-card{margin-bottom:6px;padding:12px 11px}
+  body[data-view] #view-evidence #evidence-map:not(.comparing) .map-figure{padding:16px 26px 12px}
+  body[data-view] #view-evidence #evidence-map .map-legend-card{margin-top:4px;padding:11px 20px 9px}
+  body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-group{gap:7px}
+  body[data-view] #view-evidence #evidence-map .map-source-details{margin-top:2px}
+  body[data-view] #view-evidence #evidence-map .map-source-details summary{padding:3px 0}
+  body[data-view] #view-evidence #evidence-map .map-ranked .map-list tr.map-row>td{padding-top:7px;padding-bottom:7px}
+  body[data-view] #view-evidence #evidence-map .map-ranked .map-list tr.map-row .link-button{min-height:20px;height:20px;line-height:20px}
+  body[data-view] #view-evidence #evidence-map .map-ranked .map-list tr.map-row :is(.bartrack,.bar){height:6px}
+  body[data-view] #view-evidence #evidence-map .map-reconcile{margin-top:6px}
+  body[data-view] #view-evidence #evidence-map .map-list-menu{margin-top:8px;padding-top:8px}
+  body[data-view] #view-evidence #evidence-map.comparing .map-compare-card{min-height:clamp(0px,calc(100vh - 430px),470px);justify-content:center}
+}
+/* r5: the roster card's secondary text on B20/L1 (1600x900 ink, Arial here):
+   "Add company" 83px and "Paste from spreadsheet" 140px wide (14px lands 84
+   and 146; the 16px it replaces, 96 and 167), the drop line 178px (13.5px: 180;
+   15px: 200), "Draft stays in this browser." 133px (12px: 136; 13px: 147). The
+   setup note breaks before "Start collection.", as B20 draws it. */
+body[data-view] #view-loading .loading-editor-actions .secondary{font-size:14px}
+body[data-view] #view-loading .loading-drop{font-size:13.5px}
+body[data-view] #view-loading .loading-foot{font-size:12px}
+body[data-view] #view-loading .loading-setup-note{max-width:265px}
+/* ------------------------------------------- Chart Studio redesign, build 03 (2026-09-22)
+   Board S1 (boards\S1_chart_studio.webp, 1600x900 at 1.25x). Replaces build 01's
+   interim D1 toolbar rule. Two rows of chrome above the chart (D-041): the header
+   row beside the page title (source chip, "+ Compare with...", Ready, Builder |
+   Company overview | Canvas) and one toolbar row; then Fields, the shelves and
+   canvas, the Inspector; sheet tabs and status share the bottom bar. One gold
+   (Show Me); no red in the builder. Sizes land the fallback faces on S1's ink. */
+
+/* The panel look moves from the whole studio to its pieces. */
+#view-chart-studio .studio{display:block;margin:0;border:0;border-radius:0;background:none;overflow:visible}
+#view-chart-studio .studio-header{position:relative;z-index:8;display:flex;flex-wrap:wrap;align-items:center;gap:10px;min-height:0;padding:0;background:none;border:0}
+#view-chart-studio .studio-header-gap{flex:1 1 auto}
+/* Source chip: industry · cycle scope · basis, opening the Data source popover. */
+#view-chart-studio .studio-source-anchor{position:relative;display:inline-flex;flex:0 4 auto;min-width:130px}
+#view-chart-studio button.studio-scope-change{display:block;min-width:0;box-sizing:border-box;height:30px;min-height:30px;max-width:420px;margin:0;padding:0 30px 0 11px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:500 13px/28px var(--font-sans);text-align:left;white-space:nowrap;cursor:pointer;position:relative;overflow:hidden;text-overflow:ellipsis}
+#view-chart-studio button.studio-scope-change::after{content:"";position:absolute;right:12px;top:50%;width:5px;height:5px;margin-top:-4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+#view-chart-studio button.studio-scope-change:hover{border-color:var(--acu-purple)}
+#view-chart-studio .studio-scope-change .studio-scope-chip{display:inline;font:inherit;color:inherit;max-width:none;padding:0;margin:0;background:none;border:0;border-radius:0;white-space:nowrap;overflow:visible}
+#view-chart-studio .studio-scope-change .studio-scope-chip>span{display:inline;padding:0;margin:0;background:none;border:0;border-radius:0;font:inherit;color:inherit}
+#view-chart-studio .studio-scope-change .studio-scope-chip>span+span::before,
+#view-chart-studio .studio-scope-change .studio-scope-chip:not(:empty)+.studio-scope-basis:not(:empty)::before{content:"\00a0\00b7\00a0"}
+#view-chart-studio .studio-scope-basis{font:inherit;color:inherit}
+#view-chart-studio .studio-scope-note{flex:0 1 auto;max-width:260px;font-size:11px;line-height:1.3;color:var(--muted)}
+#view-chart-studio .studio-source-popover{position:absolute;left:0;top:calc(100% + 6px);z-index:30;box-sizing:border-box;width:320px;max-height:calc(100vh - 120px);overflow:auto;padding:12px 14px;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:0 10px 28px rgba(52,38,73,.16)}
+#view-chart-studio .studio-source-popover[hidden]{display:none}
+#view-chart-studio .studio-source-popover .studio-source-disclosure{margin:0;padding:0;border:0}
+#view-chart-studio .studio-source-popover .studio-source-disclosure>summary{cursor:default;margin-bottom:6px}
+#view-chart-studio .studio-source-popover .studio-source-disclosure>summary::before{content:none}
+#view-chart-studio .studio-source-popover label{display:block;margin:0 0 8px;font-size:12px;color:var(--muted)}
+#view-chart-studio .studio-source-popover :is(select,input){display:block;width:100%;min-height:34px;margin:3px 0 0;font-size:12px}
+#view-chart-studio .studio-source-popover .studio-rescan{margin:2px 0 8px}
+#view-chart-studio .studio-source-popover p{margin:0 0 8px;font-size:11px;line-height:1.45;color:var(--muted)}
+/* "+ Compare with...": one line, dashed; pills replace it while comparing. */
+#view-chart-studio .studio-compare{display:inline-flex;flex:0 1 auto;align-items:center;gap:8px;min-width:0}
+#view-chart-studio .studio-compare>*{flex:none}
+#view-chart-studio .studio-compare>:is(.studio-compare-pills,.studio-compare-note){flex:0 1 auto;min-width:0}
+#view-chart-studio .studio-compare .chip-add{height:30px;min-height:30px;padding:0 12px;border-radius:6px;font:400 13px/1 var(--font-sans)}
+#view-chart-studio .studio-compare .chip-add:disabled{opacity:.5;cursor:default}
+#view-chart-studio .studio-compare-pills[hidden],#view-chart-studio .studio-compare-note[hidden]{display:none}
+#view-chart-studio .studio-compare-pills .scope-pill{max-width:150px;height:22px;padding:0 10px;font-size:12px}
+#view-chart-studio .studio-compare .compare-clear{min-height:0;padding:0;border:0;background:none;color:var(--acu-purple);font:400 12px/1 var(--font-sans);text-decoration:underline;cursor:pointer}
+#view-chart-studio .studio-compare-note{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Ready: S1's teal dot and word, the source summary's own state. */
+#view-chart-studio .studio-ready{display:inline-flex;flex:none;align-items:center;gap:6px;max-width:260px;font:400 13px/1.2 var(--font-sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#view-chart-studio .studio-ready.is-ready::before{content:"";flex:none;width:7px;height:7px;border-radius:50%;background:var(--acu-teal)}
+#view-chart-studio .studio-ready:empty{display:none}
+#view-chart-studio .studio-header .studio-progress{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+#view-chart-studio .studio-header .studio-progress[hidden]{display:none}
+/* Builder | Company overview | Canvas: build 01's .segmented at S1's size. */
+#view-chart-studio .studio-segmented.segmented{height:30px;border:1px solid #dcd6df;border-radius:6px;overflow:hidden;background:white}
+#view-chart-studio .studio-segmented.segmented>button{height:auto;min-height:0;padding:0 17px;border:0;border-right:1px solid #e3dee6;background:white;color:#2f273f;font:400 13px/1 var(--font-sans)}
+#view-chart-studio .studio-segmented.segmented>button:last-child{border-right:0}
+#view-chart-studio .studio-segmented.segmented>button[aria-checked=true]{background:#362d74;color:white;font-weight:500}
+
+/* Toolbar: one row of labelled icon buttons. */
+#view-chart-studio .studio-toolbar{position:relative;z-index:7;flex-wrap:nowrap;gap:6px;min-height:0;padding:9px 8px 8px 16px;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow)}
+#view-chart-studio .studio-toolbar .studio-group{flex-wrap:nowrap;gap:2px}
+#view-chart-studio .studio-toolbar .studio-divider{height:26px;margin:0 8px;background:#e6e1e8}
+#view-chart-studio .studio-icon{flex:none;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+#view-chart-studio .studio-toolbar :is(.studio-tool,button.studio-tool){display:inline-flex;align-items:center;gap:7px;height:31px;min-height:31px;margin:0;padding:0 8px;border:0;border-radius:6px;background:transparent;color:#2f273f;font:400 13px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+#view-chart-studio .studio-toolbar .studio-tool:hover:not(:disabled){background:#f4f0f7}
+#view-chart-studio .studio-toolbar button.studio-tool:disabled{opacity:.55;cursor:default}
+/* Labels: pressed is a lilac fill, never gold (Show Me is the one gold). */
+#view-chart-studio .studio-toolbar button.studio-tool[aria-pressed=true]{background:transparent;border-color:transparent;font-weight:400}
+#view-chart-studio .studio-toolbar button.studio-tool[aria-pressed=true] .studio-icon{color:var(--acu-purple);stroke-width:1.6}
+#view-chart-studio .studio-toolbar .studio-board-control button[aria-pressed=true]{background:rgba(214,200,226,.45)}
+#view-chart-studio .studio-toolbar .studio-menu>summary{list-style:none}
+#view-chart-studio .studio-toolbar .studio-menu>summary::after,#view-chart-studio .studio-fit::after{content:"";width:5px;height:5px;margin:-3px 0 0 3px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+#view-chart-studio .studio-sort-menu>div{left:0;right:auto;min-width:150px}
+#view-chart-studio .studio-sort-menu>div button{display:block;width:100%;min-height:30px;padding:6px 10px;border:0;border-radius:5px;background:none;color:#2f273f;font:400 13px/1.2 var(--font-sans);text-align:left}
+#view-chart-studio .studio-sort-menu>div button[aria-pressed=true]{background:rgba(214,200,226,.45);font-weight:600}
+#view-chart-studio .studio-sort-menu>div button:disabled{opacity:.5}
+#view-chart-studio .studio-fit{position:relative;padding-right:10px}
+#view-chart-studio .studio-toolbar .studio-fit select{width:auto;max-width:130px;height:31px;min-height:31px;margin:0 -6px 0 0;padding:0 14px 0 0;border:0;background:transparent;color:#2f273f;font:400 13px/1 var(--font-sans);appearance:none;-webkit-appearance:none;cursor:pointer}
+#view-chart-studio .studio-fit::after{position:absolute;right:6px;top:50%}
+/* The right-hand group: bordered buttons, and the one gold one. */
+#view-chart-studio .studio-toolbar>button,#view-chart-studio .studio-toolbar>.studio-menu>summary{display:inline-flex;align-items:center;gap:8px;height:31px;min-height:31px;margin:0;padding:0 14px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:400 13px/1 var(--font-sans);white-space:nowrap}
+#view-chart-studio .studio-toolbar>.studio-menu>summary{padding-right:12px}
+#view-chart-studio .studio-toolbar>.studio-menu>summary::after{margin-left:6px}
+#view-chart-studio .studio-toolbar>button#studio-showme-toggle{padding:0 11px;border-color:var(--acu-gold);background:var(--acu-gold);color:#2f273f;font-weight:500}
+#view-chart-studio .studio-toolbar>button#studio-showme-toggle:hover:not(:disabled){background:#f2bb4b;border-color:#f2bb4b}
+#view-chart-studio .studio-toolbar>button#studio-showme-toggle[aria-pressed=true]{background:#f2bb4b;border-color:#d1900f}
+#view-chart-studio .studio-toolbar>.studio-menu>div{right:0;left:auto}
+
+/* Fields pane: search, "From:", headed lists with type glyphs and in-use dots. */
+#view-chart-studio .studio-side{background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow)}
+#view-chart-studio #studio-pane-data{padding:11px 10px 12px}
+#view-chart-studio #studio-pane-data>.studio-panel-title{display:none}
+#view-chart-studio .studio-search{position:relative;display:block;margin:0 0 6px}
+#view-chart-studio .studio-search-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#view-chart-studio .studio-search input{box-sizing:border-box;width:100%;height:35px;min-height:35px;margin:0;padding:0 10px 0 34px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:400 13px/1 var(--font-sans)}
+#view-chart-studio .studio-search input::placeholder{color:#6b6770}
+/* The magnifier is drawn in CSS: the console's CSP allows no data: images. */
+#view-chart-studio .studio-search::before{content:"";position:absolute;left:13px;top:11px;width:8px;height:8px;border:1.3px solid #2f273f;border-radius:50%;pointer-events:none}
+#view-chart-studio .studio-search::after{content:"";position:absolute;left:22.5px;top:21px;width:5px;height:1.4px;background:#2f273f;transform:rotate(45deg);transform-origin:0 50%;pointer-events:none}
+#view-chart-studio .studio-from{display:flex;align-items:center;gap:4px;margin:0 0 4px;padding:0 2px;font:400 12px/1 var(--font-sans);color:var(--muted)}
+#view-chart-studio .studio-from[hidden]{display:none}
+#view-chart-studio .studio-from select{width:auto;max-width:100%;min-height:24px;height:24px;margin:0;padding:0 16px 0 2px;border:0;background:transparent;color:#2f273f;font:400 12px/1 var(--font-sans)}
+#view-chart-studio #studio-pane-data>h3:not(.studio-panel-title){margin:16px 0 6px;padding:0 3px;font:500 11px/14px var(--font-sans);letter-spacing:.09em;text-transform:uppercase;color:#4a4552}
+#view-chart-studio .studio-fields{gap:0}
+#view-chart-studio .studio-fields .studio-pill{display:flex;align-items:center;gap:0;box-sizing:border-box;width:100%;height:28.2px;min-height:0;padding:0 24px 0 3px;border:0;border-radius:5px;background:transparent;color:#2f273f;font:400 13px/1 var(--font-sans)}
+#view-chart-studio .studio-fields .studio-pill:hover{background:#f4f0f7}
+#view-chart-studio .studio-fields .studio-pill .studio-glyph{flex:none;justify-content:flex-start;width:31px;font:400 11.5px/1 var(--font-sans);letter-spacing:0;color:#6b6770;opacity:1}
+#view-chart-studio .studio-fields .studio-pill.is-measure .studio-glyph{font-size:17px;color:#4a4552}
+#view-chart-studio .studio-fields .studio-pill .studio-glyph svg{width:15px;height:15px}
+#view-chart-studio .studio-fields .studio-pill.is-used .studio-pill-name::after{content:"";display:inline-block;width:6px;height:6px;margin:0 0 1px 9px;border-radius:50%;background:var(--acu-purple);vertical-align:middle}
+#view-chart-studio .studio-fields .studio-pill .studio-pill-name{flex:0 1 auto}
+#view-chart-studio .studio-fields .studio-pill::after{background:#efe9f4}
+
+/* Shelves: Columns, Rows, Filters; the chart-type select ends the Columns row. */
+#view-chart-studio .studio-view{background:none;gap:12px}
+#view-chart-studio .studio-shelves{position:relative;padding:11px 134px 7px 10px;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow)}
+#view-chart-studio .studio-shelf{position:static;display:flex;align-items:center;gap:0;box-sizing:border-box;height:30px;margin:0 0 8.4px;padding:0 0 0 10px;border:1px solid #efedea;border-radius:6px;background:#fcfbfa}
+#view-chart-studio .studio-shelves .studio-shelf:last-child{margin-bottom:0}
+#view-chart-studio .studio-shelf-name{flex:0 0 88px;padding:0;font:400 13px/1 var(--font-sans);letter-spacing:0;text-transform:none;color:#5d5864}
+#view-chart-studio .studio-shelf .studio-drop{flex:1;align-items:center;align-content:center;min-height:28px;padding:0;border:0;background:transparent}
+#view-chart-studio .studio-shelf .studio-drop .studio-pill{height:26px;padding:0 12px;border-radius:6px;font:500 13px/1 var(--font-sans);gap:9px}
+#view-chart-studio .studio-shelf .studio-drop .studio-pill .studio-glyph{font:400 11.5px/1 var(--font-sans);opacity:.9}
+#view-chart-studio .studio-shelf .studio-drop .studio-pill .studio-pill-menu{padding:0 0 0 6px;border:0;background:none;color:inherit;font:400 12px/1 var(--font-sans)}
+#view-chart-studio .studio-shelf #studio-filters{align-self:stretch;align-content:center;margin:3px 0;padding:0 14px;border:1px dashed #d4ccd9;border-radius:5px;background:white}
+#view-chart-studio .studio-shelf .studio-drop[data-empty=true]::after{padding:0;font:400 13px/1 var(--font-sans);color:#77727d}
+#view-chart-studio .studio-mark-chip{position:absolute;right:14px;top:12px;display:flex;align-items:center;gap:0;box-sizing:border-box;width:113px;height:30px;margin:0;padding:0 26px 0 10px;border:1px solid #dcd6df;border-radius:6px;background:white;font:400 12px/1 var(--font-sans);color:#2f273f;white-space:nowrap}
+#view-chart-studio .studio-mark-chip::after{content:"";position:absolute;right:11px;top:50%;width:5px;height:5px;margin-top:-4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);pointer-events:none}
+#view-chart-studio .studio-mark-chip>span{flex:none;margin-right:3px}
+#view-chart-studio .studio-mark-chip select{flex:1;width:100%;min-width:0;height:28px;min-height:0;margin:0;padding:0;border:0;background:transparent;color:inherit;font:inherit;appearance:none;-webkit-appearance:none;cursor:pointer}
+
+/* Canvas: serif title, muted subtitle, three figures, the chart. */
+#view-chart-studio .studio-canvas-wrap{display:flex;flex-direction:column;padding:6px 18px 16px;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow)}
+/* A tall map scrolls inside the canvas; it must not compress the title,
+   scope or verified figures below their text's natural line height. */
+#view-chart-studio .studio-canvas-wrap>:is(#studio-title,#studio-subtitle,#studio-verified-summary,.studio-foot){flex-shrink:0}
+#view-chart-studio .studio-canvas-wrap h2#studio-title{margin:0;font:400 28px/34px var(--font-serif);letter-spacing:0;color:#1d173b}
+#view-chart-studio .studio-subtitle{margin:2px 0 0;font:400 14.5px/20px var(--font-sans);color:#69696e}
+#view-chart-studio .studio-verified-summary{display:grid;grid-template-columns:repeat(3,minmax(0,256px));gap:0;margin:12px 0 6px;padding:0;border:0;font:400 13px/16px var(--font-sans);color:#69696e}
+#view-chart-studio .studio-verified-summary>span{display:flex;flex-direction:column;gap:4px;min-width:0;padding:0 0 0 1px}
+#view-chart-studio .studio-verified-summary>span+span{padding-left:32px;border-left:1px solid #e3e0dc}
+#view-chart-studio .studio-verified-summary strong{font:400 21px/26px var(--font-sans);letter-spacing:.01em;color:#1d173b}
+#view-chart-studio .studio-verified-summary .studio-scope-dot{display:inline-block;width:8px;height:8px;margin:0 6px 2px 0;border-radius:50%;vertical-align:middle}
+#view-chart-studio .studio-scope-dot--1{background:var(--scope-1)}
+#view-chart-studio .studio-scope-dot--2{background:var(--scope-2)}
+#view-chart-studio .studio-scope-dot--3{background:var(--scope-3)}
+/* A bar chart drawn at the canvas's own width (one unit per CSS px) reads at S1's size. */
+#view-chart-studio .studio-canvas svg[data-native] text{font-size:13.5px}
+/* The drawing scrolls inside its own region, so the title, the figures and
+   the note line stay in view however tall the chart is. */
+#view-chart-studio .studio-canvas-wrap>.studio-canvas{flex:1 1 auto;min-height:180px;overflow:auto}
+
+/* The note line under the chart (keeps #studio-reconcile): lilac, no red. */
+#view-chart-studio .studio-foot{margin-top:auto;padding:8px 0 0;border:0}
+#view-chart-studio .studio-note-line{display:flex;align-items:center;gap:12px;min-height:40px;box-sizing:border-box;padding:0 12px 0 0;border-radius:8px}
+#view-chart-studio .studio-note-line:has(#studio-reconcile:not([hidden])){background:#f3f2fb;padding:6px 12px 6px 14px}
+#view-chart-studio .studio-reconcile{position:relative;display:flex;align-items:center;gap:12px;flex:1 1 auto;min-width:0;margin:0;padding:0;border:0;background:none;font:400 13px/1.35 var(--font-sans);color:#4a4552}
+#view-chart-studio .studio-reconcile[hidden]{display:none}
+#view-chart-studio .studio-reconcile-text{min-width:0}
+#view-chart-studio button.studio-match-graph{flex:none;height:28px;min-height:28px;margin:0;padding:0 14px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:500 13px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+#view-chart-studio button.studio-match-graph[hidden]{display:none}
+#view-chart-studio button.studio-match-graph:hover{border-color:var(--acu-purple)}
+#view-chart-studio button.studio-reconcile-why{flex:none;min-height:0;margin:0;padding:0;border:0;background:none;color:var(--acu-purple);font:600 13px/1 var(--font-sans);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+#view-chart-studio button.studio-reconcile-why[hidden]{display:none}
+#view-chart-studio .studio-reconcile-detail{position:absolute;left:0;bottom:calc(100% + 12px);z-index:20;box-sizing:border-box;width:min(520px,100%);padding:12px 14px;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:0 10px 28px rgba(52,38,73,.16);font:400 13px/1.5 var(--font-sans);color:#2f273f}
+#view-chart-studio .studio-reconcile-detail[hidden]{display:none}
+#view-chart-studio .studio-reconcile-detail p{margin:0 0 8px;color:#2f273f}
+#view-chart-studio .studio-reconcile-detail .studio-reconcile-caveat{margin:8px 0 0;color:var(--muted);font-size:12px}
+#view-chart-studio .studio-reconcile-diff{font-weight:600;color:#2f273f}
+#view-chart-studio .studio-note-line .studio-result-controls{flex:none;gap:6px;margin:0 0 0 auto;font:400 12.5px/1 var(--font-sans);color:#69696e}
+#view-chart-studio .studio-note-line .studio-result-controls[hidden]{display:none}
+#view-chart-studio .studio-note-line .studio-result-controls span{flex:none}
+#view-chart-studio .studio-note-line .studio-result-controls button{min-height:0;padding:2px 4px;border:0;background:none;color:#2f273f;font:inherit}
+#view-chart-studio .studio-note-line .studio-result-controls button[hidden]{display:none}
+#view-chart-studio .studio-note-line #studio-inspect-all{color:var(--acu-purple);text-decoration:underline;text-underline-offset:3px}
+#view-chart-studio .studio-note-line #studio-inspect-all:disabled{color:var(--muted);text-decoration:none}
+/* The caveat under the chart moves into Why while the note line shows. */
+#view-chart-studio .studio-foot:has(#studio-reconcile:not([hidden])) .studio-foot-line{display:none}
+#view-chart-studio .studio-foot-line{margin-top:6px}
+
+/* Inspector: serif head with Collapse, tabs, Marks rows with icons. */
+#view-chart-studio .studio-inspector{background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow)}
+#view-chart-studio .studio-inspector-head{padding:9px 10px 0 13px}
+#view-chart-studio .studio-inspector-head .studio-panel-title{font:400 24px/30px var(--font-serif);letter-spacing:0;color:#1d173b}
+#view-chart-studio button.studio-inspector-collapse{display:inline-flex;align-items:center;gap:8px;height:29px;min-height:29px;margin:0;padding:0 12px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:400 12px/1 var(--font-sans);cursor:pointer}
+#view-chart-studio button.studio-inspector-collapse::after{content:"";width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg)}
+#view-chart-studio .studio-inspector-tabs{margin:6px 13px 0;border-bottom:1px solid #ebe7ee}
+#view-chart-studio .studio-inspector-tabs button{flex:0 0 auto;min-height:0;padding:12px 11px 13px;border-bottom-width:3px;color:#4a4552;font:400 14px/1 var(--font-sans)}
+#view-chart-studio .studio-inspector-tabs button+button{margin-left:18px}
+#view-chart-studio .studio-inspector-tabs button[aria-selected=true]{color:#2f273f;font-weight:600;border-bottom-color:var(--acu-gold)}
+#view-chart-studio #studio-pane-marks>h3:first-child,#view-chart-studio #studio-marks-note{display:none}
+#view-chart-studio .studio-inspector .studio-pane{padding:9px 10px 12px 13px}
+#view-chart-studio .studio-inspector .studio-disclosure-hint{display:none}
+#view-chart-studio .studio-mark-props{gap:0;margin:0}
+#view-chart-studio .studio-prop{grid-template-columns:100px minmax(0,1fr);align-items:center;gap:0;height:65.2px}
+#view-chart-studio .studio-prop>span{display:flex;align-items:center;gap:13px;padding:0 0 0 7px;font:400 14px/1 var(--font-sans);color:#2f273f}
+#view-chart-studio .studio-prop>span .studio-icon{width:18px;height:18px;color:#4a4552}
+#view-chart-studio .studio-prop .studio-drop{box-sizing:border-box;min-height:38px;padding:0 10px;align-content:center;border:1px dashed #d4ccd9;border-radius:6px;background:#fdfcfb}
+#view-chart-studio .studio-prop .studio-drop[data-empty=true]::after{padding:0;font:400 12px/1 var(--font-sans);color:#77727d}
+#view-chart-studio .studio-inspector .studio-disclosure{margin:14px 0 0;padding:0;border-top:1px solid #ebe7ee}
+#view-chart-studio .studio-inspector .studio-disclosure+.studio-disclosure{margin-top:0}
+#view-chart-studio .studio-inspector .studio-disclosure:last-of-type{border-bottom:1px solid #ebe7ee}
+#view-chart-studio .studio-inspector .studio-disclosure>summary{display:flex;align-items:center;height:44px;padding:0 0 0 7px;font:400 16px/1 var(--font-serif);letter-spacing:0;text-transform:none;color:#2f273f}
+#view-chart-studio .studio-inspector .studio-disclosure>summary::before{content:"";flex:none;width:6px;height:6px;margin:0 22px 0 0;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg)}
+#view-chart-studio .studio-inspector .studio-disclosure[open]>summary::before{content:"";transform:rotate(45deg)}
+/* Collapse: a 56px rail of three icon buttons. */
+#view-chart-studio .studio-inspector-rail{display:none}
+#view-chart-studio .studio-inspector-rail button{display:flex;align-items:center;justify-content:center;width:38px;height:38px;min-height:0;margin:0;padding:0;border:1px solid transparent;border-radius:8px;background:none;color:#2f273f;cursor:pointer}
+#view-chart-studio .studio-inspector-rail button:hover{background:#f4f0f7;border-color:#e3dce9}
+#view-chart-studio .studio-inspector-rail .studio-icon{width:20px;height:20px}
+
+/* Bottom bar: sheet tabs, and the status line at its right. */
+#view-chart-studio .studio-sheets{display:flex;align-items:stretch;gap:0;box-sizing:border-box;height:44px;padding:0 14px 0 0;background:white;border:1px solid var(--card-border);border-radius:10px;box-shadow:var(--card-shadow);overflow:hidden}
+#view-chart-studio .studio-sheets .studio-sheet-tabs{display:flex;gap:0}
+#view-chart-studio .studio-sheets button{height:auto;min-height:0;margin:0;padding:0 16px;border:0;border-right:1px solid #ebe7ee;border-bottom:3px solid transparent;border-top:3px solid transparent;border-radius:0;background:none;color:#2f273f;font:400 14px/1 var(--font-sans)}
+#view-chart-studio .studio-sheets #studio-sheet-source{padding:0 27px 0 15px}
+#view-chart-studio .studio-sheets button[aria-selected=true]{border-bottom-color:#6968a8;color:#4b3f8a;font-weight:500}
+#view-chart-studio .studio-sheets #studio-new-sheet{border-right:0}
+#view-chart-studio .studio-sheets .studio-status{display:flex;align-items:center;margin:0 0 0 auto;padding:0;border:0;background:none;font:400 12px/1 var(--font-sans);color:#69696e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Board-size buttons only in Canvas mode (D-061), already hidden in Builder. */
+#view-chart-studio .studio-options-hidden .studio-toolbar .studio-board-control button{height:31px;min-height:31px}
+
+@media(min-width:1100px){
+  /* The page title shares S1's header row: it floats, the header (a flex box)
+     sits beside it, and every other studio row clears it. */
+  body[data-view=chart-studio] .workspace-heading{float:left;margin:4px 24px 0 4px}
+  body[data-view=chart-studio] .workspace-heading h1{font:500 40px/48px var(--font-serif);letter-spacing:0;color:#1d173b}
+  body[data-view=chart-studio] .workspace-heading :is(#stage,#split-view){display:none}
+  #view-chart-studio .studio-header{min-height:56px;flex-wrap:nowrap;margin:0 0 6px}
+  #view-chart-studio .studio>:not(.studio-header){clear:both}
+  #view-chart-studio .studio-data-toggle,#view-chart-studio .studio:not(.studio-options-hidden) .studio-inspector-toggle{display:none}
+  /* S1's cards run wider than the shell's 226px content edge. */
+  #view-chart-studio .studio-toolbar{margin:0 -14px 0 -20px}
+  #view-chart-studio .studio-grid,#view-chart-studio .studio-sheets,#view-chart-studio .studio-overview,#view-chart-studio .studio-datasource{margin-left:-10px;margin-right:-7px}
+  #view-chart-studio .studio-grid{grid-template-columns:205px minmax(0,1fr) 302px;gap:13px;height:calc(100vh - 218px);min-height:520px;margin-top:14px;border:0;background:none}
+  /* S1 at 900 high: the grid runs 138-820 (682px). A smaller grid hides the
+     axis of the default 350px chart; the shell's 40px bottom padding (S1
+     draws 22px) is a ruling for Paul, not a reason to shrink the grid. */
+  #view-chart-studio .studio-grid>*{border-right:0}
+  #view-chart-studio .studio:not(.studio-options-hidden) .studio-grid>:is(.studio-side,.studio-inspector){max-height:none;overflow-y:auto}
+  #view-chart-studio .studio-view{min-height:0;overflow:hidden}
+  #view-chart-studio .studio-canvas-wrap{flex:1 1 auto;min-height:0;overflow:auto}
+  #view-chart-studio .studio-sheets{margin-top:13.6px}
+  #view-chart-studio .studio.studio-inspector-collapsed:not(.studio-options-hidden) .studio-grid{grid-template-columns:205px minmax(0,1fr) 56px}
+  #view-chart-studio .studio.studio-inspector-collapsed:not(.studio-options-hidden) .studio-inspector>:not(.studio-inspector-rail){display:none}
+  #view-chart-studio .studio.studio-inspector-collapsed:not(.studio-options-hidden) .studio-inspector-rail{display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0}
+  #view-chart-studio .studio.studio-options-hidden .studio-inspector-collapse{display:none}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden]))){display:flex;align-items:center;gap:16px;min-height:40px}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden])))>.studio-note-line{order:2;flex:none;margin-left:auto}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden])))>.studio-foot-line{order:1;flex:1 1 auto;min-width:0;margin:0}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden]))) #studio-note{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;min-width:0;overflow:hidden;font-size:12px;line-height:17px}
+}
+/* Narrower than S1's 1600px frame: the same one toolbar row, tighter; below
+   1300px the header and the toolbar may wrap rather than scroll sideways. */
+@media(min-width:1100px) and (max-width:1499px){
+  #view-chart-studio .studio-toolbar :is(.studio-tool,button.studio-tool){padding:0 5px}
+  #view-chart-studio .studio-toolbar .studio-divider{margin:0 4px}
+  #view-chart-studio .studio-toolbar>button,#view-chart-studio .studio-toolbar>.studio-menu>summary{padding:0 10px}
+  #view-chart-studio .studio-toolbar>button#studio-showme-toggle{padding:0 11px}
+  #view-chart-studio .studio-header{gap:8px}
+  #view-chart-studio .studio-canvas-wrap{padding-bottom:10px}
+}
+@media(min-width:1100px) and (max-width:1299px){
+  #view-chart-studio .studio-header{height:auto;min-height:56px;flex-wrap:wrap;row-gap:6px;padding:8px 0}
+  #view-chart-studio .studio-toolbar{flex-wrap:wrap;row-gap:4px}
+  #view-chart-studio .studio-grid{grid-template-columns:190px minmax(0,1fr) 260px}
+  #view-chart-studio .studio.studio-inspector-collapsed:not(.studio-options-hidden) .studio-grid{grid-template-columns:190px minmax(0,1fr) 56px}
+}
+@media(max-width:1099px){
+  #view-chart-studio .studio-inspector-collapse{display:none}
+  #view-chart-studio .studio-header{flex-wrap:wrap}
+  #view-chart-studio .studio-toolbar,#view-chart-studio .studio-toolbar .studio-group{flex-wrap:wrap}
+  #view-chart-studio .studio>*+*{margin-top:10px}
+}
+@media(prefers-reduced-motion:reduce){#view-chart-studio .studio-source-popover,#view-chart-studio .studio-reconcile-detail{transition:none}}
+@media print{#view-chart-studio .studio-note-line,#view-chart-studio .studio-source-popover{display:none!important}}
+
+/* ---- Shared primitives for prompts 02-08. Every name below is new to the
+   console. .primary keeps today's look everywhere; .primary--gold is the one
+   gold action (at most one per screen). .secondary takes the new look only
+   inside a .card or .page-actions, until each view's prompt moves it. */
+.card{box-sizing:border-box;min-width:0;padding:20px 22px;background:white;border:1px solid var(--card-border);border-radius:var(--card-radius);box-shadow:var(--card-shadow)}
+.card-stack{display:grid;gap:16px;min-width:0}
+.card-title,.card>h2:first-child{margin:0;font:500 22px/28px var(--font-serif);letter-spacing:0;color:var(--acu-plum)}
+.page-overline{margin:0;font:400 12px/16px var(--font-sans);color:#69696e}
+.page-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+/* Chip select: wraps the real <select>, which keeps its id and keyboard use.
+   <label class="chip-select" for="x"><span>Label</span><select id="x">...</select></label> */
+.chip-select{position:relative;display:inline-flex;flex-direction:column;justify-content:flex-start;box-sizing:border-box;min-width:140px;height:48px;padding:6px 36px 6px 12px;background:white;border:1px solid #e2dce6;border-radius:8px;color:var(--acu-plum);cursor:pointer;vertical-align:top}
+.chip-select>span:first-child{position:relative;z-index:1;display:block;font:400 11px/14px var(--font-sans);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+body[data-view] .chip-select select{position:absolute;inset:0;width:100%;height:100%;min-height:0;margin:0;padding:20px 36px 6px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;color:var(--acu-plum);font:400 14px/20px var(--font-sans);text-overflow:ellipsis;appearance:none;-webkit-appearance:none;cursor:pointer}
+body[data-view] .chip-select select:focus-visible{outline:none}
+.chip-select::after{content:"";position:absolute;right:16px;top:50%;width:6px;height:6px;margin-top:-5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);pointer-events:none}
+.chip-select:hover{border-color:#cfc6d8}
+.chip-select:focus-within{outline:2px solid var(--acu-purple);outline-offset:2px}
+.chip-add{display:inline-flex;align-items:center;justify-content:center;gap:6px;box-sizing:border-box;height:48px;min-height:48px;margin:0;padding:0 16px;border:1px dashed #cfc6d8;border-radius:8px;background:transparent;color:var(--acu-purple);font:400 14px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+.chip-add:hover{border-color:var(--acu-purple);background:rgba(214,200,226,.18)}
+/* Scope pill: <span class="scope-pill scope-pill--1">Banking<button type="button"
+   class="scope-pill-remove" aria-label="Remove Banking">&times;</button></span>.
+   The remove button stays focusable while hidden and shows on hover and focus. */
+.scope-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;height:24px;max-width:100%;padding:0 12px;border-radius:999px;background:var(--scope-1);color:white;font:600 13px/1 var(--font-sans);white-space:nowrap}
+.scope-pill--1{background:var(--scope-1)}
+.scope-pill--2{background:var(--scope-2)}
+.scope-pill--3{background:var(--scope-3)}
+.scope-pill-remove{display:inline-flex;align-items:center;justify-content:center;flex:none;width:0;height:16px;min-height:0;margin:0 -4px 0 0;padding:0;border:0;border-radius:999px;background:transparent;color:inherit;font:600 13px/1 var(--font-sans);opacity:0;overflow:hidden;cursor:pointer;transition:width .12s ease,opacity .12s ease}
+.scope-pill:hover .scope-pill-remove,.scope-pill:focus-within .scope-pill-remove{width:16px;opacity:1}
+.scope-pill-remove:hover{background:rgba(255,255,255,.22)}
+.scope-pill-remove:focus-visible{outline:2px solid white;outline-offset:1px}
+/* Change chip: plum, never green or red. data-direction="up|down" adds the
+   thin arrow, or the text carries it (up arrow, then "+17.6%"). */
+.change-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:6px;background:rgba(87,68,123,.08);color:var(--acu-purple);font:600 12px/16px var(--font-sans);font-variant-numeric:tabular-nums;white-space:nowrap}
+.change-chip[data-direction=up]::before{content:"\2191"}
+.change-chip[data-direction=down]::before{content:"\2193"}
+.new-tag{display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;background:rgba(214,200,226,.6);color:var(--acu-purple);font:600 11px/16px var(--font-sans);white-space:nowrap}
+.segmented{display:inline-flex;align-items:stretch;flex:none;box-sizing:border-box;height:32px;border:1px solid var(--line);border-radius:8px;background:white;overflow:hidden}
+.segmented>:is(button,a,label,span){display:inline-flex;align-items:center;justify-content:center;height:auto;min-height:0;margin:0;padding:0 12px;border:0;border-radius:0;background:transparent;color:var(--acu-plum);font:500 13px/1 var(--font-sans);white-space:nowrap;text-decoration:none;cursor:pointer}
+.segmented>:is(button,a,label,span)+:is(button,a,label,span){border-left:1px solid var(--line)}
+.segmented>:is([aria-pressed=true],[aria-selected=true],[aria-current=page],[aria-current=true],.is-selected){background:var(--acu-plum);color:white}
+.segmented>:focus-visible{outline:2px solid var(--acu-purple);outline-offset:-2px}
+/* Buttons. .primary--gold works on any button, at most one per screen; build 02
+   puts it on #graph-open-builder. .icon-button needs a title and an aria-label. */
+body[data-view] .workspace .primary--gold,body[data-view] .primary--gold{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:auto;height:40px;min-height:40px;margin:0;padding:0 16px;border:1px solid var(--acu-gold);border-radius:8px;background:var(--acu-gold);color:var(--acu-plum);font:600 14px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+body[data-view] .workspace .primary--gold:hover:not(:disabled),body[data-view] .primary--gold:hover:not(:disabled){background:#f2bb4b;border-color:#f2bb4b}
+body[data-view] :is(.card,.page-actions) .secondary{display:inline-flex;align-items:center;justify-content:center;gap:6px;width:auto;height:40px;min-height:40px;margin:0;padding:0 16px;border:1px solid var(--line);border-radius:8px;background:white;color:var(--acu-plum);font:600 14px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+body[data-view] :is(.card,.page-actions) .secondary:hover:not(:disabled){background:#f7f2fa;border-color:var(--acu-purple)}
+.icon-button{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:40px;height:40px;min-height:40px;margin:0;padding:0;border:1px solid var(--line);border-radius:10px;background:white;color:var(--acu-plum);cursor:pointer}
+.icon-button:hover:not(:disabled){background:#f7f2fa;border-color:var(--acu-purple)}
+.icon-button svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+@media(prefers-reduced-motion:reduce){
+  .scope-pill-remove{transition:none}
+}
+/* The footer is 46px (45 + its 1px rule) and main reserved 100vh - 45px, so
+   every view scrolled 1px at 1920x1080 (Graph build 02, fix round 2). */
+@media(min-width:1100px){body[data-view] main{min-height:calc(100vh - 46px)}}
+/* Assemble pass (2026-09-23), build 04's request (I1 A4): no board draws the page footer
+   (MENTAT, FEC collection, canonical names + aliases); the connection stamp it carried is in
+   the sidebar foot. At desktop widths it is hidden and main takes the viewport, so a view
+   whose content fits no longer scrolls. Below 1100px the footer shows as before. */
+@media(min-width:1100px){body[data-view]>footer{display:none}body[data-view] main{min-height:100vh}}
+/* ---- Lane F2b (2026-09-26): Chart Studio at the approved boards' fidelity (#46's chrome, #50, #51,
+   #52; fidelity round 0, gaps CS1-CS10). The boards are 1344x760; from 1100 to 1499px wide the studio
+   takes their density (13px text, controls about 30px high, a 185px Data pane and a 258px Inspector) and
+   one toolbar row. At every desktop width the chart title is one line, the shelves are one row each,
+   dimension pills carry no "Abc", the Chart select is as wide as its choice, and the marks cards fit
+   the Inspector. Wider than 1499px the rest stays S1's. This block loads after chart-studio.css, and
+   outranks flow.css (which loads after it) where the Stages shelf is concerned. */
+
+/* CS8: a dimension pill on a shelf or a marks row carries no type tag; a measure keeps its "#". */
+#view-chart-studio .studio-drop .studio-pill:not(.is-measure) .studio-glyph{display:none}
+/* CS8, CS10: every shelf and marks row is one row; a long pill gives way with an ellipsis (its full
+   name is its tooltip) and the Dual axis chip stays inline. */
+#view-chart-studio .studio-shelves .studio-shelf .studio-drop,#view-chart-studio .studio-prop .studio-drop{flex-wrap:nowrap;min-width:0}
+#view-chart-studio .studio-shelves .studio-shelf .studio-drop.studio-drop--stages{flex-wrap:nowrap;row-gap:0;min-width:0}
+#view-chart-studio .studio-drop>.studio-pill{flex:0 1 auto;min-width:0}
+#view-chart-studio .studio-drop>.studio-pill .studio-pill-name{min-width:0}
+#view-chart-studio .studio-drop>:is(.studio-stage-arrow,button.studio-dual-axis){flex:none}
+/* CS10: the Chart select is as wide as its choice ("Chart: Sankey"), at the end of the Columns row. */
+#view-chart-studio .studio-shelves{padding-right:36px}
+#view-chart-studio .studio-mark-chip{position:relative;inset:auto;flex:none;width:auto;max-width:210px;margin:0 1px 0 8px}
+#view-chart-studio .studio-mark-chip select{flex:none;width:auto;max-width:160px;field-sizing:content;text-overflow:ellipsis}
+/* CS9: the marks cards and the tile strip fit the Inspector's width. */
+#view-chart-studio .studio-mark-cards{grid-template-columns:minmax(0,1fr)}
+#view-chart-studio .studio-mark-card,#view-chart-studio .studio-mark-card>.studio-mark-card-body{min-width:0}
+#view-chart-studio .studio-mark-card-head{min-width:0;gap:6px;padding:0 6px 0 2px}
+#view-chart-studio .studio-pane select.studio-mark-card-select{flex:0 1 auto;min-width:0;max-width:48%}
+#view-chart-studio .studio-mark-card-type{min-width:0}
+
+@media(min-width:1100px){
+  /* CS3: the chart title is one line; a longer one ends in an ellipsis and its tooltip is the full title. */
+  #view-chart-studio .studio-canvas-wrap h2#studio-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* A subtitle keeps at most two lines (no display change: board mode hides it by display). */
+  #view-chart-studio .studio-subtitle{max-height:2lh;overflow:hidden}
+}
+
+/* CS4: below 1500px wide, or 1050px high, the plot has less than 480px, so the three figures fold into
+   one compact line under the subtitle ("$863,505.98 Selected net amount · 3,966 Source observations
+   · 444 Reported donor identities"). The figures and their words are unchanged. */
+@media(min-width:1100px) and (max-width:1499px),(min-width:1100px) and (max-height:1049px){
+  #view-chart-studio .studio-verified-summary{display:block;margin:4px 0 0;padding:0;border:0;font:400 12px/16px var(--font-sans);color:#69696e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #view-chart-studio .studio-verified-summary>span{display:inline;padding:0;border:0}
+  #view-chart-studio .studio-verified-summary>span+span{padding-left:0;border-left:0}
+  #view-chart-studio .studio-verified-summary>span+span::before{content:"\00b7";margin:0 8px;color:#a8a3ad}
+  #view-chart-studio .studio-verified-summary strong{margin-right:4px;font:600 12px/16px var(--font-sans);letter-spacing:0;color:#1d173b}
+  #view-chart-studio .studio-verified-summary strong+strong{margin-left:6px}
+}
+
+@media(min-width:1100px) and (max-width:1499px){
+  /* CS2: the page head row (S1's 40px title and workspace padding stay; test_workspace_polish pins them). */
+  #view-chart-studio .studio-header{min-height:44px;margin:0 0 4px}
+  #view-chart-studio button.studio-scope-change{height:28px;min-height:28px;line-height:26px}
+  #view-chart-studio .studio-compare .chip-add{height:28px;min-height:28px;padding:0 11px}
+  #view-chart-studio .studio-segmented.segmented{height:28px}
+  #view-chart-studio .studio-segmented.segmented>button{padding:0 14px}
+  /* CS1: one toolbar row at 1344px, Add to briefing in view. */
+  #view-chart-studio .studio-toolbar{gap:3px;padding:4px 6px 4px 8px}
+  #view-chart-studio .studio-toolbar .studio-group{gap:1px}
+  #view-chart-studio .studio-toolbar .studio-icon{width:15px;height:15px}
+  #view-chart-studio .studio-toolbar :is(.studio-tool,button.studio-tool){gap:5px;height:30px;min-height:30px;padding:0 5px}
+  #view-chart-studio .studio-toolbar .studio-divider{height:22px;margin:0 3px}
+  #view-chart-studio .studio-toolbar .studio-fit select{height:30px;min-height:30px}
+  #view-chart-studio .studio-toolbar>button,#view-chart-studio .studio-toolbar>.studio-menu>summary{gap:6px;height:30px;min-height:30px;padding:0 9px}
+  #view-chart-studio .studio-toolbar>.studio-menu>summary{padding-right:8px}
+  #view-chart-studio .studio-toolbar>button#studio-showme-toggle{padding:0 10px}
+  /* CS2: the grid - Data pane 185px, Inspector 258px - under a lower head and toolbar. */
+  #view-chart-studio .studio-grid{grid-template-columns:185px minmax(0,1fr) 258px;gap:12px;height:calc(100vh - 184px);margin-top:10px}
+  #view-chart-studio .studio.studio-inspector-collapsed:not(.studio-options-hidden) .studio-grid{grid-template-columns:185px minmax(0,1fr) 56px}
+  #view-chart-studio .studio.studio-data-collapsed:not(.studio-options-hidden):not(.studio-chart-expanded) #studio-grid{grid-template-columns:56px minmax(0,1fr) 258px}
+  #view-chart-studio .studio-sheets{height:36px;margin-top:10px}
+  #view-chart-studio .studio-sheets button{padding:0 14px;font-size:13px}
+  #view-chart-studio .studio-sheets #studio-sheet-source{padding:0 20px 0 14px}
+  /* CS2: the Data pane. */
+  #view-chart-studio #studio-pane-data{padding:8px 8px 10px}
+  #view-chart-studio .studio-search input{height:30px;min-height:30px;padding-left:28px;font-size:12.5px}
+  #view-chart-studio .studio-search-row .studio-search input{padding-right:31px}
+  #view-chart-studio .studio-search::before{left:10px;top:9px}
+  #view-chart-studio .studio-search::after{left:19.5px;top:19px}
+  #view-chart-studio .studio-from-menu{top:2px;right:2px}
+  #view-chart-studio .studio-from-menu>summary{width:26px;height:26px}
+  #view-chart-studio #studio-pane-data>h3:not(.studio-panel-title){margin:12px 0 4px}
+  #view-chart-studio .studio-fields .studio-pill{height:24px}
+  #view-chart-studio .studio-fields .studio-pill .studio-glyph{width:27px}
+  /* CS2, CS8: the shelves - 28px rows, compact pills. */
+  #view-chart-studio .studio-shelves{padding-top:6px;padding-bottom:6px;padding-left:8px}
+  #view-chart-studio .studio-shelf{height:28px;margin:0 0 5px;padding:0 0 0 8px}
+  #view-chart-studio .studio-shelves .studio-shelf:has(>.studio-drop--stages){height:28px;min-height:0;padding-top:0;padding-bottom:0}
+  #view-chart-studio .studio-shelf-name{flex:0 0 70px}
+  #view-chart-studio .studio-shelf .studio-drop{min-height:26px;gap:4px}
+  #view-chart-studio .studio-shelf .studio-drop .studio-pill{height:22px;padding:0 8px 0 9px;gap:6px;font-size:12.5px}
+  #view-chart-studio .studio-shelf .studio-drop>button.studio-dual-axis{height:22px;padding:0 8px}
+  #view-chart-studio .studio-shelf #studio-filters{margin:2px 0}
+  #view-chart-studio .studio-mark-chip{height:26px}
+  #view-chart-studio .studio-mark-chip select{height:24px}
+  #view-chart-studio .studio-mark-chip{padding:0 22px 0 8px}
+  #view-chart-studio .studio-mark-chip::after{right:9px}
+  #view-chart-studio #studio-shelves-collapse{right:6px;bottom:8px}
+  /* CS2, CS3: the chart card - a 24px title, a 13px subtitle, a compact foot line. */
+  #view-chart-studio .studio-view{gap:10px}
+  #view-chart-studio .studio-canvas-wrap{padding:6px 16px 8px}
+  #view-chart-studio .studio-canvas-wrap h2#studio-title{font:400 24px/30px var(--font-serif)}
+  #view-chart-studio .studio:not(.studio-options-hidden) #studio-canvas-wrap>h2#studio-title{padding-right:0}
+  #view-chart-studio .studio:not(.studio-options-hidden) #studio-canvas-wrap>#studio-subtitle{padding-right:112px}
+  #view-chart-studio #studio-expand{top:37px;right:16px;height:22px;min-height:22px;gap:5px;padding:0 8px 0 7px}
+  #view-chart-studio .studio-subtitle{margin:1px 0 0;font:400 13px/18px var(--font-sans)}
+  #view-chart-studio .studio-canvas-wrap>.studio-canvas{margin-top:6px}
+  #view-chart-studio .studio-foot{padding:4px 0 0}
+  #view-chart-studio .studio-note-line{min-height:28px;gap:10px}
+  #view-chart-studio .studio-note-line:has(#studio-reconcile:not([hidden])){padding:3px 10px 3px 12px}
+  #view-chart-studio .studio-reconcile{gap:8px;font:400 12px/1.3 var(--font-sans)}
+  #view-chart-studio .studio-reconcile-text{flex:0 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #view-chart-studio button.studio-match-graph{height:22px;min-height:22px;padding:0 9px;font-size:12px}
+  #view-chart-studio button.studio-reconcile-why{font-size:12px}
+  #view-chart-studio .studio-note-line .studio-result-controls{font-size:12px;white-space:nowrap}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden]))){min-height:28px}
+  #view-chart-studio .studio-canvas-wrap>.studio-foot:not(:has(#studio-reconcile:not([hidden]))) #studio-note{-webkit-line-clamp:1;font-size:12px;line-height:16px}
+  /* CS2, CS9: the Inspector - a 21px head, 13px tabs and rows, a 40px tile strip, 38px marks rows. */
+  #view-chart-studio .studio-inspector-head{padding:6px 8px 0 11px}
+  #view-chart-studio .studio-inspector-head .studio-panel-title{font:400 21px/26px var(--font-serif)}
+  #view-chart-studio button.studio-inspector-collapse{height:26px;min-height:26px;padding:0 10px}
+  #view-chart-studio .studio-inspector-tabs{margin:4px 10px 0}
+  #view-chart-studio .studio-inspector-tabs button{padding:9px 8px 10px;font-size:13px}
+  #view-chart-studio .studio-inspector-tabs button+button{margin-left:12px}
+  #view-chart-studio .studio-inspector .studio-pane{padding:7px 6px 10px 10px}
+  #view-chart-studio .studio-mark-strip{gap:2px;margin:2px 0 6px}
+  #view-chart-studio .studio-mark-tile{height:40px;gap:3px;font-size:8.5px;letter-spacing:-.15px}
+  #view-chart-studio .studio-mark-tile .studio-icon{width:16px;height:16px}
+  #view-chart-studio .studio-mark-card .studio-mark-tile{height:36px;letter-spacing:-.3px}
+  #view-chart-studio .studio-prop{grid-template-columns:84px minmax(0,1fr)}
+  #view-chart-studio .studio-mark-card-body .studio-prop{height:38px}
+  #view-chart-studio .studio-mark-card .studio-mark-card-body .studio-prop{height:36px}
+  #view-chart-studio .studio-prop>span{gap:10px;padding:0 0 0 5px;font-size:13px}
+  #view-chart-studio .studio-prop>span .studio-icon,#view-chart-studio .studio-prop>span .studio-prop-options .studio-icon{width:16px;height:16px}
+  #view-chart-studio .studio-prop>span.studio-fold-head{padding-left:5px}
+  #view-chart-studio .studio-prop>span.studio-fold-head button.studio-fold{gap:10px}
+  #view-chart-studio .studio-prop>span:has(>.studio-prop-options) button.studio-fold::before{left:-37px}
+  #view-chart-studio .studio-prop .studio-drop{padding:0 6px}
+  #view-chart-studio .studio-mark-card-body .studio-prop .studio-drop{min-height:28px}
+  #view-chart-studio .studio-prop .studio-drop .studio-pill{height:22px;padding:0 8px;font-size:12.5px}
+  #view-chart-studio .studio-mark-card-head{min-height:36px}
+  #view-chart-studio .studio-mark-card-toggle{gap:6px;padding:6px 2px;font-size:13px}
+  #view-chart-studio .studio-mark-card-type{font-size:12px}
+  #view-chart-studio .studio-mark-card>.studio-mark-card-body{padding:0 6px 6px}
+  #view-chart-studio .studio-mark-sync .studio-check{font-size:13px}
+  #view-chart-studio .studio-inspector .studio-disclosure{margin-top:10px}
+  #view-chart-studio .studio-inspector .studio-disclosure>summary{height:34px;font-size:15px}
+  /* CS10: the Stages row (#46): four stages and "Chart: Sankey" on one line. */
+  #view-chart-studio .studio-shelves .studio-shelf:has(>.studio-drop--stages) .studio-shelf-name{flex-basis:50px}
+  #view-chart-studio .studio-shelves .studio-shelf .studio-drop.studio-drop--stages{gap:2px}
+  #view-chart-studio .studio-shelf .studio-drop.studio-drop--stages .studio-pill{padding:0 5px 0 6px;gap:4px;font-size:11.5px}
+  #view-chart-studio .studio-shelf .studio-drop.studio-drop--stages .studio-pill>button.studio-pill-menu{width:14px;margin:0 -3px 0 1px}
+  #view-chart-studio .studio-shelf .studio-drop.studio-drop--stages .studio-pill>button.studio-pill-menu::before{left:4px}
+  #view-chart-studio .studio-drop.studio-drop--stages>.studio-stage-arrow{margin:0;font-size:11px}
+}
+/* ---- Lane G1 (2026-09-27): board #47's Data sources list at the top of the Data pane, drawn for a sheet
+   that reads more than one source (chart-studio.js renderDataSources): a swatch, the source's name and its
+   kind, under a heading set as the pane's own ("DIMENSIONS"), a rule under the list. */
+#view-chart-studio .studio-data-sources{margin:0 0 8px;padding:2px 3px 10px;border-bottom:1px solid #ebe6ee}
+#view-chart-studio .studio-data-sources[hidden]{display:none}
+#view-chart-studio .studio-data-sources>h3{margin:0 0 7px;padding:0;font:500 11px/14px var(--font-sans);letter-spacing:.09em;text-transform:uppercase;color:#4a4552}
+#view-chart-studio .studio-data-source-list{display:grid;gap:6px;margin:0;padding:0;list-style:none}
+#view-chart-studio .studio-data-source{display:grid;grid-template-columns:11px minmax(0,1fr);column-gap:8px;align-items:start;color:#2f273f;font:400 12.5px/16px var(--font-sans)}
+#view-chart-studio .studio-data-source-swatch{width:11px;height:11px;margin-top:2.5px;border-radius:2px;background:#a39b92}
+#view-chart-studio .studio-data-source-words{min-width:0;overflow-wrap:anywhere}
+#view-chart-studio .studio-data-source-kind{color:#6b6770}

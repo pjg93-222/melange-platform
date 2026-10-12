@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-completeness-audit-receipt:v2",
+  "title": "Employment-first history completeness audit receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {"status": {"const": "PASS"}}
+      },
+      "then": {
+        "properties": {
+          "record_rows": {"type": "integer", "minimum": 1},
+          "identified_people": {"type": "integer", "minimum": 1},
+          "unidentified_rows": {"const": 0},
+          "duplicate_identified_person_rows": {"const": 0},
+          "complete_people": {"type": "integer", "minimum": 1},
+          "incomplete_people": {"const": 0},
+          "complete_rows": {"type": "integer", "minimum": 1},
+          "incomplete_rows": {"const": 0},
+          "failure_counts": {"type": "object", "maxProperties": 0}
+        }
+      }
+    }
+  ],
+  "required": [
+    "schema_id",
+    "generated_at",
+    "status",
+    "binding_completeness_dimension",
+    "education_is_nonblocking",
+    "record_rows",
+    "identified_people",
+    "unidentified_rows",
+    "duplicate_identified_person_rows",
+    "complete_people",
+    "incomplete_people",
+    "complete_rows",
+    "incomplete_rows",
+    "failure_counts",
+    "education_diagnostic_counts",
+    "source_files",
+    "audit_file"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-employment-completeness-audit-receipt-v2"
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": ["PASS", "INCOMPLETE"]
+    },
+    "binding_completeness_dimension": {
+      "const": "EMPLOYMENT"
+    },
+    "education_is_nonblocking": {
+      "const": true
+    },
+    "record_rows": {"type": "integer", "minimum": 0},
+    "identified_people": {"type": "integer", "minimum": 0},
+    "unidentified_rows": {"type": "integer", "minimum": 0},
+    "duplicate_identified_person_rows": {"type": "integer", "minimum": 0},
+    "complete_people": {"type": "integer", "minimum": 0},
+    "incomplete_people": {"type": "integer", "minimum": 0},
+    "complete_rows": {"type": "integer", "minimum": 0},
+    "incomplete_rows": {"type": "integer", "minimum": 0},
+    "failure_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "education_diagnostic_counts": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "source_files": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "audit_file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "bytes"],
+      "properties": {
+        "path": {"const": "history_completeness_audit.ndjson.gz"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "bytes": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

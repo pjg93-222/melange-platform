@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-house-person-identity-link-v1",
+  "title": "House cross-office name link candidate",
+  "description": "One row per (person_key, office_key_a, office_key_b) for every payee name observed in more than one House office. A link row records what the disbursement rows show about the two office-scoped atoms carrying the same name, and which rule that evidence triggers. It is NEVER an identity finding: SHARED_EMPLOYEE and MID_QUARTER_MOVE record a same-person reading, SEQUENTIAL_CANDIDATE records an unresolved candidate, and TRUE_COLLISION records that the two atoms are kept apart. No row promotes a canonical identity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "link_id", "person_key", "office_key_a",
+    "office_key_b", "office_person_id_a", "office_person_id_b",
+    "container_kind_a", "container_kind_b", "container_kind_pair",
+    "member_bioguide_a", "member_bioguide_b", "link_class", "link_subclass",
+    "cross_office_identity", "split", "split_basis", "split_note",
+    "name_link_class", "name_office_count", "evidence", "identity_status",
+    "review_status", "canonical_eligible", "canonical_identity_promoted",
+    "canonical_employment_promoted", "canonical_person_id",
+    "canonical_identity_decision"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-house-person-identity-link-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "link_id": {"type": "string", "pattern": "^sod:office_person_link:[0-9a-f]{64}$"},
+    "person_key": {"type": "string", "minLength": 5, "pattern": "^SOD:"},
+    "office_key_a": {"type": "string", "minLength": 1},
+    "office_key_b": {"type": "string", "minLength": 1},
+    "office_person_id_a": {"type": "string", "pattern": "^sod:office_person:[0-9a-f]{64}$"},
+    "office_person_id_b": {"type": "string", "pattern": "^sod:office_person:[0-9a-f]{64}$"},
+    "container_kind_a": {"type": "string", "minLength": 1},
+    "container_kind_b": {"type": "string", "minLength": 1},
+    "container_kind_pair": {"type": "string", "minLength": 3},
+    "member_bioguide_a": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_bioguide_b": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "link_class": {
+      "description": "SHARED_EMPLOYEE: the two offices co-occur in at least one quarter and EVERY co-occurring quarter prints a SHARED EMPLOYEE title. MID_QUARTER_MOVE: they co-occur in a quarter with no shared title and the two offices' service-date ranges never touch at day level. TRUE_COLLISION: they co-occur in a quarter with no shared title and the service-date ranges DO touch at day level. SEQUENTIAL_CANDIDATE: the two offices never co-occur in a quarter.",
+      "enum": [
+        "SHARED_EMPLOYEE", "MID_QUARTER_MOVE", "SEQUENTIAL_CANDIDATE",
+        "TRUE_COLLISION"
+      ]
+    },
+    "link_subclass": {
+      "description": "Set on TRUE_COLLISION only; the container-kind shape of the pair, for triage. Precedence: BOTH_COMMITTEE (both sides committee), COMMITTEE_AND_MEMBER (one side committee, the other a member container - member_office, member_office_unresolved or vacant_seat), LEADERSHIP_AND_OTHER (either side leadership), MEMBER_AND_MEMBER (both sides member containers), ADMIN_AND_OTHER (either side admin), then OTHER as a genuinely miscellaneous residual. container_kind_pair carries the raw shape on every row regardless, so the subclass is never the only record of the shape.",
+      "type": ["string", "null"],
+      "enum": [
+        "BOTH_COMMITTEE", "COMMITTEE_AND_MEMBER", "LEADERSHIP_AND_OTHER",
+        "MEMBER_AND_MEMBER", "ADMIN_AND_OTHER", "OTHER", null
+      ]
+    },
+    "cross_office_identity": {
+      "enum": [
+        "ONE_PERSON_MANY_OFFICES",
+        "ONE_PERSON_SEQUENTIAL_WITHIN_QUARTER",
+        "CANDIDATE_REVIEW_REQUIRED",
+        "SPLIT_NOT_LINKED"
+      ]
+    },
+    "split": {"type": "boolean"},
+    "split_basis": {
+      "type": ["string", "null"],
+      "enum": ["DAY_LEVEL_OVERLAP_NO_SHARED_TITLE", null]
+    },
+    "split_note": {"type": ["string", "null"]},
+    "name_link_class": {
+      "enum": [
+        "SHARED_EMPLOYEE", "MID_QUARTER_MOVE", "SEQUENTIAL_ONLY",
+        "TRUE_COLLISION"
+      ]
+    },
+    "name_office_count": {"type": "integer", "minimum": 2},
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "co_quarters", "co_quarter_count", "co_quarters_with_shared_title",
+        "co_quarters_without_shared_title", "shared_title_examples",
+        "deciding_quarter", "first_overlap_quarter", "deciding_intervals_a",
+        "deciding_intervals_b", "overlap_days", "max_overlap_days", "min_gap_days",
+        "ledger_shared_flag_any_a", "ledger_shared_flag_any_b",
+        "ledger_shared_flag_circular"
+      ],
+      "properties": {
+        "co_quarters": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"}
+        },
+        "co_quarter_count": {"type": "integer", "minimum": 0},
+        "co_quarters_with_shared_title": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"}
+        },
+        "co_quarters_without_shared_title": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"}
+        },
+        "shared_title_examples": {
+          "type": "array",
+          "maxItems": 3,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "deciding_quarter": {
+          "description": "The quarter whose evidence the link_class is reported against. On TRUE_COLLISION this is the STRONGEST instance - the co-quarter with no shared title carrying the largest day-level overlap - and deciding_intervals_a/b and overlap_days describe that quarter. On MID_QUARTER_MOVE and SHARED_EMPLOYEE it is the earliest qualifying co-quarter. Null on SEQUENTIAL_CANDIDATE. Pair with first_overlap_quarter, which gives the EARLIEST instance; neither reading requires a rebuild to recover.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}Q[1-4]$"
+        },
+        "first_overlap_quarter": {
+          "description": "Set on TRUE_COLLISION only: the EARLIEST co-quarter with no shared title that carries a day-level overlap, so the earliest evidence is never buried behind the maximum-overlap choice in deciding_quarter. Null on every other link_class.",
+          "type": ["string", "null"],
+          "pattern": "^[0-9]{4}Q[1-4]$"
+        },
+        "deciding_intervals_a": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end_inclusive"],
+            "properties": {
+              "start": {"type": "string", "format": "date"},
+              "end_inclusive": {"type": "string", "format": "date"}
+            }
+          }
+        },
+        "deciding_intervals_b": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["start", "end_inclusive"],
+            "properties": {
+              "start": {"type": "string", "format": "date"},
+              "end_inclusive": {"type": "string", "format": "date"}
+            }
+          }
+        },
+        "overlap_days": {"type": ["integer", "null"], "minimum": 0},
+        "max_overlap_days": {"type": ["integer", "null"], "minimum": 0},
+        "min_gap_days": {"type": ["integer", "null"]},
+        "ledger_shared_flag_any_a": {"type": "boolean"},
+        "ledger_shared_flag_any_b": {"type": "boolean"},
+        "ledger_shared_flag_circular": {
+          "description": "Always true. See house_person_identity.schema.json. The two ledger_shared_flag_any_* fields are context and are read by no rule.",
+          "const": true
+        }
+      }
+    },
+    "identity_status": {"const": "NAME_SCOPED_TO_OFFICE"},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_identity_promoted": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "canonical_person_id": {"const": null},
+    "canonical_identity_decision": {"const": "NOT_ADJUDICATED"}
+  }
+}

@@ -1,0 +1,281 @@
+/* industry-ui.css: overlay for original-industry.html (Industry Overview #37, Organizations #38); owners: prompts 10, 11. Loaded after ui-kit.css and restored.css. */
+/* Build 10 · Industry › Overview (board #37). Everything is scoped to html.ind-v2, which industry-ui.js sets.
+   No colour literals: an industry's colour arrives as --ind-c, read at run time from the page's own .sector-dot
+   classes; tier colours come from the page's own tierChart(). Chrome uses the --ml-* tokens only. */
+
+/* Page frame: full content width, 24px gutters; the legacy hero banner and industry cards are replaced (kept in the
+   DOM, hidden only here); the banner text is behind the head's "How to read this". */
+.ind-v2 main#main{width:100%;max-width:none;margin:0;padding:14px var(--ml-gutter-end) 40px var(--ml-gutter);box-sizing:border-box}
+.ind-v2 main#main>.hero,.ind-v2 #industries{display:none!important}
+/* r5 (audit F-2): until industry-ui.js has mounted (html.ind-v2) the frame paints nothing of the legacy page and stays
+   transparent, so the shell's industry loading state behind it (research.js) shows from the click until the first v2
+   paint, with no flash of the legacy layout. Layout still runs (visibility, not display). If the overlay never mounts,
+   the legacy page is shown after 8 s. */
+html:not(.ind-v2),html:not(.ind-v2) body{background:transparent!important}
+html:not(.ind-v2) body{visibility:hidden;animation:ind-reveal 0s linear 8s forwards}
+@keyframes ind-reveal{to{visibility:visible}}
+/* The loader's centred status line (mlk-boot.js, html.mlk-boot::after) would be a second loading message over the
+   shell's; its failure panel is an element of its own and still shows. */
+html.mlk-boot:not(.ind-v2)::after{content:none}
+.ind-v2[data-ind-view=overview] #company-picker-panel,.ind-v2[data-ind-view=overview] #organization-panel{display:none!important}
+.ind-v2[data-ind-view=organizations] #industry-panel,.ind-v2[data-ind-view=organizations] .ind-overview{display:none!important}
+.ind-v2[data-ind-view=overview] .ind-orghead{display:none!important}
+/* Build receipts (method text): on neither tab; the paragraphs and input hashes are behind "How to read this" under
+   Sources & method (fix round 1, MD-4). */
+.ind-v2 #receipts{display:none!important}
+
+/* The page's own industry panel below the grid (fix round 1, MD-1 / MB-S-3): no legacy head, callout or methodology link
+   (their text is in the head popover); Member attention, Public mentions and the roster are collapsed kit folds. Only the
+   folds render; the panel's other children stay in the DOM, hidden (only once the folds exist, so a failed fold never
+   hides the tables). */
+.ind-v2 #industry-panel.panel:has(>.ind-folds):not(#mlk){margin:24px 0 0;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+.ind-v2 #industry-panel:has(>.ind-folds)>:not(.ind-folds){display:none!important}
+.ind-v2 #public-mentions .tabletop .subtle,.ind-v2 #public-mentions-built>.honesty,.ind-v2 #public-mentions-built>details.methnote,
+.ind-v2 #tier-roster>details.tierfold>summary,.ind-v2 #tier-roster>details.tierfold>.honesty,.ind-v2 #tier-roster>details.tierfold>p.receipt:not([id]),
+.ind-v2 #tier-block>.honesty,.ind-v2 #tier-block>details.methnote,.ind-v2 #tier-block>.tabletop .subtle{display:none!important}
+.ind-folds{display:flex;flex-direction:column;gap:12px;font-family:var(--sans);color:var(--ml-ink)}
+.ind-fold{margin:0;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.ind-fold>summary{display:list-item;padding:12px 16px;list-style-position:inside;color:var(--ml-ink);cursor:pointer}
+.ind-fold[open]>summary{border-bottom:1px solid var(--ml-rule)}
+.ind-fold>summary:focus-visible{outline:2px solid var(--ml-accent)!important;outline-offset:-2px}
+.ind-fold__title:not(#mlk){display:inline;margin:0 0 0 4px;padding:0;font:400 20px/1.2 var(--serif);color:var(--ml-ink);letter-spacing:0;text-transform:none}
+.ind-fold__body{padding:12px 16px 16px}
+.ind-fold__body>.subsection:not(#mlk){margin:0;padding:0;border:0}
+.ind-foldhead{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;margin:0 0 12px}
+.ind-postgroup{display:flex;align-items:center;min-width:0;max-width:100%}
+.ind-postseg:not(#mlk)>button:focus-visible{outline:2px solid var(--ml-accent)!important}
+.ind-foldhead>.rowcount:not(#mlk),.ind-fold .rowcount:not(#mlk){flex:none;margin:0 0 0 auto;font:400 13px/18px var(--sans);color:var(--ml-muted);white-space:nowrap}
+.ind-fold #public-mentions>.tabletop:not(#mlk){margin:0 0 8px}
+.ind-v2 #public-mentions-empty:not(#mlk){margin:0;padding:0;border:0;background:none;color:var(--ml-muted);font:400 14px/1.4 var(--sans)}
+.ind-v2 #tier-roster .eyebrow:not(#mlk){font:600 11px/1.2 var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ml-muted)}
+.ind-v2 #tier-roster .subtle:not(#mlk){font-family:var(--sans);color:var(--ml-muted)}
+
+.ind-root{font-family:var(--sans);color:var(--ml-ink)}
+.ind-root :focus-visible{outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+.ind-tabs:not(#mlk){margin:0 0 14px}
+.ind-tabs:not(#mlk)>a{min-width:98px}
+.ind-c{--ind-tint:color-mix(in srgb,var(--ind-c) 42%,var(--ml-surface))}
+.ind-sr{position:absolute!important;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* Overview grid: focus card (left) + other industries (right, 332px as drawn at 1440). Fix round 1 (MD-6): figure sizes
+   and card spacing measured against board #37 at 1440 (focus card 128-786, cards 152/341/530 x 174, Compare 721-757). */
+.ind-grid{display:grid;grid-template-columns:minmax(0,1fr) 332px;gap:20px;align-items:start}
+.ind-label:not(#mlk){display:block;margin:0;font:600 13px/16px var(--sans);letter-spacing:.14em!important;text-transform:uppercase!important;font-family:var(--sans)!important;color:var(--ml-ink)}
+.ind-dot{display:inline-block;flex:none;width:16px;height:16px;border-radius:50%;background:var(--ind-c)}
+
+/* Focus card */
+.ind-focus{box-sizing:border-box;min-width:0;padding:14px 22px 21px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.ind-ftitle:not(#mlk){display:flex;align-items:center;gap:11px;margin:0;font:400 30px/34px var(--serif);color:var(--ml-ink);letter-spacing:0;text-transform:none}
+.ind-ftitle .ind-dot{width:21px;height:21px}
+.ind-fsub{margin:1px 0 0;font:400 15px/20px var(--sans);color:var(--ml-muted)}
+.ind-figs{display:flex;align-items:stretch;margin-top:15px}
+.ind-fig{display:flex;flex-direction:column;min-width:0}
+.ind-fig:first-child{box-sizing:border-box;width:257px;padding-right:16px;border-right:1px solid var(--ml-rule)}
+.ind-fig+.ind-fig{padding-left:46px}
+.ind-big{font:500 50px/44px var(--serif);font-variant-numeric:lining-nums;color:var(--ml-ink);letter-spacing:0;white-space:nowrap}
+.ind-figlabel{margin-top:7px;font:400 16px/22px var(--sans);color:var(--ml-ink)}
+.ind-partialline{margin:10px 0 0;font:400 14px/20px var(--sans);color:var(--ml-muted)}
+.ind-chartbar{display:flex;align-items:center;gap:16px;min-height:20px;margin-top:6px}
+.ind-legend{display:flex;flex-wrap:wrap;align-items:center;gap:8px 28px;margin-left:auto;font:400 14px/20px var(--sans);color:var(--ml-ink)}
+.ind-key{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.ind-key>i{display:inline-block;width:14px;height:14px;border-radius:50%;background:var(--ind-c)}
+.ind-key--h>i{background:var(--ind-tint)}
+.ind-textbtn:not(#mlk){display:inline-flex;align-items:center;gap:6px;height:auto;min-height:0;margin:0;padding:0;border:0;background:none;color:var(--ml-ink);font:400 14px/18px var(--sans);letter-spacing:0;text-transform:none;text-decoration:underline;text-underline-offset:3px;cursor:pointer;box-shadow:none}
+.ind-textbtn:not(#mlk):hover{color:var(--ml-active)}
+.ind-chip:not(#mlk){height:28px;padding:0 12px}
+.ind-chart{position:relative;min-height:212px}
+.ind-chart>svg{display:block;width:100%;overflow:visible}
+.ind-gl{stroke:var(--ml-rule);stroke-width:1}
+.ind-ax{stroke:var(--ml-strong-rule);stroke-width:1}
+.ind-yt{fill:var(--ml-muted);font:400 14px var(--sans)}
+.ind-xt{fill:var(--ml-ink);font:400 14px var(--sans)}
+.ind-seg-i{fill:var(--ind-c)}
+.ind-seg-h{fill:var(--ind-tint)}
+.ind-hl{stroke:var(--ml-surface);stroke-width:1.6;opacity:.6}
+.ind-lab{fill:var(--ml-ink);font:500 11px var(--sans)}
+.ind-panel{margin:0}
+.ind-panel>svg{display:block;width:100%;overflow:visible}
+.ind-panel+.ind-panel{margin-top:10px}
+.ind-paneltitle{font:600 13px/18px var(--sans);color:var(--ml-ink)}
+.ind-line{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.ind-line--partial{stroke-dasharray:5 4}
+.ind-pt{stroke:var(--ml-surface);stroke-width:1.5}
+
+/* Bank by tier: today's tierChart() output, restyled only in chrome (grid, text, outlines). */
+.ind-tiers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+.ind-tiercol{min-width:0}
+.ind-tiertitle:not(#mlk){margin:0 0 4px;font:600 13px/18px var(--sans);letter-spacing:0;text-transform:none;color:var(--ml-ink)}
+.ind-tiers svg{display:block;width:100%;height:190px}
+.ind-tiers svg line{stroke:var(--ml-rule)}
+.ind-tiers svg text{fill:var(--ml-muted);font-family:var(--sans)}
+.ind-tiers svg rect{stroke:var(--ml-surface)}
+.ind-tierfoot .tierlegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:12px;color:var(--ml-ink)}
+.ind-tierfoot .tierkey{display:inline-flex;align-items:center;gap:6px}
+.ind-tierfoot .tiernote{display:block;margin:6px 0 0;font-size:12px;line-height:1.45;color:var(--ml-muted)}
+
+/* Bills table */
+.ind-billshead{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:18px 0 9px}
+.ind-billshead .sitenav{display:flex;flex:none;margin:0;padding:0}
+.ind-billshead .sitenav .desklink:not(#mlk){display:inline;padding:0;border:0;border-radius:0;background:none;color:var(--ml-ink);font:400 14px/18px var(--sans);text-decoration:underline;text-underline-offset:3px}
+.ind-billshead .sitenav .desklink:not(#mlk):hover{background:none;color:var(--ml-active)}
+.ind-bills:not(#mlk){table-layout:fixed}
+.ind-bills:not(#mlk) th{height:33px;padding:0 16px;font-size:12px;letter-spacing:.08em}
+.ind-bills:not(#mlk) td{height:37px;padding:6px 16px;font-size:14px;line-height:1.3;white-space:normal;overflow-wrap:anywhere}
+.ind-bills:not(#mlk) td.ind-bill{white-space:nowrap}
+.ind-pos{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.ind-pos__shape{font-size:12px;line-height:1}
+.ind-pos.is-support .ind-pos__shape{color:var(--green-text)}
+.ind-pos.is-oppose .ind-pos__shape{color:var(--red-text)}
+.ind-pos.is-neutral .ind-pos__shape{color:var(--amber-text)}
+.ind-none{color:var(--ml-muted)}
+
+/* Other industries */
+.ind-others{min-width:0}
+.ind-others>.ind-label:not(#mlk){margin:-3px 0 11px}
+.ind-cards{display:grid;gap:15px}
+.ind-card{box-sizing:border-box;min-width:0;padding:14px 22px 16px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.ind-cardhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ind-cardname:not(#mlk){display:flex;align-items:center;gap:9px;min-width:0;margin:0;font:400 22px/26px var(--serif);color:var(--ml-ink);letter-spacing:0;text-transform:none}
+.ind-cardhead .ind-textbtn:not(#mlk){margin-top:14px}
+.ind-sortnote{margin:0 0 -4px;font:400 13px/18px var(--sans);color:var(--ml-muted)}
+.ind-cardfigs{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 14px}
+.ind-cardfig{display:block;margin-top:-6px;font:500 37px/44px var(--serif);font-variant-numeric:lining-nums;color:var(--ml-ink);white-space:nowrap}
+.ind-cardfee{font:400 13px/18px var(--sans);color:var(--ml-muted);white-space:nowrap}
+.ind-sparkpair{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.ind-sparkcol{min-width:0;margin:0}
+.ind-sparklabel{font:400 12px/16px var(--sans);color:var(--ml-muted)}
+.ind-spark svg{display:block;width:100%;height:72px;overflow:visible}
+.ind-spark .ind-line{stroke:var(--ind-c);stroke-width:1.6}
+.ind-spark .ind-pt{fill:var(--ind-c);stroke:none}
+.ind-sparkcol--h .ind-line{stroke:var(--ind-tint);stroke-width:2}
+.ind-sparkcol--h .ind-pt{fill:var(--ind-tint)}
+.ind-sparkx{fill:var(--ml-muted);font:400 11px var(--sans)}
+.ind-compareall:not(#mlk){width:100%;height:36px;margin-top:17px;font:500 14px/1 var(--sans)}
+.ind-compareall:not(#mlk)[aria-pressed=true]{background:var(--ml-surface-alt)}
+.ind-compareall[hidden]:not(#mlk){display:none}
+
+/* States */
+.ind-focus[aria-busy=true] .mlk-skel-row{margin-top:12px}
+.ind-root .mlk-state:not(#mlk){margin:12px 0 0}
+.ind-retry:not(#mlk){margin-top:12px}
+
+/* Organizations tab header: today's three coverage tiles (moved from the Overview banner row). */
+.ind-orghead{margin:0 0 8px}
+.ind-orghead .hero-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.ind-orghead .stat:last-child{border-right:0}
+
+/* ---- Build 11 · Industry › Organizations: the list and one organization's page (board #38) ----------------------
+   The page's own company picker and organization panel are replaced (kept in the DOM, hidden only here); their method
+   text is behind the head's "How to read this". Posture dots arrive as --mlk-dot (read from the page's .postbadge
+   classes), party circles as --ind-party (colors.json via the kit), industry dots as --ind-c. No colour literals. */
+.ind-v2[data-ind-view=organizations] #company-picker-panel,.ind-v2[data-ind-view=organizations] #organization-panel{display:none!important}
+.ind-tabrow{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:0 0 14px}
+.ind-tabrow .ind-tabs:not(#mlk){margin:0}
+.ind-v2[data-ind-orgpage] .ind-tabrow{margin-bottom:0;padding-bottom:2px;border-bottom:1px solid var(--ml-rule)}
+.ind-orgback:not(#mlk){display:inline-flex;align-items:center;gap:10px;color:var(--ml-ink);font:400 15px/20px var(--sans);text-decoration:none}
+.ind-orgback:not(#mlk):hover{text-decoration:underline;text-underline-offset:3px}
+.ind-orgback[hidden]:not(#mlk){display:none}
+.ind-link:not(#mlk){color:var(--ml-ink);text-decoration:underline;text-underline-offset:3px}
+.ind-link:not(#mlk):hover{color:var(--ml-active)}
+.ind-orglist[hidden],.ind-org[hidden]{display:none!important}
+
+/* List: coverage tiles, search + industry filter, one table */
+.ind-orgtools{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin:16px 0 12px}
+.ind-orgsearch:not(#mlk){width:320px}
+.ind-orgcount{margin:0 0 0 auto;font:400 13px/18px var(--sans);color:var(--ml-muted)}
+.ind-orgtable:not(#mlk),.ind-otable:not(#mlk){table-layout:fixed}
+.ind-orgtable:not(#mlk) td,.ind-otable:not(#mlk) td{height:44px;padding:6px 16px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ind-otable:not(#mlk) td{padding:8px 14px;font-size:13px}
+.ind-orgtable:not(#mlk) th,.ind-otable:not(#mlk) th{padding:14px 16px;overflow:hidden;text-overflow:ellipsis}
+.ind-otable:not(#mlk) th{padding:14px}
+.ind-orgtable tbody tr{cursor:pointer}
+.ind-orgname a{color:var(--ml-ink);font-weight:500;text-decoration:none}
+.ind-orgname a:hover{text-decoration:underline;text-underline-offset:3px}
+.ind-orgtable .ind-dot,.ind-ochip .ind-dot{width:9px;height:9px;margin-right:8px;vertical-align:1px}
+.ind-attn .mlk-bar:not(#mlk){--mlk-bar-w:84px;--mlk-bar-fill:var(--ml-control-border);margin-right:10px}
+.ind-post{display:inline-flex;align-items:center;gap:8px;white-space:nowrap}
+.ind-postdelta{font-size:13px;line-height:1;color:var(--ml-muted)}
+.ind-pill--adv:not(#mlk){box-shadow:inset 0 0 0 1px var(--mlk-dot)}
+.ind-pager{margin-top:10px}
+
+/* One organization: header + ATTENTION BY YEAR (rows 1–2), table tabs, table + TOP MEMBERS BY ATTENTION (row 3) */
+.ind-org{display:grid;grid-template-columns:minmax(0,1fr) 390px;grid-template-areas:"head years" "tabs years" "table top";column-gap:16px;align-items:start;padding-top:13px}
+.ind-ohead{grid-area:head;min-width:0;padding-top:16px}
+.ind-oname:not(#mlk){margin:0;font:400 28px/36px var(--serif);color:var(--ml-ink);letter-spacing:0;text-transform:none;overflow-wrap:anywhere}
+.ind-oname:focus{outline:0}
+.ind-oname:focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
+.ind-ometa{display:flex;flex-wrap:wrap;align-items:flex-start;gap:12px 56px;margin-top:14px}
+.ind-ochips{display:flex;flex-wrap:wrap;gap:10px}
+.ind-ochip{display:inline-flex;align-items:center;box-sizing:border-box;height:26px;padding:0 12px;border:1px solid var(--ml-strong-rule);border-radius:var(--ml-radius);color:var(--ml-ink);font:400 14px/1 var(--sans);white-space:nowrap}
+.ind-ochip--muted{color:var(--ml-muted)}
+.ind-ochip b{margin-left:6px;font-weight:600}
+.ind-traj{display:flex;align-items:flex-start;gap:30px}
+.ind-traj .ind-pill:not(#mlk){height:27px;padding:0 14px 0 12px;border-radius:14px;font-size:14px;gap:9px}
+.ind-traj .ind-pill:not(#mlk)::before{width:8px;height:8px}
+.ind-trajfig{display:flex;flex-direction:column}
+.ind-delta{font:500 17px/22px var(--sans);color:var(--ml-ink);font-variant-numeric:tabular-nums}
+.ind-trajcap{margin-top:6px;font:400 12px/16px var(--sans);color:var(--ml-muted)}
+.ind-oboundary{margin-top:10px;font:400 13px/18px var(--sans);color:var(--ml-muted)}
+.ind-oboundary p{margin:0}
+.ind-oyears:not(#mlk){grid-area:years;padding:14px 20px 18px}
+.ind-oyears .ind-label:not(#mlk),.ind-topcard .ind-label:not(#mlk){font-size:11px;letter-spacing:.14em!important;color:var(--ml-ink)}
+.ind-years{display:grid;gap:7px;margin:12px 0 0;padding:0;list-style:none}
+.ind-years li{display:grid;grid-template-columns:82px minmax(0,1fr) 40px;align-items:center;gap:14px;font:400 13px/16px var(--sans);color:var(--ml-ink)}
+.ind-ybar{display:block;height:6px;border-radius:3px;background:var(--mlk-track);overflow:hidden}
+.ind-ybar>i{display:block;height:100%;border-radius:3px;background:var(--ml-control-border)}
+.ind-yv{text-align:right;font-variant-numeric:tabular-nums}
+.ind-otabs:not(#mlk){grid-area:tabs;align-self:end;justify-self:start;height:32px;margin-top:28px}
+.ind-otabs:not(#mlk)>button{padding:0 18px;font-size:13px}
+.ind-tabn{margin-left:14px;color:var(--ml-muted);font-variant-numeric:tabular-nums}
+.ind-otabs [aria-selected=true] .ind-tabn{color:var(--ml-on-dark-muted)}
+.ind-opanel{grid-area:table;min-width:0;margin-top:14px}
+.ind-opanel:focus{outline:0}
+.ind-otable:not(#mlk) td.ind-ttl{white-space:normal}
+.ind-obills:not(#mlk) td.ind-match:not(.ind-ttl){white-space:nowrap}
+.ind-obills:not(#mlk) td:last-child{white-space:normal} /* a position with a category wraps under its shape instead of clipping */
+.ind-obills .ind-pos{display:inline;white-space:normal}
+.ind-obills .ind-pos__shape{margin-right:6px}
+.ind-omembers:not(#mlk) :is(th,td){padding-left:10px;padding-right:10px}
+.ind-ochamps:not(#mlk) :is(th,td){padding-left:6px;padding-right:6px}
+.ind-ochamps:not(#mlk) :is(th,td):first-child{padding-left:12px}
+.ind-ochamps:not(#mlk) :is(th,td):last-child{padding-right:12px}
+.ind-ochamps:not(#mlk) th{padding-top:10px;padding-bottom:10px;white-space:normal;vertical-align:bottom;line-height:1.25}
+.ind-otable:not(#mlk) td.mlk-num{text-overflow:clip}
+.ind-ttl>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3}
+.ind-otable:not(#mlk) td.ind-bill{font-weight:600}
+.ind-otable:not(#mlk) td.ind-mcell{overflow:hidden}
+.ind-mcell .ind-party{margin-right:10px}
+.ind-trend .attention-spark-wrap{display:inline-flex;align-items:center;gap:6px}
+.ind-trend .attention-spark{width:72px;height:24px}
+.ind-onote{margin:8px 0 0;font:400 12px/17px var(--sans);color:var(--ml-muted)}
+.ind-mtotals{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 10px}
+.ind-topcard:not(#mlk){grid-area:top;margin-top:14px;padding:0 0 18px;overflow:hidden}
+.ind-topcard .ind-label:not(#mlk){padding:15px 18px 14px;background:var(--ml-surface-alt);border-bottom:1px solid var(--ml-rule)}
+.ind-toplist{margin:0 18px;padding:0;list-style:none}
+.ind-toplist li{display:grid;grid-template-columns:22px minmax(0,1fr) auto 30px;align-items:center;gap:14px;min-height:54px;border-bottom:1px solid var(--ml-rule);font:400 14px/18px var(--sans)}
+.ind-topname{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ind-topn{text-align:right;font:400 15px/1 var(--sans);font-variant-numeric:tabular-nums}
+.ind-allmem:not(#mlk){margin:16px 18px 0;text-decoration:underline dotted;text-decoration-color:var(--ml-control-border)}
+.ind-topempty:not(#mlk){margin:14px 18px 0}
+.ind-party{display:inline-flex;flex:none;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--ind-party,var(--ml-muted));color:var(--ml-on-dark);font:600 11px/1 var(--sans);vertical-align:middle}
+.ind-party--none{background:var(--ml-surface-alt);color:var(--ml-muted)}
+.ind-org[aria-busy=true] .mlk-skel-row,.ind-orgbody[aria-busy=true] .mlk-skel-row{margin-top:12px}
+.ind-org>.mlk-state,.ind-org>p,.ind-org>.ind-retry{grid-column:1/-1}
+
+@media (max-width:860px){
+  .ind-org{grid-template-columns:minmax(0,1fr);grid-template-areas:"head" "years" "tabs" "table" "top"}
+  .ind-oyears:not(#mlk){margin-top:16px}
+  .ind-otabs:not(#mlk){height:auto;flex-wrap:wrap}
+  .ind-orgcount{margin-left:0}
+}
+@media (max-width:860px){
+  .ind-grid{grid-template-columns:minmax(0,1fr)}
+  .ind-postgroup{flex-wrap:wrap;row-gap:6px}
+  .ind-postseg:not(#mlk){height:auto}
+  .ind-postseg:not(#mlk)>button{padding:6px 12px;white-space:normal;text-align:left}
+  .ind-figs{flex-wrap:wrap;row-gap:12px}
+  .ind-fig:first-child{width:auto;border-right:0}
+  .ind-fig+.ind-fig{padding-left:0}
+  .ind-tiers{grid-template-columns:minmax(0,1fr)}
+  .ind-orghead .hero-stats{grid-template-columns:minmax(0,1fr)}
+}

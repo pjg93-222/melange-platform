@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-identity-candidate:v1",
+  "title": "LDA cross-source identity review candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "candidate_id", "method_version", "source_binding_sha256", "lda_source_person_id", "lda_display_name", "lda_covered_position_support_count", "lda_government_term_hit", "matched_source_system_id", "matched_source_entity_id", "matched_display_name", "match_evidence", "lda_name_collision_max", "target_name_collision_max", "target_cross_source_multiplicity_max", "target_multiplicity_by_source_max", "review_status", "confidence", "canonical_merge"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-identity-candidate-v1"},
+    "candidate_id": {"type": "string", "pattern": "^lda:identity-candidate:[0-9a-f]{64}$"},
+    "method_version": {"const": "lda-identity-normalized-name-candidates-v2"},
+    "source_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[1-9][0-9]*$"},
+    "lda_display_name": {"type": "string", "minLength": 1},
+    "lda_covered_position_support_count": {"type": "integer", "minimum": 0},
+    "lda_government_term_hit": {"type": "boolean"},
+    "matched_source_system_id": {"enum": ["politico-pro-staffer-directory", "quorum-legacy-staffers", "littlesis"]},
+    "matched_source_entity_id": {"type": "string", "minLength": 1},
+    "matched_display_name": {"type": "string", "minLength": 1},
+    "match_evidence": {"type": "array", "minItems": 1, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["normalized_name", "raw_lda_name_variants", "target_name_evidence", "lda_name_multiplicity", "target_multiplicity_total", "target_multiplicity_by_source"],
+      "properties": {
+        "normalized_name": {"type": "string", "minLength": 1},
+        "raw_lda_name_variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "target_name_evidence": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "object", "additionalProperties": false, "required": ["basis", "raw_target_name"], "properties": {"basis": {"enum": ["DISPLAY_NAME", "ALIAS"]}, "raw_target_name": {"type": "string", "minLength": 1}}}},
+        "lda_name_multiplicity": {"type": "integer", "minimum": 1},
+        "target_multiplicity_total": {"type": "integer", "minimum": 1},
+        "target_multiplicity_by_source": {
+          "type": "object", "additionalProperties": false,
+          "required": ["littlesis", "politico-pro-staffer-directory", "quorum-legacy-staffers"],
+          "properties": {
+            "littlesis": {"type": "integer", "minimum": 0},
+            "politico-pro-staffer-directory": {"type": "integer", "minimum": 0},
+            "quorum-legacy-staffers": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    }},
+    "lda_name_collision_max": {"type": "integer", "minimum": 1},
+    "target_name_collision_max": {"type": "integer", "minimum": 1},
+    "target_cross_source_multiplicity_max": {"type": "integer", "minimum": 1},
+    "target_multiplicity_by_source_max": {
+      "type": "object", "additionalProperties": false,
+      "required": ["littlesis", "politico-pro-staffer-directory", "quorum-legacy-staffers"],
+      "properties": {
+        "littlesis": {"type": "integer", "minimum": 0},
+        "politico-pro-staffer-directory": {"type": "integer", "minimum": 0},
+        "quorum-legacy-staffers": {"type": "integer", "minimum": 0}
+      }
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "confidence": {"type": "null"},
+    "canonical_merge": {"const": false}
+  }
+}

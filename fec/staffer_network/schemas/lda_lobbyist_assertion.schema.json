@@ -1,0 +1,9 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:melange:staffer-network:lda-lobbyist-assertion:v1","title":"LDA source-native lobbyist assertion","type":"object","additionalProperties":false,
+  "required":["schema_id","source_system_id","source_person_id","source_numeric_id","display_name","name_variants","first_name_variants","middle_name_variants","last_name_variants","suffix_variants","filing_years","first_dt_posted","last_dt_posted","activity_support_count","covered_position_support_count","covered_position_values"],
+  "properties":{
+    "schema_id":{"const":"staffer-network-lda-lobbyist-assertion-v1"},"source_system_id":{"const":"senate-lda-api"},"source_person_id":{"type":"string","pattern":"^lda:lobbyist:[1-9][0-9]*$"},"source_numeric_id":{"type":"integer","minimum":1},"display_name":{"type":"string","minLength":1},
+    "name_variants":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}},"first_name_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"middle_name_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"last_name_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"suffix_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},
+    "filing_years":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"integer","minimum":2021,"maximum":2026}},"first_dt_posted":{"type":"string","format":"date-time"},"last_dt_posted":{"type":"string","format":"date-time"},"activity_support_count":{"type":"integer","minimum":1},"covered_position_support_count":{"type":"integer","minimum":0},"covered_position_values":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}}
+  }
+}

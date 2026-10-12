@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:industry-edge:v1",
+  "title": "Person/registrant/client industry edge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["edge_id", "predicate", "subject_id", "subject_kind", "object_id", "object_kind", "raw_weight", "precision_bucket", "support_count", "support_digest"],
+  "properties": {
+    "edge_id": {"type": "string", "minLength": 1},
+    "predicate": {"enum": ["NAMED_ON_ACTIVITY", "FILED_BY", "FOR_CLIENT", "HILL_TO_LOBBYING_TRANSITION"]},
+    "subject_id": {"type": "string", "minLength": 1},
+    "subject_kind": {"enum": ["person", "lda_activity"]},
+    "object_id": {"type": "string", "minLength": 1},
+    "object_kind": {"enum": ["lda_activity", "registrant", "client"]},
+    "raw_weight": {"type": "number", "minimum": 0},
+    "precision_bucket": {"enum": ["day", "month", "year", "undated-only"]},
+    "support_count": {"type": "integer", "minimum": 1},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
+

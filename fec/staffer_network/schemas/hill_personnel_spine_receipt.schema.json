@@ -1,0 +1,408 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-hill-personnel-spine-receipt-v1",
+  "title": "Hill personnel spine receipt",
+  "description": "Build receipt for the Hill personnel spine generation: the hash-bound inputs, the emitted files, the conservation figures, the counts per identity tier, the link rates with their denominators, the bioguide resolution rate per chamber, the latest reporting period per chamber, the declared dials, and the zero-promotion pins. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "stage_id", "status", "rule_version", "run_id", "generated_at",
+    "review_status", "promotion_policy", "canonical_employment_promotions",
+    "canonical_identity_promotions", "failures", "inputs", "files", "sources",
+    "conservation", "counts", "link_rates", "bioguide_resolution",
+    "latest_period_by_chamber", "period_kind_by_chamber", "dials",
+    "determinism", "language_law", "implementation", "notes"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-hill-personnel-spine-receipt-v1"},
+    "stage_id": {"const": "hill-personnel-spine-part-c"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "rule_version": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "generated_at": {"type": ["string", "null"], "minLength": 1},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "promotion_policy": {"const": "REVIEW_REQUIRED_ZERO_CANONICAL_PROMOTIONS"},
+    "canonical_employment_promotions": {"const": 0},
+    "canonical_identity_promotions": {"const": 0},
+    "failures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "present", "bytes", "rows", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "present": {"type": "boolean"},
+          "bytes": {"type": ["integer", "null"], "minimum": 0},
+          "rows": {"type": ["integer", "null"], "minimum": 0},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bytes", "rows", "sha256"],
+        "properties": {
+          "bytes": {"type": "integer", "minimum": 0},
+          "rows": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "sources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "house_ledger_present", "senate_present",
+        "source_rows_read", "source_rows_admitted", "source_rows_suppressed",
+        "house_ledger_quarters",
+        "suppression_rule"
+      ],
+      "properties": {
+        "house_ledger_present": {"type": "boolean"},
+        "house_pdf_present": {
+          "description": "Generations before the House ledger v3 rebind read the 2009Q3-2015Q4 PDF-era rows from their own candidate file as a second lane. From v3 that file is inside the ledger and no separate lane exists, so this key is absent. It is retained, optional, so those earlier receipts still validate.",
+          "type": "boolean"
+        },
+        "senate_present": {"type": "boolean"},
+        "separate_pdf_lane_bound": {
+          "description": "False pins that no separate PDF-era candidate file was bound alongside a ledger that already contains those rows. Binding both would admit every 2009Q3-2015Q4 row twice.",
+          "const": false
+        },
+        "source_rows_read": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "source_rows_admitted": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "source_rows_suppressed": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "source_rows_suppressed_by_reason": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "house_ledger_quarters": {"type": "integer", "minimum": 0},
+        "house_ledger_rows_read_by_source_form": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "house_ledger_rows_admitted_by_source_form": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "house_ledger_quarters_by_source_form": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "house_pdf_quarters_admitted": {
+          "description": "Retained, optional, for the pre-rebind generations only. See house_pdf_present.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "suppression_rule": {"type": "string", "minLength": 1}
+      }
+    },
+    "conservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "observations_admitted", "span_observation_count_sum",
+        "observation_conservation_holds", "distinct_source_row_ids",
+        "span_source_row_id_union", "spine_person_ids_in_spans", "spine_rows",
+        "spine_ids_equal", "duplicate_spine_person_ids",
+        "current_staffer_rows", "staff_directory_entries",
+        "current_staffer_rows_equal_directory"
+      ],
+      "properties": {
+        "observations_admitted": {"type": "integer", "minimum": 0},
+        "span_observation_count_sum": {"type": "integer", "minimum": 0},
+        "observation_conservation_holds": {"type": "boolean"},
+        "distinct_source_row_ids": {"type": "integer", "minimum": 0},
+        "span_source_row_id_union": {"type": "integer", "minimum": 0},
+        "spine_person_ids_in_spans": {"type": "integer", "minimum": 0},
+        "spine_rows": {"type": "integer", "minimum": 0},
+        "spine_ids_equal": {"type": "boolean"},
+        "duplicate_spine_person_ids": {"type": "integer", "minimum": 0},
+        "current_staffer_rows": {"type": "integer", "minimum": 0},
+        "staff_directory_entries": {"type": "integer", "minimum": 0},
+        "current_staffer_rows_equal_directory": {"type": "boolean"}
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "person_office_spans", "spine_persons", "member_office_index_rows",
+        "lda_spine_links", "identity_tier_people", "spans_by_chamber",
+        "spans_by_container_kind", "spans_by_status", "spans_by_source_lane",
+        "member_resolution_methods", "current_staffer_link_status",
+        "lda_link_status", "lda_key_resolution", "cross_chamber_merges",
+        "cross_chamber_not_merged_ambiguous",
+        "cross_chamber_not_merged_period_overlap",
+        "shared_employee_office_links", "same_period_office_splits",
+        "ledger_field_disagreements"
+      ],
+      "properties": {
+        "person_office_spans": {"type": "integer", "minimum": 0},
+        "person_office_spans_with_touching_windows": {"type": "integer", "minimum": 0, "description": "Span rows sharing a (spine_person_id, chamber, office_key) with another whose reporting window overlaps or abuts it. Ruling C requires this to be zero: such a pair is one merged person's two spellings of one stretch of service and must have been unioned into a single row."},
+        "spans_unioned_after_merge": {"type": "integer", "minimum": 0, "description": "How many span rows the union removed. Zero outside a name-standard merge, where it is provably the identity function: the office grouping keys on (chamber, office key, payee key) and an unmerged person carries exactly one payee key."},
+        "spine_persons": {"type": "integer", "minimum": 0},
+        "member_office_index_rows": {"type": "integer", "minimum": 0},
+        "lda_spine_links": {"type": "integer", "minimum": 0},
+        "identity_tier_people": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_by_chamber": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_by_container_kind": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_by_status": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_by_source_lane": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_by_house_source_form": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "spans_crossing_csv_pdf_era_boundary": {
+          "description": "House spans observed in both 2015Q4 and 2016Q1. From the v3 rebind these come from one lane, so the count is a property of the span rule rather than of a stitch between two lanes.",
+          "type": "integer",
+          "minimum": 0
+        },
+        "member_resolution_methods": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "current_staffer_link_status": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "lda_link_status": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "lda_key_resolution": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "cross_chamber_merges": {"type": "integer", "minimum": 0},
+        "cross_chamber_not_merged_ambiguous": {"type": "integer", "minimum": 0},
+        "cross_chamber_not_merged_period_overlap": {"type": "integer", "minimum": 0},
+        "shared_employee_office_links": {"type": "integer", "minimum": 0},
+        "same_period_day_nonoverlap_office_links": {"type": "integer", "minimum": 0},
+        "same_period_office_splits": {"type": "integer", "minimum": 0},
+        "ledger_field_disagreements": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "link_rates": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current_staffers_linked", "current_staffers_total",
+        "current_staffers_linked_rate", "expected_current_staffers_total",
+        "lda_people_linked", "lda_people_in_match_lanes",
+        "lda_people_linked_rate", "expected_lda_people_in_match_lanes"
+      ],
+      "properties": {
+        "current_staffers_linked": {"type": "integer", "minimum": 0},
+        "current_staffers_total": {"type": "integer", "minimum": 0},
+        "current_staffers_linked_rate": {"type": ["number", "null"]},
+        "expected_current_staffers_total": {"type": "integer", "minimum": 0},
+        "lda_people_linked": {"type": "integer", "minimum": 0},
+        "lda_people_in_match_lanes": {"type": "integer", "minimum": 0},
+        "lda_people_linked_rate": {"type": ["number", "null"]},
+        "expected_lda_people_in_match_lanes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "bioguide_resolution": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["member_office_spans", "resolved", "rate"],
+        "properties": {
+          "member_office_spans": {"type": "integer", "minimum": 0},
+          "resolved": {"type": "integer", "minimum": 0},
+          "rate": {"type": ["number", "null"]}
+        }
+      }
+    },
+    "latest_period_by_chamber": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "null"], "minLength": 1}
+    },
+    "period_kind_by_chamber": {
+      "type": "object",
+      "additionalProperties": {"enum": ["quarter", "half_year"]}
+    },
+    "dials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "annualization_days", "envelope_widening_reporting_periods",
+        "max_office_raw_examples", "shared_employee_title_phrases",
+        "quorum_member_roster_fallback", "cross_chamber_requires_disjoint_periods",
+        "s_strength", "freeze_status"
+      ],
+      "properties": {
+        "annualization_days": {"type": "number"},
+        "envelope_widening_reporting_periods": {"type": "integer", "minimum": 0},
+        "max_office_raw_examples": {"type": "integer", "minimum": 1},
+        "shared_employee_title_phrases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "quorum_member_roster_fallback": {"type": "boolean"},
+        "cross_chamber_requires_disjoint_periods": {"type": "boolean"},
+        "house_same_quarter_link_rule": {"type": "string", "minLength": 1},
+        "s_strength": {
+          "type": "object",
+          "additionalProperties": {"type": "number"}
+        },
+        "freeze_status": {"type": "string", "minLength": 1}
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gzip_mtime", "json_key_order", "newline", "sort_keys"],
+      "properties": {
+        "gzip_mtime": {"const": 0},
+        "json_key_order": {"const": "lexicographic"},
+        "newline": {"const": "LF"},
+        "sort_keys": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "language_law": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "authored_value_and_field_name_hits", "banned_tokens", "policy",
+        "verbatim_source_quoted_fields", "verbatim_token_occurrences"
+      ],
+      "properties": {
+        "authored_value_and_field_name_hits": {"type": "integer", "minimum": 0},
+        "banned_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "policy": {"type": "string", "minLength": 1},
+        "verbatim_source_quoted_fields": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "verbatim_token_occurrences": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "notes": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "name_standard": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "NAME-STANDARD GENERATIONS ONLY. Present when and only when the build was run with --name-standard, which is why it is not required: a generation built without the flag carries no such block. Every figure here is a number this build measured; each invariant that is false also appends a failure, and a receipt with any failure is FAIL.",
+      "required": [
+        "baseline", "canonical_promotions", "cause_counts", "class_table_entries",
+        "combination_counts", "delta_agreement",
+        "delta_reconstruction_cause_counts", "delta_residuals_count",
+        "empty_first_class_count", "id_map_file", "id_map_rows",
+        "key_source_disagreement_people", "key_source_disagreements",
+        "keys_changed", "keys_unchanged", "merge_groups", "merge_groups_count",
+        "merge_ids_removed", "merge_people_in_groups", "merges_blocked_pairs",
+        "notes", "reason_counts", "regrouping",
+        "rows_with_a_suffix_from_payee_key_lift",
+        "rows_with_a_suffix_from_raw_parse",
+        "rows_with_more_than_one_observed_suffix", "spans_unioned",
+        "spine_persons_before"
+      ],
+      "properties": {
+        "baseline": {
+          "type": "object",
+          "description": "The generation this re-key is measured against, hash-bound as an input. bound is false when no --name-standard-baseline was given, and then no baseline invariant was checked."
+        },
+        "canonical_promotions": {"const": 0},
+        "cause_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}, "description": "How many people each cause moved, under the RULED per-person key resolution."},
+        "chosen_raw_fell_back_to_the_anchor": {"type": "integer", "minimum": 0, "description": "People for whom no observed raw string produced the resolved key, so the anchor observation's string was used to name them. A merge cannot cause this, so any value above zero is a declared failure."},
+        "class_table_entries": {"type": "integer", "minimum": 1},
+        "collision_ordinals_above_one": {"type": "integer", "minimum": 0, "description": "People carrying a collision_ordinal of 2 or more, i.e. people the day-level merge guard had to keep apart."},
+        "combination_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "delta_agreement": {
+          "type": "object",
+          "description": "Ruling B. The read-only re-key delta report this build's key-change histogram is asserted against, per cause. bound is false when no --name-standard-delta-report was given, which is itself a declared failure. causes_differing_by_more_than_the_residual_count and causes_where_the_reconstruction_differs_from_the_report must both be empty."
+        },
+        "delta_reconstruction_cause_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}, "description": "The same histogram computed the way the read-only delta computes it: ONE key per payee-key triple over every admitted row. This is the figure that must equal the report exactly."},
+        "delta_residuals": {"type": "array", "description": "Every person whose own raws resolve to a different key than the whole triple's population does -- the exact population on which cause_counts may differ from the report."},
+        "delta_residuals_count": {"type": "integer", "minimum": 0},
+        "empty_first_class": {"type": "array", "description": "Ruling E. Every person whose payee_key.first_class is empty, attributed. Must be empty."},
+        "empty_first_class_count": {"const": 0},
+        "id_map_file": {"type": "string", "minLength": 1},
+        "id_map_rows": {"type": "integer", "minimum": 1},
+        "key_source_disagreement_examples": {"type": "array"},
+        "key_source_disagreement_people": {"type": "integer", "minimum": 0, "description": "People whose raw-parse key differs from the payee-key lift. Ruling A: a measurement, never a gate."},
+        "key_source_disagreements": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}, "description": "Ruling A. The same population as key_source_disagreement_people, broken out BY CAUSE (v_initial, particle_surname, annotation_strip, first_from_raw). It was a const 0 gate while parts_from_payee_key was the key route; it is a histogram now that the raw parse is."},
+        "keys_changed": {"type": "integer", "minimum": 0},
+        "keys_unchanged": {"type": "integer", "minimum": 0},
+        "merge_basis_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}, "description": "Merge groups by the basis they proceeded on."},
+        "merge_groups": {"type": "array"},
+        "merge_groups_count": {"type": "integer", "minimum": 0},
+        "merge_ids_removed": {"type": "integer", "minimum": 0},
+        "merge_people_in_groups": {"type": "integer", "minimum": 0},
+        "merges_blocked": {"type": "array", "description": "Ruling C. Every pair the day-level guard refused to merge, with the office, report period and name key it refused on."},
+        "merges_blocked_pairs": {"type": "integer", "minimum": 0},
+        "nickname_class_transitions": {"type": "array"},
+        "notes": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        "people_on_an_ambiguous_triple": {"type": "integer", "minimum": 0, "description": "People whose payee-key triple was recorded under more than one key across the corpora -- the population the delta named as the one a builder histogram may legitimately differ on."},
+        "reason_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+        "regrouping": {"const": false, "description": "This is a re-key of the previous generation's PEOPLE, not a re-grouping of its observations: the office node grouping still keys on the builder's own payee key triple."},
+        "rows_with_a_suffix_from_payee_key_lift": {"type": "integer", "minimum": 0},
+        "rows_with_a_suffix_from_raw_parse": {"type": "integer", "minimum": 0},
+        "rows_with_more_than_one_observed_suffix": {"type": "integer", "minimum": 0},
+        "spans_unioned": {"type": "integer", "minimum": 0, "description": "Ruling C. Span rows removed by unioning a merged person's same-office, overlapping-or-abutting office nodes. person_office_spans is the previous generation's count minus this."},
+        "spine_persons_before": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}

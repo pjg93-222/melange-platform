@@ -1,0 +1,56 @@
+{
+  "schema_version": 2,
+  "note": "sha256 of the vendored package files per R platform (R.version$platform); RUNTIME/Rlib is outside git. A platform without an entry is reported as unrecorded (version still checked); record it with tools/record_rlib_manifest.R.",
+  "packages": {
+    "clubSandwich": {
+      "version": "0.7.0",
+      "platforms": {
+        "x86_64-w64-mingw32": {
+          "built": "R 4.6.1; ; 2026-09-16 00:22:32 UTC; windows",
+          "files": {
+            "DESCRIPTION": "85e40a7b193c73f7a8264dacdb23b57f723b0c91fb67dc83e87fd693452fa8f5",
+            "NAMESPACE": "2a3ac531dd8d7f9462f985d3e4a864644f13c4052c67a2a7e7494bcad5286c97",
+            "Meta/package.rds": "fa9f05cd96ab6e59c0c8369df09fc733dc7634557ef7333d0ad67e270b89cea0",
+            "R/clubSandwich.rdb": "56dadbb2048ad3a94f8bff1868fd9b6fa648fcfd2ea0079512dcff2841a156e3",
+            "R/clubSandwich.rdx": "25772987b16f91a8e78f4fac7c60fc1685d9432b37bff3e5a8e2bc56cc254fec"
+          }
+        },
+        "x86_64-pc-linux-gnu": {
+          "built": "R 4.6.0; ; 2026-05-05 05:57:10 UTC; unix",
+          "files": {
+            "DESCRIPTION": "77d0148602f246d4b5aca82f363013b03346b11b58038a337a7f470bcad54b74",
+            "NAMESPACE": "2a3ac531dd8d7f9462f985d3e4a864644f13c4052c67a2a7e7494bcad5286c97",
+            "Meta/package.rds": "7498310a1807ca492a096a662832525e1cc52089c05ad1e05c9f091ac2e6a349",
+            "R/clubSandwich.rdb": "ad4c3f491a98bedc33ba4b40fa853a16744fe9d1cf5cfc568efa66853144ab08",
+            "R/clubSandwich.rdx": "a4485534302b484021e3130cba4ceee10b92be6f96b8170ccebd812720139997"
+          }
+        }
+      }
+    },
+    "sandwich": {
+      "version": "3.1-3",
+      "platforms": {
+        "x86_64-w64-mingw32": {
+          "built": "R 4.6.1; ; 2026-09-16 00:19:10 UTC; windows",
+          "files": {
+            "DESCRIPTION": "0810a65d90fcdc6b2ce656f7db2034bf5a2b57f04ceada8c415d849b50b38922",
+            "NAMESPACE": "b669d0ee5bbbdcdd7f11eb98f9bbd01176760af6759532aaca187ad4a95da902",
+            "Meta/package.rds": "567ca0571f1474a45ee3af45b0b1b467cae42a65c9ca6a281a8a8a12fd2f5947",
+            "R/sandwich.rdb": "21740e785fd8ea1dd5c005e1246ee2c49007bd7eb0ce031a50a10f1cbdfcd1de",
+            "R/sandwich.rdx": "c7460fd7b158fbc2d13be7f70bf7eff91707ba317e735a9aee37e6da869be082"
+          }
+        },
+        "x86_64-pc-linux-gnu": {
+          "built": "R 4.6.0; ; 2026-08-04 05:05:03 UTC; unix",
+          "files": {
+            "DESCRIPTION": "47807dfdc91d9df26095b610e42caa76d3cf8310aa14c3817f19e0f984af19f0",
+            "NAMESPACE": "b669d0ee5bbbdcdd7f11eb98f9bbd01176760af6759532aaca187ad4a95da902",
+            "Meta/package.rds": "fab11a5c622f23c91e90a520a5ebe7a459c5addbd71619ca659e23475464cfde",
+            "R/sandwich.rdb": "7a61e8169377fbf737d62250291cd80e1c06e52da043d7853200b4894635fc31",
+            "R/sandwich.rdx": "12460118014d458feccb82bc4959787e84d02f6cd50bfab4c359751c3d05760a"
+          }
+        }
+      }
+    }
+  }
+}

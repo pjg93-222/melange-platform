@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-filer-asserted-year-episode-v1",
+  "title": "Filer-asserted year-precision episode candidate",
+  "description": "One A6 near-candidate whose single covered-position string carries one role, one member or committee office mention, and both explicit years, with no ambiguity, century-expansion, reversal, or span-overlap flag. Single-author, filer-asserted, year precision. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "lda_source_person_id", "claim_id", "role_text",
+    "office_text", "office_entity_class", "member_surname_text", "member_bioguide",
+    "member_resolution_method", "start_year", "end_year", "precision", "single_author",
+    "corroborated_by_payroll", "corroborating_payroll_office_examples",
+    "excluded_flags", "review_status", "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-filer-asserted-year-episode-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "claim_id": {"type": "string", "minLength": 1},
+    "role_text": {
+      "type": ["string", "null"],
+      "description": "Verbatim role mention span, quoted from the filer's own covered-position string."
+    },
+    "office_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verbatim office mention span, quoted from the filer's own covered-position string."
+    },
+    "office_entity_class": {"enum": ["MEMBER_OFFICE_CANDIDATE", "COMMITTEE_CANDIDATE"]},
+    "member_surname_text": {"type": ["string", "null"]},
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_resolution_method": {
+      "enum": [
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME",
+        "STRICT_ROSTER_UNIQUE_SURNAME_NO_FIRST_NAME_IN_OFFICE_STRING",
+        "NOT_A_MEMBER_OFFICE",
+        "UNRESOLVED_SURNAME_NOT_IN_ROSTER",
+        "UNRESOLVED_SURNAME_COLLISION_NO_FIRST_NAME",
+        "UNRESOLVED_FIRST_NAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_DOES_NOT_DISAMBIGUATE",
+        "UNRESOLVED_SURNAME_NOT_PARSED",
+        "STRICT_ROSTER_SURNAME_FIRST_NAME_AND_TERM_WINDOW",
+        "TERM_WINDOW_MISMATCH"
+      ]
+    },
+    "start_year": {"type": "integer", "minimum": 1789, "maximum": 2100},
+    "end_year": {"type": "integer", "minimum": 1789, "maximum": 2100},
+    "precision": {"const": "year"},
+    "single_author": {"const": true},
+    "corroborated_by_payroll": {"type": "boolean"},
+    "corroborating_payroll_office_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "description": "Up to three verbatim payroll office strings whose text contains the same member surname, quoted from the payroll ledgers."
+    },
+    "excluded_flags": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "AMBIGUOUS_ROLE_ABBREVIATION",
+          "TWO_DIGIT_YEAR_NOT_CENTURY_EXPANDED",
+          "DATE_RANGE_REVERSED",
+          "MENTION_SPANS_OVERLAP"
+        ]
+      },
+      "maxItems": 0
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

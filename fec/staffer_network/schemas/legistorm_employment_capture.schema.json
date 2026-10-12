@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:legistorm-employment-capture:v1",
+  "title": "Local authorized LegiStorm employment capture",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "profile_id", "profile_url", "retrieved_at", "source_as_of",
+    "profile_title_raw", "lda_source_person_id", "source_row_id",
+    "raw_person_name", "raw_employer", "raw_title", "raw_start",
+    "normalized_start", "raw_end", "normalized_end", "start_precision",
+    "end_precision", "source_end_semantics", "asserted_current",
+    "person_adjudication", "container_adjudication"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-legistorm-employment-capture-v1"},
+    "profile_id": {"type": "string", "pattern": "^[1-9][0-9]*$"},
+    "profile_url": {"type": "string", "format": "uri"},
+    "retrieved_at": {"type": "string", "format": "date-time"},
+    "source_as_of": {"type": "string", "format": "date"},
+    "profile_title_raw": {"type": "string", "minLength": 1},
+    "lda_source_person_id": {"type": ["string", "null"]},
+    "source_row_id": {"type": "string", "minLength": 1},
+    "raw_person_name": {"type": "string", "minLength": 1},
+    "raw_employer": {"type": "string", "minLength": 1},
+    "raw_title": {"type": ["string", "null"]},
+    "raw_start": {"type": ["string", "null"]},
+    "normalized_start": {"type": ["string", "null"]},
+    "raw_end": {"type": ["string", "null"]},
+    "normalized_end": {"type": ["string", "null"]},
+    "start_precision": {"enum": ["day", "month", "year", "unknown"]},
+    "end_precision": {"enum": ["day", "month", "year", "unknown"]},
+    "source_end_semantics": {"enum": ["inclusive", "exclusive", "current", "unknown"]},
+    "asserted_current": {"type": "boolean"},
+    "person_adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "resolved_person_id", "reviewer_kind", "reviewer_id", "recorded_at", "rationale"],
+      "properties": {
+        "status": {"enum": ["ACCEPTED", "REJECTED", "AMBIGUOUS", "REVIEW_REQUIRED"]},
+        "resolved_person_id": {"type": ["string", "null"]},
+        "reviewer_kind": {"enum": ["HUMAN", "MODEL", "RULE", "UNASSIGNED"]},
+        "reviewer_id": {"type": ["string", "null"]},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    },
+    "container_adjudication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status", "normalized_container_id", "container_kind",
+        "member_bioguide_id", "organization_id", "reviewer_kind",
+        "reviewer_id", "recorded_at", "rationale"
+      ],
+      "properties": {
+        "status": {"enum": ["ACCEPTED", "REJECTED", "AMBIGUOUS", "REVIEW_REQUIRED"]},
+        "normalized_container_id": {"type": ["string", "null"]},
+        "container_kind": {"enum": ["member_office", "committee", "leadership", "admin", "registrant", "client_activity", "other_org"]},
+        "member_bioguide_id": {"type": ["string", "null"]},
+        "organization_id": {"type": ["string", "null"]},
+        "reviewer_kind": {"enum": ["HUMAN", "MODEL", "RULE", "UNASSIGNED"]},
+        "reviewer_id": {"type": ["string", "null"]},
+        "recorded_at": {"type": "string", "format": "date-time"},
+        "rationale": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

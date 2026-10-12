@@ -1,0 +1,8 @@
+# Attributes for the source-only export (melange-platform). Nothing is ever line-ending
+# converted, so every blob keeps the bytes the release hashed.
+* -text
+# From the repo root .gitattributes: classified evidence is hashed byte-for-byte by its receipt.
+fec/config/primacy_press_v1.ndjson text eol=lf
+# Preserve original Cook snapshot bytes and whitespace for SHA-256 checks.
+source_data/cook_pvi/2026/** -text -whitespace
+data/money/cook_pvi_2026/ballot_district_overrides.csv -text

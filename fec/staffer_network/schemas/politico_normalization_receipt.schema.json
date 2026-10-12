@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:politico-normalization-receipt:v1",
+  "title": "Politico Pro directory normalization receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "normalizer_version",
+    "source_manifest_sha256", "source_rows_sha256", "source_profiles",
+    "normalized_persons", "role_assertions", "issue_assertions", "person_fields",
+    "role_fields", "issue_fields", "contact_findings", "files",
+    "canonical_entity_merges", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "politico-directory-normalization-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "normalizer_version": {"type": "string", "minLength": 1},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_rows_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_profiles": {"type": "integer", "minimum": 1},
+    "normalized_persons": {"type": "integer", "minimum": 1},
+    "role_assertions": {"type": "integer", "minimum": 0},
+    "issue_assertions": {"type": "integer", "minimum": 0},
+    "person_fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "role_fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "issue_fields": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "contact_findings": {"type": "integer", "minimum": 0},
+    "files": {
+      "type": "array", "minItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "bytes", "sha256", "records"],
+        "properties": {
+          "path": {"enum": ["persons.ndjson", "role_assertions.ndjson", "issue_assertions.ndjson"]},
+          "bytes": {"type": "integer", "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "records": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "canonical_entity_merges": {"type": "integer", "minimum": 0},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

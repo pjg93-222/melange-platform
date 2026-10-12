@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:littlesis-relationship-assertion:v1",
+  "title": "Restricted source-native LittleSis relationship assertion",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "source_system_id", "source_relationship_id", "source_numeric_id",
+    "subject_source_entity_id", "object_source_entity_id", "category_id",
+    "category_name", "description1", "description2", "description",
+    "raw_start_date", "raw_end_date", "precision_bucket", "temporal_weight",
+    "source_is_current", "source_updated_at", "source_url",
+    "source_category_attributes"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-littlesis-relationship-assertion-v1"},
+    "source_system_id": {"const": "littlesis-bulk"},
+    "source_relationship_id": {"type": "string", "pattern": "^littlesis:relationship:[1-9][0-9]*$"},
+    "source_numeric_id": {"type": "integer", "minimum": 1},
+    "subject_source_entity_id": {"type": "string", "pattern": "^littlesis:entity:[1-9][0-9]*$"},
+    "object_source_entity_id": {"type": "string", "pattern": "^littlesis:entity:[1-9][0-9]*$"},
+    "category_id": {"enum": [1, 2, 7]},
+    "category_name": {"enum": ["Position", "Education", "Lobbying"]},
+    "description1": {"type": ["string", "null"]},
+    "description2": {"type": ["string", "null"]},
+    "description": {"type": ["string", "null"]},
+    "raw_start_date": {"type": ["string", "null"]},
+    "raw_end_date": {"type": ["string", "null"]},
+    "precision_bucket": {"enum": ["day", "month", "year", "undated-only"]},
+    "temporal_weight": {"const": 0},
+    "source_is_current": {"type": ["boolean", "null"]},
+    "source_updated_at": {"type": ["string", "null"]},
+    "source_url": {"type": ["string", "null"]},
+    "source_category_attributes": {
+      "type": "object",
+      "additionalProperties": {"type": ["string", "number", "integer", "boolean", "null"]}
+    }
+  }
+}

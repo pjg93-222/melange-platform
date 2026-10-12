@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-member-office-index-v1",
+  "title": "Member office index",
+  "description": "One row per (chamber, office_key) observed anywhere in the House or Senate personnel ledgers, with the reporting periods it appears in, the number of distinct spine persons paid in each period, and the personnel total per period where an amount could be parsed. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "chamber", "office_key",
+    "office_raw_examples", "member_bioguide", "member_resolution_method",
+    "container_kind", "period_kind", "first_period", "last_period",
+    "periods_observed", "person_count", "observation_count", "periods",
+    "review_status", "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-member-office-index-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "chamber": {"enum": ["house", "senate"]},
+    "office_key": {"type": "string", "minLength": 1},
+    "office_raw_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_resolution_method": {
+      "enum": [
+        "NOT_A_MEMBER_OFFICE",
+        "LEDGER_SUPPLIED_STRICT_RESOLUTION",
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME",
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME_TERM_WINDOW",
+        "STRICT_ROSTER_UNIQUE_SURNAME_NO_FIRST_NAME_IN_OFFICE_STRING",
+        "STRICT_ROSTER_UNIQUE_SURNAME_TERM_WINDOW",
+        "UNRESOLVED_SURNAME_NOT_PARSED",
+        "UNRESOLVED_SURNAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_DOES_NOT_DISAMBIGUATE",
+        "UNRESOLVED_SURNAME_COLLISION_NO_FIRST_NAME",
+        "UNRESOLVED_NO_ROSTER_TERM_IN_OBSERVED_WINDOW"
+      ]
+    },
+    "container_kind": {
+      "enum": ["member_office", "committee", "leadership", "admin", "unresolved"]
+    },
+    "period_kind": {"enum": ["quarter", "half_year"]},
+    "first_period": {"type": "string", "minLength": 1},
+    "last_period": {"type": "string", "minLength": 1},
+    "periods_observed": {"type": "integer", "minimum": 1},
+    "person_count": {"type": "integer", "minimum": 1},
+    "observation_count": {"type": "integer", "minimum": 1},
+    "periods": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["period", "staff_count", "observation_count", "personnel_total"],
+        "properties": {
+          "period": {"type": "string", "minLength": 1},
+          "staff_count": {"type": "integer", "minimum": 1},
+          "observation_count": {"type": "integer", "minimum": 1},
+          "personnel_total": {"type": ["number", "null"]}
+        }
+      }
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

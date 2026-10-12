@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-a6-prose-release-episode-v1",
+  "title": "A6 prose release episode",
+  "description": "One filer-asserted employment episode released from LDA covered-position prose under the strict same-string binding rule: the role mention, the office mention and the date range all resolve inside ONE source string, the office is a member office or committee, both years are explicit, and none of AMBIGUOUS_ROLE_ABBREVIATION / TWO_DIGIT_YEAR_NOT_CENTURY_EXPANDED / DATE_RANGE_REVERSED / MENTION_SPANS_OVERLAP is flagged. Single-author, year precision, asserted episode. Carries the four-way payroll cross-check. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "canonical_eligible", "canonical_employment_promoted", "canonical_identity_decision",
+    "claim_id", "date_range_text", "end_year", "filer_display_name", "lda_source_person_id",
+    "member_bioguide", "member_chambers_in_declared_window", "member_given_text",
+    "member_resolution_method", "member_surname_text", "office_entity_class",
+    "office_pattern_id", "office_text", "payroll_cross_check", "precision", "review_status",
+    "role_generic_title_risk", "role_pattern_id", "role_text", "rule_version", "run_id",
+    "same_string_binding", "schema_id", "single_author", "source_claim_row_ordinal",
+    "source_filing_years", "source_string", "source_string_sha256", "start_year",
+    "temporal_semantics", "upstream_rejection_reasons"
+  ],
+  "properties": {
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "canonical_identity_decision": {"const": "NOT_ADJUDICATED"},
+    "claim_id": {"type": "string", "minLength": 1},
+    "date_range_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verbatim date-range span, quoted from the filer's own covered-position string."
+    },
+    "end_year": {"type": "integer", "minimum": 1789, "maximum": 2100},
+    "filer_display_name": {
+      "type": "string",
+      "description": "Verbatim LDA display name of the filer, quoted from the LDA people ledger."
+    },
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_chambers_in_declared_window": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 2,
+      "items": {"enum": ["house", "senate"]}
+    },
+    "member_given_text": {"type": ["string", "null"]},
+    "member_resolution_method": {
+      "enum": [
+        "NOT_A_MEMBER_OFFICE",
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME",
+        "STRICT_ROSTER_SURNAME_FIRST_NAME_AND_TERM_WINDOW",
+        "STRICT_ROSTER_UNIQUE_SURNAME_NO_FIRST_NAME_IN_OFFICE_STRING",
+        "TERM_WINDOW_MISMATCH",
+        "UNRESOLVED_FIRST_NAME_DOES_NOT_DISAMBIGUATE",
+        "UNRESOLVED_FIRST_NAME_NOT_IN_ROSTER",
+        "UNRESOLVED_SURNAME_COLLISION_NO_FIRST_NAME",
+        "UNRESOLVED_SURNAME_NOT_IN_ROSTER",
+        "UNRESOLVED_SURNAME_NOT_PARSED"
+      ]
+    },
+    "member_surname_text": {"type": ["string", "null"]},
+    "office_entity_class": {"enum": ["COMMITTEE_CANDIDATE", "MEMBER_OFFICE_CANDIDATE"]},
+    "office_pattern_id": {"type": ["string", "null"]},
+    "office_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verbatim office mention span, quoted from the filer's own covered-position string."
+    },
+    "payroll_cross_check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chambers_checked", "declared_window_end", "declared_window_start", "evidence",
+        "filer_given_normalized", "filer_surname_normalized", "house_office_key",
+        "house_office_present_in_corpus", "name_found_in_declared_office",
+        "name_found_with_period_overlap", "name_match_method", "reason", "status",
+        "window_reachable_chambers"
+      ],
+      "properties": {
+        "chambers_checked": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 2,
+          "items": {"enum": ["house", "senate"]}
+        },
+        "declared_window_end": {"type": "string", "format": "date"},
+        "declared_window_start": {"type": "string", "format": "date"},
+        "evidence": {
+          "type": "array",
+          "maxItems": 3,
+          "description": "Up to three payroll rows carrying the same person, quoted from the payroll ledgers.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "chamber", "match_method", "office", "payroll_end", "payroll_start",
+              "period_overlaps_declared_window", "record_id"
+            ],
+            "properties": {
+              "chamber": {"enum": ["house", "senate"]},
+              "match_method": {
+                "enum": [
+                  "EXACT_SURNAME_AND_GIVEN",
+                  "SURNAME_AND_GIVEN_VIA_NICKNAME_TABLE"
+                ]
+              },
+              "office": {"type": "string", "minLength": 1},
+              "payroll_end": {"type": "string", "format": "date"},
+              "payroll_start": {"type": "string", "format": "date"},
+              "period_overlaps_declared_window": {"type": "boolean"},
+              "record_id": {"type": ["string", "null"]}
+            }
+          }
+        },
+        "filer_given_normalized": {"type": ["string", "null"]},
+        "filer_surname_normalized": {"type": ["string", "null"]},
+        "house_office_key": {"type": ["string", "null"], "pattern": "^HON:[A-Z][0-9]{6}$"},
+        "house_office_present_in_corpus": {"type": ["boolean", "null"]},
+        "name_found_in_declared_office": {"type": "boolean"},
+        "name_found_with_period_overlap": {"type": "boolean"},
+        "name_match_method": {
+          "type": ["string", "null"],
+          "enum": [
+            "EXACT_SURNAME_AND_GIVEN",
+            "SURNAME_AND_GIVEN_VIA_NICKNAME_TABLE",
+            null
+          ]
+        },
+        "reason": {"type": "string", "minLength": 1},
+        "status": {
+          "enum": [
+            "CONFIRMED_BY_PAYROLL",
+            "NAME_ABSENT_FROM_DECLARED_OFFICE",
+            "NAME_FOUND_PERIOD_MISMATCH",
+            "NOT_CHECKED_MEMBER_UNRESOLVED",
+            "OFFICE_OUT_OF_CORPUS_WINDOW"
+          ]
+        },
+        "window_reachable_chambers": {
+          "type": "array",
+          "uniqueItems": true,
+          "maxItems": 2,
+          "items": {"enum": ["house", "senate"]}
+        }
+      }
+    },
+    "precision": {"const": "year"},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "role_generic_title_risk": {"type": "boolean"},
+    "role_pattern_id": {"type": ["string", "null"]},
+    "role_text": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verbatim role mention span, quoted from the filer's own covered-position string."
+    },
+    "rule_version": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "same_string_binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date_span", "office_span", "role_span", "source_string_length", "verified",
+        "verification_method"
+      ],
+      "properties": {
+        "date_span": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "office_span": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "role_span": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {"type": "integer", "minimum": 0}
+        },
+        "source_string_length": {"type": "integer", "minimum": 1},
+        "verified": {"const": true},
+        "verification_method": {
+          "const": "each mention span resolves to its own text inside one claim_text"
+        }
+      }
+    },
+    "schema_id": {"const": "staffer-network-a6-prose-release-episode-v1"},
+    "single_author": {"const": true},
+    "source_claim_row_ordinal": {"type": "integer", "minimum": 0},
+    "source_filing_years": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "integer", "minimum": 1990, "maximum": 2100}
+    },
+    "source_string": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The one source string the binding rule is evaluated inside, quoted verbatim from the filer's own covered-position field."
+    },
+    "source_string_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "start_year": {"type": "integer", "minimum": 1789, "maximum": 2100},
+    "temporal_semantics": {"const": "ASSERTED_EPISODE"},
+    "upstream_rejection_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

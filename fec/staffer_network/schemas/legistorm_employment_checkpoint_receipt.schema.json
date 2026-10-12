@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:legistorm-employment-checkpoint-receipt:v1",
+  "title": "Restricted LegiStorm employment checkpoint receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version", "generation_id",
+    "source_system_id", "collection_policy", "source_evidence_digest",
+    "decision_evidence_digest", "observation_rows", "employment_keys",
+    "decision_rows", "decision_status_counts", "active_decision_status_counts",
+    "episode_rows", "episode_eligibility_counts",
+    "person_container_adjudication_independent", "canonical_identity_merges",
+    "conservation_pass", "files", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-legistorm-employment-checkpoint-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"const": "PASS"},
+    "method_version": {"const": "legistorm-local-employment-checkpoint-v1"},
+    "generation_id": {"type": "string", "pattern": "^legistorm-employment-[0-9a-f]{64}$"},
+    "source_system_id": {"const": "legistorm"},
+    "collection_policy": {"const": "LOCAL_AUTHORIZED_EVIDENCE_ONLY_NO_NETWORK_ACCESS"},
+    "source_evidence_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "decision_evidence_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "observation_rows": {"type": "integer", "minimum": 1},
+    "employment_keys": {"type": "integer", "minimum": 1},
+    "decision_rows": {"type": "integer", "minimum": 2},
+    "decision_status_counts": {"type": "object", "additionalProperties": false, "required": ["PERSON_IDENTITY", "CONTAINER"], "properties": {
+      "PERSON_IDENTITY": {"type": "object", "additionalProperties": false, "required": ["ACCEPTED", "AMBIGUOUS", "REJECTED", "REVIEW_REQUIRED"], "properties": {"ACCEPTED": {"type": "integer", "minimum": 0}, "AMBIGUOUS": {"type": "integer", "minimum": 0}, "REJECTED": {"type": "integer", "minimum": 0}, "REVIEW_REQUIRED": {"type": "integer", "minimum": 0}}},
+      "CONTAINER": {"type": "object", "additionalProperties": false, "required": ["ACCEPTED", "AMBIGUOUS", "REJECTED", "REVIEW_REQUIRED"], "properties": {"ACCEPTED": {"type": "integer", "minimum": 0}, "AMBIGUOUS": {"type": "integer", "minimum": 0}, "REJECTED": {"type": "integer", "minimum": 0}, "REVIEW_REQUIRED": {"type": "integer", "minimum": 0}}}
+    }},
+    "active_decision_status_counts": {"type": "object", "additionalProperties": false, "required": ["PERSON_IDENTITY", "CONTAINER"], "properties": {
+      "PERSON_IDENTITY": {"type": "object", "additionalProperties": false, "required": ["ACCEPTED", "AMBIGUOUS", "REJECTED", "REVIEW_REQUIRED"], "properties": {"ACCEPTED": {"type": "integer", "minimum": 0}, "AMBIGUOUS": {"type": "integer", "minimum": 0}, "REJECTED": {"type": "integer", "minimum": 0}, "REVIEW_REQUIRED": {"type": "integer", "minimum": 0}}},
+      "CONTAINER": {"type": "object", "additionalProperties": false, "required": ["ACCEPTED", "AMBIGUOUS", "REJECTED", "REVIEW_REQUIRED"], "properties": {"ACCEPTED": {"type": "integer", "minimum": 0}, "AMBIGUOUS": {"type": "integer", "minimum": 0}, "REJECTED": {"type": "integer", "minimum": 0}, "REVIEW_REQUIRED": {"type": "integer", "minimum": 0}}}
+    }},
+    "episode_rows": {"type": "integer", "minimum": 1},
+    "episode_eligibility_counts": {"type": "object", "additionalProperties": false, "required": ["PRIMARY_READY", "IDENTITY_BLOCKED", "CONTAINER_BLOCKED", "INTERVAL_BLOCKED"], "properties": {"PRIMARY_READY": {"type": "integer", "minimum": 0}, "IDENTITY_BLOCKED": {"type": "integer", "minimum": 0}, "CONTAINER_BLOCKED": {"type": "integer", "minimum": 0}, "INTERVAL_BLOCKED": {"type": "integer", "minimum": 0}}},
+    "person_container_adjudication_independent": {"const": true},
+    "canonical_identity_merges": {"const": 0},
+    "conservation_pass": {"const": true},
+    "files": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "records", "bytes", "sha256", "encoding", "privacy_class"], "properties": {
+      "role": {"enum": ["employment_observations", "adjudication_decisions", "employment_episodes"]},
+      "path": {"type": "string", "minLength": 1},
+      "records": {"type": "integer", "minimum": 1},
+      "bytes": {"type": "integer", "minimum": 1},
+      "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+      "encoding": {"const": "canonical-ndjson-gzip-mtime-0"},
+      "privacy_class": {"const": "restricted-machine-local"}
+    }}},
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

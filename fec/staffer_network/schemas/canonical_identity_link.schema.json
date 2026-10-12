@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:canonical-identity-link:v1",
+  "title": "Cross-source identity review link",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "identity_link_id", "left_entity_id", "right_entity_id", "link_status", "canonical_merge", "method_version", "match_evidence", "source_binding_sha256"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-canonical-identity-link-v1"},
+    "identity_link_id": {"type": "string", "minLength": 1},
+    "left_entity_id": {"type": "string", "pattern": "^canonical:person:"},
+    "right_entity_id": {"type": "string", "pattern": "^canonical:"},
+    "link_status": {"enum": ["UNAMBIGUOUS_REVIEW_CANDIDATE", "REVIEW_REQUIRED"]},
+    "canonical_merge": {"const": false},
+    "method_version": {"type": "string", "minLength": 1},
+    "match_evidence": {"type": "array", "minItems": 1},
+    "source_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

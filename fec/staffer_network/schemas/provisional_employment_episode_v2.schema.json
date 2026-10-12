@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:provisional-employment-episode:v2",
+  "title": "Quarantined provisional employment episode or payroll observation, normalized revision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "episode_id", "evidence_lanes", "decision_ids",
+    "lda_source_person_id", "display_name", "raw_employer", "raw_title",
+    "raw_employer_variants", "raw_title_variants", "employer_candidate",
+    "title_candidate", "valid_start_earliest", "valid_start_latest",
+    "valid_end_earliest", "valid_end_latest", "start_precision", "end_precision",
+    "asserted_current", "source_as_of", "source_urls", "source_candidate_ids",
+    "support_candidate_ids", "support_digest", "identity_status", "container_status",
+    "episode_status", "temporal_semantics", "observation_intervals",
+    "promotion_blockers", "temporal_weight_eligible", "canonical_eligible",
+    "canonical_employment_promoted", "complete_lifetime_employment_asserted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-provisional-employment-episode-v2"},
+    "episode_id": {"type": "string", "pattern": "^provisional:employment-episode:[0-9a-f]{64}$"},
+    "evidence_lanes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["house_payroll_corroborated", "lda_covered_position_parse", "senate_payroll_corroborated", "structured_public_profile_episode"]}},
+    "decision_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^adjudication:decision:[0-9a-f]{64}$"}},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "display_name": {"type": ["string", "null"]},
+    "raw_employer": {"type": "string", "minLength": 1},
+    "raw_title": {"type": "string", "minLength": 1},
+    "raw_employer_variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "raw_title_variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "employer_candidate": {"type": "string", "minLength": 1},
+    "title_candidate": {"type": "string", "minLength": 1},
+    "valid_start_earliest": {"type": "string", "format": "date"},
+    "valid_start_latest": {"type": "string", "format": "date"},
+    "valid_end_earliest": {"type": "string", "format": "date"},
+    "valid_end_latest": {"type": "string", "format": "date"},
+    "start_precision": {"enum": ["day", "month", "year"]},
+    "end_precision": {"enum": ["day", "month", "year"]},
+    "asserted_current": {"type": "boolean"},
+    "source_as_of": {"type": "string", "format": "date"},
+    "source_urls": {"type": "array", "uniqueItems": true, "items": {"type": "string", "format": "uri"}},
+    "source_candidate_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "support_candidate_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "identity_status": {"enum": ["SOURCE_NATIVE_ACCEPTED", "PROVISIONALLY_ACCEPTED_CORROBORATED", "PROVISIONALLY_ACCEPTED_MULTI_SOURCE"]},
+    "container_status": {"const": "LITERAL_REVIEW_REQUIRED"},
+    "episode_status": {"const": "PROVISIONAL"},
+    "temporal_semantics": {"enum": ["ASSERTED_EPISODE", "OBSERVATION_ONLY"]},
+    "observation_intervals": {
+      "type": "array", "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["basis", "start", "end_exclusive"],
+        "properties": {
+          "basis": {"type": "string", "minLength": 1},
+          "start": {"type": "string", "format": "date"},
+          "end_exclusive": {"type": "string", "format": "date"}
+        }
+      }
+    },
+    "promotion_blockers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "temporal_weight_eligible": {"const": false},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "complete_lifetime_employment_asserted": {"const": false}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"temporal_semantics": {"const": "OBSERVATION_ONLY"}}},
+      "then": {"properties": {"observation_intervals": {"minItems": 1}}},
+      "else": {"properties": {"observation_intervals": {"maxItems": 0}}}
+    }
+  ]
+}

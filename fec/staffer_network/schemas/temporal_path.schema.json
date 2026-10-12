@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:temporal-path:v1",
+  "title": "Employment temporal evidence path",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "path_id", "predicate", "status", "person_id",
+    "other_person_id", "member_bioguide_id", "organization_id",
+    "organization_role", "guaranteed_days", "possible_days", "gap_min_days",
+    "gap_max_days", "primary_weight", "possible_weight", "guaranteed_ranges",
+    "possible_ranges", "support_observation_ids", "support_digest"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-temporal-path-v1"},
+    "path_id": {"type": "string", "pattern": "^temporal:path:[0-9a-f]{64}$"},
+    "predicate": {"enum": ["CO_TENURE", "FORMER_STAFFER_EMPLOYED_BY_REGISTRANT", "FORMER_STAFFER_NAMED_ON_ACTIVITY_FOR_CLIENT"]},
+    "status": {"enum": ["GUARANTEED", "POSSIBLE_ONLY", "ZERO_OVERLAP", "WRONG_ORDER", "IDENTITY_BLOCKED", "CONTAINER_BLOCKED", "INTERVAL_BLOCKED"]},
+    "person_id": {"type": "string", "minLength": 1},
+    "other_person_id": {"type": ["string", "null"]},
+    "member_bioguide_id": {"type": ["string", "null"]},
+    "organization_id": {"type": "string", "minLength": 1},
+    "organization_role": {"enum": ["employment_container", "registrant_employer", "client_activity"]},
+    "guaranteed_days": {"type": ["integer", "null"], "minimum": 0},
+    "possible_days": {"type": ["integer", "null"], "minimum": 0},
+    "gap_min_days": {"type": ["integer", "null"], "minimum": 0},
+    "gap_max_days": {"type": ["integer", "null"], "minimum": 0},
+    "primary_weight": {"type": "number", "minimum": 0},
+    "possible_weight": {"type": "number", "minimum": 0},
+    "guaranteed_ranges": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["start", "end_exclusive"], "properties": {"start": {"type": "string", "format": "date"}, "end_exclusive": {"type": "string", "format": "date"}}}},
+    "possible_ranges": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["start", "end_exclusive"], "properties": {"start": {"type": "string", "format": "date"}, "end_exclusive": {"type": "string", "format": "date"}}}},
+    "support_observation_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

@@ -1,0 +1,848 @@
+{
+ "anchor": {
+  "candidate_receipts": {
+   "basis": "Employees' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source database on sub_id; party D / R from the index, anything else \"other\"; presidential (P) committees excluded; receipts the accounting engine buckets as non_giving left out (owner ruling 2026-10-01)",
+   "cycles": {
+    "2022": {
+     "House": {
+      "D": 562590.58,
+      "R": 366187.19,
+      "other": 4651.53
+     },
+     "Senate": {
+      "D": 778117.48,
+      "R": 437828.72,
+      "other": 20130.1
+     }
+    },
+    "2024": {
+     "House": {
+      "D": 479851.81,
+      "R": 290998.06,
+      "other": 2250.0
+     },
+     "Senate": {
+      "D": 680354.42,
+      "R": 346862.19,
+      "other": 120488.48
+     }
+    },
+    "2026": {
+     "House": {
+      "D": 314821.05,
+      "R": 230410.78,
+      "other": 1840.28
+     },
+     "Senate": {
+      "D": 457955.11,
+      "R": 195380.66,
+      "other": 2813.0
+     }
+    }
+   },
+   "excluded_funding_sources": [
+    "non_giving"
+   ],
+   "excluded_non_giving": {
+    "2022": {
+     "House": {
+      "D": 3192.42,
+      "R": 1759.53,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 1785.85,
+      "R": 7902.97,
+      "other": 0.0
+     }
+    },
+    "2024": {
+     "House": {
+      "D": 7421.26,
+      "R": 1051.82,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 0.0,
+      "R": 0.0,
+      "other": 0.0
+     }
+    },
+    "2026": {
+     "House": {
+      "D": 1038.0,
+      "R": 1008.07,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 670.79,
+      "R": 226.62,
+      "other": 0.0
+     }
+    }
+   },
+   "observed": [
+    {
+     "House": {
+      "D": 7415.0,
+      "R": 0.0,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 4153.0,
+      "R": 25.0,
+      "other": 0.0
+     },
+     "through": "2025-01-31"
+    },
+    {
+     "House": {
+      "D": 11280.0,
+      "R": 0.0,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 10323.0,
+      "R": 7050.0,
+      "other": 0.0
+     },
+     "through": "2025-02-28"
+    },
+    {
+     "House": {
+      "D": 34024.44,
+      "R": 11270.51,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 23654.5,
+      "R": 12139.2,
+      "other": 250.0
+     },
+     "through": "2025-03-31"
+    },
+    {
+     "House": {
+      "D": 43374.7,
+      "R": 11770.51,
+      "other": 0.0
+     },
+     "Senate": {
+      "D": 63897.5,
+      "R": 18939.2,
+      "other": 500.0
+     },
+     "through": "2025-04-30"
+    },
+    {
+     "House": {
+      "D": 55375.7,
+      "R": 52530.76,
+      "other": 500.0
+     },
+     "Senate": {
+      "D": 95356.5,
+      "R": 38039.2,
+      "other": 500.0
+     },
+     "through": "2025-05-31"
+    },
+    {
+     "House": {
+      "D": 66276.7,
+      "R": 73037.76,
+      "other": 520.0
+     },
+     "Senate": {
+      "D": 133243.5,
+      "R": 70433.36,
+      "other": 630.0
+     },
+     "through": "2025-06-30"
+    },
+    {
+     "House": {
+      "D": 77107.95,
+      "R": 73096.67,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 136825.5,
+      "R": 85714.12,
+      "other": 914.0
+     },
+     "through": "2025-07-31"
+    },
+    {
+     "House": {
+      "D": 97605.08,
+      "R": 91288.17,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 146770.5,
+      "R": 88505.14,
+      "other": 1121.0
+     },
+     "through": "2025-08-31"
+    },
+    {
+     "House": {
+      "D": 119130.02,
+      "R": 118812.92,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 166702.5,
+      "R": 140189.71,
+      "other": 1355.0
+     },
+     "through": "2025-09-30"
+    },
+    {
+     "House": {
+      "D": 152536.9,
+      "R": 123337.67,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 185739.0,
+      "R": 153771.74,
+      "other": 1839.0
+     },
+     "through": "2025-10-31"
+    },
+    {
+     "House": {
+      "D": 166972.03,
+      "R": 123362.42,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 197951.5,
+      "R": 153821.74,
+      "other": 2073.0
+     },
+     "through": "2025-11-30"
+    },
+    {
+     "House": {
+      "D": 193536.16,
+      "R": 128387.17,
+      "other": 545.0
+     },
+     "Senate": {
+      "D": 227709.5,
+      "R": 157396.74,
+      "other": 2207.0
+     },
+     "through": "2025-12-31"
+    },
+    {
+     "House": {
+      "D": 207437.16,
+      "R": 140720.0,
+      "other": 570.0
+     },
+     "Senate": {
+      "D": 244412.0,
+      "R": 165527.97,
+      "other": 2341.0
+     },
+     "through": "2026-01-31"
+    },
+    {
+     "House": {
+      "D": 218110.29,
+      "R": 145462.76,
+      "other": 570.0
+     },
+     "Senate": {
+      "D": 315444.0,
+      "R": 166695.33,
+      "other": 2425.0
+     },
+     "through": "2026-02-28"
+    },
+    {
+     "House": {
+      "D": 276469.8,
+      "R": 228556.03,
+      "other": 1332.5
+     },
+     "Senate": {
+      "D": 413040.3,
+      "R": 181601.18,
+      "other": 2563.0
+     },
+     "through": "2026-03-31"
+    },
+    {
+     "House": {
+      "D": 297058.34,
+      "R": 230410.78,
+      "other": 1332.5
+     },
+     "Senate": {
+      "D": 429512.3,
+      "R": 192101.18,
+      "other": 2813.0
+     },
+     "through": "2026-04-30"
+    },
+    {
+     "House": {
+      "D": 311267.05,
+      "R": 230410.78,
+      "other": 1332.5
+     },
+     "Senate": {
+      "D": 443684.1,
+      "R": 193380.66,
+      "other": 2813.0
+     },
+     "through": "2026-05-31"
+    },
+    {
+     "House": {
+      "D": 314821.05,
+      "R": 230410.78,
+      "other": 1840.28
+     },
+     "Senate": {
+      "D": 457955.11,
+      "R": 195380.66,
+      "other": 2813.0
+     },
+     "through": "2026-06-30"
+    }
+   ],
+   "reason": null,
+   "status": "ready",
+   "thin_base": {
+    "2022": {
+     "House": false,
+     "Senate": false
+    },
+    "2024": {
+     "House": false,
+     "Senate": false
+    },
+    "2026": {
+     "House": false,
+     "Senate": false
+    }
+   }
+  },
+  "coverage": {
+   "collection_date": "2026-07-29",
+   "coverage_end": "2026-06-30",
+   "current_cycle": 2026,
+   "flags": [
+    "No 2026 CPI exists yet: 2025-2026 observed amounts are compared at face value."
+   ],
+   "reason": null,
+   "rule": "Latest calendar quarter-end whose quarterly-report due date (the 15th of the following month) fell on or before the collection date; observed amounts run to that day, the remainder starts the day after",
+   "rule_coverage_end": "2026-06-30"
+  },
+  "flags": [
+   "Excluded from the forecast (owner ruling 2026-10-01): receipts Mentat's accounting engine marks non-giving - FEC-reported interest, refunds, insurance claims and loans - $139,000.50 in 2021-2022; $22,765.36 in 2023-2024; $39,701.68 in 2025-2026 to date. They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and employee House and Senate candidate bases of this forecast leave them out."
+  ],
+  "forecast_industry": "telecom",
+  "general_giving": {
+   "basis": "receipt",
+   "by_funding_source": {
+    "2022": {
+     "conflicting_source_evidence": 16536.0,
+     "employee_original": 10610398.75,
+     "funding_unverified": 3688.59,
+     "non_giving": 139000.5,
+     "organization_unverified": 1658749.91,
+     "pac_activity": 35500.0
+    },
+    "2024": {
+     "conflicting_source_evidence": 19600.0,
+     "employee_original": 13269515.61,
+     "funding_unverified": 93.88,
+     "non_giving": 22765.36,
+     "organization_unverified": 4635179.04,
+     "pac_activity": 31000.0
+    },
+    "2026": {
+     "conflicting_source_evidence": 384.0,
+     "employee_original": 7174718.69,
+     "non_giving": 39701.68,
+     "organization_unverified": 32789.08,
+     "pac_activity": 8500.0
+    }
+   },
+   "cycles": {
+    "2022": 12324873.25,
+    "2024": 17955388.53,
+    "2026": 7216391.77
+   },
+   "excluded_funding_sources": [
+    "non_giving"
+   ],
+   "excluded_non_giving": {
+    "2022": 139000.5,
+    "2024": 22765.36,
+    "2026": 39701.68
+   },
+   "label": "Published included receipt view (workbook Analysis Amount), all funding sources except those Mentat's accounting engine marks non-giving (owner ruling 2026-10-01), all recipient categories, net of negative adjustments",
+   "observed": [
+    {
+     "amount": 127132.21,
+     "through": "2025-01-31"
+    },
+    {
+     "amount": 365287.17,
+     "through": "2025-02-28"
+    },
+    {
+     "amount": 730824.16,
+     "through": "2025-03-31"
+    },
+    {
+     "amount": 1099710.53,
+     "through": "2025-04-30"
+    },
+    {
+     "amount": 1584070.18,
+     "through": "2025-05-31"
+    },
+    {
+     "amount": 1968490.44,
+     "through": "2025-06-30"
+    },
+    {
+     "amount": 2257597.28,
+     "through": "2025-07-31"
+    },
+    {
+     "amount": 2620939.18,
+     "through": "2025-08-31"
+    },
+    {
+     "amount": 3110776.64,
+     "through": "2025-09-30"
+    },
+    {
+     "amount": 3643046.55,
+     "through": "2025-10-31"
+    },
+    {
+     "amount": 3965563.56,
+     "through": "2025-11-30"
+    },
+    {
+     "amount": 4457241.77,
+     "through": "2025-12-31"
+    },
+    {
+     "amount": 4670179.9,
+     "through": "2026-01-31"
+    },
+    {
+     "amount": 5203635.16,
+     "through": "2026-02-28"
+    },
+    {
+     "amount": 6070287.3,
+     "through": "2026-03-31"
+    },
+    {
+     "amount": 6523366.18,
+     "through": "2026-04-30"
+    },
+    {
+     "amount": 7096622.21,
+     "through": "2026-05-31"
+    },
+    {
+     "amount": 7216391.77,
+     "through": "2026-06-30"
+    }
+   ],
+   "odd_year": {
+    "2022": 6183998.97,
+    "2024": 6110809.06
+   },
+   "reason": null,
+   "status": "ready"
+  },
+  "id": "telecom",
+  "label": "Telecommunications (Mentat Telecom)",
+  "lda": {
+   "label": "Melange LDA telecom sector",
+   "note": "Melange LDA sector level, nominal dollars. income_total = fees paid to outside firms; expenses_total = the client's own in-house spending. The two series are different flows and are never added. The sector roster is wider than Mentat's ten companies.",
+   "reason": null,
+   "sector": "telecom",
+   "series": {
+    "expenses_total": {
+     "annual": {
+      "2021": 95333890.0,
+      "2022": 98212019.0,
+      "2023": 100554138.0,
+      "2024": 101098642.0,
+      "2025": 102385884.55
+     },
+     "label": "In-house expenses (LDA expenses_total)",
+     "partial": {
+      "nowcast": {
+       "observed": 52066170.0,
+       "point": 103991096.56684443,
+       "prior_total": 102385884.55,
+       "share": 0.4928507304003711,
+       "share_years": [
+        2023,
+        2024,
+        2025
+       ],
+       "shares": [
+        0.4879265336648801,
+        0.49633794289739325,
+        0.4943269648198786
+       ],
+       "through_quarter": "Q2",
+       "year": 2026
+      },
+      "quarters": {
+       "Q1": 28287640.0,
+       "Q2": 23778530.0
+      },
+      "through_quarter": "Q2",
+      "total": 52066170.0,
+      "year": 2026
+     }
+    },
+    "income_total": {
+     "annual": {
+      "2021": 35530250.0,
+      "2022": 37020000.0,
+      "2023": 36448000.0,
+      "2024": 36967000.0,
+      "2025": 37000500.0
+     },
+     "label": "Outside-firm fees (LDA income_total)",
+     "partial": {
+      "nowcast": {
+       "observed": 17588500.0,
+       "point": 36127286.85245313,
+       "prior_total": 37000500.0,
+       "share": 0.4989584775218408,
+       "share_years": [
+        2023,
+        2024,
+        2025
+       ],
+       "shares": [
+        0.4962823748902546,
+        0.5040711986366219,
+        0.49656085728571236
+       ],
+       "through_quarter": "Q2",
+       "year": 2026
+      },
+      "quarters": {
+       "Q1": 9108000.0,
+       "Q2": 8480500.0
+      },
+      "through_quarter": "Q2",
+      "total": 17588500.0,
+      "year": 2026
+     }
+    }
+   },
+   "source_file": "sector_spend.csv",
+   "source_sha256": "2369cd2f0b3f9a8addf1e33b8f5d23bbcaca27b9f26ad5cccf0ecb34621f4300",
+   "status": "ready",
+   "through": "2026-06-30"
+  },
+  "mentat": {
+   "database_sha256": "44148eb4f504a8fe723dcb41b7a7b79db7a556d70758ced206b056316d1628cb",
+   "dataset": "Telecom",
+   "index_token": "c8157782aa05e04a16aa57ac627a8ec41697cdc48fc999147cd9e4a397abd54c",
+   "payload_sha256": "f37e976021a265f30bfa191e66de344bb68f7cddcc08ec1023aa82a0265c9bd6",
+   "workbook": "Telecom Industry Spending Overview.xlsx",
+   "workbook_sha256": "40a6ac01a5ad62f0aa166d051aa8bfcfd8b4a35f00dbfa88b32fd7368376282e"
+  },
+  "pac_to_candidates": {
+   "committee_count": 0,
+   "committees": [],
+   "cycles": {},
+   "file_through": {},
+   "inputs": [],
+   "observed": [],
+   "reason": "No roster PAC committees are resolved for this industry",
+   "rule": "",
+   "single_pac": false,
+   "source": "",
+   "status": "unavailable",
+   "thin_base": {}
+  },
+  "status": {
+   "candidate_receipts": "ready",
+   "general_giving": "ready",
+   "lda": "ready",
+   "pac_to_candidates": "unavailable"
+  }
+ },
+ "cycle_model": {
+  "g_prior": {
+   "2028": 9.13418006717868
+  },
+  "growth": {
+   "annual": {
+    "2023": -0.0293719772164781,
+    "2024": 0.049919321326964,
+    "2025": 0.0428472150829719,
+    "2026": 0.0432473536164869,
+    "2027": 0.0411302605192927
+   },
+   "edition": "2024-10 (51721) + 2024-12 (51711a)",
+   "price_basis": "CONSTANT_USD (both editions print 'Figures are inflation adjusted to 2024'); wireless and cable revenue-weighted by previous-year revenue",
+   "report_id": "51721+51711a",
+   "source_sha256": "33201909b9e14a8be63b369021435baeb45c61028621207346f83353f18a69ee"
+  },
+  "step": {
+   "general_giving": {
+    "critical_95": 2.57058183563631,
+    "df": 5,
+    "pairs": 6,
+    "sigma2": 0.141862191474537
+   },
+   "pac_to_candidates": {
+    "critical_95": 3.18244630528371,
+    "df": 3,
+    "pairs": 4,
+    "sigma2": 0.00695713174809657
+   }
+  }
+ },
+ "industry": {
+  "calculator": true,
+  "capabilities": {
+   "control": false,
+   "lobbying": true,
+   "pac": true
+  },
+  "caveats": [
+   "OpenSecrets baseline B09 = Telecom Services & Equipment (B08 Telephone Utilities left out); Mentat's Telecom roster and IBISWorld wireless (51721) + cable (51711a) are narrower or different scopes.",
+   "Telecom 2024 revenue is IBISWorld's current-year estimate from the 2024-10 (wireless 51721) and 2024-12 (cable 51711a) editions; replaced automatically when a 2025+ edition is ingested."
+  ],
+  "code": "B09",
+  "growth_max": 10.0921254022237,
+  "growth_mean": 1.1746774823612,
+  "growth_min": -2.74431496811007,
+  "growth_scaling_cycles": [
+   2012,
+   2014,
+   2016,
+   2018,
+   2020,
+   2022,
+   2024
+  ],
+  "growth_sd": 4.51633987634364,
+  "history": [
+   {
+    "cycle": 2012,
+    "growth_pct": 10.0921254022237,
+    "individual_real_2025": 12091170.2627063,
+    "pac_real_2025": 11684559.2145215,
+    "prior_growth_pct": 9.09537741737729,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 27865504.0356436
+   },
+   {
+    "cycle": 2014,
+    "growth_pct": 3.80445093588253,
+    "individual_real_2025": 7122231.79135618,
+    "pac_real_2025": 12661503.7134341,
+    "prior_growth_pct": 10.0921254022237,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 20987418.086864
+   },
+   {
+    "cycle": 2016,
+    "growth_pct": 0.760154682919301,
+    "individual_real_2025": 20832126.2893082,
+    "pac_real_2025": 12846954.7672956,
+    "prior_growth_pct": 3.80445093588253,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 34771187.2050314
+   },
+   {
+    "cycle": 2018,
+    "growth_pct": -1.73384528107846,
+    "individual_real_2025": 10553621.8948005,
+    "pac_real_2025": 12619362.2732769,
+    "prior_growth_pct": 0.760154682919301,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 25348976.2696493
+   },
+   {
+    "cycle": 2020,
+    "growth_pct": 0.18187714700777,
+    "individual_real_2025": 23751451.2501458,
+    "pac_real_2025": 12233201.0495627,
+    "prior_growth_pct": -1.73384528107846,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 42712108.2833819
+   },
+   {
+    "cycle": 2022,
+    "growth_pct": -2.74431496811007,
+    "individual_real_2025": 11228373.3805216,
+    "pac_real_2025": 9711078.28632251,
+    "prior_growth_pct": 0.18187714700777,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 24516700.0415114
+   },
+   {
+    "cycle": 2024,
+    "growth_pct": -2.13770554231635,
+    "individual_real_2025": 15745957.1254851,
+    "pac_real_2025": 8991441.55886158,
+    "prior_growth_pct": -2.74431496811007,
+    "source_url": "https://www.opensecrets.org/industries/totals?ind=B09&cycle=2026",
+    "total_real_2025": 29228338.8531695
+   }
+  ],
+  "ibisworld_code": "51721+51711a",
+  "id": "telecom",
+  "label": "Telecommunications",
+  "lobbying_history": [
+   {
+    "lobbying_real_2025_million": 64.8144149301001,
+    "predicted_growth_pct": 5.67540319050039,
+    "year": 2009
+   },
+   {
+    "lobbying_real_2025_million": 86.6908907576799,
+    "predicted_growth_pct": 4.47386012697797,
+    "year": 2010
+   },
+   {
+    "lobbying_real_2025_million": 96.152262136986,
+    "predicted_growth_pct": 5.8298903714632,
+    "year": 2011
+   },
+   {
+    "lobbying_real_2025_million": 82.0798839163444,
+    "predicted_growth_pct": 3.86140812817193,
+    "year": 2012
+   },
+   {
+    "lobbying_real_2025_million": 70.4271387977042,
+    "predicted_growth_pct": 4.56985232412963,
+    "year": 2013
+   },
+   {
+    "lobbying_real_2025_million": 68.5302919219269,
+    "predicted_growth_pct": 4.41532294654035,
+    "year": 2014
+   },
+   {
+    "lobbying_real_2025_million": 64.0414630670289,
+    "predicted_growth_pct": 3.6103470320966,
+    "year": 2015
+   },
+   {
+    "lobbying_real_2025_million": 61.13129533625,
+    "predicted_growth_pct": 2.49364536129147,
+    "year": 2016
+   },
+   {
+    "lobbying_real_2025_million": 68.3516628780396,
+    "predicted_growth_pct": 2.85603457382105,
+    "year": 2017
+   },
+   {
+    "lobbying_real_2025_million": 60.0328526698735,
+    "predicted_growth_pct": 6.58124933173751,
+    "year": 2018
+   },
+   {
+    "lobbying_real_2025_million": 60.1256489980401,
+    "predicted_growth_pct": 2.72203070675982,
+    "year": 2019
+   },
+   {
+    "lobbying_real_2025_million": 52.9654160501567,
+    "predicted_growth_pct": 2.60266974353326,
+    "year": 2020
+   },
+   {
+    "lobbying_real_2025_million": 52.8880037035155,
+    "predicted_growth_pct": 0.220866059447861,
+    "year": 2021
+   },
+   {
+    "lobbying_real_2025_million": 51.323303794738,
+    "predicted_growth_pct": 0.70491125075697,
+    "year": 2022
+   },
+   {
+    "lobbying_real_2025_million": 41.5565399213812,
+    "predicted_growth_pct": 1.04141443948388,
+    "year": 2023
+   }
+  ],
+  "lobbying_only": false,
+  "lobbyview_sector": "telecom",
+  "mentat_key": "telecom",
+  "opensecrets_codes": [
+   "B09"
+  ],
+  "scope": "OpenSecrets B09 whole-industry accounting; separate from company/subindustry report scopes",
+  "withheld": {
+   "control": "Telecom has a general-giving model only (owner ruling 2026-10-08, OpenSecrets B09): no House or Senate recipient capture of B09 is part of the refit, so no chamber share model is fitted and no chamber split is made."
+  }
+ },
+ "lobby": {
+  "persistence": {
+   "1": {
+    "n": 10,
+    "q80": 0.129773934868527
+   },
+   "2": {
+    "n": 10,
+    "q80": 0.180417101789865
+   },
+   "3": {
+    "n": 10,
+    "q80": 0.255026718532773
+   }
+  },
+  "prediction": {
+   "critical_95": 1.99443711177119,
+   "df": 70,
+   "pairs": 71,
+   "sigma2": 0.0237144571908417
+  },
+  "slopes": {
+   "applied": {
+    "beta": -0.00814763405915339,
+    "critical_95": 2.00404478328915,
+    "df": 55,
+    "ordinary_p": 0.0291257635218315,
+    "rule": "R0",
+    "se": 0.00363672120086187
+   },
+   "dl_beta": null,
+   "dl_se": null,
+   "dl_weight": null,
+   "own_beta": -0.0282271275788061,
+   "own_p": 0.22176941035425,
+   "own_se": 0.0228141999678508
+  }
+ },
+ "recorded_from": {
+  "anchors_built_at_utc": "2026-10-08T21:02:33Z",
+  "bundle_sha256": "b9f03e7bb0f04a6260103fab065129dc2818fb4193d54e014d45be305c73c78d",
+  "model_version": "refit-20261009-e1ba2513-74f0e0a24143",
+  "note": "The Telecom parts of the refit bundle (owner ruling 2026-10-08: OpenSecrets B09, IBISWorld wireless + cable; scored on the pooled phase and drift) and of the anchors snapshot, as the cycle-model tests add them to the contract example."
+ }
+}

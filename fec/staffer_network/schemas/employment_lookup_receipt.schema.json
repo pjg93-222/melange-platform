@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-lookup-receipt:v1",
+  "title": "Restricted employment-history lookup queue receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version",
+    "source_binding_sha256", "lda_source_receipt_sha256", "lda_lobbyists",
+    "priority_counts", "covered_position_people",
+    "covered_position_people_with_year_token",
+    "covered_position_people_with_month_token", "queue_conservation_pass",
+    "identity_matches_asserted", "canonical_identity_merges", "collection_policy",
+    "file", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-lookup-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"const": "PASS"},
+    "method_version": {"const": "lda-covered-position-employment-lookup-v1"},
+    "source_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_source_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_lobbyists": {"type": "integer", "minimum": 1},
+    "priority_counts": {
+      "type": "object", "additionalProperties": false,
+      "required": ["P0", "P1", "P2"],
+      "properties": {
+        "P0": {"type": "integer", "minimum": 0},
+        "P1": {"type": "integer", "minimum": 0},
+        "P2": {"type": "integer", "minimum": 0}
+      }
+    },
+    "covered_position_people": {"type": "integer", "minimum": 0},
+    "covered_position_people_with_year_token": {"type": "integer", "minimum": 0},
+    "covered_position_people_with_month_token": {"type": "integer", "minimum": 0},
+    "queue_conservation_pass": {"const": true},
+    "identity_matches_asserted": {"const": 0},
+    "canonical_identity_merges": {"const": 0},
+    "collection_policy": {"const": "DISCOVERY_QUEUE_ONLY_NO_AUTOMATED_LEGISTORM_COLLECTION"},
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "records", "bytes", "sha256", "encoding", "privacy_class"],
+      "properties": {
+        "path": {"const": "employment_lookup_queue.ndjson.gz"},
+        "records": {"type": "integer", "minimum": 1},
+        "bytes": {"type": "integer", "minimum": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "encoding": {"const": "canonical-ndjson-gzip-mtime-0"},
+        "privacy_class": {"const": "restricted-machine-local"}
+      }
+    },
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

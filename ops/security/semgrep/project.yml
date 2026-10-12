@@ -1,0 +1,68 @@
+# Project rules for ops/security_gate.py (semgrep stage). Heuristics tuned for low noise; the gate runs them
+# beside p/python, p/django and p/secrets. Validate after editing: semgrep --validate --config ops/security/semgrep
+rules:
+  - id: melange-nonloopback-bind-literal
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Hard-coded non-loopback bind address. Servers bind 127.0.0.1 by default; a public interface must come from
+      BIND_HOST / CU_BIND (hosted mode, behind the Access JWT check), never from a literal.
+    paths:
+      exclude: ["**/tests/**", "**/test_*.py"]
+    patterns:
+      - pattern-either:
+          - pattern: $S.bind(("0.0.0.0", ...))
+          - pattern: $S.bind(("", ...))
+          - pattern: $S.bind(("::", ...))
+          - pattern: $F(..., host="0.0.0.0", ...)
+          - pattern: $F(..., host="::", ...)
+          - patterns:
+              - pattern-either:
+                  - pattern: $C(("0.0.0.0", ...), ...)
+                  - pattern: $C(("", ...), ...)
+                  - pattern: $C(("::", ...), ...)
+              - metavariable-regex:
+                  metavariable: $C
+                  regex: ^(.*\.)?(HTTPServer|ThreadingHTTPServer|TCPServer|ThreadingTCPServer|UDPServer|make_server)$
+
+  - id: melange-forwarded-header-read
+    languages: [python]
+    severity: ERROR
+    message: >-
+      Reads a client-controlled forwarding header (X-Forwarded-For, X-Real-IP, Forwarded). Behind Cloudflare
+      these can be spoofed; use CF-Connecting-IP for rate limits and never base authentication on any of them.
+    paths:
+      exclude: ["**/tests/**", "**/test_*.py"]
+    patterns:
+      - pattern-either:
+          - pattern: $X.get($K, ...)
+          - pattern: $X[$K]
+          - pattern: $X.getheader($K, ...)
+      - metavariable-regex:
+          metavariable: $K
+          regex: (?i)^["']?(HTTP_)?(X[-_]FORWARDED[-_]FOR|X[-_]REAL[-_]IP|FORWARDED)["']?$
+
+  - id: melange-unpickle-without-sidecar-check
+    languages: [python]
+    severity: ERROR
+    message: >-
+      pickle/joblib load without a preceding safe_to_unpickle(path) check in the same function (fec/lane_file_io.py
+      compares the file to its .sha256 sidecar). Unpickling runs code, so an unverified model file is arbitrary
+      code execution.
+    paths:
+      exclude: ["**/tests/**", "**/test_*.py"]
+    patterns:
+      - pattern-either:
+          - pattern: pickle.load(...)
+          - pattern: pickle.loads(...)
+          - pattern: joblib.load(...)
+      - pattern-not-inside: |
+          if <... safe_to_unpickle(...) ...>:
+              ...
+      - pattern-not-inside: |
+          if <... safe_to_unpickle(...) ...>:
+              ...
+          ...
+      - pattern-not-inside: |
+          $OK = safe_to_unpickle(...)
+          ...

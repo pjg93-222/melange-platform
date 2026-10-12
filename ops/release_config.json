@@ -1,0 +1,48 @@
+{
+  "platform_repo": "pjg93-222/melange-platform",
+  "platform_bare": "C:/Users/pgoff/PlatformRelease/melange-platform.git",
+  "platform_remote_url": "https://github.com/pjg93-222/melange-platform.git",
+  "melange_live": "C:/Users/pgoff/OneDrive/Desktop/Melange Systems",
+  "melange_ref": "main",
+  "mentat_live": "C:/Users/pgoff/Mentat",
+  "mentat_ref": "codex/mentat-crypto",
+  "terrier_repo": "pjg93-222/Geo",
+  "terrier_checkout": "C:/Users/pgoff/Documents/Terrier/outputs/cu-geography-v3",
+  "terrier_ref": "claude/walk-list",
+  "terrier_remote_url": "https://github.com/pjg93-222/Geo.git",
+  "terrier_images_ref": "deploy/terrier-hosted",
+  "images": {
+    "melange": "ghcr.io/pjg93-222/melange-desk",
+    "mentat": "ghcr.io/pjg93-222/mentat-console",
+    "terrier": "ghcr.io/pjg93-222/terrier-web"
+  },
+  "domain": null,
+  "hosts": {"melange": "melange", "mentat": "mentat", "co05": "co05", "or05": "or05", "ct01": "ct01", "ssh": "ssh"},
+  "vps": {
+    "ssh_user": "melange-push",
+    "ssh_identity": null,
+    "inbox": "/inbox",
+    "restic_repo": "/restic",
+    "status_path": "/status/status.json",
+    "limit_upload_kib": null
+  },
+  "netlify": {"site_id": null, "api": null, "token_file": "%LOCALAPPDATA%/Melange/secrets/netlify.dpapi"},
+  "signing": {
+    "key": "%USERPROFILE%/.ssh/melange_release_ed25519",
+    "principal": "release@melange",
+    "namespace": "melange-release",
+    "agent": true,
+    "allowed_signers": "ops/vps/allowed_signers"
+  },
+  "credentials": {"restic": "melange-restic", "svc_push": "melange-svc-push", "svc_status": "melange-svc-status"},
+  "export": {
+    "extra_extensions": [".dockerfile"],
+    "extra_names": ["allowed_signers", "dockerfile", ".dockerignore", "no_data_tests.txt", "mentat_tests.txt",
+                    "mentat-console.linux.txt", "r-packages.txt", "compose.env.example", "canaries.txt"]
+  },
+  "pocket": {"dir": null, "console_port": null, "datasets": []},
+  "downloads": {"workbooks": []},
+  "dashboard_password_file": null,
+  "lane_writer_roots": null,
+  "launchers": {"script": null}
+}

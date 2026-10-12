@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "note": "Frozen model specifications. The v1 variable selections are frozen; re-selection (rf_stepwise_aicc / rf_forward_aic) is a diagnostic only. slope_rule 'auto_pick' means rf_select_rule() chooses among R0 pooled / R1 own / R2 DerSimonian-Laird by no-leakage backtest (Paul's ruling of 2026-09-30); Phase 1 parity does not use it.",
+  "packages": { "jsonlite": "2.0.0", "readxl": "1.5.0", "sandwich": "3.1-3", "clubSandwich": "0.7.0" },
+  "models": [
+    {
+      "id": "pac", "calculator": true, "kind": "pac",
+      "outcome": "log_pac", "formula": "log_pac ~ sector + factor(cycle_end) + G_current", "focal": "G_current",
+      "clusters": ["sector", "cycle_end"], "slope_rule": "auto_pick", "anchor": "previous_cycle",
+      "training": "cycles 2012-2024 with current and prior growth", "v1_selection": "forward AIC over G_prior, G_current, Neg_prior -> G_current"
+    },
+    {
+      "id": "control_House", "calculator": true, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + P_R + G_prior + Pres", "focal": "P_R", "v1_mask": 11,
+      "clusters": ["cycle_end", "sector"], "slope_rule": "auto_pick", "anchor": "same_phase_latest", "training": "cycles 2012-2022"
+    },
+    {
+      "id": "control_Senate", "calculator": true, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + P_R + G_prior", "focal": "P_R", "v1_mask": 3,
+      "clusters": ["cycle_end", "sector"], "slope_rule": "auto_pick", "anchor": "same_phase_latest", "training": "cycles 2012-2022"
+    },
+    {
+      "id": "lobby", "calculator": true, "kind": "lobby",
+      "outcome": "dy", "formula": "dy ~ dg + factor(year)", "focal": "dg",
+      "clusters": ["study_sector", "year"], "slope_rule": "auto_pick", "anchor": "last_year", "training": "all consecutive-year pairs, levels from 2008"
+    },
+    {
+      "id": "seats_House", "calculator": false, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + pred_rep_net_change + G_prior + G_current + Pres", "focal": "pred_rep_net_change", "v1_mask": 15,
+      "clusters": ["cycle_end", "sector"], "training": "cycles 2012-2024"
+    },
+    {
+      "id": "seats_Senate", "calculator": false, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + pred_rep_net_change + G_prior + G_current + Pres", "focal": "pred_rep_net_change", "v1_mask": 15,
+      "clusters": ["cycle_end", "sector"], "training": "cycles 2012-2024"
+    },
+    {
+      "id": "control_House_full", "calculator": false, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + P_R + G_prior + G_current + Pres", "focal": "P_R", "v1_mask": 15,
+      "clusters": ["cycle_end", "sector"], "training": "cycles 2012-2022"
+    },
+    {
+      "id": "control_Senate_full", "calculator": false, "kind": "share",
+      "outcome": "RShare", "formula": "RShare ~ sector + RMajNow + P_R + G_prior + G_current + Pres", "focal": "P_R", "v1_mask": 15,
+      "clusters": ["cycle_end", "sector"], "training": "cycles 2012-2022"
+    },
+    {
+      "id": "pac_complete", "calculator": false, "kind": "pac",
+      "outcome": "log_pac", "formula": "log_pac ~ sector + factor(cycle_end) + G_prior + G_current + Neg_prior", "focal": "G_current",
+      "clusters": ["sector", "cycle_end"], "training": "cycles 2012-2024"
+    }
+  ],
+  "stepwise_grid": {
+    "note": "48 cases today = {control, seats} x {House, Senate} x {pooled + each fitted industry} x {RShare, log_R, log_D}; counter = 1-based loop position (analyze.py).",
+    "signals": ["control", "seats"], "chambers": ["House", "Senate"], "outcomes": ["RShare", "log_R", "log_D"]
+  }
+}

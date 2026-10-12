@@ -1,0 +1,52 @@
+{
+  "basis": "canonical_cycle_office_nominal_pac_D_R",
+  "cohort_ids_sha256": "d555b708f2b781afd84a9cbaff59b0bbf82980227326ab05de2d05b32d95afe6",
+  "count": 8,
+  "cycles": {
+    "2024": {
+      "House": {
+        "D": 328475000,
+        "Other": 0,
+        "R": 355980000,
+        "Unknown": 350000
+      },
+      "Senate": {
+        "D": 42960000,
+        "Other": 4500000,
+        "R": 50250000,
+        "Unknown": 300000
+      },
+      "sum_cents": 783415000,
+      "unresolved_office_pool": 600000
+    }
+  },
+  "note": "Cents. Only rows the panel counts (hs == 1) are split; every bucket sums to the panel total (cycle) or observed amount (to the cut) to the cent.",
+  "observed": {
+    "House": {
+      "D": 194100000,
+      "Other": 100000,
+      "R": 182150000,
+      "Unknown": 0
+    },
+    "Senate": {
+      "D": 16900000,
+      "Other": 0,
+      "R": 46350000,
+      "Unknown": 0
+    },
+    "sum_cents": 442750000,
+    "through": "2026-09-26",
+    "unresolved_office_pool": 3150000
+  },
+  "schema": "panel-cohort-party-split-v1",
+  "sector": "telecom",
+  "silent_committees": [
+    "C00377044"
+  ],
+  "sources": {
+    "current_ledger_sha256": "7f5dace492663a2c85c475886d102ab88df761717cfeb9dc6fb7039706834f5d",
+    "history_ledger_sha256": "5e19809d1d85d4bae64064453ba7b34457e8a273bdd6328ab93664a8a9aa1625",
+    "ids_sha256": "d555b708f2b781afd84a9cbaff59b0bbf82980227326ab05de2d05b32d95afe6"
+  },
+  "target": 2026
+}

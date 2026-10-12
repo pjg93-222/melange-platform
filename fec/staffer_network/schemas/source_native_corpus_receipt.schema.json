@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:source-native-corpus-receipt:v1",
+  "title": "Restricted source-native corpus aggregate receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "source_systems", "input_files",
+    "littlesis_profile_receipt_sha256", "legacy_seed_receipt_sha256",
+    "category_vocabulary_basis", "category_vocabulary", "entities_emitted",
+    "entity_observed", "entity_invalid", "entity_duplicates",
+    "relationship_observed", "relationship_emitted_in_scope",
+    "relationship_out_of_scope_category", "relationship_dangling_rejected",
+    "relationship_invalid", "relationship_duplicates", "category_emitted",
+    "category_out_of_scope", "dangling_relationship_ids",
+    "emitted_endpoint_missing", "undated_position_emitted",
+    "temporal_weight_nonzero", "contact_like_values_redacted",
+    "parent_references_redacted", "boss_references_redacted", "record_files", "staff_net_required_state",
+    "source_enabled", "analysis_enabled", "canonical_entity_merges",
+    "cross_source_identity_assertions", "identity_resolution_advanced",
+    "politico_adjudication_queue_touched", "lda_gate_status",
+    "politico_gate_status", "loadable_standalone",
+    "share_alike_publication_review_deferred", "repository_payload", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-source-native-corpus-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "QUARANTINED"]},
+    "source_systems": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "string"}},
+    "input_files": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "sha256", "bytes"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "bytes": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "littlesis_profile_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "legacy_seed_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "category_vocabulary_basis": {"type": "string", "minLength": 1},
+    "category_vocabulary": {"type": "object", "minProperties": 12, "additionalProperties": {"type": "string"}},
+    "entities_emitted": {"type": "integer", "minimum": 1},
+    "entity_observed": {"type": "integer", "minimum": 1},
+    "entity_invalid": {"type": "integer", "minimum": 0},
+    "entity_duplicates": {"type": "integer", "minimum": 0},
+    "relationship_observed": {"type": "integer", "minimum": 1},
+    "relationship_emitted_in_scope": {"type": "integer", "minimum": 1},
+    "relationship_out_of_scope_category": {"type": "integer", "minimum": 0},
+    "relationship_dangling_rejected": {"type": "integer", "minimum": 0},
+    "relationship_invalid": {"type": "integer", "minimum": 0},
+    "relationship_duplicates": {"type": "integer", "minimum": 0},
+    "category_emitted": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "integer", "minimum": 0}},
+    "category_out_of_scope": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "dangling_relationship_ids": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+    "emitted_endpoint_missing": {"const": 0},
+    "undated_position_emitted": {"type": "integer", "minimum": 0},
+    "temporal_weight_nonzero": {"const": 0},
+    "contact_like_values_redacted": {"type": "integer", "minimum": 0},
+    "parent_references_redacted": {"type": "integer", "minimum": 0},
+    "boss_references_redacted": {"type": "integer", "minimum": 0},
+    "record_files": {
+      "type": "array", "minItems": 3, "maxItems": 3,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "source_system_id", "schema_id", "records", "sha256", "bytes", "encoding", "privacy_class"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "source_system_id": {"type": "string", "minLength": 1},
+          "schema_id": {"type": "string", "minLength": 1},
+          "records": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "bytes": {"type": "integer", "minimum": 1},
+          "encoding": {"type": "string", "minLength": 1},
+          "privacy_class": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "staff_net_required_state": {"const": "off"},
+    "source_enabled": {"const": false},
+    "analysis_enabled": {"const": false},
+    "canonical_entity_merges": {"const": 0},
+    "cross_source_identity_assertions": {"const": 0},
+    "identity_resolution_advanced": {"const": false},
+    "politico_adjudication_queue_touched": {"const": false},
+    "lda_gate_status": {"const": "CLOSED"},
+    "politico_gate_status": {"const": "CLOSED"},
+    "loadable_standalone": {"const": true},
+    "share_alike_publication_review_deferred": {"const": true},
+    "repository_payload": {"const": "aggregate-receipt-only"},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

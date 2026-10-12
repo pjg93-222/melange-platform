@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-adjudication-independent-verification:v2",
+  "title": "Independent provenance-bound verification receipt for an employment adjudication twin",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "method_version", "implementation", "status", "assertions",
+    "failures", "decision_failure_counts", "episode_failure_counts",
+    "summary_failure_counts", "sample_failure_counts", "token_negative_scan_matches",
+    "primary_receipt_sha256", "twin_receipt_sha256"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-adjudication-independent-verification-v2"},
+    "method_version": {"const": "bulk-employment-adjudication-independent-verifier-v3"},
+    "implementation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["verifier_path", "verifier_sha256", "verified_generator_sha256", "python_version"],
+      "properties": {
+        "verifier_path": {"type": "string", "minLength": 1},
+        "verifier_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "verified_generator_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "python_version": {"type": "string", "minLength": 1}
+      }
+    },
+    "status": {"enum": ["PASS", "FAIL"]},
+    "assertions": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "boolean"}},
+    "failures": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "decision_failure_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "episode_failure_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "summary_failure_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "sample_failure_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "token_negative_scan_matches": {"type": "integer", "minimum": 0},
+    "primary_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "twin_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

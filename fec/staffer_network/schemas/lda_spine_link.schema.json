@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-lda-spine-link-v1",
+  "title": "LDA to Hill spine link",
+  "description": "One row per (LDA person, spine person) resolved from a payroll-side match lane, plus one row per (LDA person, lane) whose payroll key could not be resolved to exactly one spine person. The Part A tier is carried over unchanged. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "lda_source_person_id", "spine_person_id",
+    "lane", "payroll_key", "payroll_key_field", "payroll_key_count",
+    "part_a_tier", "link_status", "key_resolution", "candidate_count",
+    "review_status", "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-spine-link-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "spine_person_id": {
+      "type": ["string", "null"],
+      "pattern": "^hill:person:[0-9a-f]{64}$"
+    },
+    "lane": {
+      "enum": ["h1_house_sod_pdf", "h2_house_payroll", "senate_payroll"]
+    },
+    "payroll_key": {"type": "string", "minLength": 1},
+    "payroll_key_field": {
+      "enum": ["payroll_candidate_id", "payroll_support_digest"]
+    },
+    "payroll_key_count": {"type": "integer", "minimum": 1},
+    "part_a_tier": {"enum": ["L0", "L1", "L2", "L3", "L4", "L5", null]},
+    "link_status": {"enum": ["LINKED_BY_PAYROLL_KEY", "KEY_NOT_FOUND"]},
+    "key_resolution": {
+      "enum": ["MATCHED_UNIQUE", "KEY_ABSENT", "KEY_AMBIGUOUS"]
+    },
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

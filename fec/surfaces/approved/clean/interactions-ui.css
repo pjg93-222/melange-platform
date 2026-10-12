@@ -1,0 +1,212 @@
+/* interactions-ui.css: overlay for original-interactions.html (Reported interactions #41, member summary #42); owners: prompts 14, 15. Loaded after ui-kit.css and restored.css. */
+/* ---- 14 · Members this industry lobbies: the members table (board #41). Every rule is scoped to html.ixt-on
+   (set by interactions-ui.js) and to the live #picker-panel, so the member page (#member-panel, 15) is untouched. ---- */
+html.ixt-on #main:has(> #picker-panel:not(.hidden)){max-width:none;margin:0;padding:0 var(--ml-gutter-end) var(--ml-gutter) var(--ml-gutter)}
+html.ixt-on #main:has(> #picker-panel:not(.hidden)) > :is(.honesty,details.methnote){display:none}
+html.ixt-on #picker-panel.ixt-host{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+html.ixt-on #picker-panel.ixt-host > :not(.ixt){display:none!important}
+
+.ixt{color:var(--ml-ink);font:400 14px/1.3 var(--sans)}
+.ixt-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* 48 px subtitle row */
+.ixt-head{display:flex;align-items:center;justify-content:space-between;gap:var(--ml-gutter);height:48px}
+.ixt .ixt-title{margin:0;padding:0;color:var(--ml-ink);font:400 26px/1.1 var(--serif);letter-spacing:0}
+.ixt .ixt-howto .mlk-info{color:var(--ml-ink);font-size:14px}
+.ixt .ixt-howpop:not(#mlk){width:420px;max-height:min(60vh,520px);overflow:auto;font-size:13px;line-height:1.5}
+.ixt .ixt-howpop .honesty{margin:0;padding:0;border:0;background:transparent;color:var(--ml-ink)}
+.ixt .ixt-howpop .honesty p{margin:0}
+.ixt .ixt-howpop details.methnote{max-width:none;margin:12px 0 0}
+.ixt .ixt-howpop details.methnote > summary{color:var(--ml-active);font-size:13px;text-decoration:underline dotted;text-underline-offset:3px}
+.ixt .ixt-howpop .methbody p{margin:8px 0 0;color:var(--ml-ink)}
+
+/* 52 px control row. One line while it fits: the search box takes 150-228 px of whatever the segment, the two selects
+   and the caption leave; when even 150 px does not fit, the caption wraps to its own line (right-aligned) instead of
+   running past the frame. */
+.ixt-controls{display:flex;align-items:center;gap:12px;min-height:52px;flex-wrap:wrap}
+.ixt .ixt-seglabel:not(#mlk){margin-right:2px}
+.ixt .ixt-seg:not(#mlk){height:var(--mlk-head-control);margin-right:12px}
+.ixt .ixt-seg:not(#mlk) > button{min-width:84px;padding:0 12px;font-size:13px}
+.ixt .ixt-seg:not(#mlk) > button:first-child{min-width:68px}
+.ixt .ixt-search:not(#mlk){flex:1 1 150px;width:auto;min-width:150px;max-width:228px}
+.ixt .ixt-search:not(#mlk) .mlk-search__input{height:var(--mlk-head-control)}
+.ixt .ixt-select:not(#mlk){flex:none;height:var(--mlk-head-control);min-width:168px}
+.ixt .ixt-select:not(#mlk) > select{flex:1}
+.ixt .ixt-caption{flex:none;margin:0 0 0 auto;padding-left:8px;color:var(--ml-muted);font-size:13px;white-space:nowrap}
+
+/* table */
+.ixt .ixt-card:not(#mlk){margin-top:8px;overflow:visible}
+.ixt .ixt-table:not(#mlk){table-layout:fixed}
+.ixt .ixt-c-rank{width:8.5%}.ixt .ixt-c-member{width:29%}.ixt .ixt-c-posture{width:18%}.ixt .ixt-c-change{width:12.5%}.ixt .ixt-c-count{width:20%}.ixt .ixt-c-open{width:12%}
+/* frames under 1040 px (viewports under about 1190 px): 12% no longer holds the "Open filings" button (94 px + 2 x 12 px
+   cell padding), so that column keeps 120 px and the member column takes what is left */
+@media (max-width:1040px){.ixt .ixt-c-member{width:auto}.ixt .ixt-c-open{width:120px}}
+.ixt .ixt-table:not(#mlk) th{height:40px;padding-top:0;padding-bottom:0}
+.ixt .ixt-table:not(#mlk) th[aria-sort]{cursor:default}
+.ixt .ixt-table:not(#mlk) :is(th,td):first-child{padding-left:22px}
+.ixt .ixt-table:not(#mlk) td{height:52px}
+.ixt .ixt-table:not(#mlk) tr.ixt-skelrow td{height:auto;padding:0}
+.ixt .ixt-table:not(#mlk) tr.ixt-skelrow:hover td{background:transparent}
+.ixt .ixt-rank{font-size:14px}
+.ixt .ixt-member{white-space:nowrap}
+.ixt .ixt-member .ixt-dot:not(#mlk){width:9px;height:9px;margin:0 12px 0 0;vertical-align:top;position:relative;top:5px}
+.ixt .ixt-who{display:inline-block;max-width:calc(100% - 22px);vertical-align:top;overflow:hidden;text-overflow:ellipsis}
+.ixt .ixt-name{font-size:14px}
+.ixt .ixt-flag{color:var(--ml-muted)}
+.ixt .ixt-pill--adv:not(#mlk){box-shadow:inset 0 0 0 1px var(--ml-ink)}
+.ixt .ixt-change{color:var(--ixt-c,var(--ml-ink));font-weight:500}
+.ixt .ixt-change--none{color:var(--ml-muted);font-weight:400}
+.ixt .ixt-count{white-space:nowrap}
+.ixt .ixt-n{display:inline-block;min-width:52px;margin-right:12px;font-size:14px;font-weight:500}
+/* the bar keeps 120 px while its cell has room (every desktop width) and shrinks with the cell below that, so it never
+   runs under "Open filings" (the count keeps its 52 px + 12 px) */
+.ixt .ixt-bar:not(#mlk){--mlk-bar-w:clamp(32px,calc(100% - 64px),120px);--mlk-bar-fill:var(--ml-control-border);background:var(--mlk-track)}
+.ixt .ixt-open-cell{text-align:right;padding-right:22px}
+.ixt .ixt-open{display:inline-flex;align-items:center;gap:10px;height:32px;margin:0;padding:0 2px;border:0;border-radius:var(--ml-radius);background:transparent;color:var(--ml-muted);font:400 13px/1 var(--sans);cursor:pointer;white-space:nowrap}
+.ixt .ixt-open:hover{color:var(--ml-ink);text-decoration:underline;text-underline-offset:3px}
+.ixt .ixt-open:focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
+.ixt .ixt-open svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.8;transform:rotate(-90deg)}
+.ixt .ixt-state[hidden]{display:none}
+
+/* footer: 1–25 of 780 · Previous · Next · 25 per page */
+.ixt .ixt-pager .mlk-pager:not(#mlk){padding:14px 0 0;font-size:13px}
+.ixt .ixt-pager .mlk-pager:not(#mlk) .mlk-btn{height:var(--mlk-head-control);padding:0 16px;font-size:13px}
+.ixt .ixt-pager .mlk-pager:not(#mlk) .mlk-select{height:var(--mlk-head-control);font-size:13px}
+
+/* ---- 15 · Reported interactions, one member, summary first (board #42). Scoped to html.ixt-on + the live
+   #member-panel (class ixm-host, set by interactions-ui.js) and div#ixm.ixm. The explanation box and methodology note
+   move behind the page head's "How to read this" while the member page shows (never deleted). ---- */
+html.ixt-on #main:has(> #member-panel.ixm-host:not(.hidden)){max-width:none;margin:0;padding:0 var(--ml-gutter-end) var(--ml-gutter) var(--ml-gutter)}
+html.ixt-on #main:has(> #member-panel.ixm-host:not(.hidden)) > :is(.honesty,details.methnote){display:none}
+html.ixt-on #member-panel.ixm-host{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+html.ixt-on #member-panel.ixm-host > :not(.ixm){display:none!important}
+
+.ixm{color:var(--ml-ink);font:400 14px/1.3 var(--sans)}
+.ixm [hidden]{display:none!important}
+
+/* 44 px row: back link, breadcrumb, WORDING segment, Open in member desk */
+.ixm-nav{display:flex;align-items:center;gap:28px;height:44px}
+.ixm .ixm-back,.ixm .ixm-crumb{display:inline-flex;align-items:center;gap:8px;height:32px;margin:0;padding:0 2px;border:0;border-radius:var(--ml-radius);background:transparent;color:var(--ml-muted);font:400 13px/1 var(--sans);cursor:pointer;white-space:nowrap}
+.ixm .ixm-back svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;transform:rotate(180deg)}
+.ixm .ixm-crumb{text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+.ixm .ixm-back:hover,.ixm .ixm-crumb:hover{color:var(--ml-ink);text-decoration:underline;text-underline-offset:3px}
+.ixm :is(.ixm-back,.ixm-crumb,.ixm-desk,.ixm-obtn,.ixm-ybar,.ixm-exp):focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
+.ixm-crumbs ol{display:flex;align-items:center;gap:10px;margin:0;padding:0;list-style:none;font-size:13px;white-space:nowrap}
+.ixm-slash{color:var(--ml-muted)}
+#ixm-crumb-name{color:var(--ml-ink)}
+.ixm-navend{display:flex;align-items:center;margin-left:auto}
+.ixm .ixm-wording:not(#mlk){margin-right:24px}
+.ixm .ixm-wording:not(#mlk)>button{min-width:60px;padding:0 10px}
+.ixm .ixm-desk{color:var(--ml-ink);font-size:13px;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px;white-space:nowrap;border-radius:var(--ml-radius)}
+
+/* header */
+.ixm-who{display:flex;align-items:center;flex-wrap:wrap;gap:6px 18px;min-height:50px;margin-top:4px}
+.ixm .ixm-name{margin:0;padding:0;color:var(--ml-ink);font:400 34px/1.15 var(--serif);letter-spacing:0}
+.ixm-meta{display:inline-flex;align-items:center;flex-wrap:wrap;gap:0;color:var(--ml-muted);font-size:15px}
+.ixm .ixm-dot:not(#mlk){width:10px;height:10px;margin:0 10px 0 0}
+.ixm .ixm-sep{margin:0 8px;color:var(--ml-muted)}
+.ixm .ixm-flag{margin-left:10px;padding:2px 8px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);color:var(--ml-muted);font-size:12px}
+
+/* INDUSTRY segment with counts */
+.ixm-sectors{display:flex;align-items:center;margin-top:10px}
+.ixm .ixm-sectors .mlk-seg__label:not(#mlk){width:60px;margin-right:12px;color:var(--ml-ink)}
+.ixm .ixm-seg:not(#mlk){flex:0 1 676px;height:var(--mlk-head-control)}
+.ixm .ixm-seg:not(#mlk)>button{flex:1 1 0;min-width:0;padding:0 12px;font-size:13px}
+
+/* posture line */
+.ixm-posture{display:flex;align-items:center;gap:18px;min-height:26px;margin-top:14px}
+.ixm .ixm-pill:not(#mlk){height:26px;padding:0 12px 0 10px;border-radius:13px;font-size:13px;cursor:help}
+.ixm-ptext{color:var(--ml-ink);font-size:14px;cursor:help}
+
+/* six figures */
+.ixm-figs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));box-sizing:border-box;height:70px;margin-top:14px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.ixm-fig{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;min-width:0}
+.ixm-fig + .ixm-fig::before{content:'';position:absolute;left:0;top:10px;bottom:10px;border-left:1px solid var(--ml-rule)}
+.ixm-fig strong{color:var(--ml-ink);font:400 24px/1 var(--serif);font-variant-numeric:lining-nums;white-space:nowrap}
+.ixm-fig span{overflow:hidden;max-width:100%;color:var(--ml-muted);font:500 10.5px/1.1 var(--sans);letter-spacing:.08em;text-transform:uppercase;text-overflow:ellipsis;white-space:nowrap}
+.ixm-fig[title]{cursor:help}
+
+/* cards */
+.ixm-cards{display:grid;grid-template-columns:minmax(0,1.445fr) minmax(0,1fr);gap:14px;margin-top:14px}
+.ixm-card{box-sizing:border-box;min-width:0;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface);overflow:hidden}
+.ixm .ixm-cardtitle{display:flex;align-items:center;height:35px;margin:0;padding:0 16px;border-bottom:1px solid var(--ml-rule);background:var(--ml-surface-alt);color:var(--ml-ink);font:600 12px/1 var(--sans);letter-spacing:.1em!important;text-transform:uppercase!important}
+.ixm .ixm-cardtitle .ixm-fcount{letter-spacing:.04em!important;text-transform:none!important}
+.ixm :is(.ixm-fcount,.ixm-segn) > span[aria-hidden]{white-space:pre}
+.ixm .mlk-table:not(#mlk) th{position:static;height:27px;padding:0 16px;font-size:10.5px}
+.ixm .mlk-table:not(#mlk) tr.ixm-skelrow td{height:auto;padding:0}
+.ixm .mlk-table:not(#mlk) tr.ixm-skelrow:hover td{background:transparent}
+.ixm-cardstate,.ixm-state{padding:8px 16px 16px}
+
+/* BY ORGANIZATION */
+.ixm .ixm-otable:not(#mlk){table-layout:fixed}
+.ixm-c-org{width:46%}.ixm-c-bar{width:23%}.ixm-c-n{width:19%}.ixm-c-yrs{width:12%}
+.ixm .ixm-otable:not(#mlk) td{height:28px;padding:0 16px;font-size:13px}
+.ixm .ixm-otable:not(#mlk) tbody tr[data-org]{cursor:pointer}
+.ixm .ixm-otable:not(#mlk) td.ixm-obar{padding-right:4px}
+.ixm .ixm-obtn{display:block;max-width:100%;margin:0;padding:0;border:0;border-radius:var(--ml-radius);background:transparent;color:var(--ml-ink);font:inherit;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.ixm .ixm-bar:not(#mlk){--mlk-bar-w:100%;--mlk-bar-fill:var(--ml-control-border);display:block;height:7px;border-radius:4px}
+.ixm .ixm-otable:not(#mlk) tr.is-selected .ixm-bar > i{background:var(--ml-active)}
+.ixm .ixm-otable:not(#mlk) tr.is-selected .ixm-obtn{font-weight:600}
+.ixm-more{padding:8px 16px 10px}
+.ixm .ixm-morebtn:not(#mlk){height:28px;padding:0 2px;color:var(--ml-muted);text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1px}
+
+/* BY YEAR: vertical neutral bars, 2026 partial hatched */
+.ixm-years{display:flex;flex-direction:column}
+.ixm-chart{display:flex;flex:1;align-items:stretch;gap:8px;box-sizing:border-box;min-height:250px;padding:18px 16px 8px}
+.ixm .ixm-ybar{display:flex;flex:1 1 0;flex-direction:column;min-width:0;margin:0;padding:0;border:0;border-radius:var(--ml-radius);background:transparent;color:var(--ml-ink);font:inherit;cursor:pointer}
+.ixm .ixm-ybar[aria-disabled=true]{cursor:default}
+.ixm-yplot{position:relative;display:block;flex:1;border-bottom:1px solid var(--ml-strong-rule)}
+.ixm-ycol{position:absolute;left:max(10%,calc(50% - 24px));right:max(10%,calc(50% - 24px));bottom:0;height:var(--ixm-h);background:var(--ml-control-border)}
+.ixm-yn{position:absolute;left:0;right:0;bottom:calc(var(--ixm-h) + 6px);color:var(--ml-ink);font:500 17px/1 var(--serif);font-variant-numeric:lining-nums;text-align:center}
+.ixm-ybar.is-partial .ixm-ycol{background:repeating-linear-gradient(135deg,var(--ml-control-border) 0 2px,transparent 2px 6px)}
+.ixm .ixm-ybar:not([aria-disabled=true]):hover .ixm-ycol{background:var(--ml-hover)}
+.ixm .ixm-ybar.is-partial:not([aria-disabled=true]):hover .ixm-ycol{background:repeating-linear-gradient(135deg,var(--ml-hover) 0 2px,transparent 2px 6px)}
+.ixm .ixm-ybar[aria-pressed=true] .ixm-ycol{background:var(--ml-active)}
+.ixm .ixm-ybar.is-partial[aria-pressed=true] .ixm-ycol{background:repeating-linear-gradient(135deg,var(--ml-active) 0 2px,transparent 2px 6px)}
+.ixm .ixm-ybar[aria-pressed=true] .ixm-yl{font-weight:600}
+.ixm-yl{display:block;height:36px;padding-top:9px;box-sizing:border-box;font-size:13px;line-height:1.2;text-align:center}
+.ixm-yl em{display:block;color:var(--ml-muted);font-size:12px}
+.ixm .ixm-chartskel:not(#mlk){display:block;width:100%;height:auto;min-height:200px}
+
+/* FILINGS */
+.ixm-filings{margin-top:16px}
+.ixm-filters{display:flex;align-items:center;flex-wrap:wrap;gap:10px;padding:10px 16px;border-bottom:1px solid var(--ml-rule)}
+.ixm .ixm-search:not(#mlk){flex:1 1 160px;min-width:150px;max-width:280px}
+.ixm .ixm-search:not(#mlk) .mlk-search__input{height:var(--mlk-head-control)}
+.ixm .ixm-select:not(#mlk){flex:0 1 auto;height:var(--mlk-head-control);min-width:0;max-width:280px}
+.ixm .ixm-select:not(#mlk)>select{max-width:118px;text-overflow:ellipsis}
+.ixm .ixm-select:not(#mlk)>select:is(#year-filter,#position-filter){max-width:none}
+.ixm .ixm-clear:not(#mlk){height:var(--mlk-head-control);margin:0 0 0 auto;color:var(--ml-muted)}
+.ixm .ixm-ftable:not(#mlk){table-layout:fixed}
+.ixm-c-date{width:10%}.ixm-c-forg{width:23%}.ixm-c-bill{width:24%}.ixm-c-role{width:15%}.ixm-c-lobs{width:14%}.ixm-c-pos{width:14%}
+.ixm .ixm-ftable:not(#mlk) td{height:36px;padding:0 16px;font-size:13.5px}
+.ixm .ixm-ftable:not(#mlk) tbody tr[data-act]{cursor:pointer}
+.ixm .ixm-ftable:not(#mlk) tr.is-open td{background:var(--ml-selection);border-bottom-color:transparent}
+.ixm .ixm-clip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ixm .ixm-exp{display:inline-flex;align-items:center;gap:6px;height:28px;margin:0 0 0 -6px;padding:0 4px;border:0;border-radius:var(--ml-radius);background:transparent;color:var(--ml-ink);font:inherit;white-space:nowrap;cursor:pointer}
+.ixm .ixm-exp svg{width:10px;height:10px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;transform:rotate(-90deg)}
+.ixm tr.is-open .ixm-exp svg{transform:none}
+.ixm .ixm-billno{font-weight:500}
+.ixm .ixm-plus,.ixm .ixm-none{color:var(--ml-muted)}
+.ixm .ixm-none[title],.ixm .ixm-inferred{cursor:help}
+.ixm .ixm-ppill:not(#mlk){max-width:calc(100% - 58px);overflow:hidden;text-overflow:ellipsis;cursor:help}
+.ixm .ixm-inferred{margin-left:6px;color:var(--ml-muted);font-size:11px;text-decoration:underline dotted;text-underline-offset:2px}
+.ixm .ixm-ftable:not(#mlk) tr.ixm-xrow td{height:auto;padding:0;background:var(--ml-page);white-space:normal}
+.ixm .ixm-ftable:not(#mlk) tr.ixm-xrow:hover td{background:var(--ml-page)}
+.ixm tr.ixm-xrow .interaction{padding:14px 16px 16px 38px;border:0}
+.ixm tr.ixm-xrow .inotes{margin:6px 0 0;white-space:pre-wrap;font-size:13.5px;line-height:1.5}
+.ixm tr.ixm-xrow .igrid{gap:24px}
+.ixm-pager .mlk-pager:not(#mlk){padding:12px 16px;font-size:13px}
+.ixm-pager .mlk-pager:not(#mlk) .mlk-btn{height:var(--mlk-head-control);padding:0 16px;font-size:13px}
+.ixm-pager .mlk-pager:not(#mlk) .mlk-select{height:var(--mlk-head-control);font-size:13px}
+
+@media (max-width:1000px){
+  .ixm-nav{flex-wrap:wrap;height:auto;min-height:44px;gap:8px 20px;padding:6px 0}
+  .ixm-navend{margin-left:0}
+  .ixm-cards{grid-template-columns:minmax(0,1fr)}
+  .ixm-figs{grid-template-columns:repeat(3,minmax(0,1fr));height:auto}
+  .ixm-fig{padding:12px 4px}
+  .ixm-fig:nth-child(4)::before{display:none}
+  .ixm .ixm-ftable:not(#mlk){min-width:880px}
+  .ixm-filings{overflow-x:auto}
+}

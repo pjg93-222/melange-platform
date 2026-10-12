@@ -1,0 +1,3098 @@
+{
+ "schema_version": 1,
+ "kind": "giving-anchors",
+ "built_at_utc": "2026-10-07T16:02:08Z",
+ "builder": {
+  "name": "build_giving_anchors",
+  "version": "1",
+  "code_sha256": "37924df83200152b01a2381b5e54182646289d3a3578229d5fd283d86ed63606",
+  "python": "3.12.10"
+ },
+ "cpi": {
+  "series": "CPI-U annual average (1982-84=100)",
+  "source_file": "00_controls.xlsx",
+  "source_sha256": "253aaadd6912862df817f51c9d97225735b5f8a764cac64deca40f224d1ab80e",
+  "base_year": 2025,
+  "multipliers": {
+   "2022": 1.1420968600319317,
+   "2024": 1.0410737386804656
+  }
+ },
+ "thin_base_threshold_usd": 100000.0,
+ "industries": {
+  "commercial_banks": {
+   "id": "commercial_banks",
+   "label": "Commercial banks (Mentat Banking: the ten largest banks)",
+   "forecast_industry": "commercial_banks",
+   "mentat": {
+    "dataset": "Banking",
+    "workbook": "Banking Industry Spending Overview.xlsx",
+    "workbook_sha256": "842ba7a2312ffb03d969e8452c970b32f227fd09befcbf80f935a63c94e97bd3",
+    "index_token": "719285b6881b7aa460672d2516767e6e7552340eb02fb16bc8115f7957e73743",
+    "database_sha256": "4abdea581b99cec1674252ee098ab6afca57674bd8e90313e9f4156e88b2d991",
+    "payload_sha256": "2156bc823346b10986a371381031e9ac3322d2ace2fbde23163c9d4faec21319"
+   },
+   "coverage": {
+    "rule": "Latest calendar quarter-end whose quarterly-report due date (the 15th of the following month) fell on or before the collection date; observed amounts run to that day, the remainder starts the day after",
+    "collection_date": "2026-09-09",
+    "current_cycle": 2026,
+    "rule_coverage_end": "2026-06-30",
+    "coverage_end": "2026-06-30",
+    "reason": null,
+    "flags": [
+     "41 of 67 2026 collection work units are stored_complete (67 fetched) in the collection database's own progress table; the observed total is probably low.",
+     "Included receipts dated after the coverage end ($436,376.35) are not observed; they stay in the remainder window.",
+     "No 2026 CPI exists yet: 2025-2026 observed amounts are compared at face value."
+    ]
+   },
+   "status": {
+    "general_giving": "ready",
+    "candidate_receipts": "ready",
+    "pac_to_candidates": "ready",
+    "lda": "ready"
+   },
+   "general_giving": {
+    "status": "ready",
+    "reason": null,
+    "basis": "receipt",
+    "label": "Published included receipt view (workbook Analysis Amount), all funding sources except those Mentat's accounting engine marks non-giving (owner ruling 2026-10-01), all recipient categories, net of negative adjustments",
+    "cycles": {
+     "2022": 16652458.77,
+     "2024": 25915482.79,
+     "2026": 11935240.77
+    },
+    "by_funding_source": {
+     "2022": {
+      "employee_original": 15606586.26,
+      "funding_unverified": 36385.65,
+      "organization_unverified": 1009486.86
+     },
+     "2024": {
+      "employee_original": 25849359.26,
+      "funding_unverified": 34894.99,
+      "non_giving": 191721.37,
+      "organization_unverified": 31228.54
+     },
+     "2026": {
+      "conflicting_source_evidence": 375.0,
+      "employee_original": 11883135.82,
+      "funding_unverified": 49844.65,
+      "non_giving": 67940.35,
+      "organization_unverified": 1885.3
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "amount": 370196.57
+     },
+     {
+      "through": "2025-02-28",
+      "amount": 661569.06
+     },
+     {
+      "through": "2025-03-31",
+      "amount": 1277578.2
+     },
+     {
+      "through": "2025-04-30",
+      "amount": 1708042.31
+     },
+     {
+      "through": "2025-05-31",
+      "amount": 2243794.73
+     },
+     {
+      "through": "2025-06-30",
+      "amount": 2751018.28
+     },
+     {
+      "through": "2025-07-31",
+      "amount": 3217231.6
+     },
+     {
+      "through": "2025-08-31",
+      "amount": 3698429.63
+     },
+     {
+      "through": "2025-09-30",
+      "amount": 4292985.48
+     },
+     {
+      "through": "2025-10-31",
+      "amount": 4873549.52
+     },
+     {
+      "through": "2025-11-30",
+      "amount": 5379232.14
+     },
+     {
+      "through": "2025-12-31",
+      "amount": 6002076.34
+     },
+     {
+      "through": "2026-01-31",
+      "amount": 6369298.65
+     },
+     {
+      "through": "2026-02-28",
+      "amount": 8273034.32
+     },
+     {
+      "through": "2026-03-31",
+      "amount": 9348988.89
+     },
+     {
+      "through": "2026-04-30",
+      "amount": 10035679.79
+     },
+     {
+      "through": "2026-05-31",
+      "amount": 10751221.99
+     },
+     {
+      "through": "2026-06-30",
+      "amount": 11498864.42
+     }
+    ],
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": 0.0,
+     "2024": 191721.37,
+     "2026": 67940.35
+    },
+    "odd_year": {
+     "2022": 7043517.92,
+     "2024": 6408717.29
+    }
+   },
+   "candidate_receipts": {
+    "status": "ready",
+    "reason": null,
+    "basis": "Employees' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source database on sub_id; party D / R from the index, anything else \"other\"; presidential (P) committees excluded; receipts the accounting engine buckets as non_giving left out (owner ruling 2026-10-01)",
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 1145626.0,
+       "R": 724679.59,
+       "other": 36427.95
+      },
+      "Senate": {
+       "D": 857493.95,
+       "R": 757746.27,
+       "other": 183410.65
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 1312602.53,
+       "R": 686688.26,
+       "other": 9892.59
+      },
+      "Senate": {
+       "D": 751277.47,
+       "R": 795893.13,
+       "other": 36101.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 944731.15,
+       "R": 339360.5,
+       "other": 17568.04
+      },
+      "Senate": {
+       "D": 546761.05,
+       "R": 322535.68,
+       "other": 21693.89
+      }
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 18165.0,
+       "R": 37894.65,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 67605.0,
+       "R": 2687.43,
+       "other": 250.0
+      }
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 23895.0,
+       "R": 42269.65,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 82125.0,
+       "R": 6652.93,
+       "other": 550.0
+      }
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 72298.25,
+       "R": 64319.9,
+       "other": 500.0
+      },
+      "Senate": {
+       "D": 95811.0,
+       "R": 10724.98,
+       "other": 2427.0
+      }
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 103573.25,
+       "R": 71735.44,
+       "other": 500.0
+      },
+      "Senate": {
+       "D": 102400.0,
+       "R": 55179.23,
+       "other": 2708.0
+      }
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 139047.25,
+       "R": 79488.94,
+       "other": 500.0
+      },
+      "Senate": {
+       "D": 111961.0,
+       "R": 63163.98,
+       "other": 2860.0
+      }
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 179121.75,
+       "R": 94233.14,
+       "other": 1270.0
+      },
+      "Senate": {
+       "D": 138388.0,
+       "R": 87465.87,
+       "other": 6012.0
+      }
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 206641.75,
+       "R": 103051.89,
+       "other": 1295.0
+      },
+      "Senate": {
+       "D": 149566.5,
+       "R": 95340.22,
+       "other": 6291.0
+      }
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 244406.0,
+       "R": 112930.24,
+       "other": 1795.0
+      },
+      "Senate": {
+       "D": 175623.5,
+       "R": 110011.52,
+       "other": 6737.0
+      }
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 325665.45,
+       "R": 136694.71,
+       "other": 2795.0
+      },
+      "Senate": {
+       "D": 213807.03,
+       "R": 125791.78,
+       "other": 7192.0
+      }
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 377511.95,
+       "R": 145168.47,
+       "other": 2795.0
+      },
+      "Senate": {
+       "D": 240794.85,
+       "R": 148938.16,
+       "other": 7620.0
+      }
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 432616.95,
+       "R": 158171.72,
+       "other": 2795.0
+      },
+      "Senate": {
+       "D": 290798.35,
+       "R": 158597.91,
+       "other": 8151.75
+      }
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 525869.69,
+       "R": 176995.48,
+       "other": 3045.0
+      },
+      "Senate": {
+       "D": 312322.35,
+       "R": 185756.77,
+       "other": 8870.75
+      }
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 573913.19,
+       "R": 183962.13,
+       "other": 3295.0
+      },
+      "Senate": {
+       "D": 353265.86,
+       "R": 195266.52,
+       "other": 9299.75
+      }
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 641088.75,
+       "R": 246468.28,
+       "other": 3295.0
+      },
+      "Senate": {
+       "D": 384230.74,
+       "R": 216070.37,
+       "other": 12296.69
+      }
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 750422.93,
+       "R": 269768.6,
+       "other": 12468.04
+      },
+      "Senate": {
+       "D": 434020.1,
+       "R": 242286.0,
+       "other": 12911.93
+      }
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 811070.43,
+       "R": 293773.8,
+       "other": 12468.04
+      },
+      "Senate": {
+       "D": 474997.1,
+       "R": 260215.36,
+       "other": 14377.59
+      }
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 871977.64,
+       "R": 317783.66,
+       "other": 14518.04
+      },
+      "Senate": {
+       "D": 494981.6,
+       "R": 277744.49,
+       "other": 19798.74
+      }
+     },
+     {
+      "through": "2026-06-30",
+      "House": {
+       "D": 925420.15,
+       "R": 334699.49,
+       "other": 17568.04
+      },
+      "Senate": {
+       "D": 525283.85,
+       "R": 321465.17,
+       "other": 21693.89
+      }
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": false,
+      "Senate": false
+     },
+     "2024": {
+      "House": false,
+      "Senate": false
+     },
+     "2026": {
+      "House": false,
+      "Senate": false
+     }
+    },
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     }
+    }
+   },
+   "pac_to_candidates": {
+    "status": "ready",
+    "reason": null,
+    "source": "FEC committee-to-candidate bulk files (pas2) with the candidate master (cn)",
+    "rule": "FEC committee-to-candidate (pas2) rows, D-049 count_latest filing-version resolution; counted = included 24K + 24Z signed (direct + in-kind, refunds netted), 24A/24E independent expenditures excluded; chamber from the CAND_ID prefix, party from the FEC candidate master (DEM/DFL = D, REP = R)",
+    "committee_count": 19,
+    "single_pac": false,
+    "committees": [
+     {
+      "id": "C00364778",
+      "company": "Bank of America"
+     },
+     {
+      "id": "C00043489",
+      "company": "Bank of America"
+     },
+     {
+      "id": "C00326595",
+      "company": "Capital One"
+     },
+     {
+      "id": "C00008474",
+      "company": "Citi"
+     },
+     {
+      "id": "C00039305",
+      "company": "Citi"
+     },
+     {
+      "id": "C00350744",
+      "company": "Goldman Sachs"
+     },
+     {
+      "id": "C00104299",
+      "company": "JPMorgan Chase"
+     },
+     {
+      "id": "C00128512",
+      "company": "JPMorgan Chase"
+     },
+     {
+      "id": "C00337626",
+      "company": "Morgan Stanley"
+     },
+     {
+      "id": "C00035519",
+      "company": "PNC"
+     },
+     {
+      "id": "C00186064",
+      "company": "PNC"
+     },
+     {
+      "id": "C00142596",
+      "company": "PNC (BBVA, 2022)"
+     },
+     {
+      "id": "C00386524",
+      "company": "Truist"
+     },
+     {
+      "id": "C00009639",
+      "company": "Truist"
+     },
+     {
+      "id": "C00488882",
+      "company": "U.S. Bancorp"
+     },
+     {
+      "id": "C00018036",
+      "company": "U.S. Bancorp"
+     },
+     {
+      "id": "C00034595",
+      "company": "Wells Fargo"
+     },
+     {
+      "id": "C00300178",
+      "company": "Wells Fargo"
+     },
+     {
+      "id": "C00429852",
+      "company": "Wells Fargo"
+     }
+    ],
+    "inputs": [
+     {
+      "role": "pas2:2022",
+      "file": "pas222/itpas2.txt",
+      "sha256": "97d57e40bdfeb4b20041fb98a6d66f1ef65dbb78d789471feef0716bda27ecc2",
+      "fec_last_modified": "2026-09-06"
+     },
+     {
+      "role": "cn:2022",
+      "file": "cn22/cn.txt",
+      "sha256": "09855928a0f015b44f717da04b08e71ac977049de4901672978ed52b6ed16e38",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2022",
+      "file": "cm22/cm.txt",
+      "sha256": "8d15fae150f2975a58542a39571ff716e3cf1094309e113da928a66e7968d6e2",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "pas2:2024",
+      "file": "pas224/itpas2.txt",
+      "sha256": "4b4b9a41274d9b29d8d3dd78426ce39f3a838b8f98b4cbde0672d08ddaaa41b8",
+      "fec_last_modified": "2026-03-08"
+     },
+     {
+      "role": "cn:2024",
+      "file": "cn24/cn.txt",
+      "sha256": "a089c056ceb7153411cc8df3e0cd03dc608d0635f7ea8e83828eafdff1dd040f",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2024",
+      "file": "cm24/cm.txt",
+      "sha256": "7f7abd31beaece86617a315b4908b9f7dfe9e839dc1fd8124032c224cea16be3",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "pas2:2026",
+      "file": "pas226/itpas2.txt",
+      "sha256": "3b4c1c40362dad0ea57f67c618ce7260f3c03a493b9febcd0f89c8f3dc6ec4c0",
+      "fec_last_modified": "2026-09-06"
+     },
+     {
+      "role": "cn:2026",
+      "file": "cn26/cn.txt",
+      "sha256": "fb6c06961bc0b5c15ec77ba6695b320cdd975f716df3e598a39688ed617c1740",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2026",
+      "file": "cm26/cm.txt",
+      "sha256": "fed8c68960b97d275ad90054ea643e6c8211a74e8e41d379b2e80024a51baf60",
+      "fec_last_modified": "2026-09-07"
+     }
+    ],
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 2113500.0,
+       "R": 1802700.0,
+       "other": 28000.0
+      },
+      "Senate": {
+       "D": 288900.0,
+       "R": 662750.0,
+       "other": 14500.0
+      },
+      "to_house_senate": 4910350.0,
+      "presidential": 0.0,
+      "no_candidate": 0.0,
+      "all_recipients": 4910350.0
+     },
+     "2024": {
+      "House": {
+       "D": 2177000.0,
+       "R": 2593000.0,
+       "other": 16000.0
+      },
+      "Senate": {
+       "D": 302500.0,
+       "R": 549500.0,
+       "other": 54500.0
+      },
+      "to_house_senate": 5692500.0,
+      "presidential": 0.0,
+      "no_candidate": 0.0,
+      "all_recipients": 5692500.0
+     },
+     "2026": {
+      "House": {
+       "D": 1849000.0,
+       "R": 2001000.0,
+       "other": 35000.0
+      },
+      "Senate": {
+       "D": 229000.0,
+       "R": 776500.0,
+       "other": 36000.0
+      },
+      "to_house_senate": 4926500.0,
+      "presidential": 0.0,
+      "no_candidate": 0.0,
+      "all_recipients": 4926500.0
+     }
+    },
+    "file_through": {
+     "2022": "2022-12-31",
+     "2024": "2024-12-19",
+     "2026": "2026-07-31"
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 3500.0,
+       "R": 10000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 3500.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 17000.0
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 74500.0,
+       "R": 83000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 14500.0,
+       "R": 61500.0,
+       "other": 0.0
+      },
+      "to_house_senate": 233500.0
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 195000.0,
+       "R": 356000.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 37000.0,
+       "R": 158500.0,
+       "other": 0.0
+      },
+      "to_house_senate": 749000.0
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 278000.0,
+       "R": 439500.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 40000.0,
+       "R": 205500.0,
+       "other": 0.0
+      },
+      "to_house_senate": 965500.0
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 334000.0,
+       "R": 563500.0,
+       "other": 3500.0
+      },
+      "Senate": {
+       "D": 54000.0,
+       "R": 243000.0,
+       "other": 0.0
+      },
+      "to_house_senate": 1198000.0
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 498000.0,
+       "R": 754500.0,
+       "other": 5500.0
+      },
+      "Senate": {
+       "D": 65000.0,
+       "R": 292000.0,
+       "other": 1000.0
+      },
+      "to_house_senate": 1616000.0
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 608500.0,
+       "R": 866500.0,
+       "other": 13500.0
+      },
+      "Senate": {
+       "D": 68000.0,
+       "R": 331500.0,
+       "other": 1000.0
+      },
+      "to_house_senate": 1889000.0
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 649500.0,
+       "R": 874000.0,
+       "other": 13500.0
+      },
+      "Senate": {
+       "D": 81000.0,
+       "R": 357500.0,
+       "other": 1000.0
+      },
+      "to_house_senate": 1976500.0
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 809500.0,
+       "R": 1024000.0,
+       "other": 14500.0
+      },
+      "Senate": {
+       "D": 85000.0,
+       "R": 385000.0,
+       "other": 10000.0
+      },
+      "to_house_senate": 2328000.0
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 841000.0,
+       "R": 1055500.0,
+       "other": 14500.0
+      },
+      "Senate": {
+       "D": 85000.0,
+       "R": 389500.0,
+       "other": 10000.0
+      },
+      "to_house_senate": 2395500.0
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 921000.0,
+       "R": 1125500.0,
+       "other": 15500.0
+      },
+      "Senate": {
+       "D": 111500.0,
+       "R": 422500.0,
+       "other": 10000.0
+      },
+      "to_house_senate": 2606000.0
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 1006000.0,
+       "R": 1226500.0,
+       "other": 16500.0
+      },
+      "Senate": {
+       "D": 119000.0,
+       "R": 452500.0,
+       "other": 12500.0
+      },
+      "to_house_senate": 2833000.0
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 1021000.0,
+       "R": 1250000.0,
+       "other": 17500.0
+      },
+      "Senate": {
+       "D": 119000.0,
+       "R": 465500.0,
+       "other": 17500.0
+      },
+      "to_house_senate": 2890500.0
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 1093000.0,
+       "R": 1393500.0,
+       "other": 22000.0
+      },
+      "Senate": {
+       "D": 129000.0,
+       "R": 532500.0,
+       "other": 22500.0
+      },
+      "to_house_senate": 3192500.0
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 1306000.0,
+       "R": 1537500.0,
+       "other": 24500.0
+      },
+      "Senate": {
+       "D": 160000.0,
+       "R": 623000.0,
+       "other": 22500.0
+      },
+      "to_house_senate": 3673500.0
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 1377000.0,
+       "R": 1603000.0,
+       "other": 27000.0
+      },
+      "Senate": {
+       "D": 178000.0,
+       "R": 653000.0,
+       "other": 27500.0
+      },
+      "to_house_senate": 3865500.0
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 1549000.0,
+       "R": 1725000.0,
+       "other": 27000.0
+      },
+      "Senate": {
+       "D": 203000.0,
+       "R": 692500.0,
+       "other": 30000.0
+      },
+      "to_house_senate": 4226500.0
+     },
+     {
+      "through": "2026-06-30",
+      "House": {
+       "D": 1712500.0,
+       "R": 1907000.0,
+       "other": 27000.0
+      },
+      "Senate": {
+       "D": 229000.0,
+       "R": 761500.0,
+       "other": 36000.0
+      },
+      "to_house_senate": 4673000.0
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": false,
+      "Senate": false
+     },
+     "2024": {
+      "House": false,
+      "Senate": false
+     },
+     "2026": {
+      "House": false,
+      "Senate": false
+     }
+    },
+    "odd_year": {
+     "2022": {
+      "House": {
+       "D": 972250.0,
+       "R": 693200.0,
+       "other": 15000.0
+      },
+      "Senate": {
+       "D": 122500.0,
+       "R": 247250.0,
+       "other": 6500.0
+      },
+      "to_house_senate": 2056700.0
+     },
+     "2024": {
+      "House": {
+       "D": 1128000.0,
+       "R": 1361500.0,
+       "other": 6500.0
+      },
+      "Senate": {
+       "D": 112500.0,
+       "R": 246500.0,
+       "other": 48000.0
+      },
+      "to_house_senate": 2903000.0
+     }
+    }
+   },
+   "lda": {
+    "status": "ready",
+    "reason": null,
+    "sector": "bank",
+    "label": "Melange LDA bank sector (total, not a bank tier)",
+    "source_file": "sector_spend.csv",
+    "source_sha256": "22d1ab59d1c9282ab34d58294ebc1379357d2a9c6cd85b305fb6c0fbe901a56c",
+    "through": "2026-06-30",
+    "series": {
+     "income_total": {
+      "label": "Outside-firm fees (LDA income_total)",
+      "annual": {
+       "2021": 18175500.0,
+       "2022": 18640000.0,
+       "2023": 20507500.0,
+       "2024": 20339032.0,
+       "2025": 23824000.0
+      },
+      "partial": {
+       "year": 2026,
+       "through_quarter": "Q2",
+       "quarters": {
+        "Q1": 6698000.0,
+        "Q2": 6669000.0
+       },
+       "total": 13367000.0,
+       "nowcast": {
+        "year": 2026,
+        "through_quarter": "Q2",
+        "observed": 13367000.0,
+        "prior_total": 23824000.0,
+        "share": 0.4841832692888354,
+        "share_years": [
+         2023,
+         2024,
+         2025
+        ],
+        "shares": [
+         0.4820431549433134,
+         0.5024575407521853,
+         0.46864506380120885
+        ],
+        "point": 25655817.79246278
+       }
+      }
+     },
+     "expenses_total": {
+      "label": "In-house expenses (LDA expenses_total)",
+      "annual": {
+       "2021": 50243352.0,
+       "2022": 57554279.0,
+       "2023": 61400925.0,
+       "2024": 57136855.0,
+       "2025": 65696931.0
+      },
+      "partial": {
+       "year": 2026,
+       "through_quarter": "Q2",
+       "quarters": {
+        "Q1": 20253000.0,
+        "Q2": 18722000.0
+       },
+       "total": 38975000.0,
+       "nowcast": {
+        "year": 2026,
+        "through_quarter": "Q2",
+        "observed": 38975000.0,
+        "prior_total": 65696931.0,
+        "share": 0.499405506114209,
+        "share_years": [
+         2023,
+         2024,
+         2025
+        ],
+        "shares": [
+         0.518229977805709,
+         0.5124841050491841,
+         0.4689829422929969
+        ],
+        "point": 71862521.92379473
+       }
+      }
+     }
+    },
+    "note": "Melange LDA sector level, nominal dollars. income_total = fees paid to outside firms; expenses_total = the client's own in-house spending. The two series are different flows and are never added. The sector roster is wider than Mentat's ten companies."
+   },
+   "flags": [
+    "Excluded from the forecast (owner ruling 2026-10-01): receipts Mentat's accounting engine marks non-giving - FEC-reported interest, refunds, insurance claims and loans - $191,721.37 in 2023-2024; $67,940.35 in 2025-2026 to date. They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and employee House and Senate candidate bases of this forecast leave them out."
+   ]
+  },
+  "credit_unions": {
+   "id": "credit_unions",
+   "label": "Credit unions (Mentat Credit Union: ten credit unions)",
+   "forecast_industry": "credit_unions",
+   "mentat": {
+    "dataset": "Credit Union",
+    "workbook": "Credit Union Industry Spending Overview.xlsx",
+    "workbook_sha256": "a6591d397b2bda66ab7827b686e240985dc3b41fa6c53aa486e1def9c764c674",
+    "index_token": "2573fdc05d25f8a91c3875dd47d3a2d8201f5a8cdbf3497b87b30ddf45d0f3d7",
+    "database_sha256": "43c0c109c057d5cbca55106a5a68a200df871f6bbfc97feef5499bf22e2055d9",
+    "payload_sha256": "f512fb05ab5e902319a356cd277494e811237dc23b7154a6172d2fa84752dcef"
+   },
+   "coverage": {
+    "rule": "Latest calendar quarter-end whose quarterly-report due date (the 15th of the following month) fell on or before the collection date; observed amounts run to that day, the remainder starts the day after",
+    "collection_date": "2026-07-28",
+    "current_cycle": 2026,
+    "rule_coverage_end": "2026-06-30",
+    "coverage_end": "2026-05-31",
+    "reason": "June incomplete (31 included rows, $1,353 against a $13,681 January-May monthly mean)",
+    "flags": [
+     "Included receipts dated after the coverage end ($1,352.98) are not observed; they stay in the remainder window.",
+     "Coverage cut back from 2026-06-30 to 2026-05-31: June incomplete (31 included rows, $1,353 against a $13,681 January-May monthly mean).",
+     "No 2026 CPI exists yet: 2025-2026 observed amounts are compared at face value."
+    ]
+   },
+   "status": {
+    "general_giving": "ready",
+    "candidate_receipts": "ready",
+    "pac_to_candidates": "ready",
+    "lda": "ready"
+   },
+   "general_giving": {
+    "status": "ready",
+    "reason": null,
+    "basis": "receipt",
+    "label": "Published included receipt view (workbook Analysis Amount), all funding sources except those Mentat's accounting engine marks non-giving (owner ruling 2026-10-01), all recipient categories, net of negative adjustments",
+    "cycles": {
+     "2022": 258944.62,
+     "2024": 620046.88,
+     "2026": 270483.65
+    },
+    "by_funding_source": {
+     "2022": {
+      "employee_original": 258944.62,
+      "non_giving": 110478.54
+     },
+     "2024": {
+      "employee_original": 620046.88,
+      "non_giving": 159041.47
+     },
+     "2026": {
+      "employee_original": 270483.65,
+      "non_giving": 3010.49
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "amount": 3979.29
+     },
+     {
+      "through": "2025-02-28",
+      "amount": 21200.58
+     },
+     {
+      "through": "2025-03-31",
+      "amount": 73149.95
+     },
+     {
+      "through": "2025-04-30",
+      "amount": 79627.16
+     },
+     {
+      "through": "2025-05-31",
+      "amount": 106922.69
+     },
+     {
+      "through": "2025-06-30",
+      "amount": 117192.72
+     },
+     {
+      "through": "2025-07-31",
+      "amount": 132974.91
+     },
+     {
+      "through": "2025-08-31",
+      "amount": 138748.22
+     },
+     {
+      "through": "2025-09-30",
+      "amount": 163754.17
+     },
+     {
+      "through": "2025-10-31",
+      "amount": 181148.51
+     },
+     {
+      "through": "2025-11-30",
+      "amount": 187435.76
+     },
+     {
+      "through": "2025-12-31",
+      "amount": 200725.39
+     },
+     {
+      "through": "2026-01-31",
+      "amount": 214870.72
+     },
+     {
+      "through": "2026-02-28",
+      "amount": 229486.85
+     },
+     {
+      "through": "2026-03-31",
+      "amount": 247390.03
+     },
+     {
+      "through": "2026-04-30",
+      "amount": 256015.19
+     },
+     {
+      "through": "2026-05-31",
+      "amount": 269130.67
+     }
+    ],
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": 110478.54,
+     "2024": 159041.47,
+     "2026": 3010.49
+    },
+    "odd_year": {
+     "2022": 97161.75,
+     "2024": 123767.83
+    }
+   },
+   "candidate_receipts": {
+    "status": "ready",
+    "reason": null,
+    "basis": "Employees' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source database on sub_id; party D / R from the index, anything else \"other\"; presidential (P) committees excluded; receipts the accounting engine buckets as non_giving left out (owner ruling 2026-10-01)",
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 14421.13,
+       "R": 13928.7,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 12200.0,
+       "R": 12779.0,
+       "other": 247.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 30832.81,
+       "R": 24291.13,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 17284.95,
+       "R": 16751.75,
+       "other": 82.5
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 17707.54,
+       "R": 45766.0,
+       "other": 35.0
+      },
+      "Senate": {
+       "D": 7072.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 3500.0,
+       "R": 17251.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 250.0,
+       "R": 1000.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 4000.0,
+       "R": 17251.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 250.0,
+       "R": 1000.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 4750.0,
+       "R": 37501.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 250.0,
+       "R": 1000.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 6000.0,
+       "R": 37501.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 250.0,
+       "R": 1000.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 7127.0,
+       "R": 37501.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 750.0,
+       "R": 4500.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 7204.0,
+       "R": 37501.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 750.0,
+       "R": 4500.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 10041.0,
+       "R": 39501.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 750.0,
+       "R": 4500.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 11632.15,
+       "R": 40751.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 2250.0,
+       "R": 4500.0,
+       "other": 54.0
+      }
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 12706.85,
+       "R": 40751.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 2250.0,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 12972.54,
+       "R": 42751.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 3310.0,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 12987.54,
+       "R": 42751.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 6222.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 13002.54,
+       "R": 43266.0,
+       "other": 20.0
+      },
+      "Senate": {
+       "D": 6372.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 14407.54,
+       "R": 45016.0,
+       "other": 35.0
+      },
+      "Senate": {
+       "D": 7047.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 15007.54,
+       "R": 45516.0,
+       "other": 35.0
+      },
+      "Senate": {
+       "D": 7047.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 17607.54,
+       "R": 45766.0,
+       "other": 35.0
+      },
+      "Senate": {
+       "D": 7047.5,
+       "R": 4500.0,
+       "other": 81.0
+      }
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": true,
+      "Senate": true
+     },
+     "2024": {
+      "House": true,
+      "Senate": true
+     },
+     "2026": {
+      "House": true,
+      "Senate": true
+     }
+    },
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": {
+      "House": {
+       "D": 110478.54,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 159041.47,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     }
+    }
+   },
+   "pac_to_candidates": {
+    "status": "ready",
+    "reason": null,
+    "source": "FEC committee-to-candidate bulk files (pas2) with the candidate master (cn)",
+    "rule": "FEC committee-to-candidate (pas2) rows, D-049 count_latest filing-version resolution; counted = included 24K + 24Z signed (direct + in-kind, refunds netted), 24A/24E independent expenditures excluded; chamber from the CAND_ID prefix, party from the FEC candidate master (DEM/DFL = D, REP = R)",
+    "committee_count": 1,
+    "single_pac": true,
+    "committees": [
+     {
+      "id": "C00390633",
+      "company": "SchoolsFirst Federal Credit Union"
+     }
+    ],
+    "inputs": [
+     {
+      "role": "pas2:2022",
+      "file": "pas222/itpas2.txt",
+      "sha256": "97d57e40bdfeb4b20041fb98a6d66f1ef65dbb78d789471feef0716bda27ecc2",
+      "fec_last_modified": "2026-09-06"
+     },
+     {
+      "role": "cn:2022",
+      "file": "cn22/cn.txt",
+      "sha256": "09855928a0f015b44f717da04b08e71ac977049de4901672978ed52b6ed16e38",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2022",
+      "file": "cm22/cm.txt",
+      "sha256": "8d15fae150f2975a58542a39571ff716e3cf1094309e113da928a66e7968d6e2",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "pas2:2024",
+      "file": "pas224/itpas2.txt",
+      "sha256": "4b4b9a41274d9b29d8d3dd78426ce39f3a838b8f98b4cbde0672d08ddaaa41b8",
+      "fec_last_modified": "2026-03-08"
+     },
+     {
+      "role": "cn:2024",
+      "file": "cn24/cn.txt",
+      "sha256": "a089c056ceb7153411cc8df3e0cd03dc608d0635f7ea8e83828eafdff1dd040f",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2024",
+      "file": "cm24/cm.txt",
+      "sha256": "7f7abd31beaece86617a315b4908b9f7dfe9e839dc1fd8124032c224cea16be3",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "pas2:2026",
+      "file": "pas226/itpas2.txt",
+      "sha256": "3b4c1c40362dad0ea57f67c618ce7260f3c03a493b9febcd0f89c8f3dc6ec4c0",
+      "fec_last_modified": "2026-09-06"
+     },
+     {
+      "role": "cn:2026",
+      "file": "cn26/cn.txt",
+      "sha256": "fb6c06961bc0b5c15ec77ba6695b320cdd975f716df3e598a39688ed617c1740",
+      "fec_last_modified": "2026-09-07"
+     },
+     {
+      "role": "cm:2026",
+      "file": "cm26/cm.txt",
+      "sha256": "fed8c68960b97d275ad90054ea643e6c8211a74e8e41d379b2e80024a51baf60",
+      "fec_last_modified": "2026-09-07"
+     }
+    ],
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 19000.0,
+       "R": 12500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5000.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 36500.0,
+      "presidential": 0.0,
+      "no_candidate": 0.0,
+      "all_recipients": 36500.0
+     },
+     "2024": {
+      "House": {
+       "D": 45000.0,
+       "R": 30800.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5000.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 80800.0,
+      "presidential": 0.0,
+      "no_candidate": 0.0,
+      "all_recipients": 80800.0
+     },
+     "2026": {
+      "House": {
+       "D": 24500.0,
+       "R": 33500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5000.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 63000.0,
+      "presidential": 0.0,
+      "no_candidate": 2500.0,
+      "all_recipients": 65500.0
+     }
+    },
+    "file_through": {
+     "2022": "2022-09-28",
+     "2024": "2024-10-30",
+     "2026": "2026-07-10"
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 0.0,
+       "R": 20000.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 22500.0
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 0.0,
+       "R": 21000.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 23500.0
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 0.0,
+       "R": 21000.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 23500.0
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 0.0,
+       "R": 28500.0,
+       "other": 2500.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 0.0,
+       "R": 23500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 23500.0
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 0.0,
+       "R": 23500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 23500.0
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 0.0,
+       "R": 23500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 23500.0
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 2500.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 2500.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 2500.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 2500.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 2500.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 31000.0
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 5000.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 33500.0
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 5000.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 33500.0
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 5000.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 33500.0
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 5000.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 33500.0
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 21000.0,
+       "R": 28500.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5000.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 54500.0
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": true,
+      "Senate": true
+     },
+     "2024": {
+      "House": true,
+      "Senate": true
+     },
+     "2026": {
+      "House": true,
+      "Senate": true
+     }
+    },
+    "odd_year": {
+     "2022": {
+      "House": {
+       "D": 5000.0,
+       "R": 8000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5000.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 18000.0
+     },
+     "2024": {
+      "House": {
+       "D": 10000.0,
+       "R": 5000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "to_house_senate": 15000.0
+     }
+    }
+   },
+   "lda": {
+    "status": "ready",
+    "reason": null,
+    "sector": "credit_union",
+    "label": "Melange LDA credit-union sector",
+    "source_file": "sector_spend.csv",
+    "source_sha256": "22d1ab59d1c9282ab34d58294ebc1379357d2a9c6cd85b305fb6c0fbe901a56c",
+    "through": "2026-06-30",
+    "series": {
+     "income_total": {
+      "label": "Outside-firm fees (LDA income_total)",
+      "annual": {
+       "2021": 1573000.0,
+       "2022": 1736000.0,
+       "2023": 1727500.0,
+       "2024": 2098000.0,
+       "2025": 2054500.0
+      },
+      "partial": {
+       "year": 2026,
+       "through_quarter": "Q2",
+       "quarters": {
+        "Q1": 660500.0,
+        "Q2": 650500.0
+       },
+       "total": 1311000.0,
+       "nowcast": {
+        "year": 2026,
+        "through_quarter": "Q2",
+        "observed": 1311000.0,
+        "prior_total": 2054500.0,
+        "share": 0.48309757122123054,
+        "share_years": [
+         2023,
+         2024,
+         2025
+        ],
+        "shares": [
+         0.4558610709117221,
+         0.5076263107721639,
+         0.48722316865417375
+        ],
+        "point": 2372976.039925982
+       }
+      }
+     },
+     "expenses_total": {
+      "label": "In-house expenses (LDA expenses_total)",
+      "annual": {
+       "2021": 8374000.0,
+       "2022": 9037068.0,
+       "2023": 9258678.0,
+       "2024": 7128000.0,
+       "2025": 6233000.0
+      },
+      "partial": {
+       "year": 2026,
+       "through_quarter": "Q2",
+       "quarters": {
+        "Q1": 1637000.0,
+        "Q2": 1787000.0
+       },
+       "total": 3424000.0,
+       "nowcast": {
+        "year": 2026,
+        "through_quarter": "Q2",
+        "observed": 3424000.0,
+        "prior_total": 6233000.0,
+        "share": 0.5326144106939266,
+        "share_years": [
+         2023,
+         2024,
+         2025
+        ],
+        "shares": [
+         0.51461752963004,
+         0.5547138047138047,
+         0.5292796406224932
+        ],
+        "point": 6337214.378144756
+       }
+      }
+     }
+    },
+    "note": "Melange LDA sector level, nominal dollars. income_total = fees paid to outside firms; expenses_total = the client's own in-house spending. The two series are different flows and are never added. The sector roster is wider than Mentat's ten companies."
+   },
+   "flags": [
+    "Excluded from the forecast (owner ruling 2026-10-01): receipts Mentat's accounting engine marks non-giving - FEC-reported interest, refunds, insurance claims and loans - $110,478.54 in 2021-2022; $159,041.47 in 2023-2024; $3,010.49 in 2025-2026 to date. They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and employee House and Senate candidate bases of this forecast leave them out.",
+    "PAC channel = one committee (SchoolsFirst Federal Credit Union); it is not the industry's PAC giving (thin base)."
+   ]
+  },
+  "property_casualty": {
+   "id": "property_casualty",
+   "label": "Property & casualty insurers (Mentat Property & Casualty Insurance)",
+   "forecast_industry": "property_casualty",
+   "mentat": {
+    "dataset": "Property & Casualty Insurance",
+    "workbook": "Property & Casualty Insurance Industry Spending Overview.xlsx",
+    "workbook_sha256": "ffed8ec4783dfb84971c35e794182a3bb609d9a907cc8fd639dd24dc2c683683",
+    "index_token": "5cd59a37059a7b097d9c707ea762e9ced6322b58417a8aef659a48d46f42b667",
+    "database_sha256": "4defdf40e82a872d3e9de5da8aca1f01dbc4bb3699155f1c7e6e10ac3ea3e165",
+    "payload_sha256": "dbc27b4168d0a07df8a9b4246682da4f1bc1a5eddebc04342ef9a922e3e2066a"
+   },
+   "coverage": {
+    "rule": "Latest calendar quarter-end whose quarterly-report due date (the 15th of the following month) fell on or before the collection date; observed amounts run to that day, the remainder starts the day after",
+    "collection_date": "2026-07-29",
+    "current_cycle": 2026,
+    "rule_coverage_end": "2026-06-30",
+    "coverage_end": "2026-06-30",
+    "reason": null,
+    "flags": [
+     "Included receipts dated after the coverage end ($300.00) are not observed; they stay in the remainder window.",
+     "No 2026 CPI exists yet: 2025-2026 observed amounts are compared at face value."
+    ]
+   },
+   "status": {
+    "general_giving": "ready",
+    "candidate_receipts": "ready",
+    "pac_to_candidates": "unavailable",
+    "lda": "unavailable"
+   },
+   "general_giving": {
+    "status": "ready",
+    "reason": null,
+    "basis": "receipt",
+    "label": "Published included receipt view (workbook Analysis Amount), all funding sources except those Mentat's accounting engine marks non-giving (owner ruling 2026-10-01), all recipient categories, net of negative adjustments",
+    "cycles": {
+     "2022": 5156891.21,
+     "2024": 7762490.48,
+     "2026": 3532480.89
+    },
+    "by_funding_source": {
+     "2022": {
+      "employee_original": 5129309.21,
+      "non_giving": 83448.45,
+      "organization_unverified": 7082.0,
+      "pac_activity": 20500.0
+     },
+     "2024": {
+      "conflicting_source_evidence": 10.0,
+      "employee_original": 7647663.43,
+      "funding_unverified": 10.88,
+      "non_giving": 94954.94,
+      "organization_unverified": 100306.17,
+      "pac_activity": 14500.0
+     },
+     "2026": {
+      "employee_original": 3514667.89,
+      "funding_unverified": 313.0,
+      "non_giving": 57099.62,
+      "pac_activity": 17500.0
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "amount": 94302.43
+     },
+     {
+      "through": "2025-02-28",
+      "amount": 244047.39
+     },
+     {
+      "through": "2025-03-31",
+      "amount": 494028.6
+     },
+     {
+      "through": "2025-04-30",
+      "amount": 713373.09
+     },
+     {
+      "through": "2025-05-31",
+      "amount": 891484.85
+     },
+     {
+      "through": "2025-06-30",
+      "amount": 1188142.02
+     },
+     {
+      "through": "2025-07-31",
+      "amount": 1331472.17
+     },
+     {
+      "through": "2025-08-31",
+      "amount": 1488225.01
+     },
+     {
+      "through": "2025-09-30",
+      "amount": 1672075.09
+     },
+     {
+      "through": "2025-10-31",
+      "amount": 1878721.49
+     },
+     {
+      "through": "2025-11-30",
+      "amount": 2087293.47
+     },
+     {
+      "through": "2025-12-31",
+      "amount": 2352557.76
+     },
+     {
+      "through": "2026-01-31",
+      "amount": 2491279.64
+     },
+     {
+      "through": "2026-02-28",
+      "amount": 2769011.76
+     },
+     {
+      "through": "2026-03-31",
+      "amount": 3119686.89
+     },
+     {
+      "through": "2026-04-30",
+      "amount": 3277999.52
+     },
+     {
+      "through": "2026-05-31",
+      "amount": 3499918.26
+     },
+     {
+      "through": "2026-06-30",
+      "amount": 3532180.89
+     }
+    ],
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": 83448.45,
+     "2024": 94954.94,
+     "2026": 57099.62
+    },
+    "odd_year": {
+     "2022": 2400308.4,
+     "2024": 2238275.03
+    }
+   },
+   "candidate_receipts": {
+    "status": "ready",
+    "reason": null,
+    "basis": "Employees' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source database on sub_id; party D / R from the index, anything else \"other\"; presidential (P) committees excluded; receipts the accounting engine buckets as non_giving left out (owner ruling 2026-10-01)",
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 182778.9,
+       "R": 206369.16,
+       "other": 3354.61
+      },
+      "Senate": {
+       "D": 167245.56,
+       "R": 141672.14,
+       "other": 1490.74
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 147144.65,
+       "R": 114430.0,
+       "other": 2250.0
+      },
+      "Senate": {
+       "D": 88516.96,
+       "R": 136741.02,
+       "other": 52.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 192706.68,
+       "R": 124025.06,
+       "other": 864.07
+      },
+      "Senate": {
+       "D": 100991.11,
+       "R": 52315.88,
+       "other": 5544.7
+      }
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 292.0,
+       "R": 161.92,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 331.75,
+       "R": 937.75,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 1734.0,
+       "R": 2366.34,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 1670.5,
+       "R": 1355.75,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 10108.0,
+       "R": 7536.75,
+       "other": 250.0
+      },
+      "Senate": {
+       "D": 5746.25,
+       "R": 3106.75,
+       "other": 920.7
+      }
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 15242.0,
+       "R": 10961.58,
+       "other": 250.0
+      },
+      "Senate": {
+       "D": 25283.0,
+       "R": 3649.75,
+       "other": 1170.7
+      }
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 21176.0,
+       "R": 12564.15,
+       "other": 250.0
+      },
+      "Senate": {
+       "D": 27813.44,
+       "R": 4556.75,
+       "other": 1170.7
+      }
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 31226.25,
+       "R": 48050.55,
+       "other": 325.0
+      },
+      "Senate": {
+       "D": 30112.19,
+       "R": 21942.31,
+       "other": 2170.7
+      }
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 36410.5,
+       "R": 51310.48,
+       "other": 351.68
+      },
+      "Senate": {
+       "D": 33448.9,
+       "R": 22392.36,
+       "other": 2170.7
+      }
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 42370.75,
+       "R": 55077.75,
+       "other": 368.68
+      },
+      "Senate": {
+       "D": 37309.84,
+       "R": 23827.56,
+       "other": 2197.7
+      }
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 50473.0,
+       "R": 67746.89,
+       "other": 468.68
+      },
+      "Senate": {
+       "D": 43814.59,
+       "R": 28550.64,
+       "other": 2224.7
+      }
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 60697.26,
+       "R": 70962.95,
+       "other": 468.68
+      },
+      "Senate": {
+       "D": 48246.34,
+       "R": 32123.72,
+       "other": 2678.7
+      }
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 95206.51,
+       "R": 74629.96,
+       "other": 468.68
+      },
+      "Senate": {
+       "D": 50952.59,
+       "R": 38819.75,
+       "other": 2855.7
+      }
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 115913.76,
+       "R": 82447.61,
+       "other": 469.68
+      },
+      "Senate": {
+       "D": 53321.32,
+       "R": 41075.78,
+       "other": 3059.7
+      }
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 133275.01,
+       "R": 86715.51,
+       "other": 572.72
+      },
+      "Senate": {
+       "D": 57082.07,
+       "R": 42924.88,
+       "other": 3325.7
+      }
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 158948.89,
+       "R": 94962.54,
+       "other": 572.72
+      },
+      "Senate": {
+       "D": 70496.82,
+       "R": 46494.88,
+       "other": 4807.7
+      }
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 182060.82,
+       "R": 112241.81,
+       "other": 614.07
+      },
+      "Senate": {
+       "D": 84333.57,
+       "R": 49905.88,
+       "other": 5019.7
+      }
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 187253.38,
+       "R": 113593.46,
+       "other": 864.07
+      },
+      "Senate": {
+       "D": 87341.62,
+       "R": 50685.88,
+       "other": 5044.7
+      }
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 191487.38,
+       "R": 120839.44,
+       "other": 864.07
+      },
+      "Senate": {
+       "D": 96541.82,
+       "R": 51315.88,
+       "other": 5544.7
+      }
+     },
+     {
+      "through": "2026-06-30",
+      "House": {
+       "D": 192706.68,
+       "R": 123725.06,
+       "other": 864.07
+      },
+      "Senate": {
+       "D": 100991.11,
+       "R": 52315.88,
+       "other": 5544.7
+      }
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": false,
+      "Senate": false
+     },
+     "2024": {
+      "House": false,
+      "Senate": false
+     },
+     "2026": {
+      "House": false,
+      "Senate": false
+     }
+    },
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": {
+      "House": {
+       "D": 9088.51,
+       "R": 3534.44,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 14647.33,
+       "R": 1483.64,
+       "other": 42.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 3758.13,
+       "R": 1140.96,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 71322.98,
+       "R": 4609.88,
+       "other": 5197.68
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 18208.23,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 5702.42,
+       "R": 349.0,
+       "other": 0.0
+      }
+     }
+    }
+   },
+   "pac_to_candidates": {
+    "status": "unavailable",
+    "reason": "No roster PAC committees are resolved for this industry",
+    "source": "",
+    "rule": "",
+    "committee_count": 0,
+    "single_pac": false,
+    "committees": [],
+    "inputs": [],
+    "cycles": {},
+    "file_through": {},
+    "observed": [],
+    "thin_base": {}
+   },
+   "lda": {
+    "status": "unavailable",
+    "reason": "No Melange-LDA sector for this industry (sector_spend ROSTERS: crypto, credit_union, bank, fintech)",
+    "sector": null,
+    "label": null,
+    "source_file": null,
+    "source_sha256": null,
+    "through": null,
+    "series": {},
+    "note": "Melange LDA sector level, nominal dollars. income_total = fees paid to outside firms; expenses_total = the client's own in-house spending. The two series are different flows and are never added. The sector roster is wider than Mentat's ten companies."
+   },
+   "flags": [
+    "Excluded from the forecast (owner ruling 2026-10-01): receipts Mentat's accounting engine marks non-giving - FEC-reported interest, refunds, insurance claims and loans - $83,448.45 in 2021-2022; $94,954.94 in 2023-2024; $57,099.62 in 2025-2026 to date. They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and employee House and Senate candidate bases of this forecast leave them out."
+   ]
+  },
+  "community_banks": {
+   "id": "community_banks",
+   "label": "Community banks (Mentat Community Banks; separate from commercial banks)",
+   "forecast_industry": null,
+   "mentat": {
+    "dataset": "Community Banks",
+    "workbook": "Community Banks Industry Spending Overview.xlsx",
+    "workbook_sha256": "47983c9f31e822e8211ae45dea1c92c0ddd7973a37d3cac6c4ae029337d293a9",
+    "index_token": "2703754563c97d124223177de43846d12db946e0874730b37727699451454060",
+    "database_sha256": "923ab7866fab51dc4a4771b3b6e8f1fc14b5bb483c9f2eeecfb6795ddfda6ca2",
+    "payload_sha256": "5d7bc4049f481d84875c57444876c7df9ebdf16f9cb9a17e2dcaeb4004d7a8b7"
+   },
+   "coverage": {
+    "rule": "Latest calendar quarter-end whose quarterly-report due date (the 15th of the following month) fell on or before the collection date; observed amounts run to that day, the remainder starts the day after",
+    "collection_date": "2026-07-28",
+    "current_cycle": 2026,
+    "rule_coverage_end": "2026-06-30",
+    "coverage_end": "2026-06-30",
+    "reason": null,
+    "flags": [
+     "No 2026 CPI exists yet: 2025-2026 observed amounts are compared at face value."
+    ]
+   },
+   "status": {
+    "general_giving": "ready",
+    "candidate_receipts": "ready",
+    "pac_to_candidates": "unavailable",
+    "lda": "unavailable"
+   },
+   "general_giving": {
+    "status": "ready",
+    "reason": null,
+    "basis": "receipt",
+    "label": "Published included receipt view (workbook Analysis Amount), all funding sources except those Mentat's accounting engine marks non-giving (owner ruling 2026-10-01), all recipient categories, net of negative adjustments",
+    "cycles": {
+     "2022": 205829.8,
+     "2024": 375040.9,
+     "2026": 219898.83
+    },
+    "by_funding_source": {
+     "2022": {
+      "employee_original": 185796.05,
+      "excluded_company_match": 13933.75,
+      "funding_unverified": 5000.0,
+      "organization_unverified": 1100.0
+     },
+     "2024": {
+      "employee_original": 372769.8,
+      "excluded_company_match": 2271.1
+     },
+     "2026": {
+      "employee_original": 214398.83,
+      "excluded_company_match": 500.0,
+      "funding_unverified": 5000.0
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "amount": 1667.71
+     },
+     {
+      "through": "2025-02-28",
+      "amount": 16366.71
+     },
+     {
+      "through": "2025-03-31",
+      "amount": 30564.64
+     },
+     {
+      "through": "2025-04-30",
+      "amount": 32833.07
+     },
+     {
+      "through": "2025-05-31",
+      "amount": 46593.0
+     },
+     {
+      "through": "2025-06-30",
+      "amount": 82173.85
+     },
+     {
+      "through": "2025-07-31",
+      "amount": 91551.85
+     },
+     {
+      "through": "2025-08-31",
+      "amount": 119425.56
+     },
+     {
+      "through": "2025-09-30",
+      "amount": 121927.83
+     },
+     {
+      "through": "2025-10-31",
+      "amount": 124513.61
+     },
+     {
+      "through": "2025-11-30",
+      "amount": 137949.39
+     },
+     {
+      "through": "2025-12-31",
+      "amount": 151843.17
+     },
+     {
+      "through": "2026-01-31",
+      "amount": 173228.1
+     },
+     {
+      "through": "2026-02-28",
+      "amount": 188081.53
+     },
+     {
+      "through": "2026-03-31",
+      "amount": 198594.46
+     },
+     {
+      "through": "2026-04-30",
+      "amount": 208262.39
+     },
+     {
+      "through": "2026-05-31",
+      "amount": 217103.58
+     },
+     {
+      "through": "2026-06-30",
+      "amount": 219898.83
+     }
+    ],
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": 0.0,
+     "2024": 0.0,
+     "2026": 0.0
+    },
+    "odd_year": {
+     "2022": 46397.74,
+     "2024": 73057.0
+    }
+   },
+   "candidate_receipts": {
+    "status": "ready",
+    "reason": null,
+    "basis": "Employees' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source database on sub_id; party D / R from the index, anything else \"other\"; presidential (P) committees excluded; receipts the accounting engine buckets as non_giving left out (owner ruling 2026-10-01)",
+    "cycles": {
+     "2022": {
+      "House": {
+       "D": 15537.0,
+       "R": 21905.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 16221.83,
+       "R": 17500.0,
+       "other": 0.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 18400.01,
+       "R": 16780.76,
+       "other": 2000.0
+      },
+      "Senate": {
+       "D": 10026.25,
+       "R": 6325.75,
+       "other": 1500.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 22950.0,
+       "R": 28750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 32420.63,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     }
+    },
+    "observed": [
+     {
+      "through": "2025-01-31",
+      "House": {
+       "D": 0.0,
+       "R": 1000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 75.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-02-28",
+      "House": {
+       "D": 0.0,
+       "R": 6000.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 500.0,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-03-31",
+      "House": {
+       "D": 0.0,
+       "R": 9750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 500.0,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-04-30",
+      "House": {
+       "D": 0.0,
+       "R": 9750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 500.0,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-05-31",
+      "House": {
+       "D": 1000.0,
+       "R": 12750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 500.0,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-06-30",
+      "House": {
+       "D": 1500.0,
+       "R": 12750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 15500.0,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-07-31",
+      "House": {
+       "D": 1500.0,
+       "R": 13250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 15505.19,
+       "R": 150.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-08-31",
+      "House": {
+       "D": 1750.0,
+       "R": 13250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 24760.12,
+       "R": 2600.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-09-30",
+      "House": {
+       "D": 2750.0,
+       "R": 13250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 24865.31,
+       "R": 2600.0,
+       "other": 0.0
+      }
+     },
+     {
+      "through": "2025-10-31",
+      "House": {
+       "D": 3000.0,
+       "R": 13250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 24930.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2025-11-30",
+      "House": {
+       "D": 4500.0,
+       "R": 16750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 24995.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2025-12-31",
+      "House": {
+       "D": 10600.0,
+       "R": 20250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 25060.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-01-31",
+      "House": {
+       "D": 10600.0,
+       "R": 26250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 29575.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-02-28",
+      "House": {
+       "D": 15350.0,
+       "R": 26250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 30664.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-03-31",
+      "House": {
+       "D": 18450.0,
+       "R": 26250.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 31484.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-04-30",
+      "House": {
+       "D": 19450.0,
+       "R": 28750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 31759.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-05-31",
+      "House": {
+       "D": 22950.0,
+       "R": 28750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 32009.31,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     },
+     {
+      "through": "2026-06-30",
+      "House": {
+       "D": 22950.0,
+       "R": 28750.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 32420.63,
+       "R": 2600.0,
+       "other": 27.0
+      }
+     }
+    ],
+    "thin_base": {
+     "2022": {
+      "House": true,
+      "Senate": true
+     },
+     "2024": {
+      "House": true,
+      "Senate": true
+     },
+     "2026": {
+      "House": true,
+      "Senate": true
+     }
+    },
+    "excluded_funding_sources": [
+     "non_giving"
+    ],
+    "excluded_non_giving": {
+     "2022": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2024": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     },
+     "2026": {
+      "House": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      },
+      "Senate": {
+       "D": 0.0,
+       "R": 0.0,
+       "other": 0.0
+      }
+     }
+    }
+   },
+   "pac_to_candidates": {
+    "status": "unavailable",
+    "reason": "No roster PAC committees are resolved for this industry",
+    "source": "",
+    "rule": "",
+    "committee_count": 0,
+    "single_pac": false,
+    "committees": [],
+    "inputs": [],
+    "cycles": {},
+    "file_through": {},
+    "observed": [],
+    "thin_base": {}
+   },
+   "lda": {
+    "status": "unavailable",
+    "reason": "No Melange-LDA sector for this industry (sector_spend ROSTERS: crypto, credit_union, bank, fintech)",
+    "sector": null,
+    "label": null,
+    "source_file": null,
+    "source_sha256": null,
+    "through": null,
+    "series": {},
+    "note": "Melange LDA sector level, nominal dollars. income_total = fees paid to outside firms; expenses_total = the client's own in-house spending. The two series are different flows and are never added. The sector roster is wider than Mentat's ten companies."
+   },
+   "flags": []
+  }
+ },
+ "unavailable": {},
+ "lda_nowcast_errors": {
+  "pool": [
+   "bank",
+   "credit_union",
+   "telecom",
+   "fintech"
+  ],
+  "series": [
+   "income_total",
+   "expenses_total"
+  ],
+  "targets": [
+   2022,
+   2023,
+   2024,
+   2025
+  ],
+  "by_cut": {
+   "1": {
+    "n": 32,
+    "q80": 0.13185652412635537,
+    "max": 0.22502590411129567
+   },
+   "2": {
+    "n": 32,
+    "q80": 0.09908214164700152,
+    "max": 0.18334867555240086
+   },
+   "3": {
+    "n": 32,
+    "q80": 0.04065258688167114,
+    "max": 0.07592130053541839
+   }
+  }
+ }
+}

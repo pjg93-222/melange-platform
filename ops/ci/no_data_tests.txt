@@ -1,0 +1,4 @@
+# Run by release.yml's `test` job on a source-only checkout (no data present). One pytest path or
+# glob per line; blank lines and # comments are ignored. (ops/tests/*.py includes the Windows-only
+# release tests, which skip on Linux.)
+ops/tests/*.py

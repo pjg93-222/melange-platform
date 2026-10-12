@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-episode:v1",
+  "title": "Adjudicated employment episode",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "episode_id", "resolved_person_id", "normalized_container_id",
+    "container_kind", "member_bioguide_id", "organization_id", "title",
+    "start_earliest", "start_latest", "end_earliest", "end_latest",
+    "start_precision", "end_precision", "asserted_current", "source_as_of",
+    "identity_decision_id", "identity_status", "container_decision_id",
+    "container_status", "support_observation_ids", "support_digest", "episode_status"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-episode-v1"},
+    "episode_id": {"type": "string", "minLength": 1},
+    "resolved_person_id": {"type": "string", "minLength": 1},
+    "normalized_container_id": {"type": "string", "minLength": 1},
+    "container_kind": {"enum": ["member_office", "committee", "leadership", "admin", "registrant", "client_activity", "other_org"]},
+    "member_bioguide_id": {"type": ["string", "null"]},
+    "organization_id": {"type": ["string", "null"]},
+    "title": {"type": ["string", "null"]},
+    "start_earliest": {"type": ["string", "null"], "format": "date"},
+    "start_latest": {"type": ["string", "null"], "format": "date"},
+    "end_earliest": {"type": ["string", "null"], "format": "date"},
+    "end_latest": {"type": ["string", "null"], "format": "date"},
+    "start_precision": {"enum": ["day", "month", "year", "unknown"]},
+    "end_precision": {"enum": ["day", "month", "year", "unknown"]},
+    "asserted_current": {"type": "boolean"},
+    "source_as_of": {"type": "string", "format": "date"},
+    "identity_decision_id": {"type": "string", "minLength": 1},
+    "identity_status": {"enum": ["ACCEPTED", "REJECTED", "AMBIGUOUS", "REVIEW_REQUIRED", "SUPERSEDED"]},
+    "container_decision_id": {"type": "string", "minLength": 1},
+    "container_status": {"enum": ["ACCEPTED", "REJECTED", "AMBIGUOUS", "REVIEW_REQUIRED", "SUPERSEDED"]},
+    "support_observation_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "episode_status": {"enum": ["ACTIVE", "CONFLICTED", "SUPERSEDED", "RETRACTED"]}
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "schema": "primacy-press-corpus-v1",
+  "variant": "CLASS_DOCK_PRESS_GRADE_ALL",
+  "vintage": "2026-09-20",
+  "items": 7413,
+  "members": 483,
+  "sha256": "575478340702136c9d1858f6f38d20495aafa4712ceb8c3cc4a073387caa78d5",
+  "class_weights": {
+    "CU_DIRECT": 1.0,
+    "SHARED": 0.5,
+    "OTHER_INDUSTRY": 0.0,
+    "OFF_TOPIC": 0.0
+  },
+  "crossposts": "all",
+  "third_party": "included",
+  "decay": "none",
+  "denominator": "all admitted support/oppose statement intensity mass",
+  "limitations": [
+    "Historical classified corpus; new and neutral items require a separately classified generation.",
+    "Association articles are included; this is not exclusively member-authored speech."
+  ],
+  "sources": [
+    {
+      "path": "press/statement_items.csv",
+      "sha256": "fe02a09baecd1724820771ae107ef9b4f837ffd89c3dc1b07a3409304e6f64f2"
+    },
+    {
+      "path": "press/statement_classes_joined.csv",
+      "sha256": "23dd3c9841dd174ef1de80c830ab80a67804ed34481b6717e21b2d0950932e8f"
+    },
+    {
+      "path": "live_augment/press_by_member_amended_check.csv",
+      "sha256": "bfe981381485fff895a64270df85c8137fd3873eab20da9b6b7004063cefa16b"
+    }
+  ]
+}

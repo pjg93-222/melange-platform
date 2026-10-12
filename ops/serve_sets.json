@@ -1,0 +1,47 @@
+{
+  "schema": "melange-serve-sets-v1",
+  "census_pending": true,
+  "note": "Each set is an upper bound until an audit-hook census pins it. dest is relative to <data_subdir>. Secrets (keys.json, *key*.txt, dashboard_password*, .secret, *salt*, .demo-key, *.dpapi, .env*) and governed/server-owned stores (contacts*, accounts*, luna-v1, rowfw, backups, walk-backups, *.tar.gz) are excluded in code regardless of this file.",
+  "systems": {
+    "melange": {
+      "data_subdir": "melange",
+      "rules": [
+        {"root": "melange_live", "src": "outputs/invited_build", "dest": "",
+         "include": ["Moneyball.html", "Moneyball.html.gz", "lobby-*.html", "lobby-*.html.gz", "INVITED_BUILD.json"]}
+      ]
+    },
+    "mentat": {
+      "data_subdir": "mentat",
+      "rules": [
+        {"root": "C:/Users/pgoff/OneDrive/Desktop/Mentat Complete Files", "include": ["**"], "dest": "reports"},
+        {"root": "mentat_live", "src": "mentat/state/contribution-analytics", "include": ["**"], "dest": "state/contribution-analytics"},
+        {"root": "mentat_live", "src": "mentat/state/accepted-report-sources", "include": ["**"], "dest": "state/accepted-report-sources"},
+        {"root": "mentat_live", "src": "mentat/state/cross-reference", "kind": "runs", "latest_file": "latest.json",
+         "group_key": "industry", "extra": ["evidence.sqlite"], "dest": "state/cross-reference"},
+        {"root": "mentat_live", "src": "mentat/state/geography", "include": ["**"], "dest": "state/geography"},
+        {"root": "mentat_live", "src": "mentat/.cache/industry-report", "include": ["**"], "dest": ".cache/industry-report"},
+        {"root": "mentat_live", "src": "mentat/.cache/receipt-metadata-repair-20260910", "include": ["**"], "dest": ".cache/receipt-metadata-repair-20260910"},
+        {"root": "mentat_live", "src": "mentat/.cache/pac-evidence", "include": ["**"], "dest": ".cache/pac-evidence"},
+        {"root": "mentat_live", "src": "mentat/.cache/basemap", "include": ["**"], "dest": ".cache/basemap"},
+        {"root": "mentat_live", "src": "mentat/inputs", "include": ["**"], "dest": "inputs"},
+        {"root": "mentat_live", "src": "mentat/forecast", "include": ["**"], "dest": "forecast"},
+        {"root": "mentat_live", "src": "mentat/app/data", "include": ["**"], "dest": "app/data"},
+        {"root": "melange_live", "include": ["data/money/fec_refresh_current.json", "fec/legislators.csv", "bill_repository_live.json"], "dest": "melange"}
+      ]
+    },
+    "terrier": {
+      "data_subdir": "terrier",
+      "rules": [
+        {"root": "terrier_checkout", "src": ".local", "dest": "co-05",
+         "include": ["scores.sqlite3", "street.sqlite3", "walk.sqlite3", "roads.sqlite3", "density.json", "credit-quality.json"]},
+        {"root": "terrier_checkout", "src": ".local/or-05", "dest": "or-05",
+         "include": ["scores.sqlite3", "street.sqlite3", "walk.sqlite3", "roads.sqlite3", "density.json"]},
+        {"root": "terrier_checkout", "src": ".local/ct-01", "dest": "ct-01",
+         "include": ["scores.sqlite3", "street.sqlite3", "walk.sqlite3", "roads.sqlite3", "density.json"]},
+        {"root": "terrier_checkout", "src": "data", "kind": "newest_pair", "glob": "co-cd005-*.zip", "companion": ".sha256", "as": "bundle.zip", "dest": "co-05"},
+        {"root": "terrier_checkout", "src": "data", "kind": "newest_pair", "glob": "or-cd005-*.zip", "companion": ".sha256", "as": "bundle.zip", "dest": "or-05"},
+        {"root": "terrier_checkout", "src": "data", "kind": "newest_pair", "glob": "ct-cd001-*.zip", "companion": ".sha256", "as": "bundle.zip", "dest": "ct-01"}
+      ]
+    }
+  }
+}

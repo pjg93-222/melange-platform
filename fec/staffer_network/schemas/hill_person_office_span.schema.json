@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-hill-person-office-span-v1",
+  "title": "Hill person office span",
+  "description": "One row per (spine person, chamber, office_key) unifying the House Statement of Disbursements ledger and the Senate Report of the Secretary rows. From House ledger v3 the 2009Q3-2015Q4 PDF-era rows are inside the ledger itself and carry the source_lane house_ledger; the separate house_sod_pdf_2009q3_2015q4 lane is retained in the source_lane enum only so that earlier generations, which read that file directly, still validate. Reporting-period grain only: core is the observed report-period span, envelope widens it by one reporting period each side. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "spine_person_id", "chamber", "office_key",
+    "office_raw_examples", "member_bioguide", "member_resolution_method",
+    "container_kind", "period_kind", "first_period", "last_period",
+    "periods_observed", "observation_count", "contiguous", "core", "envelope",
+    "titles", "title_first", "title_last", "amount_sum", "annualized_estimate",
+    "status", "shared_employee", "source_lane", "source_row_ids",
+    "review_status", "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-hill-person-office-span-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "spine_person_id": {"type": "string", "pattern": "^hill:person:[0-9a-f]{64}$"},
+    "chamber": {"enum": ["house", "senate"]},
+    "office_key": {"type": "string", "minLength": 1},
+    "office_raw_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_resolution_method": {
+      "enum": [
+        "NOT_A_MEMBER_OFFICE",
+        "LEDGER_SUPPLIED_STRICT_RESOLUTION",
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME",
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME_TERM_WINDOW",
+        "STRICT_ROSTER_UNIQUE_SURNAME_NO_FIRST_NAME_IN_OFFICE_STRING",
+        "STRICT_ROSTER_UNIQUE_SURNAME_TERM_WINDOW",
+        "UNRESOLVED_SURNAME_NOT_PARSED",
+        "UNRESOLVED_SURNAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_DOES_NOT_DISAMBIGUATE",
+        "UNRESOLVED_SURNAME_COLLISION_NO_FIRST_NAME",
+        "UNRESOLVED_NO_ROSTER_TERM_IN_OBSERVED_WINDOW"
+      ]
+    },
+    "container_kind": {
+      "enum": ["member_office", "committee", "leadership", "admin", "unresolved"]
+    },
+    "period_kind": {"enum": ["quarter", "half_year"]},
+    "date_precision": {"enum": ["DAY", "REPORT_PERIOD"]},
+    "first_period": {"type": "string", "minLength": 1},
+    "last_period": {"type": "string", "minLength": 1},
+    "periods_observed": {"type": "integer", "minimum": 1},
+    "observed_periods": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1},
+      "description": "OPTIONAL, added 2026-09-07. Every reporting period this person-office was actually observed in, in chamber-calendar order. first_period and last_period are only its endpoints, so a span whose observations are scattered reads min-to-max and says nothing about the gaps; this field is the observation set itself. Absent on generations built before the field existed, which is why it is not required."
+    },
+    "observed_period_count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "OPTIONAL, added 2026-09-07. len(observed_periods). Equal to periods_observed by construction -- both count the same set -- and carried alongside it so a reader who has only this row can check that."
+    },
+    "contiguous_runs": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 2,
+        "items": {"type": "string", "minLength": 1}
+      },
+      "description": "OPTIONAL, added 2026-09-07. The maximal runs of calendar-consecutive observed periods, as [start_period, end_period] pairs in chamber-calendar order. The chamber calendar is the one this module already keys on: House quarters, Senate half-years. Expanding every run over that calendar reproduces observed_periods exactly, so len(contiguous_runs) == 1 is the same statement as contiguous == true, and a span with more than one run is one whose min-to-max window overstates its service."
+    },
+    "observation_count": {"type": "integer", "minimum": 1},
+    "contiguous": {"type": "boolean"},
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_latest", "end_earliest"],
+      "properties": {
+        "start_latest": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "end_earliest": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+      }
+    },
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_earliest", "end_latest"],
+      "properties": {
+        "start_earliest": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+        "end_latest": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"}
+      }
+    },
+    "titles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "title_first": {"type": ["string", "null"], "minLength": 1},
+    "title_last": {"type": ["string", "null"], "minLength": 1},
+    "amount_sum": {"type": ["number", "null"]},
+    "annualized_estimate": {"type": ["number", "null"]},
+    "status": {"enum": ["current", "departed"]},
+    "shared_employee": {"type": "boolean"},
+    "source_lane": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "house_ledger",
+          "house_sod_pdf_2009q3_2015q4",
+          "senate_payroll_2011_2026"
+        ]
+      }
+    },
+    "source_row_ids": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

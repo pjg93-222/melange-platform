@@ -1,0 +1,222 @@
+# Serve stack for the Melange VPS (installed to /srv/serve/compose.yaml).
+#
+# Values come from /srv/serve/compose.env: operator values (see compose.env.example) plus the
+# IMAGE_* digests and RELEASE_ID that melange_update.py writes after verifying a signed manifest.
+#
+# Rules this file must keep (ops/tests/test_compose_policy.py enforces them):
+#   - no `ports:` anywhere; every app sits alone on its own `internal` network (desk, mentat, co05, or05,
+#     ct01), so no app can reach another at the network level; only cloudflared joins them all, and `egress`;
+#   - every service: read-only root, uid 10001, cap_drop ALL, no-new-privileges, tmpfs /tmp;
+#   - data from /srv/data/<system>/current is mounted read-only; Terrier and Mentat state live in
+#     named volumes the updater never touches (Terrier's are `external`, so `compose down -v`
+#     cannot remove them either).
+# Data (ops/serve_sets.json -> /srv/data/<system>/current): melange/ = DESK_ROOT (pages, .gz, downloads/<id|latest>/);
+# mentat/ = reports, melange, state, .cache, inputs, forecast, app/data; terrier/<district>/ = stores + bundle.zip.
+name: melange
+
+x-hardened: &hardened
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m,mode=1777,noexec,nosuid"]
+  pids_limit: 256
+  restart: unless-stopped
+  # Rotation and the 90-day retention are journald's (SystemMaxUse / MaxRetentionSec in cloud-init);
+  # pinning the driver here keeps a daemon.json change from silently switching to unbounded json-file.
+  logging:
+    driver: journald
+    options: {tag: "{{.Name}}"}
+
+x-health: &health
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+# Static public keys, refreshed by access-jwks.timer. Mount the directory, not the file: the
+# timer replaces the file with an atomic rename.
+x-jwks: &jwks
+  type: bind
+  source: /srv/access
+  target: /run/access
+  read_only: true
+  bind: {create_host_path: false}
+
+x-access-env: &access-env
+  ACCESS_ISSUER: https://${TEAM:?set TEAM in compose.env}.cloudflareaccess.com
+  ACCESS_JWKS_FILE: /run/access/jwks.json
+  ACCESS_SERVICE_CNS: ${ACCESS_SERVICE_CNS:-}
+  SNAPSHOT_ID_FILE: /run/snapshot_id
+  ACCESS_ENFORCE: "1"
+  # Changes on every release, so compose recreates the apps (and re-resolves the `current`
+  # symlinks in the bind mounts below) even when only the data moved.
+  RELEASE_ID: ${RELEASE_ID:-none}
+
+# CU_SECRET_KEY comes from each service's root-only env_file, never from here or compose.env.
+x-terrier-env: &terrier-env
+  CU_DEPLOYMENT: hosted
+  CU_BIND: 0.0.0.0
+  CU_DATA_DIR: /data                # the district's read-only stores (terrier/<district>/)
+  CU_STATE_DIR: /state              # accounts.sqlite3 + imported snapshots: the external state volume
+  CU_BUNDLE: /data/bundle.zip       # + bundle.zip.sha256 beside it
+  CU_DISTRICT_URLS: co-05=https://co05.${DOMAIN:?set DOMAIN in compose.env},or-05=https://or05.${DOMAIN},ct-01=https://ct01.${DOMAIN}
+
+services:
+  melange-desk:
+    <<: *hardened
+    image: ${IMAGE_MELANGE_DESK:?written by melange_update.py}
+    networks: [desk]
+    mem_limit: 512m
+    environment:
+      <<: *access-env
+      BIND_HOST: 0.0.0.0
+      ALLOWED_HOSTS: melange.${DOMAIN:?set DOMAIN in compose.env},127.0.0.1,127.0.0.1:8080
+      ACCESS_AUD: ${AUD_MELANGE:?set AUD_MELANGE in compose.env}
+      DESK_ROOT: /data/melange
+    volumes:
+      - {type: bind, source: /srv/data/melange/current, target: /data/melange, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/melange/current/.snapshot_id, target: /run/snapshot_id, read_only: true, bind: {create_host_path: false}}
+      - *jwks
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=3)"]
+
+  mentat-console:
+    <<: *hardened
+    image: ${IMAGE_MENTAT_CONSOLE:?written by melange_update.py}
+    networks: [mentat]
+    mem_limit: 6g
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    environment:
+      <<: *access-env
+      BIND_HOST: 0.0.0.0
+      ALLOWED_HOSTS: mentat.${DOMAIN:?set DOMAIN in compose.env},127.0.0.1,127.0.0.1:8802
+      ACCESS_AUD: ${AUD_MENTAT:?set AUD_MENTAT in compose.env}
+      # server.py's PROJECT is /app/mentat
+      PYTHONPATH: /app/mentat/app:/app/mentat/tools
+      MENTAT_REPORT_DIRECTORY: /data/mentat/reports
+      MENTAT_MELANGE_ROOT: /data/mentat/melange
+      MENTAT_STATE_WRITE_ROOT: /var/cache/mentat
+      # Donor-level rows: comma list of Access emails; empty = nobody (Paul's ruling pending)
+      MENTAT_DONOR_ROW_EMAILS: ""
+    volumes:
+      # read-only data: reports/ and melange/ via the env vars above, the rest where PROJECT looks
+      - {type: bind, source: /srv/data/mentat/current/reports, target: /data/mentat/reports, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/melange, target: /data/mentat/melange, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/state, target: /app/mentat/state, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/.cache, target: /app/mentat/.cache, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/inputs, target: /app/mentat/inputs, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/forecast, target: /app/mentat/forecast, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/app/data, target: /app/mentat/app/data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/mentat/current/.snapshot_id, target: /run/snapshot_id, read_only: true, bind: {create_host_path: false}}
+      - *jwks
+      - mentat-data:/var/lib/mentat
+      - mentat-cache:/var/cache/mentat
+    healthcheck:
+      <<: *health
+      start_period: 180s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8802/healthz', timeout=3)"]
+
+  terrier-co05:
+    <<: *hardened
+    image: ${IMAGE_TERRIER_CO05:?written by melange_update.py}
+    networks: [co05]
+    mem_limit: 2g
+    # nightly `manage.py backup` writes its copy here (melange-ops.sh); raise if accounts.sqlite3 outgrows it
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    env_file: /srv/serve/secrets/terrier-co05.env
+    environment:
+      <<: [*access-env, *terrier-env]
+      CU_DISTRICT: co-05
+      CU_ALLOWED_HOSTS: co05.${DOMAIN},127.0.0.1
+      CU_TRUSTED_ORIGINS: https://co05.${DOMAIN}
+      ACCESS_AUD: ${AUD_CO05:?set AUD_CO05 in compose.env}
+    volumes:
+      - {type: bind, source: /srv/data/terrier/current/co-05, target: /data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/terrier/current/.snapshot_id, target: /run/snapshot_id, read_only: true, bind: {create_host_path: false}}
+      - *jwks
+      - terrier-co05-state:/state
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+
+  terrier-or05:
+    <<: *hardened
+    image: ${IMAGE_TERRIER_OR05:?written by melange_update.py}
+    networks: [or05]
+    mem_limit: 2g
+    # nightly `manage.py backup` writes its copy here (melange-ops.sh); raise if accounts.sqlite3 outgrows it
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    env_file: /srv/serve/secrets/terrier-or05.env
+    environment:
+      <<: [*access-env, *terrier-env]
+      CU_DISTRICT: or-05
+      CU_ALLOWED_HOSTS: or05.${DOMAIN},127.0.0.1
+      CU_TRUSTED_ORIGINS: https://or05.${DOMAIN}
+      ACCESS_AUD: ${AUD_OR05:?set AUD_OR05 in compose.env}
+    volumes:
+      - {type: bind, source: /srv/data/terrier/current/or-05, target: /data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/terrier/current/.snapshot_id, target: /run/snapshot_id, read_only: true, bind: {create_host_path: false}}
+      - *jwks
+      - terrier-or05-state:/state
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+
+  terrier-ct01:
+    <<: *hardened
+    image: ${IMAGE_TERRIER_CT01:?written by melange_update.py}
+    networks: [ct01]
+    mem_limit: 2g
+    # nightly `manage.py backup` writes its copy here (melange-ops.sh); raise if accounts.sqlite3 outgrows it
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    env_file: /srv/serve/secrets/terrier-ct01.env
+    environment:
+      <<: [*access-env, *terrier-env]
+      CU_DISTRICT: ct-01
+      CU_ALLOWED_HOSTS: ct01.${DOMAIN},127.0.0.1
+      CU_TRUSTED_ORIGINS: https://ct01.${DOMAIN}
+      ACCESS_AUD: ${AUD_CT01:?set AUD_CT01 in compose.env}
+    volumes:
+      - {type: bind, source: /srv/data/terrier/current/ct-01, target: /data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /srv/data/terrier/current/.snapshot_id, target: /run/snapshot_id, read_only: true, bind: {create_host_path: false}}
+      - *jwks
+      - terrier-ct01-state:/state
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/api/health', timeout=3)"]
+
+  # The only service with a route out. Ingress rules live in the Cloudflare dashboard (remotely
+  # managed tunnel): melange.<DOMAIN> -> http://melange-desk:8080, mentat -> http://mentat-console:8802,
+  # co05/or05/ct01 -> http://terrier-<d>:8080, ssh -> ssh://172.29.0.1:22 (see ops/VPS.md).
+  cloudflared:
+    <<: *hardened
+    image: ${IMAGE_CLOUDFLARED:?set IMAGE_CLOUDFLARED in compose.env}
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"]
+    # TUNNEL_TOKEN=... pasted by Paul; root-only file, never in compose.env.
+    env_file: /srv/serve/secrets/tunnel.env
+    networks: [desk, mentat, co05, or05, ct01, egress]
+    mem_limit: 256m
+    healthcheck:
+      <<: *health
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+
+networks:
+  desk: &internal {internal: true}
+  mentat: *internal
+  co05: *internal
+  or05: *internal
+  ct01: *internal
+  egress:
+    driver_opts: {com.docker.network.bridge.name: br-egress}
+    ipam:
+      config: [{subnet: 172.29.0.0/24, gateway: 172.29.0.1}]
+
+volumes:
+  mentat-data: {}
+  mentat-cache: {}
+  # external: created once by cloud-init (`docker volume create`); field results live here.
+  terrier-co05-state: {external: true}
+  terrier-or05-state: {external: true}
+  terrier-ct01-state: {external: true}

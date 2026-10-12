@@ -1,0 +1,133 @@
+/* champions-ui.css: overlay for original-champions.html (Champions, board #39); owner: prompt 12. Loaded after ui-kit.css and restored.css. */
+/* Every rule is scoped to html.chm-ready (set by champions-ui.js once its board is built), so if the
+   overlay script cannot start, today's page shows unchanged. Chrome tokens only; data colours come
+   by reference (party dots read PTCOL through MLK.partyColor). */
+
+/* ---------- page frame: the head carries the title, so the engine's title row and panel chrome go ---------- */
+html.chm-ready body{background:var(--ml-page)}
+html.chm-ready .product-header{display:none!important}
+html.chm-ready main#main{max-width:none;margin:0;padding:0 var(--ml-gutter-end) 32px var(--ml-gutter)}
+html.chm-ready #champions.panel{margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+html.chm-ready #champions>.panelhead,
+html.chm-ready #champions>.filters,
+html.chm-ready #champions>[data-v2-board=champions],
+html.chm-ready #champions>[data-v2-board=threats]{display:none!important}
+
+/* ---------- control row (52 px on the board: 11 px + 32 px controls + gap to the cards) ---------- */
+.chm-controls{display:flex;align-items:center;gap:0;box-sizing:border-box;min-height:52px;padding:11px 0 18px;font:400 13px/1 var(--sans);color:var(--ml-ink)}
+.chm-controls__slot{display:flex;flex:none}
+.chm-controls__slot+.chm-controls__slot{margin-left:24px}
+.chm .mlk-seg.chm-seg--sector:not(#mlk)>button{padding:0 16px}
+.chm .mlk-seg.chm-seg--chamber:not(#mlk)>button{min-width:68px;padding:0 18px}
+.chm .mlk-seg:not(#mlk)>button[aria-pressed=true]{color:var(--ml-on-dark)!important;background:var(--ml-active)!important}
+.chm .mlk-seg:not(#mlk)>button{min-height:0!important;white-space:nowrap}
+.chm-search.mlk-search:not(#mlk){flex:none;width:244px;margin-left:18px}
+.chm .chm-search .mlk-search__input:not(#mlk){width:100%;height:32px;min-height:0;margin:0;font:400 13px/1 var(--sans)}
+.chm-howto.mlk-info:not(#mlk){margin-left:auto;color:var(--ml-ink);font-size:13px}
+.chm-howto.mlk-info:not(#mlk) svg{width:18px;height:18px}
+
+/* ---------- the two cards ---------- */
+.chm-cards{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
+.chm-card{box-sizing:border-box;min-width:0;padding:9px 10px 12px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.chm-card__head{padding:0 4px 10px}
+.chm .chm-card__title{margin:0;padding:0;border:0;color:var(--ml-ink);font:400 26px/1.15 var(--serif);letter-spacing:0;text-transform:none}
+.chm-card__cap{margin:2px 0 0;color:var(--ml-muted);font:400 13px/1.35 var(--sans)}
+.chm-card__body{min-width:0}
+.chm-tablecard.mlk-tablecard:not(#mlk){overflow:visible}
+
+/* tables */
+.chm-table.mlk-table:not(#mlk){width:100%;table-layout:fixed;border-collapse:collapse;font:400 13px/1.25 var(--sans)}
+.chm-table.mlk-table:not(#mlk) th{position:static;padding:0 8px;height:38px;vertical-align:middle}
+.chm-table--opp.mlk-table:not(#mlk) th{height:45px}
+.chm-table.mlk-table:not(#mlk) th.chm-wrap{white-space:normal;line-height:1.25}
+.chm-table.mlk-table:not(#mlk) td{height:42px;padding:2px 8px;font-variant-numeric:tabular-nums}
+.chm-table--opp.mlk-table:not(#mlk) td{height:46px}
+.chm-table.mlk-table:not(#mlk) :is(th,td).chm-c{text-align:center}
+.chm-table.mlk-table:not(#mlk) :is(th,td).chm-rank{padding-left:12px;color:var(--ml-ink)}
+.chm-table.mlk-table:not(#mlk) :is(th,td).chm-x{padding-left:0;text-align:right}
+.chm-table.mlk-table:not(#mlk) th:first-child.chm-rank{color:var(--ml-muted)}
+.chm-table col.chm-w-rank{width:54px}
+.chm-table--sup col.chm-w-tier{width:64px}
+.chm-table--sup col.chm-w-score{width:76px}
+.chm-table--sup col.chm-w-sup{width:96px}
+.chm-table--sup col.chm-w-opp{width:96px}
+.chm-table--sup col.chm-w-x{width:84px}
+.chm-table--opp col.chm-w-rank{width:40px}
+.chm-table--opp col.chm-w-threat{width:58px}
+.chm-table--opp col.chm-w-os{width:86px}
+.chm-table--opp col.chm-w-oc{width:100px}
+.chm-table--opp col.chm-w-bills{width:104px}
+
+/* member cell: party dot, dotted-underline name, small chamber chip under it */
+.chm-member{white-space:nowrap}
+.chm-table.mlk-table:not(#mlk) td.chm-member{padding-left:4px}
+.chm-member .chm-dot.mlk-dot:not(#mlk){width:8px;height:8px;margin:0 10px 0 0;vertical-align:top;position:relative;top:6px}
+.chm-who{display:inline-flex;flex-direction:column;align-items:flex-start;gap:3px;max-width:calc(100% - 20px);vertical-align:top}
+.chm-who>:first-child{max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.chm .chm-who a.memberlink{color:var(--ml-ink);font:400 13px/1.2 var(--sans);text-decoration:underline dotted;text-decoration-color:var(--ml-control-border);text-underline-offset:3px}
+.chm .chm-who a.memberlink:hover{text-decoration-style:solid}
+.chm-chamber{display:inline-flex;align-items:center;box-sizing:border-box;height:16px;padding:0 5px;border:1px solid var(--ml-strong-rule);border-radius:3px;background:var(--ml-surface);color:var(--ml-muted);font:400 11px/1 var(--sans)}
+.chm .mlk-tier.chm-tier--none:not(#mlk){border-color:var(--ml-ink);color:var(--ml-muted)}
+
+/* driving-bills disclosure: "2 bills" and an outlined chevron box, one button */
+.chm-disc{display:inline-flex;align-items:center;justify-content:space-between;gap:10px;box-sizing:border-box;width:100%;height:auto;min-height:0;margin:0;padding:0;border:0;background:transparent;color:var(--ml-ink);font:400 13px/1.2 var(--sans);text-align:left;cursor:pointer;box-shadow:none}
+.chm-disc:hover{background:transparent}
+.chm-disc__chev{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;width:22px;height:22px;flex:none;border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.chm-disc__chev svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .12s}
+.chm-disc[aria-expanded=true] .chm-disc__chev{background:var(--ml-surface-alt)}
+.chm-disc[aria-expanded=true] .chm-disc__chev svg{transform:rotate(180deg)}
+.chm-disc:hover .chm-disc__chev{background:var(--ml-surface-alt)}
+.chm-disc--small{width:auto;gap:6px;font-size:12px;color:var(--ml-muted)}
+.chm-disc--small .chm-disc__chev{width:18px;height:18px}
+.chm-disc:focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
+/* fix r1 MD-2: restored.css paints every :focus-visible with the legacy purple accent (!important), which beat the rule above,
+   the fold summaries and the member links. Inside the board every ring is the kit's amber; widths and offsets stay as set
+   (disc 2px, fold summary -2px, links 3px; the segments get theirs from ui-kit.css). */
+html.chm-ready .chm :focus-visible:not(#mlk){outline-color:var(--ml-accent)!important}
+.chm-table.mlk-table:not(#mlk) tr.is-open td{border-bottom:0}
+
+/* expanded inset (--ml-surface-alt) */
+.chm-table.mlk-table:not(#mlk) tr.chm-detailrow td{height:auto;padding:0 10px 10px 4px;background:transparent}
+.chm-table.mlk-table:not(#mlk) tr.chm-detailrow:hover td{background:transparent}
+.chm-inset{box-sizing:border-box;padding:8px 16px 9px;border-radius:var(--ml-radius);background:var(--ml-surface-alt);color:var(--ml-ink);font:400 12.5px/1.45 var(--sans);white-space:normal}
+.chm-bills{margin:0;padding:0;list-style:none}
+.chm-bill{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:2px 0}
+.chm-bill__main{min-width:0}
+.chm-bill__key{color:var(--ml-ink);font-weight:500}
+.chm-bill__meta{flex:none;color:var(--ml-muted);font-size:11.5px;white-space:nowrap}
+.chm-bill--none{color:var(--ml-muted)}
+.chm-inset__note{margin:4px 0 0;color:var(--ml-muted);font-size:11.5px}
+
+/* states */
+.chm-state.mlk-state:not(#mlk){padding:28px 16px}
+.chm-state__action{margin:0;text-align:center}
+.chm-card__body .mlk-skel-row:not(#mlk){height:42px}
+.chm-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- Mixed records and Most lobbied: today's collapsed sections, below the cards ---------- */
+.chm-folds{display:flex;flex-direction:column;gap:12px;margin-top:12px}
+.chm .chm-fold{margin:0;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface)}
+.chm .chm-fold>summary{padding:12px 16px;color:var(--ml-ink);font:400 20px/1.2 var(--serif);cursor:pointer;list-style-position:inside}
+.chm .chm-fold[open]>summary{border-bottom:1px solid var(--ml-rule)}
+.chm .chm-fold>summary:focus-visible{outline:2px solid var(--ml-accent);outline-offset:-2px}
+.chm .chm-fold>:not(summary){margin:12px 16px 16px}
+.chm .chm-fold .mlk-seg:not(#mlk)>button{padding:0 14px}
+
+/* ---------- "How these boards are built" drawer (overlay, 420 px) ---------- */
+.chm-drawer.mlk-drawer:not(#mlk){z-index:40}
+.chm-drawer__title{margin:0;color:var(--ml-ink);font:400 22px/1.2 var(--serif)}
+.chm-drawer__body{color:var(--ml-ink);font:400 13px/1.5 var(--sans)}
+.chm-drawer__body>*{margin:0 0 12px}
+.chm-drawer__body .subtle{color:var(--ml-muted)}
+.chm-drawer__sub{margin:16px 0 4px;color:var(--ml-muted);font:600 11px/1.2 var(--sans);letter-spacing:.06em;text-transform:uppercase}
+.chm-drawer__body .v2-layer-title{margin:16px 0 8px;color:var(--ml-ink);font:600 13px/1.3 var(--sans)}
+.chm-drawer__body .honesty{margin:0 0 12px}
+.chm-drawer__body .chm-methodfold{border:0;background:transparent}
+.chm-drawer__body .chm-methodfold>summary{color:var(--ml-ink);font:600 13px/1.3 var(--sans);cursor:pointer}
+.chm-drawer__body #industry-tier-board-panel{margin:8px 0 0;padding:0;border:0;background:transparent}
+
+@media (max-width:1100px){
+  .chm-cards{grid-template-columns:minmax(0,1fr)}
+  .chm-controls{flex-wrap:wrap;row-gap:10px}
+  .chm-howto.mlk-info:not(#mlk){margin-left:0}
+}

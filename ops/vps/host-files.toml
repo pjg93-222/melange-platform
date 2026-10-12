@@ -1,0 +1,118 @@
+# Static host configuration, unpacked from the cloud-init payload (see build_cloud_init.py), not written by write_files:
+# it compresses about 2.5x better there, which is what keeps cloud-init.yaml under 32 KiB. Edit here, then run
+# python ops/vps/build_cloud_init.py. Each table: the absolute path, its mode, and the exact file text.
+
+["/etc/ssh/sshd_config.d/10-melange.conf"]
+mode = 0o644
+text = '''
+# First value wins in sshd, and this sorts before 50-cloud-init.conf.
+# sshd is never reachable from the internet: loopback, plus the egress bridge gateway so the
+# cloudflared container can reach it for ssh.<domain> (ufw allows only that interface).
+ListenAddress 127.0.0.1
+ListenAddress 172.29.0.1
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PermitRootLogin no
+PubkeyAuthentication yes
+AllowUsers admin melange-push
+MaxAuthTries 3
+LoginGraceTime 30
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+Match User melange-push
+    AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+    ChrootDirectory /srv/melange/push
+    ForceCommand internal-sftp -P symlink,hardlink
+    PermitTTY no
+'''
+
+["/etc/systemd/system/ssh.socket.d/10-melange.conf"]
+mode = 0o644
+text = '''
+# Ubuntu 24.04 may start sshd from this socket, and then sshd_config's ListenAddress is
+# ignored. Pin the socket to the same addresses so either way sshd is loopback-only.
+[Socket]
+ListenStream=
+ListenStream=127.0.0.1:22
+ListenStream=172.29.0.1:22
+FreeBind=yes
+'''
+
+["/etc/sysctl.d/90-melange.conf"]
+mode = 0o644
+text = '''
+# sshd binds the egress gateway address before Docker has created that bridge.
+net.ipv4.ip_nonlocal_bind = 1
+'''
+
+["/etc/docker/daemon.json"]
+mode = 0o644
+text = '''
+{
+  "data-root": "/srv/data/docker",
+  "userns-remap": "default",
+  "no-new-privileges": true,
+  "icc": false,
+  "live-restore": true,
+  "log-driver": "journald"
+}
+'''
+
+["/etc/systemd/system/docker.service.d/10-melange.conf"]
+mode = 0o644
+text = '''
+# Docker's data-root (images, Terrier field-result volumes) is on the encrypted volume:
+# no volume, no Docker, and nothing is ever written to the unencrypted boot disk.
+[Unit]
+RequiresMountsFor=/srv/data
+'''
+
+["/etc/systemd/journald.conf.d/50-melange.conf"]
+mode = 0o644
+text = '''
+[Journal]
+Storage=persistent
+SystemMaxUse=4G
+MaxRetentionSec=90day
+'''
+
+["/etc/audit/rules.d/50-melange.rules"]
+mode = 0o640
+text = '''
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /etc/ssh/authorized_keys/ -p wa -k sshd
+-w /etc/sudoers -p wa -k sudoers
+-w /etc/sudoers.d/ -p wa -k sudoers
+-w /etc/docker/ -p wa -k docker
+-w /usr/bin/docker -p x -k docker
+-w /var/run/docker.sock -p wa -k docker
+-w /etc/crypttab -p wa -k cryptsetup
+-w /etc/cryptsetup-keys.d/ -p rwa -k cryptsetup
+-w /usr/sbin/cryptsetup -p x -k cryptsetup
+-w /srv/serve/secrets/ -p rwa -k secrets
+-w /etc/melange/ -p wa -k melange
+'''
+
+["/etc/apt/apt.conf.d/20auto-upgrades"]
+mode = 0o644
+text = '''
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
+'''
+
+["/etc/apt/apt.conf.d/52melange-unattended-upgrades"]
+mode = 0o644
+text = '''
+// Security updates only. Docker is pinned and held, so it is never touched here.
+// Kernel updates need a reboot: Paul reboots monthly (ops/RUNBOOK.md).
+#clear Unattended-Upgrade::Allowed-Origins;
+Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+        "${distro_id}ESMApps:${distro_codename}-apps-security";
+        "${distro_id}ESM:${distro_codename}-infra-security";
+};
+Unattended-Upgrade::Automatic-Reboot "false";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+'''

@@ -1,0 +1,588 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-tiered-person-office-record-v2",
+  "title": "Tiered corroboration person-office record (spine-linked)",
+  "description": "One contiguous observed run of payroll periods for one person in one payroll container, carrying the confirmation ladder tier and the per-prong evidence that produced it. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion. v2 adds the office-anchored link to the re-keyed Hill personnel spine. Every v1 field is carried forward byte for byte from the v2 generation of the sidecar; the link fields are the only additions and the schema id the only change. A link is an identity POINTER, not an employment finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "rule_version",
+    "lda_source_person_id",
+    "chamber",
+    "source_lane",
+    "office_key",
+    "office_raw_examples",
+    "member_bioguide",
+    "member_resolution_method",
+    "container_kind",
+    "tier",
+    "prong",
+    "prong_evidence",
+    "periods_observed",
+    "period_kind",
+    "contiguous",
+    "run_index",
+    "run_count",
+    "core",
+    "envelope",
+    "precision",
+    "title_examples",
+    "identity_status",
+    "review_status",
+    "canonical_eligible",
+    "canonical_employment_promoted",
+    "spine_link_rule_version",
+    "spine_link_status",
+    "spine_link_reason",
+    "spine_link_candidate_count",
+    "spine_person_id",
+    "spine_link_basis"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-tiered-person-office-record-v2"
+    },
+    "rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lda_source_person_id": {
+      "type": "string",
+      "pattern": "^lda:lobbyist:[0-9]+$"
+    },
+    "chamber": {
+      "enum": [
+        "house",
+        "senate"
+      ]
+    },
+    "source_lane": {
+      "enum": [
+        "house_sod_2009q3_2015q4",
+        "house_payroll_2016_2026",
+        "senate_payroll_2011_2026"
+      ]
+    },
+    "office_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Normalized container grouping key, quoted from the payroll ledger. House: HON:<SURNAME> for a member office, otherwise the normalized office family string. Senate: the whitespace-collapsed uppercase employing office string."
+    },
+    "office_raw_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Up to three verbatim payroll office strings observed for this run, quoted from the source ledger."
+    },
+    "member_bioguide": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Z][0-9]{6}$"
+    },
+    "member_resolution_method": {
+      "enum": [
+        "STRICT_ROSTER_SURNAME_AND_FIRST_NAME",
+        "STRICT_ROSTER_UNIQUE_SURNAME_NO_FIRST_NAME_IN_OFFICE_STRING",
+        "NOT_A_MEMBER_OFFICE",
+        "UNRESOLVED_SURNAME_NOT_IN_ROSTER",
+        "UNRESOLVED_SURNAME_COLLISION_NO_FIRST_NAME",
+        "UNRESOLVED_FIRST_NAME_NOT_IN_ROSTER",
+        "UNRESOLVED_FIRST_NAME_DOES_NOT_DISAMBIGUATE",
+        "UNRESOLVED_SURNAME_NOT_PARSED",
+        "STRICT_ROSTER_SURNAME_FIRST_NAME_AND_TERM_WINDOW",
+        "TERM_WINDOW_MISMATCH"
+      ]
+    },
+    "container_kind": {
+      "enum": [
+        "member_office",
+        "committee",
+        "leadership",
+        "admin",
+        "unresolved"
+      ]
+    },
+    "tier": {
+      "enum": [
+        "L1",
+        "L2",
+        "L3",
+        "L4",
+        "L5"
+      ]
+    },
+    "prong": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name_unique",
+        "office_corroborated",
+        "chronology",
+        "split_clean",
+        "multi_source"
+      ],
+      "properties": {
+        "name_unique": {
+          "type": "boolean"
+        },
+        "office_corroborated": {
+          "type": "boolean"
+        },
+        "chronology": {
+          "enum": [
+            "CONSISTENT",
+            "INCONSISTENT",
+            "UNKNOWN"
+          ]
+        },
+        "split_clean": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "multi_source": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "legilist",
+              "profile",
+              "politico"
+            ]
+          }
+        }
+      }
+    },
+    "prong_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name_uniqueness",
+        "office_match",
+        "chronology",
+        "split",
+        "multi_source",
+        "payroll_support_digest"
+      ],
+      "properties": {
+        "name_uniqueness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "queue_candidate_count_for_name",
+            "queue_display_name_count_for_name",
+            "method"
+          ],
+          "properties": {
+            "queue_candidate_count_for_name": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "queue_display_name_count_for_name": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "method": {
+              "enum": [
+                "LEDGER_FIELDS",
+                "RECONSTRUCTED_FROM_QUEUE_NAME_INDEX",
+                "NO_QUEUE_CANDIDATE_FOR_PAYROLL_NAME"
+              ]
+            }
+          }
+        },
+        "office_match": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "method",
+            "matched_token",
+            "office_normalized"
+          ],
+          "properties": {
+            "method": {
+              "enum": [
+                "MEMBER_SURNAME_MATCH",
+                "MEMBER_SURNAME_NOT_FOUND",
+                "COMMITTEE_KEYWORD_MATCH",
+                "COMMITTEE_KEYWORD_NOT_FOUND",
+                "COMMITTEE_FAMILY_UNMAPPED",
+                "HON_NO_SURNAME_PARSED",
+                "EMPTY_OFFICE",
+                "SENATE_OFFICE_TOKEN_MATCH",
+                "SENATE_OFFICE_TOKEN_NOT_FOUND",
+                "SENATE_OFFICE_TOKEN_NOT_EXTRACTABLE",
+                "NO_QUEUE_ROW"
+              ]
+            },
+            "matched_token": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "office_normalized": {
+              "type": "string"
+            }
+          }
+        },
+        "chronology": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "max_observed_end_year",
+            "threshold_year",
+            "first_filing_year",
+            "office_max_observed_end_year",
+            "office_chronology_consistent"
+          ],
+          "properties": {
+            "max_observed_end_year": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "threshold_year": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "first_filing_year": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "office_max_observed_end_year": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "office_chronology_consistent": {
+              "type": "boolean"
+            }
+          }
+        },
+        "split": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "office_period_count",
+            "office_run_count",
+            "person_offices_all_contiguous"
+          ],
+          "properties": {
+            "office_period_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "office_run_count": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "person_offices_all_contiguous": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            }
+          }
+        },
+        "multi_source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "profile_matched_employer",
+            "politico_matched_token",
+            "legilist_person_binding",
+            "legilist_names_office"
+          ],
+          "properties": {
+            "profile_matched_employer": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "politico_matched_token": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "legilist_person_binding": {
+              "type": "boolean"
+            },
+            "legilist_names_office": {
+              "const": false,
+              "description": "Accepted LegiList source bindings carry a person page URL and no container string, so they can never name an office. Pinned false and never counted toward L5."
+            }
+          }
+        },
+        "payroll_support_digest": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "periods_observed": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "period_kind": {
+      "enum": [
+        "quarter",
+        "half_year"
+      ]
+    },
+    "contiguous": {
+      "type": "boolean"
+    },
+    "run_index": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "run_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "core": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_latest",
+        "end_earliest"
+      ],
+      "properties": {
+        "start_latest": {
+          "type": "string",
+          "format": "date"
+        },
+        "end_earliest": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start_earliest",
+        "end_latest"
+      ],
+      "properties": {
+        "start_earliest": {
+          "type": "string",
+          "format": "date"
+        },
+        "end_latest": {
+          "type": "string",
+          "format": "date"
+        }
+      }
+    },
+    "precision": {
+      "const": "report_period"
+    },
+    "title_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Up to three verbatim payroll title strings observed for this run, quoted from the source ledger."
+    },
+    "identity_status": {
+      "enum": [
+        "STRICT_ONE_TO_ONE_REVIEW_CANDIDATE",
+        "NAME_MATCH_ONLY"
+      ]
+    },
+    "review_status": {
+      "const": "REVIEW_REQUIRED"
+    },
+    "canonical_eligible": {
+      "const": false
+    },
+    "canonical_employment_promoted": {
+      "const": false
+    },
+    "spine_link_rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spine_link_status": {
+      "enum": [
+        "LINKED",
+        "AMBIGUOUS",
+        "NOT_FOUND"
+      ]
+    },
+    "spine_link_reason": {
+      "enum": [
+        "UNIQUE_SPINE_PERSON",
+        "OFFICE_KEY_AMBIGUOUS",
+        "MULTIPLE_SPINE_PERSONS",
+        "NO_LANE_OBSERVATION_FOR_RECORD",
+        "NO_NAME_IN_LANE_OBSERVATION",
+        "OFFICE_KEY_ABSENT_FROM_SPINE",
+        "NAME_ABSENT_IN_OFFICE",
+        "NO_CANDIDATE_SURVIVES_WINDOW_OR_MIDDLE_INITIAL"
+      ]
+    },
+    "spine_link_candidate_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "spine_person_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^hill:person:[0-9a-f]{64}$"
+    },
+    "spine_link_basis": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "office_key",
+        "name_key",
+        "name_key_equality",
+        "key_generation",
+        "payee_source",
+        "span_ids",
+        "window"
+      ],
+      "description": "Present only on a LINKED row, and null on every other row. Everything needed to re-derive the link without reading this builder: the spine office key the record's own office strings resolved to, the name key the record's own payee representation produced, whether that key was equal on all three components or only middle-compatible, which key generation matched, which lane field the name came from, the spine spans that survived, and the record window the overlap test used.",
+      "properties": {
+        "office_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Spine office key, quoted from the payroll ledger via the spine's own HouseOfficeKey / senate_office_key."
+        },
+        "name_key": {
+          "type": "string",
+          "pattern": "^[^|]*\\|[^|]*\\|[^|]?$",
+          "description": "last|first_class|mi under the one name standard. A folded quotation of the source name, not an authored value."
+        },
+        "name_key_equality": {
+          "enum": [
+            "EXACT",
+            "MIDDLE_COMPATIBLE"
+          ]
+        },
+        "key_generation": {
+          "enum": [
+            "v7",
+            "v6_legacy",
+            "both"
+          ]
+        },
+        "payee_source": {
+          "enum": [
+            "payroll_comma",
+            "house_csv",
+            "senate",
+            "display"
+          ]
+        },
+        "span_ids": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^hill:person:[0-9a-f]{64}#[0-9]+$"
+          },
+          "description": "<spine_person_id>#<zero-based line ordinal in the spine's hill_person_office_spans.ndjson.gz>."
+        },
+        "window": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "start_earliest",
+            "end_latest",
+            "test"
+          ],
+          "properties": {
+            "start_earliest": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "end_latest": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "date"
+            },
+            "test": {
+              "enum": [
+                "APPLIED",
+                "NOT_APPLICABLE"
+              ]
+            }
+          }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "spine_link_status": {
+            "const": "LINKED"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "spine_person_id": {
+            "type": "string",
+            "pattern": "^hill:person:[0-9a-f]{64}$"
+          },
+          "spine_link_basis": {
+            "type": "object"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "spine_person_id": {
+            "type": "null"
+          },
+          "spine_link_basis": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ]
+}

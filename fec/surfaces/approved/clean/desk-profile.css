@@ -1,0 +1,251 @@
+/* desk-profile.css: overlay for original-desk.html (member profile, board #29); owner: prompt 04. Loaded after desk-compare.css. */
+/* Sizes are the board's (board px / 1.867). Tokens and kit components only; data colours arrive by reference through
+   --mlk-dot / --mlp-c set by desk-profile.js. Everything is scoped to body.mlp-page or .mlp. */
+
+/* ---------- the profile is a page inside Member desk, not a sheet ---------- */
+body.mlp-page>header,body.mlp-page #integritybar,body.mlp-page .mlk-deskbar,body.mlp-page #melscrim{display:none!important}
+body.mlp-page #view-member:not([hidden]){padding:0 var(--ml-gutter-end) 40px var(--ml-gutter);background:transparent!important}
+body.mlp-page #memberbody{max-width:none;margin:0}
+body.mlp-page .restore-loading{margin:0;padding:48px 20px;font:400 15px/1.45 var(--sans);color:var(--ml-muted);text-align:center}
+body.mlp-page .restore-loading button{margin-left:12px}
+.mlp-legacy[hidden]{display:none!important}
+
+.mlp{color:var(--ml-ink);font:400 14px/1.45 var(--sans)}
+.mlp :is(a,button,select,input,textarea,summary,[tabindex]):focus-visible{outline:2px solid var(--ml-accent)!important;outline-offset:2px;border-radius:var(--ml-radius)}
+.mlp-muted{color:var(--ml-muted)}
+
+/* ---------- 40px row: back link, breadcrumb, actions ---------- */
+.mlp-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:39px;border-bottom:1px solid var(--ml-rule)}
+.mlp-crumbs{display:flex;align-items:center;gap:24px;min-width:0;font-size:14px;line-height:20px}
+.mlp-back{display:inline-flex;align-items:center;gap:8px;color:var(--ml-ink);text-decoration:none;white-space:nowrap}
+.mlp-back span{text-decoration:underline dotted;text-decoration-color:var(--ml-control-border);text-underline-offset:4px}
+.mlp-back:hover span{text-decoration-style:solid;text-decoration-color:var(--ml-ink)}
+.mlp-back svg,.mlp-unknown .mlk-btn svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6}
+.mlp-trail{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ml-muted)}
+.mlp-slash{margin:0 8px}
+.mlp-actions{display:flex;align-items:center;gap:12px;flex:none}
+.mlp-actions .mlk-btn:not(#mlk){height:30px;padding:0 16px;font-size:13px;font-weight:400}
+.mlp-actions .mlk-btn:not(#mlk) svg{width:16px;height:16px}
+.mlp-pin:not(#mlk)[aria-pressed=true]{background:var(--ml-selection);border-color:var(--ml-active)}
+.mlp-maplink{margin-left:8px;color:var(--ml-active);font-size:13px;white-space:nowrap;text-decoration:underline dotted;text-underline-offset:4px}
+.mlp-maplink:hover{text-decoration-style:solid}
+
+/* ---------- header ---------- */
+.mlp-head{margin-top:16px}
+.mlp-id{display:flex;align-items:center;flex-wrap:wrap;gap:8px 20px}
+/* r5: sizes re-read off board #29 at 1440x810 (ink boxes): the name's cap is 24.6px (40px face; 36px gave 22), the figures'
+   values are 11-14% wider than at 24px (27px), the six tabs span 702px (19px side padding) and the body text of the
+   Overview cards (stance rows, tracker rows, pillar labels, the switch, the action buttons) is 13px. */
+.mlp-name{margin:0;padding:0;font:400 40px/44px var(--serif);letter-spacing:0;color:var(--ml-ink)}
+.mlp-id .mlk-tier:not(#mlk){height:24px;min-width:38px;font-size:13px}
+.mlp-id .mlk-pill:not(#mlk){height:24px;padding:0 13px 0 11px;border-radius:12px;gap:8px;font-size:13px;font-weight:400}
+.mlp-elec.mlk-chip:not(#mlk){height:24px;padding:0 12px;border-color:var(--ml-ink);font-size:13px}
+.mlp-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:7px 0 0;font-size:15px;line-height:20px;color:var(--ml-ink)}
+.mlp-meta .mlk-dot:not(#mlk){width:9px;height:9px;margin-right:4px}
+.mlp-sep{color:var(--ml-muted)}
+
+/* ---------- figures: equal tiles, one row ---------- */
+.mlp-figs{display:grid;grid-template-columns:repeat(var(--mlp-figs,6),minmax(0,1fr));gap:11px;margin-top:9px}
+.mlp-fig{box-sizing:border-box;min-width:0;min-height:84px;padding:8px 16px 9px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius)}
+.mlp-fig__v{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:400 27px/30px var(--serif);color:var(--ml-ink);font-variant-numeric:lining-nums}
+.mlp-fig__l{display:block;margin-top:2px;font:400 11px/16px var(--sans);letter-spacing:.08em;text-transform:uppercase;color:var(--ml-muted)}
+
+/* ---------- tab group ---------- */
+.mlp-tabbar{margin-top:14px;padding-bottom:2px;border-bottom:1px solid var(--ml-rule)}
+.mlp-tabs.mlk-tabs:not(#mlk){height:34px;max-width:100%;overflow-x:auto;scrollbar-width:none}
+.mlp-tabs.mlk-tabs:not(#mlk)>button{gap:8px;padding:0 19px;font-size:14px}
+.mlp-count{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;min-width:24px;height:18px;padding:0 6px;border:1px solid var(--ml-rule);border-radius:9px;background:var(--ml-surface-alt);color:var(--ml-muted);font:400 12px/1 var(--sans)}
+.mlp-tabs [aria-selected=true] .mlp-count{border-color:var(--ml-dark-control);background:transparent;color:var(--ml-on-dark)}
+.mlp-panel{margin-top:12px}
+.mlp-panel:focus-visible{outline-offset:4px}
+.mlp-panel[hidden]{display:none}
+
+/* ---------- shared cards ---------- */
+.mlp .mlk-card:not(#mlk){padding:16px 18px 18px}
+.mlp-card .mlk-label:not(#mlk){font-size:12px}
+/* restored.css sets h1-h3 to text-transform:none / letter-spacing:0 with !important; the kit label look wins back here. */
+.mlp h3.mlk-label:not(#mlk){text-transform:uppercase!important;letter-spacing:.1em!important;font-family:var(--sans)}
+.mlp-stack{display:grid;gap:16px;min-width:0}
+.mlp-stack>*,.mlp-ov>*{min-width:0;max-width:100%}
+.mlp-stack>.mlp-card{overflow-x:auto}
+.mlp-profile{margin-top:16px}
+.mlp-subhead{margin:0 0 12px;padding:0;font:400 20px/1.25 var(--serif);letter-spacing:0;text-transform:none;color:var(--ml-ink)}
+.mlp-note{margin-top:10px;font-size:12px;line-height:1.45;color:var(--ml-muted)}
+.mlp-linkbtn{height:auto;min-height:0;margin:0;padding:0;border:0;background:transparent;color:var(--ml-ink);font:inherit;text-decoration:underline dotted;text-decoration-color:var(--ml-control-border);text-underline-offset:4px;cursor:pointer}
+.mlp-linkbtn:hover{text-decoration-style:solid;text-decoration-color:var(--ml-ink)}
+.mlp-dotsep{margin:0 8px;color:var(--ml-muted)}
+.mlp-textlink{color:var(--ml-muted);font-size:13px;text-decoration:underline dotted;text-underline-offset:4px}
+.mlp-textlink:hover{color:var(--ml-ink)}
+.mlp-eng__notes[hidden]{display:none}
+
+/* ---------- overview: stance list (left, ~66%) + pillars / engagement (right) ---------- */
+/* Board #29: both columns end together. The grid stretches (the engagement card takes the right column's spare height,
+   a short stance list takes the left's) while both cards are at rest; once an area is open, the list is expanded or the
+   engagement form is open, each column keeps its own height (no card grows an empty band). */
+.mlp-ov{display:grid;grid-template-columns:minmax(0,800fr) minmax(0,405fr);gap:16px;align-items:stretch}
+.mlp-ov:has(>.mlp-areas.is-grown,>.mlp-side>.mlp-eng.is-open){align-items:start}
+.mlp-side{display:grid;grid-template-rows:auto 1fr;gap:12px;min-width:0}
+.mlp-areas.mlk-card:not(#mlk){padding:9px 17px 0}
+.mlp-areas__head{display:flex;align-items:center;gap:18px;min-height:30px;margin-bottom:5px}
+/* The kit's .mlk-label:not(#mlk){margin:0} outranks a plain class pair, so the title's push uses the same :not(#mlk). */
+.mlp-areas__head .mlk-label:not(#mlk){flex:1 1 auto;min-width:0;margin-right:auto}
+.mlp-sort.mlk-select:not(#mlk){height:30px;font-size:13px}
+/* Board: 'Sort: Rank' is 108px; the select takes its chosen option's width, not the longest option's. */
+.mlp-sort.mlk-select:not(#mlk)>select{field-sizing:content}
+.mlp-switch{display:inline-flex;align-items:center;gap:10px;font-size:13px;white-space:nowrap}
+.mlp-switch>span{cursor:pointer}
+.mlp-area__row{display:grid;grid-template-columns:minmax(0,36%) minmax(0,1fr) auto;align-items:center;gap:12px;box-sizing:border-box;width:100%;height:35px;min-height:0;margin:0;padding:0;border:0;border-bottom:1px solid var(--ml-rule);border-radius:0;background:transparent;color:var(--ml-ink);font:400 13px/1.2 var(--sans);text-align:left;cursor:pointer}
+.mlp-area__row:hover{background:color-mix(in srgb,var(--ml-surface-alt) 55%,transparent)}
+.mlp-area__row[aria-expanded=true]{border-bottom-color:transparent}
+.mlp-area__name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mlp-area__pill{min-width:0}
+.mlp-area__rank{color:var(--ml-muted);font-size:13px;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+/* board #29 sets the dot in "#1 of 390 · 12 actions" with ~7px either side (the face's own space is 3px) */
+.mlp-ranksep{margin:0 .25em}
+.mlp-area__detail{padding:2px 0 12px;border-bottom:1px solid var(--ml-rule);color:var(--ml-ink);font-size:13px;line-height:1.5}
+.mlp-area__detail[hidden]{display:none}
+.mlp-area__detail p{margin:0 0 4px}
+.mlp-ledger{width:100%;margin-top:6px;border-collapse:collapse;min-width:0;font-size:12px}
+.mlp-ledger th{padding:4px 8px 4px 0;border:0;border-bottom:1px solid var(--ml-rule);background:transparent;color:var(--ml-muted);font:600 11px/1.2 var(--sans);letter-spacing:.04em;text-transform:none;text-align:left}
+.mlp-ledger td{padding:4px 8px 4px 0;border:0;border-bottom:1px solid var(--ml-rule);vertical-align:top}
+.mlp-ledger tr:last-child td{border-bottom:0}
+.mlp-ledger td:nth-child(n+3){white-space:nowrap}
+.mlp-areas__foot{display:flex;align-items:center;flex-wrap:wrap;padding:17px 0 19px;font-size:13px;color:var(--ml-muted)}
+.mlp-areas__foot[hidden]{display:none}
+.mlp-areas:has(.mlp-areas__foot[hidden]) .mlp-areas__list{margin-bottom:12px}
+.mlp-areas__foot .mlp-linkbtn{font-size:14px}
+.mlp-areas .mlk-state{padding:24px 0}
+
+/* Board #29 pillar card: 224px; label then bar (label centre to bar centre 15px), 44px pitch; value ~13px medium, centred on
+   its bar. */
+.mlp-pillars.mlk-card:not(#mlk){padding:16px 16px 19px 20px}
+.mlp-pillars__list{margin-top:10px;display:grid;gap:13px}
+/* r5: board #29 ends each bar 19px before a ~26px value (bar 866-1193, value 1212-1238 at 1440x810) */
+.mlp-pillar{display:grid;grid-template-columns:minmax(0,1fr) 30px;column-gap:16px;row-gap:0;align-items:center}
+.mlp-pillar__label{grid-column:1/-1;font-size:13px;line-height:18px}
+.mlp-pillar__label .mlp-muted{margin-left:6px;font-size:12px}
+.mlp-pillar__bar{position:relative;display:block;height:9px;border-radius:5px;background:var(--mlk-track);overflow:hidden}
+.mlp-pillar__bar>i{position:absolute;left:0;top:0;bottom:0;width:var(--mlp-v,0%);border-radius:5px;background:var(--mlp-c,var(--ml-control-border))}
+.mlp-pillar__val{text-align:right;font:500 13px/1 var(--sans);font-variant-numeric:tabular-nums}
+
+/* Engagement: the board draws three 35px rows; the prompt's four tracker fields fit the same column height at 28px. */
+.mlp-eng.mlk-card:not(#mlk){padding:14px 20px 10px 20px}
+.mlp-kv{margin:0}
+.mlp-kv[hidden]{display:none}
+.mlp-kv__row{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:28px;border-bottom:1px solid var(--ml-rule);font-size:13px}
+.mlp-kv__row dt{margin:0;color:var(--ml-ink)}
+.mlp-kv__row dd{margin:0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ml-muted);text-align:right}
+.mlp-eng__actions{display:flex;align-items:center;flex-wrap:wrap;gap:16px;margin-top:4px}
+.mlp-eng__actions .mlk-btn:not(#mlk){height:28px;padding:0 20px;font-size:13px;font-weight:400}
+.mlp-eng__status{font-size:12px;color:var(--ml-muted)}
+.mlp-eng__form[hidden]{display:none}
+.mlp-trackform .eyebrow{margin:10px 0 10px;font:400 12px/1.4 var(--sans);letter-spacing:0;text-transform:none;color:var(--ml-muted)}
+.mlp-trackform .eyebrow span{color:var(--ml-muted)!important}
+.mlp-trackform .trackgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.mlp-trackform .trackgrid label{display:flex;flex-direction:column;gap:4px;font:400 12px/1.2 var(--sans);color:var(--ml-muted)}
+.mlp-trackform .mlp-input{box-sizing:border-box;width:100%;height:var(--ml-control);min-height:0;padding:0 10px;border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);background:var(--ml-surface);color:var(--ml-ink);font:400 14px/1 var(--sans)}
+
+/* ---------- bills: one-line table (board #33 look) ---------- */
+.mlp-bills__controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px 16px;margin-bottom:14px}
+.mlp-bills__controls .mlk-seg:not(#mlk){height:36px}
+.mlp-bills__controls .mlk-seg:not(#mlk)>button{padding:0 16px;font-size:14px}
+.mlp-bills__count{margin-left:auto;color:var(--ml-muted);font-size:13px}
+/* The Bills view's row (build 05, desk-bills.css .dbl-table): fixed layout, 42px header, 40px one-line rows, 13px text;
+   the title ellipsised with the full title on hover, areas as outlined chips (two, then +N; one when two do not fit),
+   the sponsor as a party dot plus the short form 'Sen. Padilla [D-CA]'. Rules copied under mlp- names so a change to
+   the Bills view does not reach this table. */
+.mlp-bills__table .mlk-table:not(#mlk){table-layout:fixed;min-width:1000px;font-size:13px}
+.mlp-bills__table col.mlp-c-role{width:156px}
+.mlp-bills__table col.mlp-c-bill{width:118px}
+.mlp-bills__table col.mlp-c-areas{width:18%}
+.mlp-bills__table col.mlp-c-sponsor{width:17%}
+.mlp-bills__table col.mlp-c-congress{width:96px}
+.mlp-bills__table col.mlp-c-cos{width:112px}
+.mlp-bills__table .mlk-table:not(#mlk) th{height:42px;box-sizing:border-box;padding:0 12px}
+.mlp-bills__table .mlk-table:not(#mlk) td{height:40px;padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mlp-bills__table .mlk-table:not(#mlk) :is(th,td):first-child{padding-left:14px}
+.mlp-bills__table .mlk-pill:not(#mlk){max-width:100%}
+.mlp-ellip{display:block;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.mlp-billtitle{width:100%;height:auto;min-height:0;margin:0;padding:0;border:0;background:transparent;color:var(--ml-ink);font:400 13px/1.3 var(--sans);text-align:left}
+button.mlp-billtitle{cursor:pointer}
+button.mlp-billtitle:hover{text-decoration:underline dotted;text-underline-offset:3px}
+.mlp-chips{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden}
+.mlp-chip{display:block;flex:0 1 auto;min-width:0;box-sizing:border-box;height:24px;padding:0 8px;border:1px solid var(--ml-strong-rule);border-radius:var(--ml-radius);background:transparent;color:var(--ml-ink);font:400 12px/22px var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mlp-chip--more{flex:none;overflow:visible;color:var(--ml-muted)}
+.mlp-bills__sponsor .mlp-ellip{display:flex;align-items:center;gap:8px}
+.mlp-bills__sponsor .mlp-ellip>span:not(.mlk-dot){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mlp-bills__sponsor .mlk-dot:not(#mlk){flex:none;width:9px;height:9px}
+.mlp-none{color:var(--ml-muted)}
+.mlp-billno{color:var(--ml-ink);font-weight:600;white-space:nowrap;text-decoration:underline dotted;text-decoration-color:var(--ml-control-border);text-underline-offset:3px}
+.mlp-billsum td{height:auto!important;padding:6px 14px 12px!important;white-space:normal!important;background:var(--ml-surface-alt)!important;color:var(--ml-muted);font-size:13px;line-height:1.5}
+.mlp-billsum[hidden]{display:none}
+
+/* ---------- moved legacy groups, restyled ---------- */
+.mlp .mlp-subbody{padding:0;background:transparent;border:0;border-radius:0}
+.mlp .mlp-subbody .sub,.mlp .mlp-subbody .sub .subbody{background:transparent}
+.mlp :is(.mlp-sub,.mlp-district,.mlp-press,.mlp-method) .body{padding:0;background:transparent;border:0;border-radius:0}
+.mlp .eyebrow{font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.08em;color:var(--ml-muted)}
+.mlp .card:not(.mlk-card){background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);padding:16px 18px 18px}
+.mlp :is(.dcell,.districtbrief,.stfcard,.ev,.billrow,.repo-block,.fileitem){border-radius:var(--ml-radius)}
+.mlp :is(.mrow,.arow,.partner,.cnt,.empty,.dcell .l,.ev-top,.ev-sig){font-family:var(--sans)}
+.mlp :is(.areasel select,select.secsrc,select.secsent,select.secarea){height:32px;padding:0 10px;border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);background:var(--ml-surface);color:var(--ml-ink);font:400 13px/1 var(--sans)}
+.mlp .btn{height:30px;margin-top:8px;padding:0 14px;border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);background:var(--ml-surface);color:var(--ml-ink);font:400 13px/28px var(--sans)}
+.mlp .btn:hover{background:var(--ml-surface-alt)}
+.mlp .btn.ghost{background:var(--ml-surface)}
+.mlp .methnote>summary{color:var(--ml-active)}
+.mlp-evidence>summary{margin-bottom:6px;color:var(--ml-muted);font-size:13px;cursor:pointer}
+.mlp-evidence p,.mlp-policy{margin:0 0 8px;font-size:13px;line-height:1.5;color:var(--ml-ink)}
+.mlp-radar{max-width:760px}
+.mlp-rawtable{min-width:760px}
+.mlp-rawtable td{font-size:13px}
+.mlp-rawtoggle{height:auto;min-height:0;margin:0;padding:0;border:0;background:transparent;color:var(--ml-ink);font:inherit;text-align:left;text-decoration:underline dotted;text-decoration-color:var(--ml-control-border);text-underline-offset:3px;cursor:pointer}
+.mlp-rawdetail td{height:auto!important;padding:8px 12px 14px!important;background:var(--ml-surface-alt)!important;font-size:12px;line-height:1.5}
+.mlp-rawdetail p{margin:0 0 6px}
+.mlp-rawdetail[hidden]{display:none}
+.mlp-raw>.mlp-muted{margin:-4px 0 12px;font-size:13px}
+/* Scores moved out of Overview and Access (prompt Don't-copy): a pointer under each section heading, the card on Sources. */
+.mlp-measures-note{margin:-6px 0 12px;font-size:13px}
+.mlp-measures-note .mlp-linkbtn{color:var(--ml-active)}
+.mlp-measures>.mlp-muted{margin:-4px 0 4px;font-size:13px}
+.mlp-measures__group{margin-top:18px}
+.mlp-measures__head{margin:0 0 6px;font:600 14px/1.3 var(--sans);color:var(--ml-ink)}
+.mlp-measures .eyebrow{margin:10px 0 4px}
+
+/* Legacy inline chrome that was drawn for the dark desk and is not recoloured at build time: the approach-brief and
+   quick-read boxes, the long-form example box and the partner-bar track (old dark-palette chrome values, matched by their
+   inline-background occurrence); no colour value is written, only tokens. The boxes' uppercase labels are matched by
+   structure, not colour. Data fills inside them (party colours) are untouched. */
+.mlp :is([style*="background:#2E2514" i],[style*="background:#172033" i],[style*="background:#243223" i]){background:var(--ml-surface-alt)!important;border-color:var(--ml-rule)!important;color:var(--ml-ink)!important}
+.mlp :is([style*="background:#2E2514" i],[style*="background:#172033" i]) [style*="text-transform:uppercase"]{color:var(--ml-muted)!important}
+.mlp [style*="background:#433317" i]{background:var(--mlk-track)!important}
+.mlp .stfsearch{box-sizing:border-box;height:32px;padding:0 10px;background:var(--ml-surface);border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);color:var(--ml-ink);font:400 13px/1 var(--sans)}
+.mlp .stfnote textarea{background:var(--ml-surface);color:var(--ml-ink);border-color:var(--ml-control-border)}
+.mlp-method dt{font-family:var(--sans)!important;letter-spacing:.08em!important}
+
+/* ---------- unknown member ---------- */
+.mlp-unknown .mlk-state:not(#mlk){padding:72px 20px}
+.mlp-unknown__title{margin:0 0 16px;font:400 22px/1.3 var(--serif);color:var(--ml-ink)}
+
+/* ---------- narrower frames ---------- */
+@media (max-width:1100px){
+ .mlp-figs{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+ .mlp-ov{grid-template-columns:minmax(0,1fr)}
+}
+@media (max-width:760px){
+ .mlp-bar{flex-wrap:wrap;padding:6px 0}
+ .mlp-crumbs{gap:12px}
+ .mlp-trail{display:none}
+ .mlp-actions{flex-wrap:wrap;gap:8px}
+ .mlp-name{font-size:28px;line-height:34px}
+ .mlp-figs{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .mlp-area__row{grid-template-columns:minmax(0,1fr) auto;height:auto;min-height:44px;padding:6px 0}
+ .mlp-area__rank{grid-column:1/-1;text-align:left}
+ .mlp-areas__head{flex-wrap:wrap}
+}
+
+/* ---------- print: every tab, no chrome ---------- */
+@media print{
+ .mlp-bar,.mlp-tabbar,.mlp-eng__actions,.mlp-areas__foot,.mlp-sort,.mlp-switch{display:none!important}
+ .mlp-panel[hidden]{display:block!important}
+ .mlp-ov{grid-template-columns:minmax(0,1fr)}
+}

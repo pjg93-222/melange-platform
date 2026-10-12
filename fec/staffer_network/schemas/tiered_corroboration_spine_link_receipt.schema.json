@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-tiered-corroboration-spine-link-receipt-v1",
+  "title": "Tiered corroboration spine-link receipt",
+  "description": "Receipt for the v3 spine-link post-stage. Binds the v2 generation it carried forward, the spine generation it linked to, the name standard and class table that produced the keys, and every lane input the record names were recovered from. Pins both promotion counters at zero.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "stage_id",
+    "rule_version",
+    "tier_rule_version",
+    "status",
+    "failures",
+    "generated_at",
+    "run_id",
+    "implementation",
+    "inputs",
+    "files",
+    "counts",
+    "conservation",
+    "inv5_reproduction",
+    "link_rule",
+    "determinism",
+    "bindings",
+    "language_law",
+    "promotion_policy",
+    "review_status",
+    "canonical_identity_promotions",
+    "canonical_employment_promotions",
+    "canonical_promotions_zero",
+    "v2_generation",
+    "spine_generation"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-tiered-corroboration-spine-link-receipt-v1"
+    },
+    "stage_id": {
+      "const": "tiered-corroboration-sidecar-part-a-spine-link"
+    },
+    "rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tier_rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "failures": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated_at": {
+      "type": "string",
+      "minLength": 1
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "minProperties": 4,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "rows",
+          "bytes",
+          "sha256"
+        ],
+        "properties": {
+          "rows": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "counts": {
+      "type": "object"
+    },
+    "bindings": {
+      "type": "object",
+      "required": [
+        "v2_receipt_sha256",
+        "spine_receipt_sha256",
+        "spine_sha256",
+        "id_map_sha256",
+        "name_standard_sha256"
+      ],
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "conservation": {
+      "type": "object",
+      "required": [
+        "person_office_records",
+        "person_office_records_v2",
+        "person_summary_rows",
+        "sealed_queue_rows",
+        "v2_record_fields_byte_identical",
+        "v2_summary_fields_byte_identical",
+        "unlinked_records_carrying_a_spine_id",
+        "linked_records_without_a_spine_id",
+        "carried_files_byte_identical_to_v2",
+        "link_histogram_sums_to_records"
+      ],
+      "properties": {
+        "unlinked_records_carrying_a_spine_id": {
+          "const": 0
+        },
+        "linked_records_without_a_spine_id": {
+          "const": 0
+        },
+        "v2_record_fields_byte_identical": {
+          "const": true
+        },
+        "v2_summary_fields_byte_identical": {
+          "const": true
+        },
+        "link_histogram_sums_to_records": {
+          "const": true
+        }
+      }
+    },
+    "inv5_reproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "all_match",
+        "rows",
+        "note"
+      ],
+      "properties": {
+        "all_match": {
+          "const": true
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rows": {
+          "type": "array",
+          "minItems": 34,
+          "maxItems": 34,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "lane",
+              "metric",
+              "expected",
+              "measured",
+              "v2_measured",
+              "match"
+            ],
+            "properties": {
+              "lane": {
+                "type": "string",
+                "minLength": 1
+              },
+              "metric": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expected": {
+                "type": "integer"
+              },
+              "measured": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "v2_measured": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "match": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "link_rule": {
+      "type": "object",
+      "required": [
+        "tiers_recomputed",
+        "office_key",
+        "window",
+        "middle_initial",
+        "ambiguity_law",
+        "name_key_source_by_lane"
+      ],
+      "properties": {
+        "tiers_recomputed": {
+          "const": false
+        }
+      }
+    },
+    "determinism": {
+      "type": "object"
+    },
+    "language_law": {
+      "type": "object",
+      "required": [
+        "authored_hits",
+        "policy",
+        "verbatim_source_quoted_fields",
+        "verbatim_token_occurrences"
+      ],
+      "properties": {
+        "authored_hits": {
+          "const": 0
+        }
+      }
+    },
+    "promotion_policy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "review_status": {
+      "const": "REVIEW_REQUIRED"
+    },
+    "canonical_identity_promotions": {
+      "const": 0
+    },
+    "canonical_employment_promotions": {
+      "const": 0
+    },
+    "canonical_promotions_zero": {
+      "const": true
+    },
+    "v2_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "receipt_sha256",
+        "receipt_status"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string"
+        },
+        "receipt_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "receipt_status": {
+          "const": "PASS"
+        }
+      }
+    },
+    "spine_generation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "primary",
+        "provisional",
+        "verification_status",
+        "receipt_generated_at",
+        "receipt_rule_version",
+        "receipt_run_id"
+      ],
+      "properties": {
+        "primary": {
+          "type": "string"
+        },
+        "provisional": {
+          "type": "boolean"
+        },
+        "verification_status": {
+          "const": "PASS"
+        },
+        "receipt_generated_at": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receipt_rule_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "receipt_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

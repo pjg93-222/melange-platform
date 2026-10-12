@@ -1,0 +1,896 @@
+/* Scope, analysis, and tools share a quiet 8px spacing rhythm. */
+:root{--teal:#258b8c;--line:#dce6ed;--navy:#122f48}
+header{height:64px;gap:28px;background:var(--navy)}
+.wordmark{font-size:24px;letter-spacing:1px;flex-shrink:0}
+header .workspace-tabs{margin:0;align-self:stretch;border:0;gap:12px;align-items:stretch}
+header .workspace-tabs button{color:#c5d6e4;background:none;font-weight:400;padding:12px 14px}
+header .workspace-tabs button[aria-selected=true]{color:white;background:none;border-color:#73d2cf;border-radius:0;font-weight:600}
+.local-indicator{margin-left:auto;font-size:13px;white-space:nowrap;color:#d6e5ef}
+#connection{font-size:12px;max-width:190px}
+.workspace{max-width:1760px;padding:28px 32px 40px}
+.workspace-heading{margin-bottom:26px;gap:16px}
+.workspace-heading h1{font-size:32px;margin:0}
+.graph-actions{display:flex;gap:12px;align-items:center}
+.graph-actions .secondary{border-color:#b7ccd9;padding:8px 14px}
+#graph-open-builder{border-color:#428da5;color:#09667c}
+.graph-controls{margin:0;padding:16px 20px;background:white}
+.scope-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px}
+.scope-heading .section-label{font-size:11px;letter-spacing:1px}
+.graph-filter-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:20px}
+.graph-filter-grid label[for=graph-run]{grid-column:1/-1}
+#graph-run{max-width:640px}
+.graph-filter-grid label,.graph-candidate-controls label{font-size:13px;font-weight:400;color:#526e84;min-width:0}
+.graph-filter-grid select{margin:4px 0 0;border-color:var(--line);padding:8px 11px;font-size:14px}
+.graph-chips{display:flex;gap:8px;flex-wrap:wrap}
+.graph-chips:not(:empty){margin-top:12px}
+.graph-chips button{padding:4px 10px;font-size:12px}
+.graph-chips .graph-coverage{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.graph-chips .graph-coverage .quality-chip{margin:0}
+.graph-chips .graph-coverage-caption{margin:0;max-width:110ch}
+.analysis-tabs{display:flex;gap:16px;border-bottom:1px solid var(--line);margin:24px 0 0;overflow:auto}
+.analysis-tabs button{padding:12px 14px;border:0;border-bottom:3px solid transparent;background:none;color:#38556b;font-size:14px;white-space:nowrap}
+.analysis-tabs button[aria-selected=true]{border-color:var(--teal);color:#087b85;font-weight:600}
+#graph-status{font-size:12px;margin:9px 0 16px;color:#607c8f}
+.graph-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;margin:0 0 24px;background:white;border:1px solid var(--line);border-radius:6px;padding:18px 0}
+.graph-metrics>div{padding:0 24px;border:0;border-right:1px solid var(--line);background:none;border-radius:0}
+.graph-metrics>div:last-child{border:0}
+.graph-metrics span,.graph-metrics small{display:block;font-size:13px;color:#516e83}
+.graph-metrics strong{display:block;font-size:30px;line-height:1.45;font-weight:600;color:var(--navy);font-variant-numeric:tabular-nums}
+.graph-metrics small{font-size:12px}
+.graph-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:stretch}
+.graph-panels[data-analysis=overview]>.graph-panel{display:grid;grid-template-rows:subgrid;grid-row:span 5;row-gap:0}
+.graph-panels[data-analysis=overview]>.graph-panel>.panel-heading{align-self:start;align-content:start}
+.graph-panels[data-analysis=overview]>.graph-panel>.panel-heading{grid-row:1}
+.graph-panels[data-analysis=overview]>.graph-panel>div:nth-child(2){grid-row:2}
+.graph-panels[data-analysis=overview]>.graph-panel>.graph-panel-note{grid-row:3}
+.graph-panels[data-analysis=overview]>.graph-panel>.graph-panel-foot{grid-row:4}
+.graph-panels[data-analysis=overview]>.graph-panel>details{grid-row:5}
+@media(max-width:760px){.graph-panels[data-analysis=overview]>.graph-panel{display:block;grid-row:auto}}
+.graph-panels[data-analysis=recipients],.graph-panels[data-analysis=companies]{grid-template-columns:repeat(2,minmax(0,1fr))}
+.graph-panels[data-analysis=candidates]{grid-template-columns:1fr}
+.graph-panels>.panel{margin:0;padding:22px 24px;border-radius:6px;min-width:0}
+.graph-panels .panel-heading{align-items:center;flex-wrap:wrap;gap:8px}
+.graph-panels h2{font-size:20px;margin:0}
+.graph-panels p{margin:8px 0 16px}
+.graph-panels details{margin-top:16px}
+.graph-panels[data-analysis=overview] #graph-categories>details:not([open]),.graph-panels[data-analysis=overview] #graph-candidates>details:not([open]){display:none}
+.graph-bars{display:block;min-width:0;width:100%;height:auto}
+#graph-categories,#graph-candidates,#graph-organizations,#graph-companies,#graph-levels{max-width:100%;overflow:auto}
+[data-analysis=candidates] #graph-candidates>.graph-bars{max-width:560px}
+.graph-bar-button{cursor:pointer}
+.graph-bar-button:focus{outline:2px solid #b48b21}
+.graph-text-button{border:0;padding:0;background:none;color:#087b92;font-size:13px;text-align:left}
+.graph-text-button:hover{text-decoration:underline}
+.chart-note{font-size:12px;line-height:1.6;color:#586f82;overflow-wrap:anywhere}
+.graph-candidate-controls{display:flex;gap:16px;margin-top:16px;max-width:740px}
+.graph-candidate-controls label{flex:1}
+.graph-candidate-controls select{font-size:14px}
+.graph-empty{padding:20px;margin:8px 0;background:#f4f8fa;color:#627888;border-radius:4px;font-size:14px}
+.graph-details-tools{display:flex;align-items:start;justify-content:space-between;gap:24px;margin-top:24px;padding:14px 20px;background:white;border:1px solid var(--line);border-radius:6px}
+.graph-details-tools>details{flex:1;min-width:180px;padding-top:7px}
+.graph-details-tools summary{color:var(--navy);font-weight:500}
+.graph-export-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.graph-export-tools select{width:auto;max-width:190px;font-size:13px;margin:0;padding:7px;border-color:var(--line)}
+.graph-export-tools .secondary{font-size:13px;padding:7px 12px}
+#graph-method{font-size:13px;max-width:640px;margin:12px 0}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+dialog{color:var(--navy);background:white;border:1px solid var(--line);border-radius:8px;padding:28px;max-height:calc(100vh - 64px);overflow:auto}
+dialog::backdrop{background:rgba(18,47,72,.18)}
+#graph-builder{width:1440px;max-width:calc(100vw - 64px)}
+#graph-builder>.panel-heading{align-items:center;margin-bottom:16px;position:sticky;top:-28px;background:white;padding:16px 0;z-index:2;border-bottom:1px solid var(--line)}
+#graph-builder h2{margin:4px 0 0}
+#graph-advanced{margin:0;padding:0;border:0}
+#graph-advanced>summary{font-size:14px;color:#526e84}
+#graph-advanced>.view-intro{font-size:14px;margin:16px 0 24px}
+.chart-layout{grid-template-columns:300px minmax(0,1fr);gap:32px}
+.chart-controls{padding-right:24px;border-right:1px solid var(--line)}
+.chart-controls h3{font-size:17px}
+.chart-controls select{font-size:13px;margin:5px 0 12px;padding:8px;border-color:var(--line)}
+.chart-preview{min-width:0}
+.chart-preview h2{font-size:21px}
+.chart-image svg{min-width:0}
+.chart-image:empty{min-height:180px}
+.sources-drawer{position:fixed;inset:0 0 0 auto;margin:0;width:440px;max-width:100vw;max-height:100vh;height:100vh;border-radius:0;border-width:0 0 0 1px;padding:28px 24px}
+.sources-drawer .panel-heading{align-items:center;flex-wrap:nowrap}
+.sources-drawer h2{font-size:21px;margin:0}
+.sources-drawer>p:first-of-type{padding:10px 12px;background:#edf6fb;border:1px solid #d5e8f4;font-size:13px;border-radius:4px;margin:20px 0}
+.sources-drawer>label{font-size:13px}
+.source-receipt{padding:18px 0;border-top:1px solid var(--line);font-size:12px}
+.source-receipt h3{font-size:14px;overflow-wrap:anywhere;margin:0 0 14px}
+.source-receipt .source-receipt{margin-top:16px;padding-bottom:0}
+.source-field{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:12px;margin:10px 0;color:#526e84}
+.source-field>span:last-child{color:var(--navy);overflow-wrap:anywhere}
+.source-field .freshness-unknown{color:#805c11!important}
+#graph-provenance{overflow-wrap:anywhere;margin:12px 0}
+#graph-provenance p{font-size:11px}
+button:disabled{cursor:default}
+@media(min-width:1600px){.graph-panels[data-analysis=overview]{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:1100px){#connection{display:none}.graph-filter-grid{gap:12px}.graph-panels{gap:16px}.graph-panels>.panel{padding:18px}.graph-details-tools{flex-direction:column;gap:12px}.graph-actions{gap:8px}.graph-actions .secondary{font-size:12px}}
+@media(max-width:850px){header{height:auto;min-height:64px;flex-wrap:wrap;gap:0 12px;padding:14px 20px 0}.local-indicator{order:1}.wordmark{order:0}header .workspace-tabs{order:2;width:100%;margin-top:10px;gap:8px}.workspace{padding:24px 20px}.workspace-heading{flex-wrap:wrap}.graph-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.graph-panels,.graph-panels[data-analysis=recipients],.graph-panels[data-analysis=companies]{grid-template-columns:1fr}.graph-metrics strong{font-size:23px}.graph-metrics>div{padding:0 16px}.chart-layout{grid-template-columns:1fr}.chart-controls{border:0;border-bottom:1px solid var(--line);padding:0 0 24px}#graph-builder{max-width:calc(100vw - 24px);padding:20px}.graph-candidate-controls{flex-wrap:wrap}}
+@media(max-width:500px){header .workspace-tabs{gap:0}header .workspace-tabs button{padding:10px 8px;font-size:13px;flex:1}.workspace{padding:20px 14px}.workspace-heading h1{font-size:28px}.graph-actions{width:100%;justify-content:space-between}.graph-filter-grid{gap:12px}.graph-controls{padding:14px}.analysis-tabs{gap:0}.analysis-tabs button{font-size:13px;padding:12px 10px;flex:1}.graph-metrics{grid-template-columns:1fr;padding:0}.graph-metrics>div{display:block;padding:12px 18px;border:0;border-bottom:1px solid var(--line)}.graph-metrics strong{font-size:25px}.graph-metrics small{font-size:11px}.graph-export-tools{gap:12px;width:100%}.graph-export-tools select{max-width:150px}.graph-details-tools{padding:14px}.sources-drawer{padding:24px 18px}.graph-candidate-controls{flex-direction:column}}
+
+/* ===========================================================================
+   Return navigation, the downstream drawer and expressive motion (2026-09-19).
+   Every rule this lane adds lives in this file. The panel-header rules it has
+   to beat live in workspace.css, which this lane does not own, so each override
+   names #view-graph: graph.css is read BEFORE workspace.css, so equal
+   specificity would lose. The overrides are marked FOLD-BACK - they belong in
+   workspace.css beside the rules they answer.
+   =========================================================================== */
+
+/* One switch for all of it. Every animation below and the JS number roll alike
+   read these tokens, so the media query is the only place motion is decided. */
+:root{--motion:680ms;--motion-stagger:42ms;--motion-ease:cubic-bezier(.2,1.25,.3,1)}
+@media(prefers-reduced-motion:reduce){
+  :root{--motion:1ms;--motion-stagger:0ms;--motion-ease:linear}
+}
+
+/* --- FOLD-BACK: the card header from the approved board -------------------
+   Title left, tools right, on one row down to a 480px card. workspace.css
+   drops them onto a second row at 600px; the board keeps them together, and
+   only two visible candidate selects - the activity view - may take the
+   second row. */
+#view-graph .graph-panels h2{font-size:22px;line-height:1.2}
+#view-graph .graph-panels>.panel{padding:22px 24px 16px}
+#view-graph .graph-panels .panel-heading{align-items:center;gap:8px 14px;margin-bottom:14px}
+@container (max-width:600px){
+  #view-graph .graph-panels .panel-heading>h2{grid-column:1}
+  #view-graph .graph-panels .panel-heading .graph-panel-tools{grid-column:2;margin-left:auto;
+    justify-content:flex-end;flex-wrap:nowrap}
+  #view-graph .graph-panel-tools .graph-candidate-controls label{flex:0 0 auto}
+  #view-graph .graph-panel-tools .graph-candidate-controls select{max-width:180px}
+}
+/* Both candidate selects showing is the cramped case, and the one exception. */
+@container (max-width:600px){
+  #view-graph .graph-panels .panel-heading:has(.graph-candidate-controls label:not([hidden])~label:not([hidden]))>h2{grid-column:1/-1}
+  #view-graph .graph-panels .panel-heading:has(.graph-candidate-controls label:not([hidden])~label:not([hidden])) .graph-panel-tools{
+    grid-column:1/-1;margin-left:0;justify-content:flex-start;flex-wrap:wrap}
+  #view-graph .graph-panel-tools .graph-candidate-controls:has(label:not([hidden])~label:not([hidden])){flex:1 1 100%}
+}
+@container (max-width:480px){
+  #view-graph .graph-panels .panel-heading>h2{grid-column:1/-1}
+  #view-graph .graph-panels .panel-heading .graph-panel-tools{grid-column:1/-1;margin-left:0;
+    justify-content:flex-start;flex-wrap:wrap}
+}
+/* The selects carry their own names now - "Top 10", "Direct contributions" -
+   so the captions stay in the accessibility tree and out of the picture. */
+#view-graph .graph-panel-tools .graph-caption{position:absolute;width:1px;height:1px;padding:0;
+  margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+#view-graph .graph-topn{gap:0}
+#view-graph .graph-topn select{min-width:86px;font-size:12.5px;padding:5px 9px;min-height:32px}
+#view-graph .graph-panel-tools .graph-candidate-controls select{font-size:12.5px;padding:5px 9px;min-height:32px}
+#view-graph .graph-panels .panel-heading .graph-text-button{font-size:13px;color:var(--acu-purple);white-space:nowrap}
+
+/* --- the scope trail ---------------------------------------------------- */
+.graph-trail{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0 0}
+.graph-trail-parts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.graph-trail-part{border:0;background:none;padding:2px 0;font:inherit;font-size:14px;
+  color:var(--acu-purple);text-align:left;min-height:0;cursor:pointer}
+.graph-trail-part:hover{text-decoration:underline}
+.graph-trail-part[aria-current=page]{color:var(--acu-plum);font-weight:600}
+.graph-trail-mark{color:var(--muted);font-size:14px}
+.graph-trail-back{margin-left:auto;flex:none;border:1px solid #ded4e2;background:white;
+  border-radius:6px;padding:7px 15px;font:inherit;font-size:13px;color:var(--acu-plum);cursor:pointer}
+.graph-trail-back:hover{border-color:var(--acu-purple);background:#f7f2fa}
+.graph-copy-link{font-size:12px;color:var(--acu-purple)}
+.graph-copy-fallback{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--muted)}
+.graph-copy-fallback input{flex:1;min-width:0;font:inherit;font-size:12px;padding:6px 8px;
+  border:1px solid var(--line);border-radius:5px;background:white;color:var(--acu-plum)}
+
+/* --- the reader came from somewhere ------------------------------------- */
+.return-chip{margin:0 0 14px}
+.return-chip button{display:inline-flex;align-items:center;gap:8px;border:1px solid #ded4e2;
+  background:white;border-radius:999px;padding:7px 16px;font:inherit;font-size:13px;
+  color:var(--acu-plum);min-height:0;cursor:pointer}
+.return-chip button:hover{border-color:var(--acu-purple);background:#f7f2fa}
+
+/* --- the downstream drawer ---------------------------------------------- */
+/* Board 5: Top organizations and the drawer, two columns (about 1 : 1.07);
+   graph.js hides the recipient-type card while the drawer is open (fix
+   round 1, R02-M5; it was a third, squeezed column scaling its text to 9px). */
+.graph-panels[data-analysis=recipients][data-drawer=open]{
+  grid-template-columns:minmax(0,1fr) minmax(0,1.07fr)}
+.graph-drawer{animation:graph-drawer-in 420ms var(--motion-ease) both}
+.graph-drawer.is-closing{animation:graph-drawer-out 420ms var(--motion-ease) both;pointer-events:none}
+@keyframes graph-drawer-in{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes graph-drawer-out{from{opacity:1;transform:none}to{opacity:0;transform:translateX(24px)}}
+@media(prefers-reduced-motion:reduce){
+  .graph-drawer,.graph-drawer.is-closing{animation-duration:1ms}
+}
+/* The close mark is not a tools row: it stays beside the title at every
+   width, and the title wraps beside it rather than pushing it down. */
+#view-graph .graph-drawer .panel-heading{align-items:start;
+  grid-template-columns:minmax(0,1fr) auto;margin-bottom:12px}
+#view-graph .graph-drawer .panel-heading>h2{grid-column:1;font-size:21px;line-height:1.25}
+#view-graph .graph-drawer .panel-heading>.graph-drawer-close{grid-column:2;justify-self:end}
+.graph-drawer-close{font-size:15px;line-height:1;padding:2px 5px;color:var(--muted)}
+/* Board 5's segmented sides (Paul, 2026-09-23): one 64px box with a 1px rule
+   between sides, the name over its count, both 14px regular and 24px apart;
+   the side shown is lilac with purple ink. The sides are the data's own
+   buckets, each with its real count: Contributions and Other are the recorded
+   "Contribution / Other" bucket split by FEC transaction code (Paul,
+   2026-09-23: "It should be two separate segments"), beside Support and
+   Oppose; Unknown, and amounts no code splits, join only when they hold
+   something (graph.js drawerSides). */
+.graph-drawer-directions{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;
+  border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:2px 0 16px;background:white}
+.graph-drawer-side{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border:0;
+  border-right:1px solid var(--line);background:white;padding:11px 8px;box-sizing:border-box;min-height:62px;
+  font:inherit;color:var(--acu-plum);cursor:pointer}
+.graph-drawer-side:last-child{border-right:0}
+.graph-drawer-side-name,.graph-drawer-side strong{font:400 14px/16px var(--font-sans);color:var(--acu-plum)}
+.graph-drawer-side strong{font-variant-numeric:tabular-nums}
+.graph-drawer-side[aria-pressed=true]{background:#f4f0f8}
+.graph-drawer-side[aria-pressed=true] :is(.graph-drawer-side-name,strong){color:var(--acu-purple)}
+/* The segments' counts reconciled (round-3 verify, D1; graph.js
+   drawerOverlap). Each segment counts its own candidates, so when a candidate
+   is on both Contributions and Other (Paul, 2026-09-23: "It should be two
+   separate segments") one muted line under them says how many different
+   candidates they hold. It shows only then, and takes the strip's bottom air,
+   so the rows move down by the line alone. */
+.graph-drawer-directions:has(+#graph-drawer-overlap:not([hidden])){margin-bottom:6px}
+#graph-drawer-overlap{margin:0 0 10px;font-size:13px;line-height:18px;color:var(--muted)}
+/* Board 5 ends the drawer with the note and, under it, "Open in PAC
+   evidence" at the left; the committee's name and FEC id stay, muted, at the
+   right of that line (the only place Graph prints the id). */
+.graph-drawer-evidence{order:-1;display:inline-flex;align-items:center;gap:7px;
+  font-size:14px;color:var(--acu-purple)}
+#graph-drawer-committee{margin-left:auto;text-align:right}
+/* The note travels with the foot, as board 5 ends the drawer: when the card
+   is taller than its rows (comparing, beside the recipients table) the spare
+   height opens above the note, never between the note and "Open in PAC
+   evidence". The note's 14px of air is padding so its auto margin can take
+   the rest; with the note hidden the foot keeps the card's bottom itself. */
+#graph-drawer-panel>#graph-drawer-note{margin:auto 0 0;padding-top:14px;font-size:13px;line-height:18px;color:var(--muted)}
+body #view-graph #graph-drawer-panel>.graph-panel-foot{padding-top:14px;margin-top:0}
+body #view-graph #graph-drawer-panel>#graph-drawer-note[hidden]+.graph-panel-foot{margin-top:auto}
+#graph-drawer-rows{max-width:100%;overflow:auto;min-height:40px}
+@media(max-width:1000px){
+  .graph-panels[data-analysis=recipients][data-drawer=open]{grid-template-columns:1fr}
+}
+
+/* --- rows: the tint, the selected rule, the press ------------------------ */
+.graph-row{fill:transparent;pointer-events:all;transition:fill 120ms linear}
+.graph-bar-button:hover .graph-row,.graph-bar-button:focus-visible .graph-row{fill:#f0e9f5}
+.graph-bar-button.is-selected .graph-row{fill:var(--acu-lilac);fill-opacity:.5}
+.graph-row-rule{fill:var(--acu-plum)}
+.graph-bar-button:hover .graph-mark{filter:brightness(1.12)}
+#view-graph button:active{transform:translateY(1px)}
+
+/* --- the entrance ------------------------------------------------------- */
+/* Transform and opacity only, so nothing is relaid: the bar grows from its own
+   left edge, and the stagger is capped at seven steps (294ms) so a fifty-row
+   panel finishes with the rest. */
+.graph-bars.graph-enter .graph-mark{transform-box:fill-box;transform-origin:left center;
+  animation:graph-grow var(--motion) var(--motion-ease) both;
+  animation-delay:calc(var(--i,0) * var(--motion-stagger))}
+@keyframes graph-grow{from{transform:scaleX(0);opacity:.3}to{transform:scaleX(1);opacity:1}}
+/* The sparklines arrive on their own request, after the bars have settled, and
+   are drawn on from the left. The group is inside the slot's transform, never
+   on it: a CSS transform on the slot would replace its translate attribute. */
+/* Company comparison keeps its dollar column (Paul, 2026-09-23) and sets it
+   as boards M4 and 1 set every value column: tabular figures, right-aligned. */
+#graph-companies text.graph-value,#graph-companies text.graph-share{font-variant-numeric:tabular-nums}
+.graph-spark-draw{transform-box:fill-box;transform-origin:left center;
+  animation:graph-grow var(--motion) ease-out both}
+
+/* --- four cards while the report is being read -------------------------- */
+.graph-skeleton{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin:18px 0 0}
+.graph-skeleton-card{background:white;border:1px solid var(--line);border-radius:8px;
+  padding:22px 24px 16px;min-height:238px}
+.graph-skeleton-card i,.graph-skeleton-card b{display:block;position:relative;overflow:hidden;
+  background:#ece5df;border-radius:4px}
+.graph-skeleton-card i{height:20px;width:46%;margin-bottom:22px}
+.graph-skeleton-card b{height:13px;margin:0 0 18px}
+.graph-skeleton-card b:nth-of-type(2){width:92%}
+.graph-skeleton-card b:nth-of-type(3){width:78%}
+.graph-skeleton-card b:nth-of-type(4){width:64%}
+.graph-skeleton-card b:nth-of-type(5){width:52%}
+.graph-skeleton-card b:nth-of-type(6){width:38%}
+.graph-skeleton-card i::after,.graph-skeleton-card b::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.85),rgba(255,255,255,0));
+  transform:translateX(-100%);animation:graph-shimmer 2400ms linear infinite}
+@keyframes graph-shimmer{to{transform:translateX(100%)}}
+@media(max-width:1000px){.graph-skeleton{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){
+  .graph-skeleton-card i::after,.graph-skeleton-card b::after{animation:none}
+}
+#graph-drawer-rows details p { overflow-wrap: anywhere; }
+#graph-drawer-rows table th:nth-child(2),
+#graph-drawer-rows table td:nth-child(2),
+#graph-drawer-rows table td:nth-child(3) { white-space: nowrap; }
+.graph-explorer { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 18px; }
+.graph-explorer h3 { margin: 0 0 8px; font-size: 17px; }
+.graph-explorer-tools { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 18px 0; }
+.graph-explorer-tools label { display: grid; gap: 5px; font-size: 12px; color: var(--muted); min-width:0; max-width:100%; }
+.graph-explorer-tools input[type=search] { width:210px; min-width:0; max-width:100%; height:40px; padding:9px 10px; border:1px solid var(--line); border-radius:6px; background:white; color:inherit; font:inherit; }
+.graph-explorer-tools .graph-explorer-check { display: flex; align-items: center; max-width: 200px; }
+.graph-explorer .graph-text-button { color: var(--acu-plum, #57447b); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; text-align: left; font-size: 12px; }
+.graph-explorer .graph-text-button:hover { background: #f0e9f5; }
+.graph-explorer .graph-text-button:focus-visible { outline: 2px solid #327a7a; outline-offset: 2px; }
+.graph-route-chain { display: grid; gap: 10px; margin: 12px 0; }
+.graph-route-links { display: flex; flex-wrap: wrap; gap: 7px; max-height: 220px; overflow: auto; }
+.graph-explorer-pager { display: flex; gap: 8px; justify-content: end; margin-top: 12px; }
+.graph-explorer-inspector { margin-top: 16px; border-left: 3px solid #327a7a; padding: 16px; background: #f5faf9; overflow-wrap: anywhere; }
+.graph-explorer-inspector > button { margin: 6px 8px 0 0; }
+#graph-drawer-panel.graph-drawer-wide { grid-column: 1 / -1; grid-row: 1; }
+/* Paul, 2026-09-23 (board 5): the explorer is collapsed until "Expand
+   explorer" is pressed. The toggle widens the drawer (.graph-drawer-wide)
+   and that class is the one state: without it only the toggle shows under
+   the rows; the explorer's heading, tools, routes and table, and the
+   drawer's own disclosures (.graph-drawer-extra), wait behind it. */
+#graph-drawer-panel:not(.graph-drawer-wide) .graph-explorer { margin-top: 14px; padding-top: 0; border-top: 0; }
+#graph-drawer-panel:not(.graph-drawer-wide) .graph-explorer > :not(.graph-explorer-toggle),
+#graph-drawer-panel:not(.graph-drawer-wide) #graph-drawer-rows > .graph-drawer-extra { display: none; }
+#graph-drawer-panel.graph-drawer-wide .graph-explorer > .graph-explorer-toggle { margin-bottom: 14px; }
+@media(min-width:1001px) {
+  .graph-panels[data-analysis=recipients][data-drawer=open]:has(.graph-drawer-wide) { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+
+/* ===========================================================================
+   Console redesign, build 02a (2026-09-22): Graph's default view, board M4
+   (boards\M4_graph_default.webp: a 1600x900 frame at 1.25x). The board wins
+   over 02_graph.md's numbers; every override of a build-01 primitive below is
+   Graph-only and named in proof\02\DIFFERENCES.md. workspace-polish.css loads
+   last and still carries the 2026-09-19 Graph rollback at one id and one
+   class (#view-graph .graph-controls and friends), so every rule here leads
+   with `body #view-graph` and adds the card's own classes to outrank it.
+   =========================================================================== */
+
+/* --- the scope card: row 1 (chips, actions) and row 2 (tabs, figures) ------ */
+body #view-graph .graph-controls.card{position:relative;z-index:3;margin:0;padding:0 11px;background:white;
+  border:1px solid var(--card-border);border-radius:var(--card-radius);box-shadow:var(--card-shadow)}
+body #view-graph .graph-controls .graph-header{display:flex;flex-wrap:wrap;align-items:flex-start;gap:10px 16px;
+  margin:0;padding:9px 0}
+/* The chips shrink together before anything wraps: the group asks for 640px
+   and grows into the rest of the row, so at 1440 and at 1920 the scope bar is
+   one row and only narrower screens drop the actions under the chips. */
+body #view-graph .graph-header .graph-filter-grid{display:flex;flex:1 1 640px;flex-wrap:nowrap;align-items:flex-start;
+  gap:11px;min-width:0;margin:0}
+/* Chip select, fixed to board M4: 40px tall (primitive 48), the value 13px
+   (primitive 14), each chip starting at the width M4 draws it. */
+/* position:relative is the build-01 primitive's too; it is repeated here so a
+   page that loads graph.css without workspace-polish.css (the lazy-tables
+   fixture) cannot let the absolute select below cover the page. */
+body #view-graph .graph-filter-grid .chip-select{position:relative;flex:0 1 var(--chip-w,128px);min-width:80px;height:40px;margin:0;
+  padding:2px 26px 0 12px;font-size:11px;font-weight:400;color:var(--acu-plum)}
+body #view-graph .graph-filter-grid .chip-select[for=graph-industry]{--chip-w:122px}
+body #view-graph .graph-filter-grid .chip-select[for=graph-company]{--chip-w:145px}
+body #view-graph .graph-filter-grid .chip-select[for=graph-tier]{--chip-w:132px}
+body #view-graph .graph-filter-grid .chip-select[for=graph-cycle]{--chip-w:130px}
+body #view-graph .graph-filter-grid .chip-select[for=graph-funding]{--chip-w:125px}
+/* The select stays the control (id, options, keyboard) but paints no text;
+   graph.js fits the value into the face (R12) and titles the select with it. */
+body #view-graph .graph-filter-grid .chip-select select{position:absolute;inset:0;width:100%;height:100%;min-height:0;
+  margin:0;padding:18px 26px 4px 12px;border:0;border-radius:8px;background:transparent;box-shadow:none;
+  font:400 13px/16px var(--font-sans);color:transparent;text-overflow:clip}
+body #view-graph .graph-filter-grid .chip-select option{color:var(--acu-plum);background:white}
+body #view-graph .graph-filter-grid .chip-select .chip-face{position:absolute;z-index:1;left:12px;right:26px;top:18px;
+  font:400 13px/16px var(--font-sans);color:var(--acu-plum);white-space:nowrap;overflow:hidden;pointer-events:none}
+body #view-graph .graph-filter-grid .chip-select:has(select:disabled){cursor:default;background:#fbfaf9}
+body #view-graph .graph-filter-grid .chip-select:has(select:disabled) .chip-face{color:var(--muted)}
+/* The caption may run into the chevron's column: the chevron sits at mid
+   height, under the caption's line, so "Employee level" stays whole at 1440
+   (fix round 1, R02-m11; it read "Employee le…" by 1px). */
+body #view-graph .graph-filter-grid .chip-select:not(.chip-compare)>span:first-child{margin-right:-16px}
+/* The chevron sits 9px in from the edge and draws M4's flatter mark
+   (primitive: right 16px, 6px square). */
+body #view-graph .graph-filter-grid .chip-select::after{right:11px;width:4.5px;height:4.5px;margin-top:-3.5px}
+/* "+ Compare with..." (R-chip-add): 40px like the chips (primitive 48);
+   disabled until phase 02b wires it. */
+body #view-graph .graph-filter-grid .chip-add{flex:0 1 130px;min-width:104px;height:40px;min-height:40px;margin:0;
+  padding:0 10px;font:400 13px/1 var(--font-sans);border-radius:8px}
+body #view-graph .graph-filter-grid .chip-add:disabled{opacity:.7;cursor:not-allowed}
+body #view-graph .graph-filter-grid .chip-add:disabled:hover{border-color:#cfc6d8;background:transparent}
+/* Link, reset, more, Split with PAC evidence and the gold Open in Chart
+   Studio: M4 draws them 32px tall (primitive 40), top-aligned with the chips. */
+body #view-graph .graph-header .graph-scope-actions{display:flex;flex:none;align-items:flex-start;gap:10px;margin-left:auto}
+body #view-graph .graph-scope-actions .graph-actions{display:flex;flex:none;align-items:flex-start;gap:10px;margin:0}
+body #view-graph .graph-scope-actions .icon-button{width:32px;height:32px;min-height:32px;margin:0;padding:0;
+  border-radius:8px;color:var(--acu-plum);font-size:0}
+body #view-graph .graph-scope-actions .icon-button[data-state=copied]{border-color:var(--acu-teal);color:var(--acu-teal)}
+body #view-graph #graph-more>summary.icon-button{display:inline-flex;align-items:center;justify-content:center;gap:0;
+  width:32px;height:32px;min-height:32px;padding:0;border:1px solid var(--line);border-radius:8px;background:white;
+  color:var(--acu-plum);font-size:0}
+body #view-graph #graph-more>summary.icon-button:hover,body #view-graph #graph-more[open]>summary.icon-button{
+  background:#f7f2fa;border-color:var(--acu-purple)}
+body #view-graph #graph-more>div{min-width:220px}
+body #view-graph #graph-more>div>button{display:block;width:100%;height:auto;min-height:0;justify-content:flex-start}
+body[data-view] #view-graph .graph-actions #split-view{height:32px;min-height:32px;margin:0;padding:0 12px;
+  font:400 12px/1 var(--font-sans);border-radius:8px;max-width:none;white-space:nowrap}
+body[data-view] #view-graph .graph-actions #graph-open-builder.primary--gold{height:32px;min-height:32px;margin:0;
+  padding:0 12px;font:500 12px/1 var(--font-sans);border-radius:8px}
+/* A narrowed scope (category, recipient) shows its chips between the rows. */
+body #view-graph .graph-controls .graph-chips{margin:0}
+body #view-graph .graph-controls .graph-chips:not(:empty){display:flex;flex-wrap:wrap;gap:8px;padding:0 0 9px}
+body #view-graph .graph-controls .graph-chips .secondary{height:26px;min-height:26px;padding:0 10px;
+  font:400 12px/1 var(--font-sans);border-radius:999px}
+body #view-graph .graph-controls .graph-copy-fallback{margin:0 0 9px}
+/* Row 2, under a 1px rule: tabs at the left, the three figures at the right. */
+body #view-graph .graph-controls .analysis-strip{display:flex;align-items:stretch;justify-content:space-between;gap:16px;
+  min-height:55px;margin:0 -11px;padding:0 0 0 5px;border:0;border-top:1px solid var(--card-border)}
+body #view-graph .analysis-strip .analysis-tabs{display:flex;align-items:flex-end;align-self:flex-end;gap:12px;
+  flex:0 1 auto;min-width:0;margin:0 0 5px;padding:0;border:0;overflow:visible}
+/* Tabs 14px (prompt 15px, M4 measures 14), a 3px gold underline on the active one. */
+body #view-graph .analysis-strip .analysis-tabs button{height:auto;min-height:0;margin:0;padding:0 10px 10px;border:0;
+  border-bottom:3px solid transparent;border-radius:0;background:none;color:var(--acu-plum);
+  font:400 14px/16px var(--font-sans);white-space:nowrap}
+body #view-graph .analysis-strip .analysis-tabs button[aria-selected=true]{border-bottom-color:var(--acu-gold);font-weight:400}
+body #view-graph .analysis-strip .analysis-tabs button:not([aria-selected=true]):hover{border-bottom-color:var(--acu-lilac)}
+/* Three equal tiles reaching the card's right edge, each block centred, the
+   tiles 2 and 3 after a thin rule. Labels 12px --muted; values 16px/600
+   tabular (M4 measures 15-16px; the prompt says 20px - see DIFFERENCES). */
+body #view-graph .analysis-strip .graph-metrics{display:grid;grid-template-columns:repeat(3,190px);align-self:center;gap:0;
+  margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;transition:opacity 160ms ease}
+body #view-graph .analysis-strip .graph-metrics.is-stale{opacity:.45}
+body #view-graph .analysis-strip .graph-metrics>div{display:grid;grid-template-columns:max-content;justify-content:center;
+  align-content:center;min-width:0;padding:0;border:0;border-left:1px solid var(--card-border);border-radius:0;background:none}
+body #view-graph .analysis-strip .graph-metrics>div:first-child{border-left:0}
+body #view-graph .analysis-strip .graph-metrics>div>span{display:block;font:400 12px/16px var(--font-sans);color:var(--muted)}
+body #view-graph .analysis-strip .graph-metrics .graph-figure{display:flex;align-items:baseline;margin:0;white-space:nowrap;
+  font:400 16px/20px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+body #view-graph .analysis-strip .graph-metrics .graph-figure strong{display:inline;font:600 16px/20px var(--font-sans);
+  letter-spacing:0;color:var(--acu-plum);font-variant-numeric:tabular-nums}
+body #view-graph .analysis-strip .graph-metrics .graph-figure :is(small,.graph-figure-sep){display:inline;
+  font:400 16px/20px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums;white-space:pre}
+/* Kept in the DOM, not on M4 (ruling R7 and prompt item 1). */
+body #view-graph .analysis-strip .graph-metrics .graph-share-track,body #view-graph #graph-basis-note{display:none}
+/* Loading or failed: one 12px muted line under row 2, at the right (R7). */
+body #view-graph .graph-controls #graph-status{display:block;margin:-3px 0 0;padding:0 0 8px;text-align:right;
+  font:400 12px/16px var(--font-sans);color:var(--muted);white-space:normal;overflow:visible;text-overflow:clip}
+@media(prefers-reduced-motion:reduce){body #view-graph .analysis-strip .graph-metrics{transition:none}}
+
+/* --- four cards, 2x2: M4's 649:687 columns and 12px gaps (prompt: 16px) ---- */
+body #view-graph #graph-results{margin:12px 0 0}
+body #view-graph .graph-panels[data-analysis=overview],
+body #view-graph .graph-panels[data-analysis=companies]{grid-template-columns:minmax(0,649fr) minmax(0,687fr);gap:12px}
+body #view-graph .graph-panels[data-analysis=recipients],
+body #view-graph .graph-panels[data-analysis=candidates]{gap:12px}
+body #view-graph .graph-skeleton{grid-template-columns:minmax(0,649fr) minmax(0,687fr);gap:12px;margin:12px 0 0}
+body #view-graph .graph-skeleton-card{border-color:var(--card-border);border-radius:var(--card-radius);box-shadow:var(--card-shadow)}
+body #view-graph .graph-panels>.graph-panel.card{margin:0;padding:5px 16px 10px;background:white;min-width:0;
+  border:1px solid var(--card-border);border-radius:var(--card-radius);box-shadow:var(--card-shadow)}
+body #view-graph .graph-panels>.graph-panel>.panel-heading{min-height:28px;margin:0 0 6px;gap:8px 12px;align-items:center}
+/* Card titles: M4's serif at 21px (the board's line lengths; build 01's card
+   title is 22px). Georgia renders the 500 weight as regular. */
+body #view-graph .graph-panels>.graph-panel>.panel-heading>h2{margin:0;font:500 21px/28px var(--font-serif);
+  letter-spacing:0;color:var(--acu-plum)}
+body #view-graph .graph-panels .graph-panel-tools{gap:10px}
+/* The compact Top N and candidate-view selects: M4 draws them 24px tall. */
+body #view-graph .graph-panels .graph-topn select,
+body #view-graph .graph-panels .graph-candidate-controls select{height:24px;min-height:24px;margin:0;padding:0 6px 0 8px;
+  font:400 12px/1 var(--font-sans);border:1px solid #dcd9d6;border-radius:5px;background-color:white;color:var(--acu-plum)}
+body #view-graph .graph-panels .graph-topn select{min-width:72px}
+body #view-graph .graph-panels .panel-heading .graph-text-button{min-height:24px;font-size:12px;color:var(--acu-purple)}
+body #view-graph .graph-panels .graph-panel-foot{gap:8px;padding-top:4px;font-size:12px}
+body #view-graph .graph-panels .graph-panel-foot .graph-export-menu>summary{height:24px;min-height:24px;padding:0 10px;
+  font-size:12px;border-radius:6px}
+/* M4's foot zone (fix round 2, R02c-M1): the footer is one 24px row, the
+   Export control and the count on it. `.graph-panels details{margin-top:16px}`
+   (the page's disclosure rule) also caught the Export menu and made the foot
+   50px; the candidate note sits 2px under the chart; and the overview's card
+   rows lose the parent's 12px row gap between their five subgrid tracks
+   (heading, chart, note, foot, details), which stood as 6-12px of blank space
+   wherever a track was empty. The cards keep 12px between card rows. */
+body #view-graph .graph-panels .graph-panel-foot .graph-export-menu{margin:0 0 0 auto}
+body #view-graph .graph-panels[data-analysis=overview]>.graph-panel>.graph-panel-note{margin:2px 0 0}
+body #view-graph .graph-panels[data-analysis=overview]{row-gap:0;margin-bottom:-12px}
+body #view-graph .graph-panels[data-analysis=overview]>.graph-panel.card{margin:0 0 12px}
+
+/* --- Giving by employee level: legend, then By company (R1b) ------------- */
+body #view-graph #graph-levels .graph-legend{gap:6px 28px;margin:10px 0 0}
+body #view-graph #graph-levels .graph-legend-item>i{width:10px;height:10px;border-radius:3px}
+body #view-graph .graph-by-company{margin:12px 0 0}
+body #view-graph .graph-by-company-title{margin:0 0 5px;font:400 12px/16px var(--font-sans);color:var(--muted)}
+body #view-graph .graph-by-company-rows{display:grid;margin:0;padding:0;list-style:none}
+body #view-graph .graph-by-company-row{display:grid;grid-template-columns:minmax(0,170px) minmax(48px,1fr) auto;
+  align-items:center;column-gap:16px;height:14px;margin:0;padding:0;font:400 11px/14px var(--font-sans);color:var(--acu-plum)}
+body #view-graph .graph-by-company-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body #view-graph .graph-by-company-track{display:flex;height:7px;border-radius:2px;overflow:hidden;background:var(--chart-grid)}
+body #view-graph .graph-by-company-track>i{display:block;flex:none;height:100%}
+body #view-graph .graph-by-company-shares{display:grid;grid-auto-flow:column;grid-auto-columns:28px;text-align:right;
+  color:var(--muted);font-variant-numeric:tabular-nums}
+body #view-graph .graph-by-company.graph-enter .graph-by-company-track>i{transform-origin:left center;
+  animation:graph-grow var(--motion) var(--motion-ease) both;animation-delay:calc(var(--i,0) * var(--motion-stagger))}
+
+/* --- narrower screens and the paired view -------------------------------- */
+@media(max-width:1199px){
+  body #view-graph .graph-controls .analysis-strip{flex-wrap:wrap;row-gap:4px}
+  body #view-graph .analysis-strip .graph-metrics{flex:1 1 100%;grid-template-columns:repeat(3,minmax(0,1fr));margin:0 0 8px}
+}
+@media(max-width:899px){
+  body #view-graph .graph-header .graph-filter-grid{flex:1 1 100%;flex-wrap:wrap}
+  body #view-graph .graph-filter-grid .chip-select{flex:1 1 var(--chip-w,128px)}
+  body #view-graph .graph-filter-grid .chip-add{flex:1 1 130px}
+  body #view-graph .graph-header .graph-scope-actions,
+  body #view-graph .graph-scope-actions .graph-actions{flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end}
+  body #view-graph .analysis-strip .graph-metrics .graph-figure{flex-wrap:wrap;white-space:normal}
+  body #view-graph .graph-panels[data-analysis=overview],
+  body #view-graph .graph-panels[data-analysis=companies],
+  body #view-graph .graph-skeleton{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:760px){
+  body #view-graph .graph-filter-grid .chip-select,body #view-graph .graph-filter-grid .chip-add{height:44px;min-height:44px}
+  body #view-graph .graph-scope-actions .icon-button,body #view-graph #graph-more>summary.icon-button{width:44px;height:44px;min-height:44px}
+  body[data-view] #view-graph .graph-actions #split-view,
+  body[data-view] #view-graph .graph-actions #graph-open-builder.primary--gold{height:44px;min-height:44px;white-space:normal}
+}
+@media(max-width:600px){
+  body #view-graph .analysis-strip .graph-metrics{grid-template-columns:minmax(0,1fr)}
+  body #view-graph .analysis-strip .graph-metrics>div{justify-content:start;border-left:0;padding:4px 11px}
+  body #view-graph .analysis-strip .analysis-tabs{flex-wrap:wrap}
+  body #view-graph .graph-by-company-row{grid-template-columns:minmax(0,1fr) minmax(40px,1fr) auto}
+}
+/* The paired view gives Graph about half the width: the narrow layout. */
+body .split-workspace #view-graph .graph-header .graph-filter-grid{flex:1 1 100%;flex-wrap:wrap}
+body .split-workspace #view-graph .graph-filter-grid .chip-select{flex:1 1 var(--chip-w,128px)}
+body .split-workspace #view-graph .graph-filter-grid .chip-add{flex:1 1 130px}
+body .split-workspace #view-graph .graph-header .graph-scope-actions,
+body .split-workspace #view-graph .graph-scope-actions .graph-actions{flex:1 1 auto;flex-wrap:wrap;justify-content:flex-end}
+body .split-workspace #view-graph .graph-controls .analysis-strip{flex-wrap:wrap}
+body .split-workspace #view-graph .analysis-strip .graph-metrics{flex:1 1 100%;grid-template-columns:repeat(3,minmax(0,1fr));margin:0 0 8px}
+body .split-workspace #view-graph .analysis-strip .graph-metrics .graph-figure{flex-wrap:wrap;white-space:normal}
+body .split-workspace #view-graph .graph-panels[data-analysis]{grid-template-columns:minmax(0,1fr)}
+
+/* The paired view at phone width: one figure per row, as the single view
+   does below 600px. The paired rule above outranks the 600px one, so the
+   metrics kept three columns and pushed the page 17px past a 390px screen. */
+@media(max-width:600px){
+  body .split-workspace #view-graph .analysis-strip .graph-metrics{grid-template-columns:minmax(0,1fr)}
+  body .split-workspace #view-graph .analysis-strip .graph-metrics>div{justify-content:start;border-left:0;padding:4px 11px}
+}
+
+/* ===========================================================================
+   Console redesign, build 02b (2026-09-22): the compare modes, boards G1-G5.
+   M4's scope bar, tab row and card chrome stay the frame for every mode; the
+   compared chip holds the pills, each card splits into halves (thirds with
+   three scopes), and the drill-down tabs become one table card.
+   =========================================================================== */
+
+/* --- MentatCompareMenu: unscoped component classes. Chart Studio (build
+   03) draws the same menu and pill group, so none of these name #view-graph. -- */
+.compare-menu{position:absolute;z-index:60;box-sizing:border-box;min-width:240px;max-width:calc(100vw - 16px);
+  margin:0;padding:6px;background:white;border:1px solid var(--card-border,#e8e6e5);border-radius:10px;
+  box-shadow:0 12px 32px rgba(52,38,73,.16),0 1px 2px rgba(52,38,73,.06);
+  font:400 13px/1.3 var(--font-sans);color:var(--acu-plum)}
+.compare-menu-kind{display:flex;align-items:center;box-sizing:border-box;width:100%;height:34px;min-height:0;margin:0;
+  padding:0 10px;border:0;border-radius:6px;background:none;color:var(--acu-plum);font:400 13px/1 var(--font-sans);
+  text-align:left;cursor:pointer}
+.compare-menu-kind:hover,.compare-menu-kind:focus-visible{background:#f1ebf7;outline:none}
+.compare-menu-search{display:grid;gap:5px;margin:0;padding:4px 4px 6px}
+.compare-menu-caption{font:600 11px/14px var(--font-sans);color:var(--muted)}
+.compare-menu-search input{box-sizing:border-box;width:100%;height:32px;min-height:0;margin:0;padding:0 10px;
+  border:1px solid #d8d0e0;border-radius:6px;background:white;color:var(--acu-plum);font:400 13px/1 var(--font-sans)}
+.compare-menu-search input:focus{outline:2px solid var(--acu-purple);outline-offset:1px}
+.compare-menu-list{max-height:264px;margin:0;padding:0;overflow:auto;list-style:none}
+.compare-menu-option{margin:0;padding:7px 10px;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+.compare-menu-option:hover,.compare-menu-option[aria-selected=true]{background:#efe8f6}
+.compare-menu-note{padding:8px 10px;color:var(--muted)}
+.compare-pills{display:inline-flex;align-items:center;gap:6px;min-width:0;max-width:100%}
+.compare-pills .scope-pill{flex:0 1 auto;min-width:36px;height:18px;padding:0 9px;font:600 11px/1 var(--font-sans)}
+.compare-pills .scope-pill-text,.scope-pill>.scope-pill-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.compare-pills-add{display:inline-flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box;width:20px;
+  height:20px;min-height:0;margin:0;padding:0;border:0;border-radius:999px;background:none;color:var(--acu-plum);
+  font:400 17px/1 var(--font-sans);cursor:pointer}
+.compare-pills-add:hover,.compare-pills-add:focus-visible{background:#f0e9f5}
+.compare-clear{display:inline-flex;align-items:center;flex:none;box-sizing:border-box;min-height:0;margin:0;padding:0 2px;
+  border:0;background:none;color:var(--acu-purple);font:400 14px/1.2 var(--font-sans);white-space:nowrap;cursor:pointer}
+.compare-clear:hover{text-decoration:underline}
+.compare-clear[hidden]{display:none}
+@media(prefers-reduced-motion:reduce){.compare-menu *{transition:none!important;animation:none!important}}
+
+/* --- the compared chip: caption over the pill group (G1: 40px, pills 18px) - */
+/* While comparing, every other chip keeps its whole caption and a short
+   value: its floor (--chip-min) is measured by graph.js (fitCompareRow) and
+   it grows back toward its M4 width into whatever room is left. The pill
+   chip keeps its content width until the row is full; then it gives way in
+   measured steps (fix round 1, R02-M3): tighter gaps and no chevron
+   (.is-tight), each pill's shorter form ("Goldman", "2025–26"; the whole
+   name in its title), and only then an ellipsis. It was the other way round:
+   64px chips reading "In… B…" while the pills kept their names. */
+body #view-graph .graph-filter-grid .chip-select.chip-compare{flex:0 1 auto;min-width:0;max-width:470px;
+  padding:3px 12px 0 12px;cursor:default}
+body #view-graph .graph-filter-grid .chip-select.chip-compare.can-add{padding-right:26px;cursor:pointer}
+body #view-graph .graph-filter-grid .chip-compare:not(.can-add)::after{content:none}
+body #view-graph .graph-filter-grid .chip-compare>.compare-pills{margin:3px 0 0}
+body #view-graph .graph-filter-grid .chip-compare .scope-pill{max-width:170px}
+body #view-graph[data-compare]:not([data-compare=""]) .graph-filter-grid .chip-select:not(.chip-compare){flex:1 1 var(--chip-min,96px);
+  min-width:var(--chip-min,96px);max-width:max(var(--chip-w,128px),var(--chip-min,96px))}
+body #view-graph .graph-filter-grid.is-tight{gap:8px}
+body #view-graph .graph-filter-grid.is-tight .chip-select.chip-compare.can-add{padding-right:12px}
+body #view-graph .graph-filter-grid.is-tight .chip-compare::after{content:none}
+/* The last resort (fitCompareRow): when even the short forms do not fit -
+   three scopes at 1440 - the pill chip takes a row of its own in the card
+   rather than cutting every pill to two letters. */
+body #view-graph .graph-header .graph-filter-grid.is-wrapped{flex-wrap:wrap;row-gap:8px}
+body #view-graph .graph-filter-grid.is-wrapped .chip-select.chip-compare{flex:1 1 100%;max-width:none}
+body #view-graph .graph-filter-grid .compare-clear{align-self:center;height:40px}
+body #view-graph .graph-filter-grid .chip-select:has(select:disabled){cursor:not-allowed}
+
+/* --- headline figures, one line per scope after an 8px dot (R7c) --------- */
+body #view-graph .analysis-strip .graph-metrics{margin-left:auto}
+/* Two scopes fit M4's 55px row exactly - a 16px label and two 18px lines -
+   so the scope card keeps its height and the cards do not move when a
+   comparison starts (fix round 1, R02-M2; the row grew 19px with 19px lines
+   and 8px padding). Three scopes add one line (G4). */
+body #view-graph .analysis-strip .graph-metrics.is-compare{grid-template-columns:repeat(3,auto);padding:0}
+body #view-graph .analysis-strip .graph-metrics>div.is-compare{justify-content:start;padding:0 14px}
+body #view-graph .graph-figure-lines{display:grid;gap:0;margin:1px 0 0;padding:0;list-style:none}
+body #view-graph .analysis-strip .graph-metrics .graph-figure-line{display:flex;align-items:center;gap:5px;min-width:0;margin:0;
+  white-space:nowrap;font:400 12px/18px var(--font-sans);color:var(--muted);font-variant-numeric:tabular-nums}
+body #view-graph .analysis-strip .graph-metrics .graph-figure-line strong{display:inline;font:600 15px/18px var(--font-sans);
+  letter-spacing:0;color:var(--acu-plum);font-variant-numeric:tabular-nums}
+body #view-graph .analysis-strip .graph-metrics .graph-figure-line small{display:inline;font:400 12px/18px var(--font-sans);color:var(--muted)}
+body #view-graph .graph-figure-dot{flex:none;width:8px;height:8px;border-radius:50%;background:var(--scope-1)}
+body #view-graph .graph-figure-line[data-scope="2"] .graph-figure-dot{background:var(--scope-2)}
+body #view-graph .graph-figure-line[data-scope="3"] .graph-figure-dot{background:var(--scope-3)}
+body #view-graph .graph-figure-name{flex:none;width:72px;overflow:hidden;font:400 12px/18px var(--font-sans);color:var(--muted)}
+body #view-graph .graph-figure-line .change-chip{margin-left:3px;padding:0 5px;font-size:11px;line-height:15px}
+/* Plum, as every Graph change chip is (design calls 2 and 10): the old
+   `.graph-metrics span` rule (line 34) outranked the primitive and painted
+   the headline chip --muted (fix round 1, R02-M4). */
+body #view-graph .analysis-strip .graph-metrics .graph-figure-line .change-chip{color:var(--acu-purple)}
+/* M4's 16px value where the tab row has the room (the boards' 1600 frame and
+   up); 15px below it keeps one line per scope beside the tabs longer. */
+@media(min-width:1600px){
+  body #view-graph .analysis-strip .graph-metrics .graph-figure-line strong{font-size:16px}
+}
+/* While comparing, the tabs keep M4's place at the top of the row and only
+   the row's bottom edge grows with the second (third) figure line; the
+   Layout switch sits level with the tabs (fix round 1, R02-m10). */
+body #view-graph[data-compare]:not([data-compare=""]) .analysis-strip .analysis-tabs{align-self:flex-start;margin-top:var(--tabs-top,20px)}
+body #view-graph[data-compare]:not([data-compare=""]) .analysis-strip .graph-layout{align-self:flex-start;margin-top:var(--layout-top,14px)}
+/* Tight (fitStrip in graph.js, R02-M2): the figures get shorter before they
+   move. is-tight drops the printed share from each line (the value's title
+   keeps it); is-tighter folds the Layout caption to the screen reader and
+   closes the tab gaps. */
+body #view-graph .analysis-strip.is-tight .graph-figure-line .graph-figure-share{display:none}
+body #view-graph .analysis-strip.is-tighter .analysis-tabs{gap:2px}
+body #view-graph .analysis-strip.is-tighter .graph-layout>span{position:absolute;width:1px;height:1px;margin:-1px;padding:0;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* Wrapped, the last resort (under about 1300px): the tabs and the Layout
+   switch keep the tab row, and the figures take a right-aligned row under it. */
+body #view-graph .graph-controls .analysis-strip.is-wrapped{flex-wrap:wrap;row-gap:0}
+body #view-graph .analysis-strip.is-wrapped .analysis-tabs{flex:1 1 auto}
+body #view-graph .analysis-strip.is-wrapped .graph-layout{order:1;margin-left:auto}
+body #view-graph .analysis-strip.is-wrapped .graph-metrics{order:2;flex:1 1 100%;justify-content:end;margin:0 0 4px;
+  border-top:1px solid var(--card-border)}
+
+/* --- Layout: Grid | Stacked, at the right end of the tab row (R19) ------- */
+body #view-graph .analysis-strip .graph-layout{display:flex;align-items:center;flex:none;align-self:center;gap:8px;
+  margin:0 0 0 2px;padding:0 0 0 16px;border-left:1px solid var(--card-border);font:400 12px/16px var(--font-sans);color:var(--muted)}
+body #view-graph .analysis-strip .graph-layout[hidden]{display:none}
+body #view-graph .graph-layout .segmented{height:28px}
+body #view-graph .graph-layout .segmented>button{height:auto;min-height:0;padding:0 11px;font:500 12px/1 var(--font-sans)}
+body #view-graph .graph-layout .segmented>button:disabled{opacity:.45;cursor:not-allowed}
+
+/* --- card halves: equal columns under a 1px rule, each led by its pill --- */
+body #view-graph .graph-panels .graph-halves{display:grid;grid-template-columns:repeat(var(--scopes,2),minmax(0,1fr));
+  column-gap:0;overflow:visible}
+body #view-graph .graph-half{min-width:0;padding:0 16px;border-left:1px solid var(--card-border)}
+body #view-graph .graph-half:first-child{padding-left:0;border-left:0}
+body #view-graph .graph-half:last-child{padding-right:0}
+body #view-graph .graph-half>.scope-pill{height:22px;max-width:100%;margin:0 0 2px;padding:0 13px;font:600 12px/1 var(--font-sans)}
+body #view-graph .graph-half-body{min-width:0}
+body #view-graph .graph-half-body>.graph-empty{margin:10px 0;padding:14px;font-size:13px}
+body #view-graph .graph-half-skeleton{display:grid;gap:15px;padding:16px 0 8px}
+body #view-graph .graph-half-skeleton>b{display:block;position:relative;overflow:hidden;height:12px;border-radius:4px;background:#ece5df}
+body #view-graph .graph-half-skeleton>b:nth-child(2n){width:82%}
+body #view-graph .graph-half-skeleton>b:nth-child(3n){width:64%}
+body #view-graph .graph-half-skeleton>b::after{content:"";position:absolute;inset:0;
+  background:linear-gradient(90deg,rgba(255,255,255,0),rgba(255,255,255,.85),rgba(255,255,255,0));
+  transform:translateX(-100%);animation:graph-shimmer 2400ms linear infinite}
+/* A new half slides in from the right (180ms, ease-out) and its bars grow;
+   a removed half collapses. Instant under reduced motion. */
+body #view-graph .graph-half.is-entering{animation:graph-half-in 180ms ease-out both}
+body #view-graph .graph-half.is-leaving{animation:graph-half-out 180ms ease-out both;pointer-events:none}
+@keyframes graph-half-in{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
+@keyframes graph-half-out{from{opacity:1;transform:none}to{opacity:0;transform:scaleX(.4);transform-origin:right center}}
+@media(prefers-reduced-motion:reduce){
+  body #view-graph .graph-half.is-entering,body #view-graph .graph-half.is-leaving{animation:none}
+  body #view-graph .graph-half-skeleton>b::after{animation:none}
+}
+/* Rows: the shared tint, the change chip and the "new" tag, drawn in SVG. */
+.graph-row.is-shared{fill:var(--tint-shared)}
+.graph-change-box{fill:rgba(87,68,123,.08)}
+.graph-change-text{fill:var(--acu-purple)}
+.graph-new-box{fill:rgba(214,200,226,.6)}
+.graph-new-text{fill:var(--acu-purple)}
+.graph-divider{stroke:var(--card-border);stroke-width:1}
+.graph-rank{fill:var(--muted)}
+/* The by-company rows in a half carry four companies, the names narrower. */
+body #view-graph .graph-half .graph-by-company-row{grid-template-columns:minmax(0,1.1fr) minmax(40px,1fr) auto;column-gap:10px}
+/* A half's legend (final fix round, TA1-04): one line of 11px items under the
+   bar, as G1 and G2 draw it. This rule carries #graph-levels so it outranks the
+   whole card's 28px legend gap, which was wrapping "Chief" onto a line of its
+   own at 1600 and 1920. graph.js adds is-grid when three items do not fit one
+   line and is-wrap when even two columns do not. */
+body #view-graph #graph-levels .graph-half .graph-legend{flex-wrap:nowrap;gap:4px 12px}
+body #view-graph #graph-levels .graph-half .graph-legend-item{flex:none;gap:5px;font-size:11px;white-space:nowrap}
+body #view-graph #graph-levels .graph-half .graph-legend-item>i{width:8px;height:8px;border-radius:2px}
+body #view-graph #graph-levels .graph-half .graph-legend.is-grid{display:grid;grid-template-columns:repeat(2,max-content);column-gap:14px}
+body #view-graph #graph-levels .graph-half .graph-legend.is-wrap{flex-wrap:wrap}
+
+/* --- Stacked: one card per row, recipient type, candidates, company
+   comparison, employee level; each card split into halves or thirds ------ */
+body #view-graph .graph-panels[data-layout=stacked][data-analysis]{grid-template-columns:minmax(0,1fr)}
+
+/* --- the drill-down table card (G5) ------------------------------------- */
+body #view-graph .graph-panels[data-table=on][data-analysis]{grid-template-columns:minmax(0,1fr)}
+body #view-graph .graph-panels[data-table=on][data-drawer=open][data-analysis]{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+body #view-graph .graph-compare-table .panel-heading{display:block;min-height:0;margin:0 0 4px}
+body #view-graph .graph-compare-table-sub{margin:2px 0 0;font:400 13px/18px var(--font-sans);color:var(--muted)}
+body #view-graph .graph-compare-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 12px;margin:12px 0 14px}
+body #view-graph .graph-compare-filters{display:flex;flex-wrap:wrap;gap:8px;margin:0 auto 0 0}
+body #view-graph .graph-compare-filter{display:inline-flex;align-items:center;gap:10px;box-sizing:border-box;height:30px;min-height:0;
+  margin:0;padding:0 14px;border:1px solid #ddd6e3;border-radius:999px;background:white;color:var(--acu-plum);
+  font:400 13px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+body #view-graph .graph-compare-filter:hover{border-color:var(--acu-purple)}
+body #view-graph .graph-compare-filter[aria-pressed=true]{border-color:var(--acu-purple);background:#efe9f6}
+body #view-graph .graph-compare-count{color:var(--muted);font-variant-numeric:tabular-nums}
+body #view-graph .graph-compare-search{position:relative;display:flex;align-items:center;flex:0 1 280px;min-width:160px;margin:0}
+body #view-graph .graph-compare-search svg{position:absolute;left:10px;width:15px;height:15px;fill:none;stroke:var(--muted);
+  stroke-width:1.8;stroke-linecap:round;pointer-events:none}
+body #view-graph .graph-compare-search input{box-sizing:border-box;width:100%;height:34px;min-height:0;margin:0;padding:0 10px 0 32px;
+  border:1px solid #ddd6e3;border-radius:6px;background:white;color:var(--acu-plum);font:400 13px/1 var(--font-sans)}
+body #view-graph .graph-compare-mode-slot:empty{display:none}
+body #view-graph .graph-compare-mode-slot .graph-candidate-controls{margin:0}
+/* The moved candidate select keeps its caption for assistive technology only,
+   as it does in the card's own tool row. */
+body #view-graph .graph-compare-mode-slot .graph-caption{position:absolute;width:1px;height:1px;padding:0;margin:-1px;
+  overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+body #view-graph .graph-panels .graph-compare-mode-slot .graph-candidate-controls select{height:34px;min-height:0;min-width:180px}
+body[data-view] #view-graph .graph-compare-table .graph-compare-toolbar #graph-compare-export{height:34px;min-height:0;padding:0 14px;font:500 13px/1 var(--font-sans)}
+body #view-graph .graph-compare-scroll{max-width:100%;max-height:none;overflow:auto;border:1px solid #efebf1;border-radius:8px}
+body #view-graph .graph-compare-scroll table{min-width:0}
+body #view-graph .graph-compare-grid{width:100%;margin:0;border-collapse:collapse;font:400 13px/1.3 var(--font-sans);color:var(--acu-plum)}
+body #view-graph .graph-compare-grid thead th{height:38px;padding:0 16px;background:#f4f2f5;border:0;text-align:left;
+  font:600 13px/1 var(--font-sans);color:var(--acu-plum);white-space:nowrap}
+body #view-graph .graph-compare-sort{display:inline-flex;align-items:center;gap:6px;min-height:0;margin:0;padding:0;border:0;
+  background:none;color:inherit;font:inherit;cursor:pointer}
+body #view-graph .graph-compare-arrow{font-size:9px;color:var(--acu-purple)}
+body #view-graph .scope-dot--1,body #view-graph .scope-bar--1{background:var(--scope-1)}
+body #view-graph .scope-dot--2,body #view-graph .scope-bar--2{background:var(--scope-2)}
+body #view-graph .scope-dot--3,body #view-graph .scope-bar--3{background:var(--scope-3)}
+body #view-graph .graph-compare-grid tbody td{height:28px;padding:7px 16px;border-top:1px solid #efebf1;vertical-align:middle}
+body #view-graph .graph-compare-grid td.graph-compare-col--name{max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body #view-graph .graph-compare-grid td.graph-compare-col--party{white-space:nowrap}
+/* Beside the drawer the table has about half the page: long PAC names give
+   way first, so the amounts and the Difference stay in view. */
+body #view-graph .graph-panels[data-drawer=open] .graph-compare-grid td.graph-compare-col--name{max-width:200px}
+body #view-graph .graph-panels[data-drawer=open] .graph-compare-grid :is(th,td){padding-left:12px;padding-right:12px}
+body #view-graph button.graph-compare-name{min-height:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+/* The cut belongs to the name's own button, not the cell around it, so a
+   long PAC name ends in an ellipsis rather than mid-letter (R02-m6). */
+body #view-graph .graph-compare-grid button.graph-compare-name{display:block;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body #view-graph .graph-panels[data-drawer=open] .graph-compare-grid button.graph-compare-name{max-width:200px}
+body #view-graph button.graph-compare-name:hover{text-decoration:underline}
+body #view-graph i.graph-compare-party{display:inline-block;width:10px;height:10px;margin:0 10px 0 0;border-radius:50%;background:var(--acu-taupe);vertical-align:-1px}
+body #view-graph i.graph-compare-party.is-dem{background:var(--party-dem)}
+body #view-graph i.graph-compare-party.is-rep{background:var(--party-rep)}
+body #view-graph .graph-compare-cell{display:grid;gap:5px;width:100%;max-width:280px;min-height:0;margin:0;padding:0;border:0;
+  background:none;color:inherit;font:inherit;text-align:left;font-variant-numeric:tabular-nums}
+body #view-graph button.graph-compare-cell{cursor:pointer}
+body #view-graph button.graph-compare-cell:hover .graph-compare-money{text-decoration:underline}
+body #view-graph .graph-compare-track{display:block;height:4px;border-radius:2px;background:#ebe8ee;overflow:hidden}
+body #view-graph .graph-compare-track>i{display:block;height:100%;border-radius:2px}
+body #view-graph .graph-compare-grid td.graph-compare-col--diff{font:400 15px/1 var(--font-sans);color:var(--acu-purple);font-variant-numeric:tabular-nums;white-space:nowrap}
+body #view-graph .graph-compare-empty{padding:24px 16px;color:var(--muted);text-align:center}
+body #view-graph .graph-compare-pager{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:14px 0 0;
+  font:400 13px/1 var(--font-sans);color:var(--muted)}
+body #view-graph .graph-compare-pages{display:flex;align-items:center;gap:8px}
+body #view-graph .graph-compare-pages .icon-button{width:34px;height:34px;min-height:0;border-radius:6px;font:400 16px/1 var(--font-sans)}
+body #view-graph .graph-compare-page{display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box;
+  min-width:34px;height:34px;border:1px solid var(--line);border-radius:6px;background:white;color:var(--acu-plum)}
+/* The drawer opened from a compared scope names that scope's pill (R21). */
+body #view-graph .graph-drawer .panel-heading>#graph-drawer-scope{grid-column:1/-1;justify-self:start;height:20px;margin:0 0 2px;
+  padding:0 12px;font:600 12px/1 var(--font-sans)}
+body #view-graph .graph-drawer .panel-heading>#graph-drawer-scope[hidden]{display:none}
+
+/* --- narrower screens while comparing ---------------------------------- */
+@media(max-width:1199px){
+  body #view-graph .analysis-strip .graph-layout{margin:0 0 8px;padding:0;border:0}
+}
+@media(max-width:899px){
+  body #view-graph .graph-filter-grid .chip-select.chip-compare{flex:1 1 100%;max-width:none}
+  body #view-graph .analysis-strip .graph-metrics.is-compare{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+}
+@media(max-width:600px){
+  body #view-graph .graph-panels .graph-halves{grid-template-columns:minmax(0,1fr)}
+  body #view-graph .graph-half,body #view-graph .graph-half:first-child{padding:10px 0 0;border-left:0}
+  body #view-graph .graph-half+.graph-half{margin-top:8px;border-top:1px solid var(--card-border)}
+  body #view-graph .graph-compare-search{flex:1 1 100%}
+}
+body .split-workspace #view-graph .graph-filter-grid .chip-select.chip-compare{flex:1 1 100%;max-width:none}
+body .split-workspace #view-graph .graph-panels .graph-halves{grid-template-columns:minmax(0,1fr)}
+body .split-workspace #view-graph .graph-half,body .split-workspace #view-graph .graph-half:first-child{padding:10px 0 0;border-left:0}
+
+/* ===========================================================================
+   Section folds (Paul, 2026-09-23): "You should be able to expand each
+   section individually like with a census panel". The census panel is the
+   PAC evidence map's Sources disclosure (workspace.css .map-source-details):
+   one muted line with a disclosure triangle that stays, everything under it
+   folding away. graph.js puts that triangle on every card's heading
+   (button.graph-fold, FOLD_SECTIONS). It sits in the card's 16px left
+   padding, so an open card keeps the board's layout; open is the default.
+   =========================================================================== */
+body #view-graph .graph-panels>.graph-panel>.panel-heading{position:relative}
+body #view-graph .graph-panels>.graph-panel>.panel-heading>.graph-fold{position:absolute;z-index:1;left:-16px;top:0;
+  width:16px;height:28px;min-width:0;min-height:0;margin:0;padding:0;border:0;border-radius:4px;background:none;
+  box-shadow:none;color:var(--muted);cursor:pointer}
+/* The triangle: the census panel's disclosure marker, pointing down while the
+   card is open and right while it is folded. */
+body #view-graph .graph-fold::before{content:"";position:absolute;left:5px;top:50%;width:0;height:0;margin-top:-4px;
+  border-style:solid;border-width:4px 0 4px 6px;border-color:transparent transparent transparent currentColor;
+  transform:rotate(90deg);transform-origin:3px 4px;transition:transform 120ms ease}
+body #view-graph .graph-panel.is-folded>.panel-heading>.graph-fold::before{transform:none}
+body #view-graph .graph-fold:hover,body #view-graph .graph-fold:focus-visible{color:var(--acu-purple)}
+body #view-graph .graph-fold:focus-visible{outline:2px solid var(--acu-purple);outline-offset:0}
+body #view-graph .graph-panels>.graph-panel>.panel-heading>h2{cursor:pointer}
+/* A compared drawer's scope pill takes the heading's first line (20px, 2px
+   under it, then the heading's 8px row gap); the triangle stays level with the
+   first line of the title under it. */
+body #view-graph .graph-drawer .panel-heading:has(>#graph-drawer-scope:not([hidden]))>.graph-fold{top:30px;height:26px}
+@media(prefers-reduced-motion:reduce){body #view-graph .graph-fold::before{transition:none}}
+
+/* Folded: the heading line alone - the title, the triangle, and in the drawer
+   its scope pill and close mark; the tools (Top N, View all, the candidate
+   view) fold with the chart they set. */
+body #view-graph .graph-panels>.graph-panel.is-folded>:not(.panel-heading),
+body #view-graph .graph-panels>.graph-panel.is-folded>.panel-heading>:not(h2):not(.graph-fold):not(#graph-drawer-scope):not(.graph-drawer-close){display:none}
+body #view-graph .graph-panels>.graph-panel.is-folded{grid-column:1/-1;padding-bottom:5px}
+body #view-graph .graph-panels>.graph-panel.is-folded>.panel-heading{margin-bottom:0}
+/* The Overview's cards share subgrid rows; a folded one is a plain line. */
+body #view-graph .graph-panels[data-analysis=overview]>.graph-panel.is-folded{display:block;grid-row:auto}
+
+/* The chart left open is the one that grows: the card that shared a folded
+   card's row takes the whole row. Rows, per analysis: Overview recipient type
+   | candidates and company comparison | employee level (Companies the
+   latter); Recipients recipient type | Top organizations, or, with the drawer
+   open, Top organizations | the drawer; comparing, the table | the drawer. */
+body #view-graph .graph-panels[data-analysis=overview]:has(>#graph-category-panel.is-folded)>#graph-candidate-panel,
+body #view-graph .graph-panels[data-analysis=overview]:has(>#graph-candidate-panel.is-folded)>#graph-category-panel,
+body #view-graph .graph-panels:is([data-analysis=overview],[data-analysis=companies]):has(>#graph-company-panel.is-folded)>#graph-level-panel,
+body #view-graph .graph-panels:is([data-analysis=overview],[data-analysis=companies]):has(>#graph-level-panel.is-folded)>#graph-company-panel,
+body #view-graph .graph-panels[data-analysis=recipients]:not([data-drawer=open]):has(>#graph-category-panel.is-folded)>#graph-organization-panel,
+body #view-graph .graph-panels[data-analysis=recipients]:not([data-drawer=open]):has(>#graph-organization-panel.is-folded)>#graph-category-panel,
+body #view-graph .graph-panels[data-drawer=open]:has(>#graph-organization-panel.is-folded:not([hidden]))>#graph-drawer-panel,
+body #view-graph .graph-panels[data-drawer=open]:has(>#graph-compare-table.is-folded:not([hidden]))>#graph-drawer-panel,
+body #view-graph .graph-panels[data-drawer=open]:has(>#graph-drawer-panel.is-folded)>:is(#graph-organization-panel,#graph-compare-table){grid-column:1/-1}
+/* A folded drawer's line leads its row, as the widened drawer does (the
+   explorer's .graph-drawer-wide): it is the card the reader opened last, and
+   its line keeps the close mark in view above the list that took the row. */
+body #view-graph .graph-panels[data-drawer=open]>#graph-drawer-panel.is-folded{grid-row:1}
+/* That card's drawing is laid out at the row's width (graph.js widenedCap), so
+   workspace.css's 920px ceiling, which stops a drawing being scaled up, is
+   lifted for it: nothing is scaled, the bars are longer. */
+body #view-graph .graph-panels>.graph-panel.is-widened .graph-bars{max-width:none}
+/* r4 audit AUDIT-MEN-A-1 (r5): "Details & methodology" and the view-wide
+   export tools sit in the More menu (view_graph.html), not in a row under the
+   cards that board M4 never drew - the 118px of scrollHeight at 1440x900 that
+   no card accounted for. Inside the menu they read as its items: no card
+   chrome, the method note wrapped to the menu's measure, and the Export list
+   opening in place under its own line rather than as a second popover. */
+body #view-graph #graph-more .graph-more-tools{display:flex;flex-direction:column;align-items:stretch;gap:3px;
+  margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none}
+body #view-graph #graph-more .graph-more-tools>details{flex:none;min-width:0;padding:0}
+body #view-graph #graph-more #graph-method-details>summary{padding:6px 8px;border-radius:5px;font-size:12px;font-weight:400;
+  color:var(--acu-plum);cursor:pointer}
+body #view-graph #graph-more #graph-method-details>summary:hover{background:#f3eef8}
+body #view-graph #graph-more #graph-method-details p{width:280px;max-width:calc(100vw - 64px);margin:2px 8px 6px;font-size:12px;line-height:1.45;white-space:normal}
+body #view-graph #graph-more .graph-more-tools .graph-export-tools{display:flex;flex-direction:column;align-items:stretch;gap:3px}
+body #view-graph #graph-more .graph-more-tools .graph-export-tools>button{display:block;width:100%}
+body #view-graph #graph-more .graph-export-menu>summary{display:flex;justify-content:space-between;width:100%;min-height:0;
+  padding:6px 8px;border:0;border-radius:5px;background:none}
+body #view-graph #graph-more .graph-export-menu>summary:hover{background:#f3eef8}
+body #view-graph #graph-more .graph-export-menu>div{position:static;margin:2px 0 0;padding:4px 8px 6px;min-width:0;
+  border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none}
+body #view-graph #graph-more .graph-export-menu #graph-export{margin-top:6px}
+/* r5 merge (audit AUDIT-MEN-A-1, men-graph open item 3): with the row under the
+   cards gone, the default Overview's cards end at 874px (1440x900) and 870px
+   (1600x900), and the shared 40px workspace padding under them still scrolled
+   the page 14px and 10px past the fold board M4 fits in. On Graph, as on Chart
+   Studio (chart-studio.css, board S1), the padding is the room left under the
+   cards at 1100px and wider. The unscrolled page does not move; the split view
+   (Graph beside PAC evidence) keeps the shared padding. */
+@media (min-width:1100px){body[data-view="graph"] main .workspace:not(.split-workspace){padding-bottom:23px}}

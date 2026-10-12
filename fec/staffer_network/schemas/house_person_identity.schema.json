@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-house-office-person-identity-v1",
+  "title": "House office-scoped person identity atom",
+  "description": "One row per (office_key, person_key) observed in the House Statement of Disbursements personnel ledger. The House SOD documents scope every staffer row to the office it is printed under (Member, then that member's staffers, then miscellaneous expenses), so a payee name is an identity ONLY WITHIN ONE OFFICE. This row is that office-scoped atom and it is the only thing this generation treats as a person. It asserts no cross-office identity, no employment tenure boundary and no current employment. Candidate plane only: review_status is REVIEW_REQUIRED and no canonical_* field is ever promoted.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "office_person_id", "person_key",
+    "person_key_family", "office_key", "office_raw_examples", "container_kind",
+    "member_bioguide", "member_resolution_method", "first_quarter",
+    "last_quarter", "quarters", "quarters_observed", "observation_count",
+    "spans", "span_count", "service_days_union", "titles",
+    "shared_title_observed", "ledger_shared_flag_any", "ledger_shared_flag_all",
+    "ledger_shared_flag_circular", "name_office_count", "name_link_class",
+    "name_member_bioguides", "name_member_bioguide_count", "split",
+    "split_basis", "split_group_size", "identity_status", "review_status",
+    "canonical_eligible", "canonical_identity_promoted",
+    "canonical_employment_promoted", "canonical_office_promoted",
+    "canonical_person_id", "canonical_office_id", "canonical_identity_decision"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-house-office-person-identity-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "office_person_id": {"type": "string", "pattern": "^sod:office_person:[0-9a-f]{64}$"},
+    "person_key": {"type": "string", "minLength": 5, "pattern": "^SOD:"},
+    "person_key_family": {"type": ["string", "null"], "pattern": "^SODFAM:"},
+    "office_key": {"type": "string", "minLength": 1},
+    "office_raw_examples": {
+      "type": "array",
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "container_kind": {
+      "enum": [
+        "member_office", "member_office_unresolved", "member_organization",
+        "vacant_seat", "committee", "leadership", "admin", "caucus", "other",
+        "unresolved"
+      ]
+    },
+    "member_bioguide": {"type": ["string", "null"], "pattern": "^[A-Z][0-9]{6}$"},
+    "member_resolution_method": {"type": "string", "minLength": 1},
+    "first_quarter": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"},
+    "last_quarter": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"},
+    "quarters": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[0-9]{4}Q[1-4]$"}
+    },
+    "quarters_observed": {"type": "integer", "minimum": 1},
+    "observation_count": {"type": "integer", "minimum": 1},
+    "spans": {
+      "description": "Merged inclusive day-level service-date ranges taken from this atom's disbursement rows. Coverage of published disbursements, never an employment-tenure boundary. Rows whose service dates are absent or unparsed contribute nothing and are counted in observation_count only.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end_inclusive"],
+        "properties": {
+          "start": {"type": "string", "format": "date"},
+          "end_inclusive": {"type": "string", "format": "date"}
+        }
+      }
+    },
+    "span_count": {"type": "integer", "minimum": 0},
+    "service_days_union": {"type": "integer", "minimum": 0},
+    "titles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string"}
+    },
+    "shared_title_observed": {
+      "description": "True when at least one of this atom's rows prints a title containing SHARED EMPLOYEE. This is the ONLY shared-employee evidence this generation uses.",
+      "type": "boolean"
+    },
+    "ledger_shared_flag_any": {"type": "boolean"},
+    "ledger_shared_flag_all": {"type": "boolean"},
+    "ledger_shared_flag_circular": {
+      "description": "Always true. The ledger's shared_employee_flag is set by build_house_personnel_ledger.py:1135-1140 as (printed title == SHARED EMPLOYEE) OR (this person occupies two or more offices in this quarter). The second disjunct is the very population a cross-office identity rule must adjudicate, so the flag cannot be used as evidence about it. The two ledger_shared_flag_* fields are carried as context and are never read by any rule here.",
+      "const": true
+    },
+    "name_office_count": {"type": "integer", "minimum": 1},
+    "name_link_class": {
+      "enum": [
+        "SINGLE_OFFICE", "SHARED_EMPLOYEE", "MID_QUARTER_MOVE",
+        "SEQUENTIAL_ONLY", "TRUE_COLLISION"
+      ]
+    },
+    "name_member_bioguides": {
+      "description": "Set on SHARED_EMPLOYEE names only; null elsewhere. The member offices this one name is paid by, which is the layer the network consumes.",
+      "type": ["array", "null"],
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][0-9]{6}$"}
+    },
+    "name_member_bioguide_count": {"type": "integer", "minimum": 0},
+    "split": {"type": "boolean"},
+    "split_basis": {
+      "type": ["string", "null"],
+      "enum": ["DAY_LEVEL_OVERLAP_NO_SHARED_TITLE", null]
+    },
+    "split_group_size": {"type": "integer", "minimum": 1},
+    "identity_status": {"const": "NAME_SCOPED_TO_OFFICE"},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_identity_promoted": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "canonical_office_promoted": {"const": false},
+    "canonical_person_id": {"const": null},
+    "canonical_office_id": {"const": null},
+    "canonical_identity_decision": {"const": "NOT_ADJUDICATED"}
+  }
+}

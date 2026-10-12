@@ -1,0 +1,20 @@
+[Unit]
+Description=Melange platform updater (verify, restore, rehash, flip, roll back)
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+# Never write voter data onto the unencrypted boot disk if the LUKS volume failed to mount.
+RequiresMountsFor=/srv/data
+ConditionPathExists=/etc/melange/allowed_signers
+
+[Service]
+Type=oneshot
+# docker login (GHCR read:packages) is stored under root's home
+Environment=HOME=/root
+ExecStart=/usr/bin/python3 /usr/local/lib/melange/melange_update.py
+# First data release is ~55 GB: restore + rehash take a while. Never time-box it: systemd killing the updater between the flip
+# and the end of a release is what state.json `pending` recovers from, and every command inside has its own timeout.
+TimeoutStartSec=infinity
+Nice=10
+NoNewPrivileges=yes
+PrivateTmp=yes

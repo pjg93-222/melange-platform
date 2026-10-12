@@ -1,0 +1,999 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "giving-anchors-v1.schema.json",
+  "title": "Giving Forecast Mentat anchor snapshot v1",
+  "description": "Written by mentat/forecast/anchors (read-only over Mentat); read by mentat/app/giving_forecast.py.",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "giving-anchors"
+    },
+    "built_at_utc": {
+      "$ref": "#/$defs/utc"
+    },
+    "builder": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        },
+        "code_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "python": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "code_sha256",
+        "python"
+      ],
+      "additionalProperties": false
+    },
+    "cpi": {
+      "type": "object",
+      "properties": {
+        "series": {
+          "type": "string"
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "source_sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "base_year": {
+          "type": "integer"
+        },
+        "multipliers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          },
+          "propertyNames": {
+            "pattern": "^\\d{4}$"
+          },
+          "minProperties": 1,
+          "description": "Cycle end year -> cpi[base_year] / mean(cpi[t-1], cpi[t]). A missing year (2026: no CPI yet) means face value."
+        }
+      },
+      "required": [
+        "series",
+        "source_file",
+        "source_sha256",
+        "base_year",
+        "multipliers"
+      ],
+      "additionalProperties": false
+    },
+    "thin_base_threshold_usd": {
+      "type": "number",
+      "minimum": 0
+    },
+    "industries": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "forecast_industry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mentat": {
+            "type": "object",
+            "properties": {
+              "dataset": {
+                "type": "string"
+              },
+              "workbook": {
+                "type": "string"
+              },
+              "workbook_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "index_token": {
+                "type": "string"
+              },
+              "database_sha256": {
+                "$ref": "#/$defs/sha256"
+              },
+              "payload_sha256": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "required": [
+              "dataset",
+              "workbook",
+              "workbook_sha256",
+              "index_token",
+              "database_sha256",
+              "payload_sha256"
+            ],
+            "additionalProperties": false
+          },
+          "coverage": {
+            "type": "object",
+            "properties": {
+              "rule": {
+                "type": "string"
+              },
+              "collection_date": {
+                "$ref": "#/$defs/date"
+              },
+              "current_cycle": {
+                "type": "integer"
+              },
+              "rule_coverage_end": {
+                "$ref": "#/$defs/date"
+              },
+              "coverage_end": {
+                "$ref": "#/$defs/date"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "rule",
+              "collection_date",
+              "current_cycle",
+              "rule_coverage_end",
+              "coverage_end",
+              "reason",
+              "flags"
+            ],
+            "additionalProperties": false
+          },
+          "status": {
+            "type": "object",
+            "properties": {
+              "general_giving": {
+                "$ref": "#/$defs/status"
+              },
+              "candidate_receipts": {
+                "$ref": "#/$defs/status"
+              },
+              "pac_to_candidates": {
+                "$ref": "#/$defs/status"
+              },
+              "lda": {
+                "$ref": "#/$defs/status"
+              }
+            },
+            "required": [
+              "general_giving",
+              "candidate_receipts",
+              "pac_to_candidates",
+              "lda"
+            ],
+            "additionalProperties": false
+          },
+          "general_giving": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/status"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "basis": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "cycles": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "by_funding_source": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  }
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "observed": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/cut_money"
+                }
+              },
+              "excluded_funding_sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Funding sources (the accounting engine's buckets) this snapshot leaves out of `cycles`, `observed` and the candidate bases (owner ruling 2026-10-01: non_giving). Absent in snapshots built before that ruling, whose levels still include them."
+              },
+              "excluded_non_giving": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                },
+                "description": "Dollars per cycle the exclusion left out (the excluded sources' share of the published Analysis Amount): cycles + excluded_non_giving = the sum of by_funding_source. by_funding_source is the full split, including the excluded sources."
+              },
+              "odd_year": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                },
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "description": "Forecast-basis receipts of each COMPLETE cycle dated on or before December 31 of its first year (the odd-year split of the cycle model)."
+              }
+            },
+            "required": [
+              "status",
+              "reason",
+              "basis",
+              "label",
+              "cycles",
+              "by_funding_source",
+              "observed"
+            ],
+            "additionalProperties": false
+          },
+          "candidate_receipts": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/status"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "basis": {
+                "type": "string"
+              },
+              "cycles": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/chambers"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "observed": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/cut_chambers"
+                }
+              },
+              "thin_base": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/flags_by_chamber"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "excluded_funding_sources": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Funding sources left out of `cycles` and `observed` (owner ruling 2026-10-01: non_giving). Absent in snapshots built before that ruling."
+              },
+              "excluded_non_giving": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/chambers"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                },
+                "description": "Dollars per cycle, chamber and party that the exclusion left out of the employee candidate base (cycles + excluded_non_giving = what `cycles` would hold if these receipts counted)."
+              }
+            },
+            "required": [
+              "status",
+              "reason",
+              "basis",
+              "cycles",
+              "observed",
+              "thin_base"
+            ],
+            "additionalProperties": false
+          },
+          "pac_to_candidates": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/status"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              },
+              "rule": {
+                "type": "string"
+              },
+              "committee_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "single_pac": {
+                "type": "boolean"
+              },
+              "committees": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^C\\d{8}$"
+                    },
+                    "company": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "company"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "inputs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "role": {
+                      "type": "string"
+                    },
+                    "file": {
+                      "type": "string"
+                    },
+                    "sha256": {
+                      "$ref": "#/$defs/sha256"
+                    },
+                    "fec_last_modified": {
+                      "$ref": "#/$defs/date_null"
+                    }
+                  },
+                  "required": [
+                    "role",
+                    "file",
+                    "sha256",
+                    "fec_last_modified"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "cycles": {
+                "type": "object",
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "House": {
+                      "$ref": "#/$defs/dr"
+                    },
+                    "Senate": {
+                      "$ref": "#/$defs/dr"
+                    },
+                    "to_house_senate": {
+                      "type": "number"
+                    },
+                    "presidential": {
+                      "type": "number"
+                    },
+                    "no_candidate": {
+                      "type": "number"
+                    },
+                    "all_recipients": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "House",
+                    "Senate",
+                    "to_house_senate",
+                    "presidential",
+                    "no_candidate",
+                    "all_recipients"
+                  ],
+                  "additionalProperties": false
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "file_through": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/date"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "observed": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/cut_pac"
+                }
+              },
+              "thin_base": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/flags_by_chamber"
+                },
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                }
+              },
+              "odd_year": {
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                },
+                "additionalProperties": {
+                  "$ref": "#/$defs/odd_pac"
+                },
+                "description": "The D-049 aggregation of each COMPLETE cycle cut at December 31 of its first year."
+              }
+            },
+            "required": [
+              "status",
+              "reason",
+              "source",
+              "rule",
+              "committee_count",
+              "single_pac",
+              "committees",
+              "inputs",
+              "cycles",
+              "file_through",
+              "observed",
+              "thin_base"
+            ],
+            "additionalProperties": false
+          },
+          "lda": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "$ref": "#/$defs/status"
+              },
+              "reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sector": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "label": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_file": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "source_sha256": {
+                "$ref": "#/$defs/sha256_null"
+              },
+              "through": {
+                "$ref": "#/$defs/date_null"
+              },
+              "series": {
+                "type": "object",
+                "additionalProperties": {
+                  "$ref": "#/$defs/lda_series"
+                }
+              },
+              "counts": {
+                "description": "The roster counts Melange prints under each sector card, by year (annual rows, the partial year's included): distinct organizations and distinct named lobbyists. Optional: a snapshot built before the Melange-style lobbying chart has none, and the chart then leaves the counts out.",
+                "type": "object",
+                "propertyNames": {
+                  "pattern": "^\\d{4}$"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "properties": {
+                    "organizations": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "lobbyists": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "organizations",
+                    "lobbyists"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason",
+              "sector",
+              "label",
+              "source_file",
+              "source_sha256",
+              "through",
+              "series",
+              "note"
+            ],
+            "additionalProperties": false
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "forecast_industry",
+          "mentat",
+          "coverage",
+          "status",
+          "general_giving",
+          "candidate_receipts",
+          "pac_to_candidates",
+          "lda",
+          "flags"
+        ],
+        "additionalProperties": false
+      },
+      "minProperties": 1
+    },
+    "unavailable": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Industries the builder could not anchor (id -> reason); the console refuses them with that reason."
+    },
+    "lda_nowcast_errors": {
+      "type": "object",
+      "properties": {
+        "pool": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "series": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 1
+        },
+        "by_cut": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "n": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "q80": {
+                "type": "number",
+                "minimum": 0
+              },
+              "max": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "n",
+              "q80",
+              "max"
+            ],
+            "additionalProperties": false
+          },
+          "propertyNames": {
+            "pattern": "^[123]$"
+          },
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "pool",
+        "series",
+        "targets",
+        "by_cut"
+      ],
+      "additionalProperties": false,
+      "description": "Pooled blind errors of the lobbying nowcast, log(prediction / actual), by quarter cut (1 = Q1 ... 3 = Q3): n blind tests (every complete year with a complete prior year x both series x every pool sector), q80 the split-conformal 80th percentile of the absolute error, max the largest blind miss. They are the half-widths (log scale) of the 80% and ~95% bands. Optional: absent in snapshots built before the ruling."
+    }
+  },
+  "required": [
+    "schema_version",
+    "kind",
+    "built_at_utc",
+    "builder",
+    "cpi",
+    "thin_base_threshold_usd",
+    "industries",
+    "unavailable"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "date": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "utc": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "date_null": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "sha256_null": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "dr": {
+      "type": "object",
+      "properties": {
+        "D": {
+          "type": "number"
+        },
+        "R": {
+          "type": "number"
+        },
+        "other": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "D",
+        "R",
+        "other"
+      ],
+      "additionalProperties": false,
+      "description": "Dollars to Democratic, Republican and other-party candidates (nominal)."
+    },
+    "chambers": {
+      "type": "object",
+      "properties": {
+        "House": {
+          "$ref": "#/$defs/dr"
+        },
+        "Senate": {
+          "$ref": "#/$defs/dr"
+        }
+      },
+      "required": [
+        "House",
+        "Senate"
+      ],
+      "additionalProperties": false
+    },
+    "flags_by_chamber": {
+      "type": "object",
+      "properties": {
+        "House": {
+          "type": "boolean"
+        },
+        "Senate": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "House",
+        "Senate"
+      ],
+      "additionalProperties": false
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "unavailable"
+      ]
+    },
+    "cut_money": {
+      "type": "object",
+      "properties": {
+        "through": {
+          "$ref": "#/$defs/date"
+        },
+        "amount": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "through",
+        "amount"
+      ],
+      "additionalProperties": false
+    },
+    "cut_chambers": {
+      "type": "object",
+      "properties": {
+        "through": {
+          "$ref": "#/$defs/date"
+        },
+        "House": {
+          "$ref": "#/$defs/dr"
+        },
+        "Senate": {
+          "$ref": "#/$defs/dr"
+        }
+      },
+      "required": [
+        "through",
+        "House",
+        "Senate"
+      ],
+      "additionalProperties": false
+    },
+    "cut_pac": {
+      "type": "object",
+      "properties": {
+        "through": {
+          "$ref": "#/$defs/date"
+        },
+        "House": {
+          "$ref": "#/$defs/dr"
+        },
+        "Senate": {
+          "$ref": "#/$defs/dr"
+        },
+        "to_house_senate": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "through",
+        "House",
+        "Senate",
+        "to_house_senate"
+      ],
+      "additionalProperties": false
+    },
+    "lda_series": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "annual": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          },
+          "propertyNames": {
+            "pattern": "^\\d{4}$"
+          },
+          "minProperties": 1
+        },
+        "partial": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "properties": {
+            "year": {
+              "type": "integer"
+            },
+            "through_quarter": {
+              "enum": [
+                "Q1",
+                "Q2",
+                "Q3"
+              ]
+            },
+            "quarters": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0
+              },
+              "propertyNames": {
+                "pattern": "^Q[1-4]$"
+              },
+              "minProperties": 1
+            },
+            "total": {
+              "type": "number",
+              "minimum": 0
+            },
+            "nowcast": {
+              "type": [
+                "object",
+                "null"
+              ],
+              "properties": {
+                "year": {
+                  "type": "integer"
+                },
+                "through_quarter": {
+                  "enum": [
+                    "Q1",
+                    "Q2",
+                    "Q3"
+                  ]
+                },
+                "observed": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "prior_total": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "share": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 1
+                },
+                "share_years": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  },
+                  "minItems": 1
+                },
+                "shares": {
+                  "type": "array",
+                  "items": {
+                    "type": "number",
+                    "exclusiveMinimum": 0,
+                    "maximum": 1
+                  },
+                  "minItems": 1
+                },
+                "point": {
+                  "type": "number",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "year",
+                "through_quarter",
+                "observed",
+                "prior_total",
+                "share",
+                "share_years",
+                "shares",
+                "point"
+              ],
+              "additionalProperties": false,
+              "description": "The in-year nowcast (owner rulings 2026-10-08): point = observed + (1 - share) * prior_total, observed = filed so far this year through the latest complete quarter cut, prior_total = the prior full-year total, share = geometric mean of the share filed by the same cut in up to the 3 prior years (shares, share_years). null when a prior year is missing. Optional: absent in snapshots built before the ruling."
+            }
+          },
+          "required": [
+            "year",
+            "through_quarter",
+            "quarters",
+            "total"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "label",
+        "annual",
+        "partial"
+      ],
+      "additionalProperties": false
+    },
+    "odd_pac": {
+      "type": "object",
+      "properties": {
+        "House": {
+          "$ref": "#/$defs/dr"
+        },
+        "Senate": {
+          "$ref": "#/$defs/dr"
+        },
+        "to_house_senate": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "House",
+        "Senate",
+        "to_house_senate"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

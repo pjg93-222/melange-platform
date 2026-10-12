@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:canonical-fact:v1",
+  "title": "Support-backed singleton canonical fact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "fact_id", "subject_entity_id", "predicate", "object_entity_id", "literal", "qualifiers", "layer", "directed", "raw_valid_start", "raw_valid_end", "precision_bucket", "observed_at", "structural_weight", "temporal_weight", "fact_status", "support"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-canonical-fact-v1"},
+    "fact_id": {"type": "string", "pattern": "^canonical:fact:[0-9a-f]{64}$"},
+    "subject_entity_id": {"type": "string", "pattern": "^canonical:"},
+    "predicate": {"type": "string", "minLength": 1},
+    "object_entity_id": {"type": ["string", "null"]},
+    "literal": {},
+    "qualifiers": {"type": "object"},
+    "layer": {"enum": ["legislator", "employment", "position", "education", "lobbying", "industry", "profile"]},
+    "directed": {"type": "boolean"},
+    "raw_valid_start": {"type": ["string", "null"]},
+    "raw_valid_end": {"type": ["string", "null"]},
+    "precision_bucket": {"enum": ["day", "month", "year", "undated-only"]},
+    "observed_at": {"type": ["string", "null"]},
+    "structural_weight": {"const": 1.0},
+    "temporal_weight": {"type": "number", "minimum": 0, "maximum": 1},
+    "fact_status": {"const": "ACTIVE"},
+    "support": {
+      "type": "object", "additionalProperties": false,
+      "required": ["source_assertion_id", "source_system_id", "source_support_digest", "support_role"],
+      "properties": {
+        "source_assertion_id": {"type": "string", "minLength": 1},
+        "source_system_id": {"type": "string", "minLength": 1},
+        "source_support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "support_role": {"const": "DIRECT_SOURCE_ASSERTION"}
+      }
+    }
+  }
+}

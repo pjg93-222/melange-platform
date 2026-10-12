@@ -1,0 +1,235 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:exploratory-temporal-receipt:v1",
+  "title": "Exploratory temporal tier build receipt",
+  "description": "Binds inputs, dials, status counts, and emitted files for the review-only exploratory temporal tier.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version", "rule_version",
+    "exploratory", "primary", "primary_weights_emitted", "statement",
+    "promotion_policy", "canonical_employment_promotions",
+    "canonical_identity_promotions", "review_status", "canonical_eligible",
+    "canonical_employment_promoted", "dials", "dial_status", "inputs", "files",
+    "records_read", "node_universe", "layers", "edge_counts", "co_tenure_status_counts",
+    "revolving_path_status_counts",
+    "revolving_path_status_counts_core_end_variant",
+    "revolving_edge_status_counts", "operator", "sweep", "sweep_semantics",
+    "weight_semantics", "self_loops", "zero_overlap_edges_emitted",
+    "implementation", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-exploratory-temporal-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "method_version": {"const": "exploratory-temporal-tier-v1"},
+    "rule_version": {"const": "exploratory-temporal-tier-v1"},
+    "exploratory": {"const": true},
+    "primary": {"const": false},
+    "primary_weights_emitted": {"const": 0},
+    "statement": {"const": "Exploratory diagnostics over strict one-to-one review candidates; not identity findings; not primary weights; no influence claim."},
+    "promotion_policy": {"const": "REVIEW_REQUIRED_ZERO_CANONICAL_PROMOTIONS"},
+    "canonical_employment_promotions": {"const": 0},
+    "canonical_identity_promotions": {"const": 0},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "dial_status": {"const": "UNTESTED_DEFAULTS_PENDING_FREEZE"},
+    "dials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tau_days", "gap_half_life_days", "tier_strength", "r_strength", "alphas", "tier_thresholds", "sweep_factors", "sweep_clamp_maximum"],
+      "properties": {
+        "tau_days": {"type": "number", "minimum": 0},
+        "gap_half_life_days": {"type": "number", "minimum": 0},
+        "tier_strength": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["L2", "L3", "L4", "L5"],
+          "properties": {
+            "L2": {"type": "number", "minimum": 0, "maximum": 1},
+            "L3": {"type": "number", "minimum": 0, "maximum": 1},
+            "L4": {"type": "number", "minimum": 0, "maximum": 1},
+            "L5": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "r_strength": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["R0", "R1", "R2"],
+          "properties": {
+            "R0": {"type": "number", "minimum": 0, "maximum": 1},
+            "R1": {"type": "number", "minimum": 0, "maximum": 1},
+            "R2": {"type": "number", "minimum": 0, "maximum": 1}
+          }
+        },
+        "alphas": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "number", "minimum": 0, "maximum": 1}},
+        "tier_thresholds": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["L2", "L3", "L4"]}},
+        "sweep_factors": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "number", "minimum": 0}},
+        "sweep_clamp_maximum": {"type": "number", "minimum": 0, "maximum": 1}
+      }
+    },
+    "inputs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "path", "bytes", "rows", "sha256"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "path": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0},
+          "rows": {"type": ["integer", "null"], "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "path", "records", "bytes", "sha256"],
+        "properties": {
+          "role": {"enum": ["exploratory_temporal_edges", "exploratory_node_scores"]},
+          "path": {"type": "string", "minLength": 1},
+          "records": {"type": "integer", "minimum": 0},
+          "bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "records_read": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["person_office_records", "person_office_records_used", "person_summary_rows", "filer_asserted_year_episodes", "registrant_side_records", "registrant_side_records_used", "registrant_tier_defaulted_r0"],
+      "properties": {
+        "person_office_records": {"type": "integer", "minimum": 0},
+        "person_office_records_used": {"type": "integer", "minimum": 0},
+        "person_summary_rows": {"type": "integer", "minimum": 0},
+        "filer_asserted_year_episodes": {"type": "integer", "minimum": 0},
+        "registrant_side_records": {"type": "integer", "minimum": 0},
+        "registrant_side_records_used": {"type": "integer", "minimum": 0},
+        "registrant_tier_defaulted_r0": {"type": "integer", "minimum": 0}
+      }
+    },
+    "node_universe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["L2", "L3", "L4"],
+      "properties": {
+        "L2": {"type": "object", "additionalProperties": false, "required": ["person", "container", "organization", "total"], "properties": {"person": {"type": "integer", "minimum": 0}, "container": {"type": "integer", "minimum": 0}, "organization": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 0}}},
+        "L3": {"type": "object", "additionalProperties": false, "required": ["person", "container", "organization", "total"], "properties": {"person": {"type": "integer", "minimum": 0}, "container": {"type": "integer", "minimum": 0}, "organization": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 0}}},
+        "L4": {"type": "object", "additionalProperties": false, "required": ["person", "container", "organization", "total"], "properties": {"person": {"type": "integer", "minimum": 0}, "container": {"type": "integer", "minimum": 0}, "organization": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 0}}}
+      }
+    },
+    "layers": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["co_tenure", "revolving", "membership"]}
+    },
+    "edge_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["co_tenure_emitted", "co_tenure_in_operator_l2", "revolving_emitted", "revolving_in_operator_l2", "membership", "membership_in_operator_l2", "co_tenure_pairs_evaluated", "largest_container_person_count"],
+      "properties": {
+        "co_tenure_emitted": {"type": "integer", "minimum": 0},
+        "co_tenure_in_operator_l2": {"type": "integer", "minimum": 0},
+        "revolving_emitted": {"type": "integer", "minimum": 0},
+        "revolving_in_operator_l2": {"type": "integer", "minimum": 0},
+        "membership": {"type": "integer", "minimum": 0},
+        "membership_in_operator_l2": {"type": "integer", "minimum": 0},
+        "co_tenure_pairs_evaluated": {"type": "integer", "minimum": 0},
+        "largest_container_person_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "co_tenure_status_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["GUARANTEED", "POSSIBLE_ONLY", "ZERO_OVERLAP"],
+      "properties": {
+        "GUARANTEED": {"type": "integer", "minimum": 0},
+        "POSSIBLE_ONLY": {"type": "integer", "minimum": 0},
+        "ZERO_OVERLAP": {"type": "integer", "minimum": 0}
+      }
+    },
+    "revolving_path_status_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["GUARANTEED", "POSSIBLE_ONLY", "WRONG_ORDER", "INTERVAL_BLOCKED"],
+      "properties": {
+        "GUARANTEED": {"type": "integer", "minimum": 0},
+        "POSSIBLE_ONLY": {"type": "integer", "minimum": 0},
+        "WRONG_ORDER": {"type": "integer", "minimum": 0},
+        "INTERVAL_BLOCKED": {"type": "integer", "minimum": 0}
+      }
+    },
+    "revolving_path_status_counts_core_end_variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["GUARANTEED", "POSSIBLE_ONLY", "WRONG_ORDER", "INTERVAL_BLOCKED"],
+      "properties": {
+        "GUARANTEED": {"type": "integer", "minimum": 0},
+        "POSSIBLE_ONLY": {"type": "integer", "minimum": 0},
+        "WRONG_ORDER": {"type": "integer", "minimum": 0},
+        "INTERVAL_BLOCKED": {"type": "integer", "minimum": 0}
+      }
+    },
+    "revolving_edge_status_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["GUARANTEED", "POSSIBLE_ONLY", "WRONG_ORDER", "INTERVAL_BLOCKED"],
+      "properties": {
+        "GUARANTEED": {"type": "integer", "minimum": 0},
+        "POSSIBLE_ONLY": {"type": "integer", "minimum": 0},
+        "WRONG_ORDER": {"type": "integer", "minimum": 0},
+        "INTERVAL_BLOCKED": {"type": "integer", "minimum": 0}
+      }
+    },
+    "operator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["L2", "L3", "L4"],
+      "properties": {
+        "L2": {"type": "object", "additionalProperties": false, "required": ["nodes", "operator_edges", "isolates", "components", "pagerank", "eigenvector"], "properties": {"nodes": {"type": "integer", "minimum": 0}, "operator_edges": {"type": "integer", "minimum": 0}, "isolates": {"type": "integer", "minimum": 0}, "components": {"type": "integer", "minimum": 0}, "pagerank": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["alpha", "iterations", "residual_l1"], "properties": {"alpha": {"type": "number"}, "iterations": {"type": "integer", "minimum": 0}, "residual_l1": {"type": "number", "minimum": 0}}}}, "eigenvector": {"type": ["object", "null"], "additionalProperties": true}}},
+        "L3": {"type": "object", "additionalProperties": false, "required": ["nodes", "operator_edges", "isolates", "components", "pagerank", "eigenvector"], "properties": {"nodes": {"type": "integer", "minimum": 0}, "operator_edges": {"type": "integer", "minimum": 0}, "isolates": {"type": "integer", "minimum": 0}, "components": {"type": "integer", "minimum": 0}, "pagerank": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["alpha", "iterations", "residual_l1"], "properties": {"alpha": {"type": "number"}, "iterations": {"type": "integer", "minimum": 0}, "residual_l1": {"type": "number", "minimum": 0}}}}, "eigenvector": {"type": ["object", "null"], "additionalProperties": true}}},
+        "L4": {"type": "object", "additionalProperties": false, "required": ["nodes", "operator_edges", "isolates", "components", "pagerank", "eigenvector"], "properties": {"nodes": {"type": "integer", "minimum": 0}, "operator_edges": {"type": "integer", "minimum": 0}, "isolates": {"type": "integer", "minimum": 0}, "components": {"type": "integer", "minimum": 0}, "pagerank": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["alpha", "iterations", "residual_l1"], "properties": {"alpha": {"type": "number"}, "iterations": {"type": "integer", "minimum": 0}, "residual_l1": {"type": "number", "minimum": 0}}}}, "eigenvector": {"type": ["object", "null"], "additionalProperties": true}}}
+      }
+    },
+    "sweep": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["dial", "factor", "tier_threshold", "spearman_pagerank_0_85", "nodes_ranked", "clamped_dial_entries", "scaled_dial"],
+        "properties": {
+          "dial": {"enum": ["TIER_STRENGTH", "R_STRENGTH"]},
+          "factor": {"type": "number", "minimum": 0},
+          "tier_threshold": {"enum": ["L2", "L3", "L4"]},
+          "spearman_pagerank_0_85": {"type": ["number", "null"], "minimum": -1, "maximum": 1},
+          "nodes_ranked": {"type": "integer", "minimum": 0},
+          "clamped_dial_entries": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "scaled_dial": {"type": "object", "additionalProperties": {"type": "number", "minimum": 0, "maximum": 1}}
+        }
+      }
+    },
+    "sweep_semantics": {"type": "string", "minLength": 1},
+    "weight_semantics": {"type": "string", "minLength": 1},
+    "self_loops": {"const": 0},
+    "zero_overlap_edges_emitted": {"const": 0},
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "failures": {"type": "array", "items": {"type": "string", "minLength": 1}}
+  }
+}

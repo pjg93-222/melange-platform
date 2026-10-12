@@ -1,0 +1,224 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-tiered-person-summary-v2",
+  "title": "Tiered corroboration person summary (spine-linked)",
+  "description": "One row for every person in the sealed 25,340 employment-lookup queue, carrying the highest confirmation ladder tier reached per lane and per chamber, the prong failure codes that explain the shortfall, and the registrant-side tier. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion. v2 adds the distinct spine person ids this person's LINKED person-office records point at, and the per-person link histogram. Tiers, chambers and registrant tiers are carried forward byte for byte.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "rule_version",
+    "lda_source_person_id",
+    "max_tier",
+    "tier_by_chamber",
+    "tier_by_lane",
+    "person_office_record_count",
+    "prong_failure_codes",
+    "a9_bucket",
+    "a9_sealed_queue_ordinal",
+    "registrant_side_tier",
+    "filer_asserted_year_episode_count",
+    "review_status",
+    "canonical_eligible",
+    "canonical_employment_promoted",
+    "spine_link_rule_version",
+    "spine_person_ids",
+    "spine_link_summary"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-tiered-person-summary-v2"
+    },
+    "rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lda_source_person_id": {
+      "type": "string",
+      "pattern": "^lda:lobbyist:[0-9]+$"
+    },
+    "max_tier": {
+      "enum": [
+        "L0",
+        "L1",
+        "L2",
+        "L3",
+        "L4",
+        "L5"
+      ]
+    },
+    "tier_by_chamber": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "house",
+        "senate"
+      ],
+      "properties": {
+        "house": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5"
+          ]
+        },
+        "senate": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5"
+          ]
+        }
+      }
+    },
+    "tier_by_lane": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "house_sod_2009q3_2015q4",
+        "house_payroll_2016_2026",
+        "senate_payroll_2011_2026"
+      ],
+      "properties": {
+        "house_sod_2009q3_2015q4": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5"
+          ]
+        },
+        "house_payroll_2016_2026": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5"
+          ]
+        },
+        "senate_payroll_2011_2026": {
+          "enum": [
+            "L0",
+            "L1",
+            "L2",
+            "L3",
+            "L4",
+            "L5"
+          ]
+        }
+      }
+    },
+    "senate_split_clean": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "person_office_record_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "prong_failure_codes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "NO_PAYROLL_OBSERVATION",
+          "NAME_COLLISION_IN_QUEUE",
+          "OFFICE_NOT_IN_COVERED_POSITION_TEXT",
+          "COVERED_POSITION_TEXT_EMPTY",
+          "OFFICE_FAMILY_UNMAPPED",
+          "OFFICE_TOKEN_NOT_EXTRACTABLE",
+          "MEMBER_SURNAME_NOT_PARSED",
+          "OFFICE_STRING_EMPTY",
+          "CHRONOLOGY_INCONSISTENT",
+          "CHRONOLOGY_UNKNOWN",
+          "SPLIT_NOT_CLEAN",
+          "NO_THIRD_SOURCE_NAMES_THE_OFFICE"
+        ]
+      }
+    },
+    "a9_bucket": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "a9_sealed_queue_ordinal": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1,
+      "maximum": 25340
+    },
+    "registrant_side_tier": {
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        null
+      ]
+    },
+    "filer_asserted_year_episode_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "review_status": {
+      "const": "REVIEW_REQUIRED"
+    },
+    "canonical_eligible": {
+      "const": false
+    },
+    "canonical_employment_promoted": {
+      "const": false
+    },
+    "spine_link_rule_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spine_person_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^hill:person:[0-9a-f]{64}$"
+      },
+      "description": "Distinct spine person ids from this person's LINKED records only. Empty when nothing linked. One person can hold several ids: the spine scopes identity to an office (D-020), so a person observed in two unconnected offices is two spine persons."
+    },
+    "spine_link_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "linked_records",
+        "ambiguous",
+        "not_found"
+      ],
+      "properties": {
+        "linked_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ambiguous": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "not_found": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

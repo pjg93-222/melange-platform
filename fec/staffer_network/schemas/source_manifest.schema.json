@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:source-manifest:v1",
+  "title": "Staffer network source authority and provenance manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "source_system_id", "enabled", "authority_scope", "license", "terms_uri",
+    "terms_checked_at", "authorization_status", "approved_access_mode",
+    "query_or_inventory", "crawl_watermark", "retention_policy", "source_schema_version",
+    "freshness_rule", "duplicate_count", "amendment_policy", "rejection_reasons", "acceptance_bar",
+    "redistribution_class", "source_as_of", "collected_at", "collector_version", "parser_version",
+    "expected_count", "observed_count", "accepted_count", "rejected_count", "files", "manifest_sha256"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-source-manifest-v1"},
+    "source_system_id": {"type": "string", "minLength": 1},
+    "enabled": {"type": "boolean"},
+    "authority_scope": {"type": "string", "minLength": 1},
+    "license": {"type": "string", "minLength": 1},
+    "terms_uri": {"type": "string", "format": "uri"},
+    "terms_checked_at": {"type": "string", "format": "date-time"},
+    "authorization_status": {"enum": ["AUTHORIZED", "QUARANTINED", "PROHIBITED"]},
+    "approved_access_mode": {"type": "string", "minLength": 1},
+    "query_or_inventory": {"type": "string", "minLength": 1},
+    "crawl_watermark": {"type": ["string", "null"], "minLength": 1},
+    "retention_policy": {"type": "string", "minLength": 1},
+    "source_schema_version": {"type": "string", "minLength": 1},
+    "freshness_rule": {"type": "string", "minLength": 1},
+    "redistribution_class": {"enum": ["public", "public-safe-derived-only", "restricted-local-only", "prohibited"]},
+    "source_as_of": {"type": ["string", "null"], "format": "date-time"},
+    "collected_at": {"type": "string", "format": "date-time"},
+    "collector_version": {"type": "string", "minLength": 1},
+    "parser_version": {"type": "string", "minLength": 1},
+    "expected_count": {"type": ["integer", "null"], "minimum": 0},
+    "observed_count": {"type": "integer", "minimum": 0},
+    "accepted_count": {"type": "integer", "minimum": 0},
+    "rejected_count": {"type": "integer", "minimum": 0},
+    "duplicate_count": {"type": "integer", "minimum": 0},
+    "amendment_policy": {"type": "string", "minLength": 1},
+    "rejection_reasons": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "acceptance_bar": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metric", "threshold", "comparison", "observed", "pass"],
+      "properties": {
+        "metric": {"type": "string", "minLength": 1},
+        "threshold": {"type": ["number", "null"]},
+        "comparison": {"enum": [">=", "<=", "=", null]},
+        "observed": {"type": ["number", "null"]},
+        "pass": {"type": "boolean"}
+      }
+    },
+    "files": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["path", "sha256", "bytes"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "bytes": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

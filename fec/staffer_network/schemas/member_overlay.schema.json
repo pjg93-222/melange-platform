@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:member-overlay:v1",
+  "title": "Bioguide-keyed shared-personnel overlay",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["edge_id", "member_a_bioguide", "member_b_bioguide", "predicate", "raw_weight", "contributing_person_count", "support_digest"],
+  "properties": {
+    "edge_id": {"type": "string", "minLength": 1},
+    "member_a_bioguide": {"type": "string", "pattern": "^[A-Z][0-9]{6}$"},
+    "member_b_bioguide": {"type": "string", "pattern": "^[A-Z][0-9]{6}$"},
+    "predicate": {"enum": ["SHARED_PERSONNEL_CONCURRENT", "SHARED_PERSONNEL_SEQUENTIAL"]},
+    "raw_weight": {"type": "number", "minimum": 0},
+    "contributing_person_count": {"type": "integer", "minimum": 1},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
+

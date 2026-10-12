@@ -1,0 +1,264 @@
+# Exported to .github/workflows/release.yml in pjg93-222/melange-platform.
+# CI is the only image builder; the laptop never needs Docker. Runs on a v* tag pushed by
+# `ops/release.py`, which later signs the manifest with the digests this run produces.
+#
+# Every action is pinned to a full commit SHA (the tag it was resolved from is the trailing comment); re-resolve with
+# `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha` when bumping one (ops/VPS.md, "Pin the actions").
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      # TODO: swap for a hashed ops/locks/ci-test.linux.txt once the lock lane produces one.
+      # cryptography is in requirements.txt already; naming it here keeps the access-gate and Mentat hosted-mode tests
+      # (which skip without it) from silently skipping if that file ever changes.
+      - run: python -m pip install -r requirements.txt pyyaml==6.0.3 cryptography==49.0.0
+      - run: python -m compileall -q ops fec mentat
+      - name: No-data tests (ops/ci/no_data_tests.txt)
+        run: python -m pytest -q $(grep -vE '^\s*(#|$)' ops/ci/no_data_tests.txt)
+      # contribution_data stats mentat/inputs/fec_receipt_rules.json at import and the source-only export drops
+      # mentat/inputs, so CI writes an empty placeholder. The five tests deselected below read the real rules; they run
+      # on the laptop (or here, once the export carries that file).
+      - name: Mentat tests (ops/ci/mentat_tests.txt)
+        run: |
+          set -euo pipefail
+          mkdir -p mentat/inputs
+          [ -e mentat/inputs/fec_receipt_rules.json ] || echo '{}' > mentat/inputs/fec_receipt_rules.json
+          cq=mentat/tests/test_contribution_data.py::ContributionQueryTests
+          python -m pytest -q $(grep -vE '^\s*(#|$)' ops/ci/mentat_tests.txt) \
+            --deselect "$cq::test_heuristic_rejection_and_zip_disagreement_do_not_erase_observation" \
+            --deselect "$cq::test_rejected_source_conflict_cannot_resurrect_money" \
+            --deselect "$cq::test_source_attribution_conflicts_are_preserved" \
+            --deselect "$cq::test_source_coalescing_prefers_accepted_claim_across_companies" \
+            --deselect "$cq::test_two_equal_gifts_are_not_deduplicated_without_evidence"
+
+  security:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      # The gate fails closed on a missing tool and fetches none, so gitleaks is installed here, pinned by version and by
+      # the sha256 GitHub publishes for the release asset (gh api repos/gitleaks/gitleaks/releases/tags/<tag>).
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -euo pipefail
+          curl -fsSL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          sudo tar -xzf gitleaks.tgz -C /usr/local/bin gitleaks
+      # `export` is the source scan of this checkout (exceptions, gitleaks, data_leak; exact_secrets is local-only and
+      # SKIPs under --ci). `all` also needs the Geo checkout (--terrier-dir) and the built images, so it is the laptop's
+      # pre-release run; the images stage runs in `scan` below.
+      - run: python ops/security_gate.py export --ci --target . --report security-export.json
+
+  build:
+    needs: [test, security]
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: write}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: melange-desk
+            dockerfile: ops/docker/melange-desk.Dockerfile
+            smoke: "import fec.access_gate, fec.surfaces.desk_server"
+          - name: mentat-console
+            dockerfile: ops/docker/mentat.Dockerfile
+            smoke: "import openpyxl, jinja2"
+    steps:
+      - name: Tag must be v<YYYY>.<MM>.<DD>.<n>
+        env: {TAG: "${{ github.ref_name }}"}
+        run: |
+          # a ref name may hold commas (buildx splits `outputs:` on them) or other odd characters: nothing runs on one
+          [[ "$TAG" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || { echo "::error::tag does not match v<YYYY>.<MM>.<DD>.<n>"; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Base image from ops/images.lock
+        id: base
+        run: |
+          set -euo pipefail
+          ref=$(jq -r '.python.ref' ops/images.lock)
+          dig=$(jq -r '.python.digest' ops/images.lock)
+          if ! [[ "$dig" =~ ^sha256:[0-9a-f]{64}$ ]] || [[ "$dig" =~ ^sha256:0{64}$ ]]; then
+            echo "::error::ops/images.lock python digest is a placeholder; resolve it (ops/VPS.md)"; exit 1
+          fi
+          {
+            echo "python=${ref}@${dig}"
+            echo "epoch=$(git log -1 --format=%ct)"
+            echo "created=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push (tag for humans, digest for the manifest)
+        id: push
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          outputs: type=image,name=ghcr.io/pjg93-222/${{ matrix.name }}:${{ github.ref_name }},push=true,rewrite-timestamp=true
+          # No layer cache on a release build: a GitHub Actions cache entry can be written by any other workflow run in
+          # the repo, and whatever it holds would ride, unseen, into an image the release signs. A tag build costs minutes.
+          no-cache: true
+          provenance: false
+          sbom: false
+          build-args: |
+            PYTHON_BASE=${{ steps.base.outputs.python }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.base.outputs.created }}
+            SOURCE_DATE_EPOCH=${{ steps.base.outputs.epoch }}
+      - name: Smoke-import inside the pushed image
+        env:
+          IMAGE: ghcr.io/pjg93-222/${{ matrix.name }}@${{ steps.push.outputs.digest }}
+          SMOKE: ${{ matrix.smoke }}
+        run: docker run --rm "$IMAGE" python -c "$SMOKE"
+      - name: Record digest
+        env: {DIGEST: "${{ steps.push.outputs.digest }}", NAME: "${{ matrix.name }}"}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "$DIGEST" > "digest-$NAME.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digest-${{ matrix.name }}
+          path: digest-${{ matrix.name }}.txt
+
+  sbom:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    strategy:
+      matrix:
+        name: [melange-desk, mentat-console]
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: "digest-${{ matrix.name }}"}
+      - id: ref
+        env: {NAME: "${{ matrix.name }}"}
+        run: echo "image=ghcr.io/pjg93-222/$NAME@$(cat "digest-$NAME.txt")" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.ref.outputs.image }}
+          format: spdx-json
+          output-file: sbom-${{ matrix.name }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.spdx.json
+
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {pattern: "digest-*", merge-multiple: true}
+      - name: Install trivy
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          set -euo pipefail
+          curl -fsSL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          sudo tar -xzf trivy.tgz -C /usr/local/bin trivy
+      - name: Render the compose file with the images built here
+        run: |
+          set -euo pipefail
+          # compose validates that env_file targets exist; the real ones are root-only on the VPS.
+          sudo install -d /srv/serve/secrets
+          sudo touch /srv/serve/secrets/{terrier-co05,terrier-or05,terrier-ct01,tunnel}.env
+          export IMAGE_MELANGE_DESK="ghcr.io/pjg93-222/melange-desk@$(cat digest-melange-desk.txt)"
+          export IMAGE_MENTAT_CONSOLE="ghcr.io/pjg93-222/mentat-console@$(cat digest-mentat-console.txt)"
+          # Terrier is built by Geo's own .github/workflows/release.yml (its tag is a separate run); a
+          # well-formed stand-in keeps `compose config` happy without scanning a fake image.
+          zeros=$(printf '0%.0s' {1..64})
+          for d in CO05 OR05 CT01; do export "IMAGE_TERRIER_$d=ghcr.io/pjg93-222/terrier-web@sha256:$zeros"; done
+          docker compose -f ops/compose.yaml --env-file ops/compose.env.example config --format json > compose.config.json
+          # trivy per image by digest (--image REF@sha256:... ...) and compose_policy on the rendered file (--compose-json)
+          python ops/security_gate.py images --ci --compose-json compose.config.json \
+            --image "$IMAGE_MELANGE_DESK" "$IMAGE_MENTAT_CONSOLE" --report security-images.json
+
+  kit:
+    needs: [scan, sbom]
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - name: Tag must be v<YYYY>.<MM>.<DD>.<n>
+        env: {TAG: "${{ github.ref_name }}"}
+        run: |
+          # a ref name may hold commas (buildx splits `outputs:` on them) or other odd characters: nothing runs on one
+          [[ "$TAG" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || { echo "::error::tag does not match v<YYYY>.<MM>.<DD>.<n>"; exit 1; }
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {pattern: "digest-*", merge-multiple: true}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {pattern: "sbom-*", merge-multiple: true}
+      - name: Assemble the kit
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          epoch=$(git log -1 --format=%ct)
+          mkdir -p dist/melange-kit
+          cp -r ops/kit/. dist/melange-kit/
+          cp ops/compose.yaml ops/compose.env.example ops/images.lock dist/melange-kit/
+          cp -r ops/vps dist/melange-kit/vps
+          jq -n --arg tag "$TAG" --arg sha "$SHA" \
+                --arg desk "ghcr.io/pjg93-222/melange-desk@$(cat digest-melange-desk.txt)" \
+                --arg mentat "ghcr.io/pjg93-222/mentat-console@$(cat digest-mentat-console.txt)" \
+                '{tag: $tag, commit: $sha, images: {"melange-desk": $desk, "mentat-console": $mentat}}' > dist/digests.json
+          cp dist/digests.json dist/melange-kit/digests.json
+          tar --sort=name --mtime="@$epoch" --owner=0 --group=0 --numeric-owner -cf - -C dist melange-kit \
+            | gzip -n -9 > "dist/melange-kit-$TAG.tar.gz"
+          cp sbom-*.spdx.json dist/
+          (cd dist && sha256sum "melange-kit-$TAG.tar.gz" digests.json sbom-*.spdx.json > SHA256SUMS)
+      - name: Draft release (Paul publishes it)
+        env:
+          TAG: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$TAG" --draft --title "$TAG" \
+            --notes "Install kit, image digests and SBOMs. The signed platform manifest is produced on the laptop." \
+            "dist/melange-kit-$TAG.tar.gz" dist/digests.json dist/SHA256SUMS dist/sbom-*.spdx.json

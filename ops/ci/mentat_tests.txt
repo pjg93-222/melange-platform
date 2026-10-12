@@ -1,0 +1,4 @@
+# Run by release.yml's `test` job after the no-data list: the hosted-mode contract tests (they need `cryptography`,
+# which the job installs pinned) and the contribution query tests. See the job for the five tests it deselects.
+mentat/tests/test_hosted_mode.py
+mentat/tests/test_contribution_data.py

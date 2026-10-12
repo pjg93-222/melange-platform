@@ -1,0 +1,53 @@
+.pac-selected {padding: 20px; margin-bottom: 18px; min-width: 0;}
+.pac-selected-heading {display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;}
+.pac-selected-heading h2 {font-size: 20px; margin: 0;}
+.pac-selected-actions {display: flex; gap: 8px; flex-wrap: wrap;}
+.pac-selected-description, .pac-selected-status {font-size: 13px; line-height: 1.5; margin: 10px 0;}
+.pac-selected-status {font-weight: 600;}
+.pac-selected-scroll {overflow-x: auto; max-width: 100%;}
+.pac-selected table {border-collapse: collapse; width: 100%; font-size: 13px;}
+.pac-selected th, .pac-selected td {padding: 10px; text-align: right; border-bottom: 1px solid var(--border, #d9dee5); font-variant-numeric: tabular-nums; white-space: nowrap;}
+.pac-selected th:first-child {text-align: left;}
+.pac-selected tbody th {font-weight: 500;}
+@media (max-width: 600px) {.pac-selected {padding: 14px;} .pac-selected-actions button {font-size: 12px;}}
+.pac-political .pac-selected-actions {align-items: center;}
+.pac-political-select-label {font-size: 12px; font-weight: 600;}
+.pac-political select {max-width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--border, #d9dee5); border-radius: 6px; color: inherit; background: var(--surface, #fff); font: inherit; font-size: 13px;}
+.pac-political-baseline {display: block; margin-top: 4px; color: var(--muted, #5c6570); font-size: 12px; font-weight: 400;}
+.pac-political-details {margin-top: 14px; font-size: 13px; line-height: 1.5;}
+.pac-political-details summary {cursor: pointer; font-weight: 600; padding: 8px 0;}
+.pac-political-input {margin: 10px 0; padding: 10px 0; border-top: 1px solid var(--border, #d9dee5);}
+.pac-political-input h3 {font-size: 13px; margin: 0 0 6px;}
+.pac-political-input p {margin: 4px 0;}
+.pac-political .pac-selected-scroll:focus-visible, .pac-political select:focus-visible {outline: 2px solid var(--accent, #2563eb); outline-offset: 3px;}
+.pac-political-warning {padding: 10px 12px; border-left: 3px solid #aa762b; background: #fff7e8; color: #694818; font-size: 13px; line-height: 1.5;}
+.pac-political-chart {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 12px;}
+.pac-political-chart-card {min-width: 0; padding: 14px; border: 1px solid var(--border, #d9dee5); border-radius: 8px;}
+.pac-political-chart-card h3 {font-size: 13px; margin: 0 0 14px;}
+.pac-political-bar-row {margin: 12px 0;}
+.pac-political-bar-label {display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; font-size: 12px; font-variant-numeric: tabular-nums;}
+.pac-political-bar-label strong {font-weight: 600;}
+.pac-political-bar-track {position: relative; height: 15px; margin-top: 6px; background: #f0f2f5; border-radius: 3px;}
+.pac-political-bar-outer, .pac-political-bar-inner {position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; background: var(--party-bar);}
+.pac-political-bar-outer {opacity: .3;}
+.pac-political-bar-tick {position: absolute; top: -3px; bottom: -3px; border-left: 2px solid var(--acu-plum); transform: translateX(-1px);}
+.pac-party-d {--party-bar: var(--party-dem);}
+.pac-party-r {--party-bar: var(--party-rep);}
+.pac-political-fallback {font-size: 12px; line-height: 1.4; margin-bottom: 0;}
+.pac-political-validation {margin: 18px 0; padding-top: 12px; border-top: 1px solid var(--border, #d9dee5);}
+.pac-political-validation h3 {font-size: 13px; margin: 0 0 12px;}
+.pac-political-validation-row {display: grid; grid-template-columns: minmax(130px, 1fr) minmax(80px, 2fr) auto; align-items: center; gap: 12px; margin: 9px 0; font-size: 12px;}
+.pac-political-validation-row strong {font-variant-numeric: tabular-nums; font-weight: 600;}
+.pac-political-validation-track {height: 10px; background: #eef1f4; border-radius: 3px; overflow: hidden;}
+.pac-political-validation-track div {height: 100%; background: #637b8b; border-radius: 3px;}
+.pac-baseline-validation {margin: 14px 0 18px; padding: 14px; background: #f6f8fa; border: 1px solid var(--border, #d9dee5); border-radius: 8px;}
+.pac-baseline-validation h3 {font-size: 13px; margin: 0 0 12px;}
+.pac-baseline-metric-grid {display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;}
+.pac-baseline-metric {display: grid; gap: 5px; font-size: 12px;}
+.pac-baseline-metric strong {font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums;}
+.pac-baseline-metric small {color: var(--muted, #5c6570); font-size: 12px;}
+body[data-view] .giving-forecast .pac-selected .secondary {height: 36px; min-height: 0; padding: 0 14px; font: 600 13px/1 var(--font-sans);}
+@media (max-width: 380px) {.pac-baseline-metric-grid {grid-template-columns: 1fr;} .pac-baseline-metric strong {font-size: 15px;}}
+@media (max-width: 600px) {.pac-political-validation-row {grid-template-columns: 1fr auto; gap: 6px 10px;} .pac-political-validation-track {grid-row: 2; grid-column: 1 / -1;} .pac-political-chart-card {padding: 12px;}}
+@media (max-width: 600px) {.pac-political .pac-selected-actions {width: 100%;} .pac-political select, .pac-political .pac-selected-actions button {min-height: 44px;} .pac-political-select-label {width: 100%;} .pac-political .pac-selected-description, .pac-political .pac-selected-status {overflow-wrap: anywhere;}}
+@media (max-width: 850px) {.pac-political-chart {grid-template-columns: minmax(0, 1fr);}}

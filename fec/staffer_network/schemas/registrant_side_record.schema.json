@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-registrant-side-record-v1",
+  "title": "Registrant-side corroboration record",
+  "description": "One row for every person in the sealed 25,340 employment-lookup queue describing the registrant end of a revolving-door path: the LDA registrant association at filing-year grain, LD-203 and FEC same-year name-equal corroboration, dated or bounded registrant evidence from LittleSis or a profile ledger, and the order of the Hill observation against the registrant span. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "lda_source_person_id", "registrants",
+    "registrant_filing_year_span", "ld203", "fec", "dated_registrant_evidence",
+    "registrant_side_tier", "hill_payroll_year_span", "hill_registrant_order",
+    "review_status", "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-registrant-side-record-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "registrants": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "registrant_source_org_id", "employer_name", "employer_name_normalized",
+          "filing_years", "start_year", "end_year"
+        ],
+        "properties": {
+          "registrant_source_org_id": {"type": "string", "minLength": 1},
+          "employer_name": {
+            "type": ["string", "null"],
+            "description": "Verbatim registrant name, quoted from the LDA registrant employment episode ledger."
+          },
+          "employer_name_normalized": {"type": "string"},
+          "filing_years": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "integer", "minimum": 1900, "maximum": 2100}
+          },
+          "start_year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2100},
+          "end_year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2100}
+        }
+      }
+    },
+    "registrant_filing_year_span": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["start_year", "end_year"],
+      "properties": {
+        "start_year": {"type": "integer", "minimum": 1900, "maximum": 2100},
+        "end_year": {"type": "integer", "minimum": 1900, "maximum": 2100}
+      }
+    },
+    "ld203": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "filing_year_count", "first_filing_year", "last_filing_year",
+        "same_year_name_equal", "matched_registrant_name", "extends_earlier_years",
+        "extends_later_years", "introduces_unseen_organization"
+      ],
+      "properties": {
+        "filing_year_count": {"type": "integer", "minimum": 0},
+        "first_filing_year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2100},
+        "last_filing_year": {"type": ["integer", "null"], "minimum": 1900, "maximum": 2100},
+        "same_year_name_equal": {"type": "boolean"},
+        "matched_registrant_name": {
+          "type": ["string", "null"],
+          "description": "Verbatim LD-203 registrant name, quoted from the LD-203 affiliation candidate ledger."
+        },
+        "extends_earlier_years": {"type": "integer", "minimum": 0},
+        "extends_later_years": {"type": "integer", "minimum": 0},
+        "introduces_unseen_organization": {"type": "boolean"}
+      }
+    },
+    "fec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["observation_count", "same_year_name_equal", "any_year_name_equal"],
+      "properties": {
+        "observation_count": {"type": "integer", "minimum": 0},
+        "same_year_name_equal": {"type": "boolean"},
+        "any_year_name_equal": {"type": "boolean"}
+      }
+    },
+    "dated_registrant_evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "littlesis_dated", "littlesis_bounded", "profile_dated", "profile_bounded",
+        "matched_employer_name"
+      ],
+      "properties": {
+        "littlesis_dated": {"type": "boolean"},
+        "littlesis_bounded": {"type": "boolean"},
+        "profile_dated": {"type": "boolean"},
+        "profile_bounded": {"type": "boolean"},
+        "matched_employer_name": {
+          "type": ["string", "null"],
+          "description": "Verbatim employer or container name, quoted from the LittleSis or profile ledger that supplied the dated evidence."
+        }
+      }
+    },
+    "registrant_side_tier": {"enum": ["R0", "R1", "R2", null]},
+    "hill_payroll_year_span": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["start_year", "end_year"],
+      "properties": {
+        "start_year": {"type": "integer", "minimum": 1900, "maximum": 2100},
+        "end_year": {"type": "integer", "minimum": 1900, "maximum": 2100}
+      }
+    },
+    "hill_registrant_order": {
+      "enum": ["ORDERED", "OVERLAP_YEAR_GRAIN", "REVERSED", "NO_HILL_OBSERVATION"]
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

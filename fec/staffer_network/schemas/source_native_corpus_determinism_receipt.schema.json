@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:source-native-corpus-determinism-receipt:v1",
+  "title": "Source-native corpus deterministic twin-build receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "corrected_twin_count",
+    "all_files_byte_identical", "accepted_corpus_receipt_sha256",
+    "verification_files", "nondeterminism_detected_and_remediated",
+    "prior_nondeterministic_receipt_sha256", "remediation", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-source-native-corpus-determinism-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "corrected_twin_count": {"type": "integer", "minimum": 2},
+    "all_files_byte_identical": {"type": "boolean"},
+    "accepted_corpus_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "verification_files": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "bytes", "sha256", "identical"],
+        "properties": {
+          "role": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "identical": {"type": "boolean"}
+        }
+      }
+    },
+    "nondeterminism_detected_and_remediated": {"type": "boolean"},
+    "prior_nondeterministic_receipt_sha256": {
+      "type": "array", "minItems": 2, "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    },
+    "remediation": {"type": "string", "minLength": 1},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-tiered-corroboration-receipt-v1",
+  "title": "Tiered corroboration sidecar build receipt",
+  "description": "Build receipt for the Part A tiered corroboration sidecar: hash-bound inputs, emitted files, tier counts per lane and per chamber, prong failure distribution, conservation figures against the sealed queue, the ladder reproduction table, the declared dials and their sensitivity sweep, and the zero-promotion pins.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "status", "rule_version", "stage_id", "run_id", "implementation",
+    "inputs", "files", "counts", "prong_failure_distribution", "conservation",
+    "inv5_reproduction", "language_law", "dials", "sensitivity", "determinism",
+    "notes", "failures", "review_status", "promotion_policy",
+    "canonical_employment_promotions", "canonical_identity_promotions"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-tiered-corroboration-receipt-v1"},
+    "status": {"enum": ["PASS", "FAIL"]},
+    "rule_version": {"type": "string", "minLength": 1},
+    "stage_id": {"const": "tiered-corroboration-sidecar-part-a"},
+    "run_id": {"type": "string", "minLength": 1},
+    "implementation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "bytes", "rows", "sha256"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "bytes": {"type": "integer", "minimum": 0},
+          "rows": {"type": ["integer", "null"], "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["bytes", "rows", "sha256"],
+        "properties": {
+          "bytes": {"type": "integer", "minimum": 0},
+          "rows": {"type": ["integer", "null"], "minimum": 0},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "person_office_records", "person_summary_rows", "filer_asserted_year_episodes",
+        "registrant_side_records", "people_with_payroll_observation",
+        "tier_people_by_lane", "tier_people_by_chamber", "max_tier_people",
+        "records_by_tier", "records_by_container_kind", "records_by_lane",
+        "senate_split_clean_people", "registrant_tier_people", "hill_registrant_order",
+        "member_resolution_methods", "a6"
+      ],
+      "properties": {
+        "person_office_records": {"type": "integer", "minimum": 0},
+        "person_summary_rows": {"type": "integer", "minimum": 0},
+        "filer_asserted_year_episodes": {"type": "integer", "minimum": 0},
+        "registrant_side_records": {"type": "integer", "minimum": 0},
+        "people_with_payroll_observation": {"type": "integer", "minimum": 0},
+        "tier_people_by_lane": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {"type": "integer", "minimum": 0}
+          }
+        },
+        "tier_people_by_chamber": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {"type": "integer", "minimum": 0}
+          }
+        },
+        "max_tier_people": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "records_by_tier": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "records_by_container_kind": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "records_by_lane": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "senate_split_clean_people": {"type": "integer", "minimum": 0},
+        "registrant_tier_people": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "hill_registrant_order": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "member_resolution_methods": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "a6": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "prong_failure_distribution": {
+      "type": "object",
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    },
+    "conservation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sealed_queue_rows", "person_summary_rows", "person_summary_ids_equal_sealed_queue",
+        "payroll_union_people", "payroll_people_outside_sealed_queue",
+        "people_at_tier_L0", "people_above_tier_L0", "tier_partition_sums_to_queue",
+        "records_cover_every_payroll_person", "registrant_side_rows",
+        "registrant_side_ids_equal_sealed_queue"
+      ],
+      "properties": {
+        "sealed_queue_rows": {"type": "integer", "minimum": 0},
+        "person_summary_rows": {"type": "integer", "minimum": 0},
+        "person_summary_ids_equal_sealed_queue": {"type": "boolean"},
+        "payroll_union_people": {"type": "integer", "minimum": 0},
+        "payroll_people_outside_sealed_queue": {"type": "integer", "minimum": 0},
+        "people_at_tier_L0": {"type": "integer", "minimum": 0},
+        "people_above_tier_L0": {"type": "integer", "minimum": 0},
+        "tier_partition_sums_to_queue": {"type": "boolean"},
+        "records_cover_every_payroll_person": {"type": "boolean"},
+        "registrant_side_rows": {"type": "integer", "minimum": 0},
+        "registrant_side_ids_equal_sealed_queue": {"type": "boolean"}
+      }
+    },
+    "inv5_reproduction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["all_match", "rows"],
+      "properties": {
+        "all_match": {"type": "boolean"},
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lane", "metric", "expected", "measured", "match"],
+            "properties": {
+              "lane": {"type": "string", "minLength": 1},
+              "metric": {"type": "string", "minLength": 1},
+              "expected": {"type": "integer", "minimum": 0},
+              "measured": {"type": "integer", "minimum": 0},
+              "match": {"type": "boolean"}
+            }
+          }
+        }
+      }
+    },
+    "language_law": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "banned_tokens", "authored_value_and_field_name_hits",
+        "verbatim_source_quoted_fields", "verbatim_token_occurrences", "policy"
+      ],
+      "properties": {
+        "banned_tokens": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "authored_value_and_field_name_hits": {"type": "integer", "minimum": 0},
+        "verbatim_source_quoted_fields": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "verbatim_token_occurrences": {
+          "type": "object",
+          "additionalProperties": {"type": "integer", "minimum": 0}
+        },
+        "policy": {"type": "string", "minLength": 1}
+      }
+    },
+    "dials": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "TIER_STRENGTH", "R_STRENGTH", "tau_days", "alpha",
+        "chronology_offset_years", "envelope_widening_reporting_periods",
+        "max_examples_per_record", "a6_excluded_flags", "freeze_status"
+      ],
+      "properties": {
+        "TIER_STRENGTH": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0}
+        },
+        "R_STRENGTH": {
+          "type": "object",
+          "additionalProperties": {"type": "number", "minimum": 0}
+        },
+        "tau_days": {"type": "number", "minimum": 0},
+        "alpha": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "number", "minimum": 0, "maximum": 1}
+        },
+        "chronology_offset_years": {"type": "integer"},
+        "envelope_widening_reporting_periods": {"type": "integer", "minimum": 0},
+        "max_examples_per_record": {"type": "integer", "minimum": 0},
+        "a6_excluded_flags": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "freeze_status": {"const": "UNTESTED_DEFAULTS_PENDING_FREEZE"}
+      }
+    },
+    "sensitivity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chronology_offset_years", "tier_strength", "r_strength", "method"
+      ],
+      "properties": {
+        "chronology_offset_years": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "requested_value", "applied_offset", "l4_people_by_lane"],
+            "properties": {
+              "label": {"type": "string", "minLength": 1},
+              "requested_value": {"type": "number"},
+              "applied_offset": {"type": "integer"},
+              "l4_people_by_lane": {
+                "type": "object",
+                "additionalProperties": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        },
+        "tier_strength": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "factor", "values", "part_a_output_invariant"],
+            "properties": {
+              "label": {"type": "string", "minLength": 1},
+              "factor": {"type": "number", "minimum": 0},
+              "values": {
+                "type": "object",
+                "additionalProperties": {"type": "number", "minimum": 0}
+              },
+              "part_a_output_invariant": {"const": true}
+            }
+          }
+        },
+        "r_strength": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["label", "factor", "values", "part_a_output_invariant"],
+            "properties": {
+              "label": {"type": "string", "minLength": 1},
+              "factor": {"type": "number", "minimum": 0},
+              "values": {
+                "type": "object",
+                "additionalProperties": {"type": "number", "minimum": 0}
+              },
+              "part_a_output_invariant": {"const": true}
+            }
+          }
+        },
+        "method": {"type": "string", "minLength": 1}
+      }
+    },
+    "determinism": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gzip_mtime", "json_key_order", "newline", "sort_keys"],
+      "properties": {
+        "gzip_mtime": {"const": 0},
+        "json_key_order": {"const": "lexicographic"},
+        "newline": {"const": "LF"},
+        "sort_keys": {
+          "type": "object",
+          "additionalProperties": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "notes": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "failures": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "promotion_policy": {"const": "REVIEW_REQUIRED_ZERO_CANONICAL_PROMOTIONS"},
+    "canonical_employment_promotions": {"const": 0},
+    "canonical_identity_promotions": {"const": 0}
+  }
+}

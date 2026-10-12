@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-hill-person-spine-v1",
+  "title": "Hill person spine",
+  "description": "One row per person paid by the House or the Senate, carrying the normalized payee key triple, the identity tier that produced the person (S1 same office, S2 cross-office in one chamber, S3 cross-chamber name only), and the connections found to the sealed LDA queue and the current staff directory. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "spine_person_id", "payee_key", "chambers",
+    "span_count", "office_count", "first_period", "last_period",
+    "identity_tier", "member_bioguides", "lda_source_person_id", "lda_tier",
+    "quorum_staff_id", "link_methods", "review_status", "canonical_eligible",
+    "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-hill-person-spine-v1"},
+    "rule_version": {"type": "string", "minLength": 1},
+    "spine_person_id": {"type": "string", "pattern": "^hill:person:[0-9a-f]{64}$"},
+    "payee_key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last", "first", "middle_initial"],
+      "properties": {
+        "last": {"type": "string", "minLength": 1},
+        "first": {"type": "string", "minLength": 1},
+        "middle_initial": {"type": ["string", "null"], "minLength": 1, "maxLength": 1},
+        "first_class": {"type": "string", "minLength": 1, "description": "NAME-STANDARD GENERATIONS ONLY. The given name folded onto its nickname class stem by name_standard.canonical_first. Absent from every generation built without --name-standard."},
+        "suffix": {"type": ["string", "null"], "minLength": 1, "description": "NAME-STANDARD GENERATIONS ONLY. The one suffix observed across every raw payroll string this person was written with, or null when none was observed or more than one was. suffix_observed carries the full set."}
+      }
+    },
+    "chambers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"enum": ["house", "senate"]}
+    },
+    "span_count": {"type": "integer", "minimum": 1},
+    "office_count": {"type": "integer", "minimum": 1},
+    "first_period": {"type": "string", "minLength": 1},
+    "last_period": {"type": "string", "minLength": 1},
+    "identity_tier": {"enum": ["S1", "S2", "S3"]},
+    "member_bioguides": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[A-Z][0-9]{6}$"}
+    },
+    "lda_source_person_id": {
+      "type": ["string", "null"],
+      "pattern": "^lda:lobbyist:[0-9]+$"
+    },
+    "lda_tier": {"enum": ["L0", "L1", "L2", "L3", "L4", "L5", null]},
+    "quorum_staff_id": {"type": ["string", "null"], "minLength": 1},
+    "link_methods": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "SPINE_OFFICE_S1",
+          "SPINE_CROSS_OFFICE_S2",
+          "SPINE_CROSS_OFFICE_SHARED_EMPLOYEE",
+          "SPINE_CROSS_CHAMBER_S3",
+          "LDA_PAYROLL_KEY_H1",
+          "LDA_PAYROLL_KEY_H2",
+          "LDA_PAYROLL_KEY_SENATE",
+          "LDA_PAYROLL_KEY_AMBIGUOUS",
+          "QUORUM_CURRENT_STAFFER_NAME_AND_MEMBER_BIOGUIDE",
+          "QUORUM_CURRENT_STAFFER_AMBIGUOUS"
+        ]
+      }
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+
+    "name_key": {"type": "string", "minLength": 3, "description": "NAME-STANDARD GENERATIONS ONLY. last|first_class|middle_initial under the ONE name standard. This is the fourth field of the spine_person_id digest; the earlier rule digested the payee_key triple in that slot."},
+    "display_name": {"type": "string", "minLength": 1, "description": "NAME-STANDARD GENERATIONS ONLY. name_standard.display_name over the parts, rendered First Middle Last Suffix. Display only; nothing keys on it."},
+    "legacy_person_id": {"type": "string", "pattern": "^hill:person:[0-9a-f]{64}$", "description": "NAME-STANDARD GENERATIONS ONLY. The lexicographically first id of the previous generation that maps to this row. Equal to the single previous id unless this row is a merge."},
+    "legacy_person_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^hill:person:[0-9a-f]{64}$"}, "description": "NAME-STANDARD GENERATIONS ONLY. Every previous-generation id that maps to this row, ascending. More than one means a merge."},
+    "payee_key_legacy_variants": {
+      "type": "array",
+      "minItems": 1,
+      "description": "NAME-STANDARD GENERATIONS ONLY. Every previous-generation payee key triple folded into this person, ascending. Length one unless this row is a merge. The LDA and Quorum name joins key on these, not on payee_key, so a merged person still resolves under both spellings.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["last", "first", "middle_initial"],
+        "properties": {
+          "last": {"type": "string", "minLength": 1},
+          "first": {"type": "string", "minLength": 1},
+          "middle_initial": {"type": ["string", "null"], "minLength": 1, "maxLength": 1}
+        }
+      }
+    },
+    "name_standard_parts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first", "middle", "last", "suffix", "nickname_raw", "format_detected"],
+      "description": "NAME-STANDARD GENERATIONS ONLY. The standard's parts read from the RAW payroll string named in payee_raw -- the one the resolution rule chose, not the anchor observation's -- with suffix resolved across every raw string this person was written with. Keeps the accents and the suffix the payee key triple has already lost.",
+      "properties": {
+        "first": {"type": "string"},
+        "middle": {"type": "string"},
+        "last": {"type": "string"},
+        "suffix": {"type": "string"},
+        "nickname_raw": {"type": "string"},
+        "format_detected": {"type": "string", "minLength": 1}
+      }
+    },
+    "collision_ordinal": {"type": "integer", "minimum": 1, "description": "NAME-STANDARD GENERATIONS ONLY. Part of the hashed id tuple. 1 unless the merge guard separated records sharing the anchor and name key; 2, 3, ... distinguish additional records. From v8, same-office, same-period payee variants stay separate both when service dates overlap and when usable service dates are missing. Present on every row so the id reconstructs from the row's own fields with no case analysis."},
+    "payee_raw": {"type": "string", "minLength": 1, "description": "NAME-STANDARD GENERATIONS ONLY. The raw payroll payee string this person is named and keyed from, quoted verbatim. Ruling A: the raw the resolution rule chose -- prefer a key with a non-empty middle initial, then the most frequently recorded, then the lexicographic minimum -- not the anchor observation's string."},
+    "payee_raw_examples": {"type": "array", "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "NAME-STANDARD GENERATIONS ONLY. Up to three of the distinct raw payee strings this person was written with, ascending."},
+    "payee_raw_variant_count": {"type": "integer", "minimum": 1, "description": "NAME-STANDARD GENERATIONS ONLY. How many distinct raw payee strings this person was written with."},
+    "suffix_observed": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}, "description": "NAME-STANDARD GENERATIONS ONLY. Every distinct suffix the standard lifted from this person's raw payroll strings, ascending. More than one entry is a source disagreement and leaves payee_key.suffix null."}
+  }
+}

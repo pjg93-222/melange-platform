@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-working-history-corpus-receipt-v2",
+  "title": "Working history corpus consolidation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "status",
+    "incomplete_reasons",
+    "queue_sha256",
+    "queue_rows",
+    "input_artifact_count",
+    "input_row_count",
+    "row_accounting",
+    "processed_people",
+    "unseen_people",
+    "complete_people",
+    "partial_people",
+    "unresolved_people",
+    "employment_episode_count",
+    "education_episode_count",
+    "residual_incomplete_rows",
+    "python_worker_count",
+    "identity_verification_deferred",
+    "identity_verification_queue_rows",
+    "linkedin_candidate_people",
+    "files",
+    "input_artifacts",
+    "canonical_identity_promotions"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-working-history-corpus-receipt-v2"
+    },
+    "status": {
+      "enum": ["PASS", "INCOMPLETE"]
+    },
+    "incomplete_reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "INPUT_ROWS_EMPTY",
+          "QUEUE_PEOPLE_UNSEEN",
+          "IDENTIFIED_EMPLOYMENT_NOT_COMPLETE",
+          "UNIDENTIFIED_INPUT_ROWS",
+          "DUPLICATE_IDENTIFIED_PERSON_IDS",
+          "CLASSIFICATION_ROW_CONSERVATION_FAILURE",
+          "IDENTIFIED_ROW_CONSERVATION_FAILURE",
+          "INPUT_ROW_CONSERVATION_FAILURE",
+          "OUTPUT_DUPLICATE_PERSON_IDS"
+        ]
+      }
+    },
+    "queue_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "queue_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input_artifact_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "input_row_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "row_accounting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "input_rows",
+        "identified_input_rows",
+        "unidentified_input_rows",
+        "dropped_input_rows",
+        "consumed_identified_input_rows",
+        "accounted_input_rows",
+        "duplicate_identified_input_rows",
+        "duplicate_identified_person_ids",
+        "output_duplicate_person_ids",
+        "classification_row_conservation_ok",
+        "identified_row_conservation_ok",
+        "input_row_conservation_ok",
+        "output_person_ids_unique",
+        "unidentified_reason_counts"
+      ],
+      "properties": {
+        "input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "identified_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "unidentified_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "dropped_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "consumed_identified_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "accounted_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate_identified_input_rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "duplicate_identified_person_ids": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_duplicate_person_ids": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "classification_row_conservation_ok": {
+          "type": "boolean"
+        },
+        "identified_row_conservation_ok": {
+          "type": "boolean"
+        },
+        "input_row_conservation_ok": {
+          "type": "boolean"
+        },
+        "output_person_ids_unique": {
+          "type": "boolean"
+        },
+        "unidentified_reason_counts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "processed_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unseen_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "complete_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "partial_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unresolved_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "employment_episode_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "education_episode_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "residual_incomplete_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "python_worker_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "identity_verification_deferred": {
+      "const": true
+    },
+    "identity_verification_queue_rows": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "linkedin_candidate_people": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "files": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role", "path", "bytes", "sha256"],
+        "properties": {
+          "role": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "input_artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "sha256"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "canonical_identity_promotions": {
+      "const": 0
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "const": "PASS"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "incomplete_reasons": {
+            "type": "array",
+            "maxItems": 0
+          }
+        }
+      },
+      "else": {
+        "type": "object",
+        "properties": {
+          "incomplete_reasons": {
+            "type": "array",
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ]
+}

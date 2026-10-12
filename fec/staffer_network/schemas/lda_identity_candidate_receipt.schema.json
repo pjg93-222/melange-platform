@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-identity-candidate-receipt:v1",
+  "title": "LDA identity candidate corpus receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "status", "method", "method_version", "name_normalizer_version", "name_normalizer_lossy_rules", "source_binding_sha256", "lda_corpus_receipt_sha256", "politico_normalization_receipt_sha256", "source_native_corpus_receipt_sha256", "lda_lobbyists", "target_person_rows", "candidate_count", "candidate_count_by_source", "unique_lda_lobbyists_by_source", "candidates_with_government_term_hit", "candidates_with_any_name_collision", "candidates_with_cross_source_name_multiplicity", "file", "review_required_count", "confidence_values_emitted", "canonical_identity_merges", "downstream_identity_gate", "failures"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-identity-candidate-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"const": "PASS"},
+    "method": {"const": "NORMALIZED_NAME_EQUALITY_REVIEW_CANDIDATES_ONLY"},
+    "method_version": {"const": "lda-identity-normalized-name-candidates-v2"},
+    "name_normalizer_version": {"const": "politico-normalize-name-v1"},
+    "name_normalizer_lossy_rules": {"type": "array", "minItems": 4, "maxItems": 4, "uniqueItems": true, "items": {"enum": ["NFKD_ASCII_DROP_NONDECOMPOSABLE", "CASEFOLD", "NON_ALNUM_TO_SPACE", "DROP_GENERATIONAL_SUFFIX_JR_SR_II_III_IV"]}},
+    "source_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_corpus_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "politico_normalization_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_native_corpus_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_lobbyists": {"type": "integer", "minimum": 1},
+    "target_person_rows": {"type": "object", "minProperties": 3, "additionalProperties": {"type": "integer", "minimum": 1}},
+    "candidate_count": {"type": "integer", "minimum": 0},
+    "candidate_count_by_source": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+    "unique_lda_lobbyists_by_source": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 1}},
+    "candidates_with_government_term_hit": {"type": "integer", "minimum": 0},
+    "candidates_with_any_name_collision": {"type": "integer", "minimum": 0},
+    "candidates_with_cross_source_name_multiplicity": {"type": "integer", "minimum": 0},
+    "file": {"type": "object", "additionalProperties": false, "required": ["path", "records", "bytes", "sha256", "encoding", "privacy_class"], "properties": {
+      "path": {"const": "lda_identity_candidates.ndjson.gz"},
+      "records": {"type": "integer", "minimum": 0},
+      "bytes": {"type": "integer", "minimum": 1},
+      "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+      "encoding": {"const": "canonical-ndjson-gzip-mtime-0"},
+      "privacy_class": {"const": "restricted-machine-local"}
+    }},
+    "review_required_count": {"type": "integer", "minimum": 0},
+    "confidence_values_emitted": {"const": 0},
+    "canonical_identity_merges": {"const": 0},
+    "downstream_identity_gate": {"const": "CLOSED"},
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

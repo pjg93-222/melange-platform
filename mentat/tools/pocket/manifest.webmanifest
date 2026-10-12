@@ -1,0 +1,15 @@
+{
+  "name": "Mentat Pocket",
+  "short_name": "Mentat",
+  "display": "standalone",
+  "background_color": "#fcf7f4",
+  "theme_color": "#f7ede4",
+  "start_url": "./",
+  "icons": [
+    {
+      "src": "icon-180.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-adjudication-person-summary:v1",
+  "title": "Per-person adjudication overlay summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "lda_source_person_id", "display_name", "sealed_queue_ordinal",
+    "adjudication_state", "decision_counts", "provisional_episode_count",
+    "final_episode_count", "source_native_identity_status",
+    "cross_source_identity_merge_performed", "canonical_employment_promoted_count",
+    "primary_temporal_eligible_episode_count", "complete_lifetime_employment_asserted",
+    "open_gate_codes", "decision_digest", "episode_digest"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-adjudication-person-summary-v1"},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[0-9]+$"},
+    "display_name": {"type": ["string", "null"]},
+    "sealed_queue_ordinal": {"type": "integer", "minimum": 1, "maximum": 25340},
+    "adjudication_state": {"enum": ["NO_CANDIDATES", "CANDIDATES_REVIEW_REQUIRED", "PROVISIONAL_EPISODES_PENDING_REVIEW", "FINAL_EPISODES_AVAILABLE", "BLOCKED"]},
+    "decision_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "provisional_episode_count": {"type": "integer", "minimum": 0},
+    "final_episode_count": {"const": 0},
+    "source_native_identity_status": {"enum": ["ACCEPTED", "REVIEW_REQUIRED"]},
+    "cross_source_identity_merge_performed": {"const": false},
+    "canonical_employment_promoted_count": {"const": 0},
+    "primary_temporal_eligible_episode_count": {"const": 0},
+    "complete_lifetime_employment_asserted": {"const": false},
+    "open_gate_codes": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "decision_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "episode_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}

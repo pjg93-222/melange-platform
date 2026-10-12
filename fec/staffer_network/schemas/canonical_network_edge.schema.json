@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:canonical-network-edge:v1",
+  "title": "Canonical typed network edge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "edge_id", "subject_entity_id", "object_entity_id", "layer", "raw_weight", "directed", "evidence_class", "support_id", "precision_bucket"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-canonical-network-edge-v1"},
+    "edge_id": {"type": "string", "pattern": "^network:edge:[0-9a-f]{64}$"},
+    "subject_entity_id": {"type": "string", "pattern": "^canonical:"},
+    "object_entity_id": {"type": "string", "pattern": "^canonical:"},
+    "layer": {"enum": ["employment", "position", "education", "lobbying", "industry", "identity_candidate"]},
+    "raw_weight": {"type": "number", "minimum": 0},
+    "directed": {"type": "boolean"},
+    "evidence_class": {"enum": ["DIRECT_CANONICAL_FACT", "UNAMBIGUOUS_EXACT_NAME_REVIEW_CANDIDATE"]},
+    "support_id": {"type": "string", "minLength": 1},
+    "precision_bucket": {"enum": ["day", "month", "year", "undated-only"]}
+  }
+}

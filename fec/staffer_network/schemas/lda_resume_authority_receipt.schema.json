@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-resume-authority-receipt:v1",
+  "title": "Restricted LDA failed-generation resume authority receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "failed_status_sha256", "authority_act",
+    "authority_basis", "supersedes_terminal_criterion",
+    "payload_supersession_policy", "anonymous_partial_generation",
+    "module_sha256", "completed_window_reuse_policy",
+    "residual_same_uuid_historical_payload_update_risk",
+    "canonical_identity_merges", "downstream_gates_remain_closed"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-resume-authority-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "failed_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "authority_act": {"type": "string", "minLength": 1},
+    "authority_basis": {"type": "string", "minLength": 1},
+    "supersedes_terminal_criterion": {"type": "string", "minLength": 1},
+    "payload_supersession_policy": {"const": "fresh-authoritative-with-per-record-diff-ledger"},
+    "anonymous_partial_generation": {"type": "string", "minLength": 1},
+    "module_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "completed_window_reuse_policy": {"type": "string", "minLength": 1},
+    "residual_same_uuid_historical_payload_update_risk": {"type": "string", "minLength": 1},
+    "canonical_identity_merges": {"type": "integer", "const": 0},
+    "downstream_gates_remain_closed": {"type": "boolean", "const": true}
+  }
+}

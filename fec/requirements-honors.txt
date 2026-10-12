@@ -1,0 +1,2 @@
+# Optional stronger standard-DEFLATE fallback for email packages above 14 MiB.
+zopfli==0.4.3

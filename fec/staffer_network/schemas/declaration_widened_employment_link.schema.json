@@ -1,0 +1,293 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:declaration-widened-employment-link:v1",
+  "title": "Declaration-directed widened-given employment link row",
+  "description": "One row per control-cleared recovery emitted by the declaration-widened build. evidence_tier discriminates the three emitted files. E1_DECLARED_OFFICE_WIDENED_GIVEN_UNIQUE is its own tier, explicitly BELOW D1: the surname matched at the strictest level its scope has and the office is self-declared, but the given name was widened by one of four control-cleared rules, so tier_rank_relative_to_d1 is BELOW and the firing rule travels on the row as widening_rule. D1_DECLARED_OFFICE_EXACT_UNIQUE_RECOVERED is a strict D1 recovered from an office the census resolved but never searched; it is not widened and ranks EQUAL to D1. D1_RECOVERED_HELD_FOR_REVIEW is a row that was found but is deliberately NOT linked, and hold_reason says why. Every row is review-only: canonical_eligible is false, canonical_employment_promoted is false, canonical_identity_decision is NOT_ADJUDICATED and review_status is REVIEW_REQUIRED. A tier is a label with a measured error rate attached, not an identity finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "method_version", "run_id", "generation_id",
+    "phase", "lda_source_person_id", "display_name", "lda_priority",
+    "evidence_tier", "evidence_tier_family", "tier_rank_relative_to_d1",
+    "match_class", "widening_rule",
+    "widening_rule_declared_unique_target_scope_rows",
+    "widening_rule_control_unique_target_scope_rows",
+    "widening_rule_status_fpr_point_pct",
+    "widening_rule_status_fpr_upper95_pct",
+    "scope", "source_scope",
+    "office_key", "office_provenance", "office_container_kind",
+    "office_member_bioguide", "office_distinct_payroll_people",
+    "office_contains_exact_class_person",
+    "in_office_tie_size", "in_office_tie_size_basis",
+    "resolved_payroll_person_key", "payroll_given", "payroll_surname",
+    "payroll_payee_raw_examples", "payroll_titles", "payroll_periods",
+    "payroll_period_count", "payroll_years", "payroll_year_first",
+    "payroll_year_last", "payroll_observation_rows",
+    "declared_years", "year_strengthener", "year_overlap_basis",
+    "declared_office_texts", "declared_office_supporting_clauses",
+    "declared_office_mention_kinds",
+    "guard_cross_clause_attachment_status",
+    "guard_cross_clause_attachment_basis",
+    "guard_cross_clause_attachment_status_aggressive_split",
+    "guard_disclaimer_status", "declaration_contains_disclaimer_clause",
+    "winner_selected_among_multiple_offices", "competing_office_hits",
+    "source_census_status", "source_census_substatus",
+    "prior_resolution_status", "prior_best_tier", "held_status",
+    "in_instructed_target_set", "hold_reason",
+    "review_status", "canonical_eligible", "canonical_employment_promoted",
+    "canonical_identity_decision", "canonical_identity_promoted",
+    "status_is_a_label_not_a_promotion"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-declaration-widened-employment-link-v1"},
+    "rule_version": {"const": "declaration-widened-employment-tier-v1"},
+    "method_version": {"const": "declaration-widened-employment-tier-v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "generation_id": {"type": "string", "minLength": 1},
+    "phase": {"const": "build-declaration-widened-tier"},
+    "lda_source_person_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string"},
+    "lda_priority": {"type": ["string", "null"]},
+    "evidence_tier": {
+      "enum": [
+        "E1_DECLARED_OFFICE_WIDENED_GIVEN_UNIQUE",
+        "D1_DECLARED_OFFICE_EXACT_UNIQUE_RECOVERED",
+        "D1_RECOVERED_HELD_FOR_REVIEW"
+      ]
+    },
+    "evidence_tier_family": {"enum": ["LINK_BELOW_D1", "LINK", "HELD"]},
+    "tier_rank_relative_to_d1": {"enum": ["BELOW", "EQUAL", "NOT_RANKED"]},
+    "match_class": {
+      "enum": ["WIDENED_GIVEN_SURNAME_EXACT", "EXACT_TRIPLE", "EXACT_PAIR"]
+    },
+    "widening_rule": {
+      "description": "The control-cleared given-name rule that fired. Null on any row whose surname AND given name matched at the census exact class.",
+      "enum": [
+        "A_GIVEN_ALT_TOKEN", "B_NICK_DROPPED", "C_GIVEN_PREFIX",
+        "D_GIVEN_ED1", null
+      ]
+    },
+    "widening_rule_declared_unique_target_scope_rows": {"type": ["integer", "null"], "minimum": 0},
+    "widening_rule_control_unique_target_scope_rows": {"type": ["integer", "null"], "minimum": 0},
+    "widening_rule_status_fpr_point_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "widening_rule_status_fpr_upper95_pct": {"type": ["number", "null"], "minimum": 0, "maximum": 100},
+    "scope": {"enum": ["house_member", "house_nonmember", "senate"]},
+    "source_scope": {"enum": ["house_member", "house_nonmember", "senate_all"]},
+    "office_key": {"type": "string", "minLength": 1},
+    "office_provenance": {"enum": ["RESOLVED", "FLAGGED"]},
+    "office_container_kind": {"type": ["string", "null"]},
+    "office_member_bioguide": {"type": ["string", "null"]},
+    "office_distinct_payroll_people": {"type": ["integer", "null"], "minimum": 0},
+    "office_contains_exact_class_person": {
+      "description": "True when the declared office also contains a person the target matches at the census exact class. A widened-given row is only emitted when this is false, so the widened rule is never competing with a strict match.",
+      "type": ["boolean", "null"]
+    },
+    "in_office_tie_size": {"type": "integer", "minimum": 1},
+    "in_office_tie_size_basis": {"type": "string", "minLength": 1},
+    "resolved_payroll_person_key": {"type": "string", "minLength": 1},
+    "payroll_given": {"type": ["string", "null"]},
+    "payroll_surname": {"type": ["string", "null"]},
+    "payroll_payee_raw_examples": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string"}
+    },
+    "payroll_titles": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string"}
+    },
+    "payroll_periods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end", "basis"],
+        "properties": {
+          "start": {"type": ["string", "null"]},
+          "end": {"type": ["string", "null"]},
+          "basis": {
+            "enum": [
+              "HOUSE_SOD_SERVICE_SPAN",
+              "HOUSE_SOD_QUARTER_ENVELOPE",
+              "SENATE_REPORT_PERIOD"
+            ]
+          }
+        }
+      }
+    },
+    "payroll_period_count": {"type": "integer", "minimum": 0},
+    "payroll_years": {"type": "array", "items": {"type": "integer"}},
+    "payroll_year_first": {"type": ["integer", "null"]},
+    "payroll_year_last": {"type": ["integer", "null"]},
+    "payroll_observation_rows": {"type": "integer", "minimum": 0},
+    "declared_years": {"type": "array", "items": {"type": "integer"}},
+    "year_strengthener": {
+      "enum": [
+        "E1_YEAR_CORROBORATED", "E1_YEAR_RANGE_ONLY", "E1_YEAR_UNTESTABLE",
+        "E1_YEAR_CONTRADICTED",
+        "D1_YEAR_CORROBORATED", "D1_YEAR_UNTESTABLE", "D1_YEAR_CONTRADICTED"
+      ]
+    },
+    "year_overlap_basis": {
+      "enum": ["OVERLAP", "RANGE_OVERLAP", "NONE", "NO_OVERLAP", "NO_PAYROLL_YEARS"]
+    },
+    "declared_office_texts": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}
+    },
+    "declared_office_supporting_clauses": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}
+    },
+    "declared_office_mention_kinds": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}
+    },
+    "guard_cross_clause_attachment_status": {
+      "enum": [
+        "CLAUSE_CARRIES_LEGISLATIVE_CUE",
+        "NO_LOCATED_CLAUSE_CARRIES_A_LEGISLATIVE_CUE",
+        "ANCHOR_NOT_LOCATED_IN_ANY_CLAUSE"
+      ]
+    },
+    "guard_cross_clause_attachment_basis": {
+      "enum": ["CONTIGUOUS", "ORDERED_SUBSEQUENCE", "NONE"]
+    },
+    "guard_cross_clause_attachment_status_aggressive_split": {
+      "enum": [
+        "CLAUSE_CARRIES_LEGISLATIVE_CUE",
+        "NO_LOCATED_CLAUSE_CARRIES_A_LEGISLATIVE_CUE",
+        "ANCHOR_NOT_LOCATED_IN_ANY_CLAUSE"
+      ]
+    },
+    "guard_disclaimer_status": {
+      "enum": [
+        "NO_DISCLAIMER_CLAUSE_SUPPORTS_THE_ATTACHMENT",
+        "SOME_SUPPORTING_CLAUSES_ARE_DISCLAIMERS",
+        "EVERY_SUPPORTING_CLAUSE_IS_A_DISCLAIMER"
+      ]
+    },
+    "declaration_contains_disclaimer_clause": {"type": "boolean"},
+    "winner_selected_among_multiple_offices": {"type": "boolean"},
+    "competing_office_hits": {
+      "description": "Every other declared office in which the same rule also fired uniquely for this target. Carried in full so a row that named one office never hides that the evidence named others too.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_scope", "office_key", "payroll_person_key",
+                     "widening_rule", "year_overlap_basis"],
+        "properties": {
+          "source_scope": {"enum": ["house_member", "house_nonmember", "senate_all"]},
+          "office_key": {"type": "string", "minLength": 1},
+          "payroll_person_key": {"type": "string", "minLength": 1},
+          "widening_rule": {
+            "enum": ["A_GIVEN_ALT_TOKEN", "B_NICK_DROPPED", "C_GIVEN_PREFIX",
+                     "D_GIVEN_ED1", null]
+          },
+          "year_overlap_basis": {
+            "enum": ["OVERLAP", "RANGE_OVERLAP", "NONE", "NO_OVERLAP",
+                     "NO_PAYROLL_YEARS"]
+          }
+        }
+      }
+    },
+    "source_census_status": {"type": "string", "minLength": 1},
+    "source_census_substatus": {"type": "string", "minLength": 1},
+    "prior_resolution_status": {"type": ["string", "null"]},
+    "prior_best_tier": {"type": ["string", "null"]},
+    "held_status": {"type": ["string", "null"]},
+    "in_instructed_target_set": {"type": "boolean"},
+    "hold_reason": {
+      "enum": [
+        "FLAGGED_OFFICE_PROVENANCE_CONFIRMED_FALSE_ATTACHMENT_CLASS",
+        "CROSS_CLAUSE_ATTACHMENT",
+        null
+      ]
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "canonical_identity_decision": {"const": "NOT_ADJUDICATED"},
+    "canonical_identity_promoted": {"const": false},
+    "status_is_a_label_not_a_promotion": {"const": true}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {"const": "E1_DECLARED_OFFICE_WIDENED_GIVEN_UNIQUE"}
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "LINK_BELOW_D1"},
+          "tier_rank_relative_to_d1": {"const": "BELOW"},
+          "match_class": {"const": "WIDENED_GIVEN_SURNAME_EXACT"},
+          "widening_rule": {
+            "enum": ["A_GIVEN_ALT_TOKEN", "B_NICK_DROPPED", "C_GIVEN_PREFIX",
+                     "D_GIVEN_ED1"]
+          },
+          "widening_rule_declared_unique_target_scope_rows": {"type": "integer"},
+          "widening_rule_control_unique_target_scope_rows": {"const": 0},
+          "in_office_tie_size": {"const": 1},
+          "office_contains_exact_class_person": {"const": false},
+          "guard_cross_clause_attachment_status": {
+            "const": "CLAUSE_CARRIES_LEGISLATIVE_CUE"
+          },
+          "guard_disclaimer_status": {
+            "enum": ["NO_DISCLAIMER_CLAUSE_SUPPORTS_THE_ATTACHMENT",
+                     "SOME_SUPPORTING_CLAUSES_ARE_DISCLAIMERS"]
+          },
+          "year_strengthener": {
+            "enum": ["E1_YEAR_CORROBORATED", "E1_YEAR_RANGE_ONLY",
+                     "E1_YEAR_UNTESTABLE", "E1_YEAR_CONTRADICTED"]
+          },
+          "hold_reason": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {"const": "D1_DECLARED_OFFICE_EXACT_UNIQUE_RECOVERED"}
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "LINK"},
+          "tier_rank_relative_to_d1": {"const": "EQUAL"},
+          "match_class": {"enum": ["EXACT_TRIPLE", "EXACT_PAIR"]},
+          "widening_rule": {"const": null},
+          "widening_rule_declared_unique_target_scope_rows": {"const": null},
+          "widening_rule_control_unique_target_scope_rows": {"const": null},
+          "widening_rule_status_fpr_point_pct": {"const": null},
+          "widening_rule_status_fpr_upper95_pct": {"const": null},
+          "in_office_tie_size": {"const": 1},
+          "office_provenance": {"const": "RESOLVED"},
+          "guard_cross_clause_attachment_status": {
+            "const": "CLAUSE_CARRIES_LEGISLATIVE_CUE"
+          },
+          "year_strengthener": {
+            "enum": ["D1_YEAR_CORROBORATED", "D1_YEAR_UNTESTABLE",
+                     "D1_YEAR_CONTRADICTED"]
+          },
+          "hold_reason": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "evidence_tier": {"const": "D1_RECOVERED_HELD_FOR_REVIEW"}
+        }
+      },
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "HELD"},
+          "tier_rank_relative_to_d1": {"const": "NOT_RANKED"},
+          "hold_reason": {
+            "enum": [
+              "FLAGGED_OFFICE_PROVENANCE_CONFIRMED_FALSE_ATTACHMENT_CLASS",
+              "CROSS_CLAUSE_ATTACHMENT"
+            ]
+          }
+        }
+      }
+    }
+  ]
+}

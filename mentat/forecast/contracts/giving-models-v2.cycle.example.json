@@ -1,0 +1,4042 @@
+{
+  "schema_version": 2,
+  "model_version": "fixture-20260930-anchors",
+  "built_on": "2026-09-27",
+  "built_at_utc": "2026-09-30T18:00:00Z",
+  "previous_model_version": "2026-09-27-association-v1",
+  "producer": {
+    "pipeline": "CONTRACT FIXTURE (anchors lane)",
+    "run_id": "fixture",
+    "code_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "R_version": "n/a",
+    "packages": {},
+    "note": "Not a refit output. Built from the v1 bundle + SP phase2/tailoring inputs so the console reproduces ADDENDUM section F."
+  },
+  "currency": "2025 USD",
+  "deflator": {
+    "series": "CPI-U annual average (1982-84=100)",
+    "source": "00_controls.xlsx data",
+    "base_year": 2025,
+    "cycle_rule": "cpi[2025] / mean of the two calendar-year averages of the cycle"
+  },
+  "inference": "Ordinary OLS p-values are primary. Industry slopes follow the refit auto-pick (pooled, own or DerSimonian-Laird blend); conditional on model selection",
+  "validation": "Historical associations carried onto Mentat levels. Coefficient intervals cover slope uncertainty only; prediction intervals add the residual variance of the anchored step",
+  "interval_labels": {
+    "coefficient": "Ordinary 95% coefficient interval",
+    "prediction": "95% prediction interval (adds the anchored-step residual variance)"
+  },
+  "anchor_contract": {
+    "schema_version": 1,
+    "anchors_file_schema": "giving-anchors-v1",
+    "pac": {
+      "model": "pac_model",
+      "change": "relative_log",
+      "anchor_cycle_rule": "previous_cycle",
+      "measures": [
+        {
+          "id": "pac_to_candidates",
+          "anchor": "pac_to_candidates.cycles[A].to_house_senate",
+          "label": "Roster companies' PACs: own giving to House and Senate candidates (FEC committee-to-candidate, D-049)"
+        },
+        {
+          "id": "general_giving",
+          "anchor": "general_giving.cycles[A]",
+          "label": "Mentat general giving (included receipt amount, all channels)"
+        }
+      ]
+    },
+    "share": {
+      "models": [
+        "control_House",
+        "control_Senate"
+      ],
+      "change": "pp",
+      "anchor_cycle_rule": "by_industry_chamber",
+      "anchor_options": [
+        {
+          "id": "previous_cycle",
+          "cycle_offset": 2,
+          "chained": true,
+          "label": "Mentat's previous cycle; the next cycle is chained through the open cycle"
+        },
+        {
+          "id": "same_phase",
+          "cycle_offset": 4,
+          "chained": false,
+          "label": "Mentat's cycle of the same phase (presidential or midterm); one step each, no chaining"
+        }
+      ],
+      "bases": [
+        {
+          "id": "employee_candidate",
+          "anchor": "candidate_receipts.cycles[A]",
+          "label": "Employees' included giving to candidate committees"
+        },
+        {
+          "id": "pac_candidate",
+          "anchor": "pac_to_candidates.cycles[A]",
+          "label": "Roster PACs' own giving to candidates"
+        }
+      ],
+      "remainder_total_rule": "projected measure x previous-cycle candidate share of that measure"
+    },
+    "lobbying": {
+      "model": "lobby_model.log_refit",
+      "change": "relative_log",
+      "anchor_year_rule": "latest_complete_year",
+      "series": [
+        {
+          "id": "income_total",
+          "label": "Outside-firm fees (LDA income)"
+        },
+        {
+          "id": "expenses_total",
+          "label": "In-house expenses (LDA expenses)"
+        }
+      ],
+      "never_summed": true
+    }
+  },
+  "industries": {
+    "commercial_banks": {
+      "id": "commercial_banks",
+      "label": "Commercial banks",
+      "code": "F03",
+      "opensecrets_codes": [
+        "F03"
+      ],
+      "mentat_key": "banking",
+      "ibisworld_code": "52211",
+      "lobbyview_sector": "commercial_banks",
+      "calculator": true,
+      "growth_mean": 6.984134088271428,
+      "growth_sd": 19.976724573323878,
+      "growth_min": -9.0171860305,
+      "growth_max": 48.8853332525,
+      "history": [
+        {
+          "cycle": 2012,
+          "growth_pct": -9.0171860305,
+          "prior_growth_pct": -9.8695090859,
+          "pac_real_2025": 17706138.892409243,
+          "individual_real_2025": 39970160.81056105,
+          "total_real_2025": 61889166.83828383,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2014,
+          "growth_pct": -4.9192790159,
+          "prior_growth_pct": -9.0171860305,
+          "pac_real_2025": 19079590.734085582,
+          "individual_real_2025": 20275079.497977432,
+          "total_real_2025": 40809268.96401958,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2016,
+          "growth_pct": 2.0493765672,
+          "prior_growth_pct": -4.9192790159,
+          "pac_real_2025": 18880840.02264151,
+          "individual_real_2025": 41229954.8163522,
+          "total_real_2025": 64752583.39119496,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2018,
+          "growth_pct": 14.0964163491,
+          "prior_growth_pct": 2.0493765672,
+          "pac_real_2025": 19514475.84280532,
+          "individual_real_2025": 24807006.175332524,
+          "total_real_2025": 46624684.9516324,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2020,
+          "growth_pct": 3.0946254704,
+          "prior_growth_pct": 14.0964163491,
+          "pac_real_2025": 18218238.635568514,
+          "individual_real_2025": 54511166.65072887,
+          "total_real_2025": 76821712.16559766,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2022,
+          "growth_pct": -5.3003479749,
+          "prior_growth_pct": 3.0946254704,
+          "pac_real_2025": 13233974.271420969,
+          "individual_real_2025": 21030135.299627457,
+          "total_real_2025": 70402461.76263969,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        },
+        {
+          "cycle": 2024,
+          "growth_pct": 48.8853332525,
+          "prior_growth_pct": -5.3003479749,
+          "pac_real_2025": 13847036.543984476,
+          "individual_real_2025": 34925579.4915912,
+          "total_real_2025": 75557564.19372573,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03"
+        }
+      ],
+      "scope": "OpenSecrets F03 whole-industry accounting; separate from company/subindustry report scopes",
+      "capabilities": {
+        "pac": true,
+        "control": true,
+        "lobbying": true
+      },
+      "withheld": {},
+      "growth_scaling_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022,
+        2024
+      ],
+      "lobbying_history": [
+        {
+          "year": 2009,
+          "lobbying_real_2025_million": 111.970491370682,
+          "predicted_growth_pct": 3.66805436
+        },
+        {
+          "year": 2010,
+          "lobbying_real_2025_million": 116.747525901372,
+          "predicted_growth_pct": 11.74438532
+        },
+        {
+          "year": 2011,
+          "lobbying_real_2025_million": 110.555133712843,
+          "predicted_growth_pct": 10.34016235
+        },
+        {
+          "year": 2012,
+          "lobbying_real_2025_million": 120.825743114365,
+          "predicted_growth_pct": 1.9441675
+        },
+        {
+          "year": 2013,
+          "lobbying_real_2025_million": 96.0361143453282,
+          "predicted_growth_pct": 3.60228199
+        },
+        {
+          "year": 2014,
+          "lobbying_real_2025_million": 106.80069461225,
+          "predicted_growth_pct": 2.70216963
+        },
+        {
+          "year": 2015,
+          "lobbying_real_2025_million": 92.8843414340907,
+          "predicted_growth_pct": 18.8400749
+        },
+        {
+          "year": 2016,
+          "lobbying_real_2025_million": 83.760928375,
+          "predicted_growth_pct": 7.40573249
+        },
+        {
+          "year": 2017,
+          "lobbying_real_2025_million": 90.7412696276662,
+          "predicted_growth_pct": 1.88200041
+        },
+        {
+          "year": 2018,
+          "lobbying_real_2025_million": 81.6067124554495,
+          "predicted_growth_pct": 4.02574148
+        },
+        {
+          "year": 2019,
+          "lobbying_real_2025_million": 72.8636700943285,
+          "predicted_growth_pct": 9.54644723
+        },
+        {
+          "year": 2020,
+          "lobbying_real_2025_million": 70.9285119526344,
+          "predicted_growth_pct": -1.90753732
+        },
+        {
+          "year": 2021,
+          "lobbying_real_2025_million": 65.7945212485902,
+          "predicted_growth_pct": 2.31140447
+        },
+        {
+          "year": 2022,
+          "lobbying_real_2025_million": 65.8636917590778,
+          "predicted_growth_pct": 2.85885016
+        },
+        {
+          "year": 2023,
+          "lobbying_real_2025_million": 66.2028234577336,
+          "predicted_growth_pct": 9.98461701
+        }
+      ]
+    },
+    "credit_unions": {
+      "id": "credit_unions",
+      "label": "Credit unions",
+      "code": "F05",
+      "opensecrets_codes": [
+        "F05"
+      ],
+      "mentat_key": "credit_union",
+      "ibisworld_code": "52213",
+      "lobbyview_sector": "credit_unions",
+      "calculator": true,
+      "growth_mean": 9.287112288928572,
+      "growth_sd": 15.004552809928242,
+      "growth_min": -9.6911879127,
+      "growth_max": 34.8042488413,
+      "history": [
+        {
+          "cycle": 2012,
+          "growth_pct": -9.6911879127,
+          "prior_growth_pct": -1.2773694115,
+          "pac_real_2025": 4594656.825082508,
+          "individual_real_2025": 1190996.003960396,
+          "total_real_2025": 6117192.122772277,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2014,
+          "growth_pct": -2.8734165679,
+          "prior_growth_pct": -9.6911879127,
+          "pac_real_2025": 4520169.555035128,
+          "individual_real_2025": 917299.1790504575,
+          "total_real_2025": 5473895.450713221,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2016,
+          "growth_pct": 10.5919808069,
+          "prior_growth_pct": -2.8734165679,
+          "pac_real_2025": 4359416.79245283,
+          "individual_real_2025": 1023223.5974842766,
+          "total_real_2025": 5498359.728301887,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2018,
+          "growth_pct": 17.1906336617,
+          "prior_growth_pct": 10.5919808069,
+          "pac_real_2025": 4600795.6469165655,
+          "individual_real_2025": 952391.945586457,
+          "total_real_2025": 5594843.865779927,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2020,
+          "growth_pct": 15.2732398225,
+          "prior_growth_pct": 17.1906336617,
+          "pac_real_2025": 4762932.504956268,
+          "individual_real_2025": 2820818.772011662,
+          "total_real_2025": 7617681.851895044,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2022,
+          "growth_pct": -0.2857126293,
+          "prior_growth_pct": 15.2732398225,
+          "pac_real_2025": 4212780.735497604,
+          "individual_real_2025": 825078.1820117082,
+          "total_real_2025": 5071354.334220329,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        },
+        {
+          "cycle": 2024,
+          "growth_pct": 34.8042488413,
+          "prior_growth_pct": -0.2857126293,
+          "pac_real_2025": 3701704.249676584,
+          "individual_real_2025": 1466108.7496765845,
+          "total_real_2025": 5244794.155886157,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05"
+        }
+      ],
+      "scope": "OpenSecrets F05 whole-industry accounting; separate from company/subindustry report scopes",
+      "capabilities": {
+        "pac": true,
+        "control": true,
+        "lobbying": true
+      },
+      "withheld": {},
+      "growth_scaling_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022,
+        2024
+      ],
+      "lobbying_history": [
+        {
+          "year": 2009,
+          "lobbying_real_2025_million": 17.0484299373646,
+          "predicted_growth_pct": -0.38880548
+        },
+        {
+          "year": 2010,
+          "lobbying_real_2025_million": 14.7499328211745,
+          "predicted_growth_pct": 0.26199669
+        },
+        {
+          "year": 2011,
+          "lobbying_real_2025_million": 17.3488212533452,
+          "predicted_growth_pct": 17.47051079
+        },
+        {
+          "year": 2012,
+          "lobbying_real_2025_million": 13.4634394597329,
+          "predicted_growth_pct": 6.33820536
+        },
+        {
+          "year": 2013,
+          "lobbying_real_2025_million": 13.7475816900933,
+          "predicted_growth_pct": 6.08948161
+        },
+        {
+          "year": 2014,
+          "lobbying_real_2025_million": 11.1883029149583,
+          "predicted_growth_pct": 8.28255772
+        },
+        {
+          "year": 2015,
+          "lobbying_real_2025_million": 11.559198101255,
+          "predicted_growth_pct": 2.40779469
+        },
+        {
+          "year": 2016,
+          "lobbying_real_2025_million": 11.55621,
+          "predicted_growth_pct": -2.98146791
+        },
+        {
+          "year": 2017,
+          "lobbying_real_2025_million": 11.5164879868162,
+          "predicted_growth_pct": 3.1067191
+        },
+        {
+          "year": 2018,
+          "lobbying_real_2025_million": 10.9917889244433,
+          "predicted_growth_pct": 0.0
+        },
+        {
+          "year": 2019,
+          "lobbying_real_2025_million": 10.4696181072242,
+          "predicted_growth_pct": 3.58495825
+        },
+        {
+          "year": 2020,
+          "lobbying_real_2025_million": 11.050063296127,
+          "predicted_growth_pct": 3.03117801
+        },
+        {
+          "year": 2021,
+          "lobbying_real_2025_million": 11.878228782,
+          "predicted_growth_pct": 0.50333905
+        },
+        {
+          "year": 2022,
+          "lobbying_real_2025_million": 12.3679852724734,
+          "predicted_growth_pct": 6.15602273
+        },
+        {
+          "year": 2023,
+          "lobbying_real_2025_million": 13.8472104378567,
+          "predicted_growth_pct": 2.74756116
+        }
+      ]
+    },
+    "auto_light_duty_manufacturing": {
+      "id": "auto_light_duty_manufacturing",
+      "label": "Auto manufacturers",
+      "code": "T2100",
+      "opensecrets_codes": [
+        "T2100"
+      ],
+      "mentat_key": null,
+      "ibisworld_code": "33611",
+      "lobbyview_sector": "auto_manufacturing",
+      "calculator": true,
+      "growth_mean": 8.837398232185715,
+      "growth_sd": 13.863008158264048,
+      "growth_min": -6.7218646413,
+      "growth_max": 32.3619875135,
+      "history": [
+        {
+          "cycle": 2012,
+          "growth_pct": 32.3619875135,
+          "prior_growth_pct": -27.2883836489,
+          "pac_real_2025": 1605208.0,
+          "individual_real_2025": 1814790.7511551157,
+          "total_real_2025": 3442179.7504950496,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2014,
+          "growth_pct": 18.7070835029,
+          "prior_growth_pct": 32.3619875135,
+          "pac_real_2025": 2505989.786672344,
+          "individual_real_2025": 708544.5961251862,
+          "total_real_2025": 3227588.568873749,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2016,
+          "growth_pct": 12.9822664313,
+          "prior_growth_pct": 18.7070835029,
+          "pac_real_2025": 3706333.655345912,
+          "individual_real_2025": 2778974.172327044,
+          "total_real_2025": 6818071.44654088,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2018,
+          "growth_pct": -4.6721991481,
+          "prior_growth_pct": 12.9822664313,
+          "pac_real_2025": 4164013.2865779926,
+          "individual_real_2025": 1685688.1898428053,
+          "total_real_2025": 5916969.623941958,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2020,
+          "growth_pct": -6.7218646413,
+          "prior_growth_pct": -4.6721991481,
+          "pac_real_2025": 3940238.691545189,
+          "individual_real_2025": 7520582.546938775,
+          "total_real_2025": 11846455.561516035,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2022,
+          "growth_pct": 1.093102865,
+          "prior_growth_pct": -6.7218646413,
+          "pac_real_2025": 3162969.870143693,
+          "individual_real_2025": 1811397.5987227245,
+          "total_real_2025": 5193941.300691856,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        },
+        {
+          "cycle": 2024,
+          "growth_pct": 8.111411102,
+          "prior_growth_pct": 1.093102865,
+          "pac_real_2025": 2819321.380983182,
+          "individual_real_2025": 3571773.0417205687,
+          "total_real_2025": 6647307.8751617065,
+          "source_url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100"
+        }
+      ],
+      "scope": "OpenSecrets T2100 whole-industry accounting; separate from company/subindustry report scopes",
+      "capabilities": {
+        "pac": true,
+        "control": true,
+        "lobbying": true
+      },
+      "withheld": {},
+      "growth_scaling_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022,
+        2024
+      ],
+      "lobbying_history": [
+        {
+          "year": 2012,
+          "lobbying_real_2025_million": 32.3912001175564,
+          "predicted_growth_pct": 4.9796519
+        }
+      ]
+    },
+    "property_casualty": {
+      "id": "property_casualty",
+      "label": "Property & casualty insurers",
+      "code": null,
+      "opensecrets_codes": [],
+      "mentat_key": "property_casualty_insurance",
+      "ibisworld_code": "52412",
+      "lobbyview_sector": "property_casualty",
+      "calculator": true,
+      "growth_mean": null,
+      "growth_sd": null,
+      "growth_min": null,
+      "growth_max": null,
+      "history": [],
+      "scope": "OpenSecrets F3400 property & casualty accounting is not supplied; lobbying only",
+      "capabilities": {
+        "pac": true,
+        "control": false,
+        "lobbying": true
+      },
+      "withheld": {
+        "control": "OpenSecrets F3400 capture not supplied"
+      },
+      "growth_scaling_cycles": [],
+      "lobbying_history": [
+        {
+          "year": 2010,
+          "lobbying_real_2025_million": 37.7013840624745,
+          "predicted_growth_pct": 5.47005891
+        },
+        {
+          "year": 2011,
+          "lobbying_real_2025_million": 37.5756031255417,
+          "predicted_growth_pct": 9.49182139
+        },
+        {
+          "year": 2012,
+          "lobbying_real_2025_million": 28.9063017447852,
+          "predicted_growth_pct": 12.51991451
+        },
+        {
+          "year": 2013,
+          "lobbying_real_2025_million": 36.6002980203337,
+          "predicted_growth_pct": -2.26685978
+        },
+        {
+          "year": 2014,
+          "lobbying_real_2025_million": 32.9837975663262,
+          "predicted_growth_pct": 2.30000739
+        },
+        {
+          "year": 2015,
+          "lobbying_real_2025_million": 34.6220482176893,
+          "predicted_growth_pct": 4.50971686
+        },
+        {
+          "year": 2016,
+          "lobbying_real_2025_million": 28.65919558875,
+          "predicted_growth_pct": 2.85775886
+        },
+        {
+          "year": 2017,
+          "lobbying_real_2025_million": 26.5336798439747,
+          "predicted_growth_pct": 3.18119231
+        },
+        {
+          "year": 2018,
+          "lobbying_real_2025_million": 27.3459895727606,
+          "predicted_growth_pct": 3.29241768
+        },
+        {
+          "year": 2019,
+          "lobbying_real_2025_million": 24.3684720377007,
+          "predicted_growth_pct": 2.39204645
+        },
+        {
+          "year": 2020,
+          "lobbying_real_2025_million": 28.5309472770373,
+          "predicted_growth_pct": 0.68325548
+        },
+        {
+          "year": 2021,
+          "lobbying_real_2025_million": 22.0162305293558,
+          "predicted_growth_pct": -0.31750438
+        },
+        {
+          "year": 2022,
+          "lobbying_real_2025_million": 25.7152745426516,
+          "predicted_growth_pct": 3.32839951
+        },
+        {
+          "year": 2023,
+          "lobbying_real_2025_million": 18.4551069905478,
+          "predicted_growth_pct": 2.45663404
+        }
+      ]
+    }
+  },
+  "pac_model": {
+    "beta": -0.1683565110914325,
+    "ordinary_se": 0.03540427229395076,
+    "ordinary_p": 0.0005946284556413381,
+    "critical_95": 2.200985160091639,
+    "n": 21,
+    "cycles": [
+      2012,
+      2014,
+      2016,
+      2018,
+      2020,
+      2022,
+      2024
+    ],
+    "specification": "Forward-selected PAC growth model with industry and cycle fixed effects; the reference cycle effect is held fixed for scenarios",
+    "selection_repeated_p": 0.101851851851852,
+    "formula": "log_pac ~ sector + factor(cycle_end) + G_current",
+    "industries": [
+      "commercial_banks",
+      "credit_unions",
+      "auto_light_duty_manufacturing"
+    ],
+    "residual_df": 11,
+    "residual_sd": 0.1212712939208979,
+    "slope_rule": "R1",
+    "slope_rule_reason": "FIXTURE: each industry's own slope, as the 2026-09-30 owner scenario applies it (ADDENDUM F.2); the refit auto-pick records its own choice here.",
+    "tau2": 0.0120246871896717,
+    "Q": 7.947732368063091,
+    "k": 3,
+    "df_interaction": 9,
+    "slopes": {
+      "commercial_banks": {
+        "own_beta": -0.0591425935675335,
+        "own_se": 0.0646008205887455,
+        "own_p": 0.383798652458122,
+        "dl_weight": 0.742358434641176,
+        "dl_beta": -0.0872806382373598,
+        "dl_se": 0.0564026864468712,
+        "applied": {
+          "rule": "R1",
+          "beta": -0.0591425935675335,
+          "se": 0.0646008205887455,
+          "df": 9,
+          "critical_95": 2.262157162798205,
+          "ordinary_p": 0.383798652458122
+        }
+      },
+      "credit_unions": {
+        "own_beta": -0.0697460125692975,
+        "own_se": 0.0666240870328485,
+        "own_p": 0.322464176697829,
+        "dl_weight": 0.730386564697429,
+        "dl_beta": -0.0963327278327488,
+        "dl_se": 0.0577332934363817,
+        "applied": {
+          "rule": "R1",
+          "beta": -0.0697460125692975,
+          "se": 0.0666240870328485,
+          "df": 9,
+          "critical_95": 2.262157162798205,
+          "ordinary_p": 0.322464176697829
+        }
+      },
+      "auto_light_duty_manufacturing": {
+        "own_beta": -0.277292032725967,
+        "own_se": 0.0597281400534836,
+        "own_p": 0.0012148324248306,
+        "dl_weight": 0.771201952148486,
+        "dl_beta": -0.252367798034298,
+        "dl_se": 0.0530739285814245,
+        "applied": {
+          "rule": "R1",
+          "beta": -0.277292032725967,
+          "se": 0.0597281400534836,
+          "df": 9,
+          "critical_95": 2.262157162798205,
+          "ordinary_p": 0.0012148324248306
+        }
+      }
+    },
+    "anchor_rule": "previous_cycle",
+    "prediction": {
+      "method": "anchored_step_residual",
+      "industries": {
+        "commercial_banks": {
+          "sigma2": 0.03672220401962502,
+          "pairs": 6,
+          "df": 5,
+          "critical_95": 2.5705818356363146
+        },
+        "credit_unions": {
+          "sigma2": 0.009586992151915783,
+          "pairs": 6,
+          "df": 5,
+          "critical_95": 2.5705818356363146
+        },
+        "auto_light_duty_manufacturing": {
+          "sigma2": 0.03525668194234831,
+          "pairs": 6,
+          "df": 5,
+          "critical_95": 2.5705818356363146
+        }
+      }
+    },
+    "evidence": {}
+  },
+  "share_models": {
+    "control_House": {
+      "id": "control_House",
+      "signal": "control",
+      "chamber": "House",
+      "calculator": true,
+      "specification": "AICc-selected pooled model",
+      "formula": "RShare ~ sector + RMajNow + Forecast + G_prior + Pres",
+      "terms": [
+        "Intercept",
+        "industry:commercial_banks",
+        "industry:credit_unions",
+        "RMajNow",
+        "Forecast",
+        "G_prior",
+        "Pres"
+      ],
+      "beta": [
+        0.41015943153514184,
+        0.1547147220257134,
+        0.003600335278465275,
+        0.10414698064852657,
+        0.036356204483800225,
+        0.008351819301233042,
+        0.02216550918470836
+      ],
+      "covariance": [
+        [
+          8.988578242893216e-05,
+          -2.3450448222118835e-05,
+          -2.301633582195964e-05,
+          -1.0934662069032158e-05,
+          -7.317010808288065e-05,
+          -4.655289686425461e-06,
+          -2.4093293817866495e-05
+        ],
+        [
+          -2.3450448222118835e-05,
+          4.6417350093631744e-05,
+          2.317233292107192e-05,
+          6.950420710569962e-08,
+          3.8963791690103855e-07,
+          5.536405087482971e-07,
+          2.68765474143619e-07
+        ],
+        [
+          -2.301633582195964e-05,
+          2.317233292107192e-05,
+          4.6401281819688766e-05,
+          -4.78721918103796e-08,
+          -2.6836966956718144e-07,
+          -3.8132921347464057e-07,
+          -1.8511674135992578e-07
+        ],
+        [
+          -1.0934662069032158e-05,
+          6.950420710569962e-08,
+          -4.78721918103796e-08,
+          3.893834196753923e-05,
+          -2.0829466921186722e-05,
+          1.2587088945246164e-06,
+          -1.3684006937004295e-06
+        ],
+        [
+          -7.317010808288065e-05,
+          3.8963791690103855e-07,
+          -2.6836966956718144e-07,
+          -2.0829466921186722e-05,
+          0.00012314311430514107,
+          7.05627374327885e-06,
+          1.4197817417150773e-05
+        ],
+        [
+          -4.655289686425461e-06,
+          5.536405087482971e-07,
+          -3.8132921347464057e-07,
+          1.2587088945246164e-06,
+          7.05627374327885e-06,
+          1.002633166753244e-05,
+          4.867295188782418e-06
+        ],
+        [
+          -2.4093293817866495e-05,
+          2.68765474143619e-07,
+          -1.8511674135992578e-07,
+          -1.3684006937004295e-06,
+          1.4197817417150773e-05,
+          4.867295188782418e-06,
+          3.426929801723925e-05
+        ]
+      ],
+      "ordinary_p": {
+        "Intercept": 1.2272871976706856e-13,
+        "industry:commercial_banks": 1.362692521226083e-10,
+        "industry:credit_unions": 0.6076234732577326,
+        "RMajNow": 3.686367207454688e-09,
+        "Forecast": 0.007383125948010718,
+        "G_prior": 0.023091617128874954,
+        "Pres": 0.003013519785026213
+      },
+      "critical_95": 2.200985160091639,
+      "residual_df": 11,
+      "n": 18,
+      "adjusted_r2": 0.9836545689840998,
+      "residual_sd": 0.01179662394225006,
+      "training_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022
+      ],
+      "history": [
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2012,
+          "share": 0.5475401377284724,
+          "forecast": 0.7712785425662909,
+          "current_control": 1,
+          "growth_pct": 32.3619875135,
+          "prior_growth_pct": -27.2883836489,
+          "pres": 1,
+          "candidate_total_real_2025": 1427522.0330033004
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2012,
+          "share": 0.7204638481512208,
+          "forecast": 0.7712785425662909,
+          "current_control": 1,
+          "growth_pct": -9.0171860305,
+          "prior_growth_pct": -9.8695090859,
+          "pres": 1,
+          "candidate_total_real_2025": 20589728.299669966
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2012,
+          "share": 0.5698176365752767,
+          "forecast": 0.7712785425662909,
+          "current_control": 1,
+          "growth_pct": -9.6911879127,
+          "prior_growth_pct": -1.2773694115,
+          "pres": 1,
+          "candidate_total_real_2025": 4307836.488448845
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2014,
+          "share": 0.564740196086071,
+          "forecast": 0.93219318824138,
+          "current_control": 1,
+          "growth_pct": 18.7070835029,
+          "prior_growth_pct": 32.3619875135,
+          "pres": 0,
+          "candidate_total_real_2025": 1758989.8939748772
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2014,
+          "share": 0.7021557428288865,
+          "forecast": 0.93219318824138,
+          "current_control": 1,
+          "growth_pct": -4.9192790159,
+          "prior_growth_pct": -9.0171860305,
+          "pres": 0,
+          "candidate_total_real_2025": 20658901.900787733
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2014,
+          "share": 0.5352015614742338,
+          "forecast": 0.93219318824138,
+          "current_control": 1,
+          "growth_pct": -2.8734165679,
+          "prior_growth_pct": -9.6911879127,
+          "pres": 0,
+          "candidate_total_real_2025": 4198693.089631679
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2016,
+          "share": 0.5634578297213478,
+          "forecast": 0.8662271575421614,
+          "current_control": 1,
+          "growth_pct": 12.9822664313,
+          "prior_growth_pct": 18.7070835029,
+          "pres": 1,
+          "candidate_total_real_2025": 2605528.7836477985
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2016,
+          "share": 0.7280908130813499,
+          "forecast": 0.8662271575421614,
+          "current_control": 1,
+          "growth_pct": 2.0493765672,
+          "prior_growth_pct": -4.9192790159,
+          "pres": 1,
+          "candidate_total_real_2025": 20535925.651572324
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2016,
+          "share": 0.5447565126962173,
+          "forecast": 0.8662271575421614,
+          "current_control": 1,
+          "growth_pct": 10.5919808069,
+          "prior_growth_pct": -2.8734165679,
+          "pres": 1,
+          "candidate_total_real_2025": 3759887.8276729556
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2018,
+          "share": 0.5349031201813832,
+          "forecast": 0.3487340560420367,
+          "current_control": 1,
+          "growth_pct": -4.6721991481,
+          "prior_growth_pct": 12.9822664313,
+          "pres": 0,
+          "candidate_total_real_2025": 3624071.123337364
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2018,
+          "share": 0.6639805713081022,
+          "forecast": 0.3487340560420367,
+          "current_control": 1,
+          "growth_pct": 14.0964163491,
+          "prior_growth_pct": 2.0493765672,
+          "pres": 0,
+          "candidate_total_real_2025": 24112623.37243047
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2018,
+          "share": 0.5387210571265166,
+          "forecast": 0.3487340560420367,
+          "current_control": 1,
+          "growth_pct": 17.1906336617,
+          "prior_growth_pct": 10.5919808069,
+          "pres": 0,
+          "candidate_total_real_2025": 4221876.141475211
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2020,
+          "share": 0.4340533534154398,
+          "forecast": 0.2308353648255959,
+          "current_control": 0,
+          "growth_pct": -6.7218646413,
+          "prior_growth_pct": -4.6721991481,
+          "pres": 1,
+          "candidate_total_real_2025": 3617291.3434402333
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2020,
+          "share": 0.5999696661693017,
+          "forecast": 0.2308353648255959,
+          "current_control": 0,
+          "growth_pct": 3.0946254704,
+          "prior_growth_pct": 14.0964163491,
+          "pres": 1,
+          "candidate_total_real_2025": 22333489.57084548
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2020,
+          "share": 0.445122992408018,
+          "forecast": 0.2308353648255959,
+          "current_control": 0,
+          "growth_pct": 15.2732398225,
+          "prior_growth_pct": 17.1906336617,
+          "pres": 1,
+          "candidate_total_real_2025": 4352901.352769679
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2022,
+          "share": 0.4284788908083443,
+          "forecast": 0.8608764810263115,
+          "current_control": 0,
+          "growth_pct": 1.093102865,
+          "prior_growth_pct": -6.7218646413,
+          "pres": 0,
+          "candidate_total_real_2025": 2752255.84992017
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2022,
+          "share": 0.5840341613872746,
+          "forecast": 0.8608764810263115,
+          "current_control": 0,
+          "growth_pct": -5.3003479749,
+          "prior_growth_pct": 3.0946254704,
+          "pres": 0,
+          "candidate_total_real_2025": 17664338.163916975
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2022,
+          "share": 0.4630616365029806,
+          "forecast": 0.8608764810263115,
+          "current_control": 0,
+          "growth_pct": -0.2857126293,
+          "prior_growth_pct": 15.2732398225,
+          "pres": 0,
+          "candidate_total_real_2025": 3829873.3475252786
+        }
+      ],
+      "slope_rule": "R0",
+      "slope_rule_reason": "FIXTURE: tau2 = 0, every blended slope equals the pooled slope (SP tailoring full_sample_slopes.csv)",
+      "tau2": 0.0,
+      "application": "pooled",
+      "slopes": {
+        "commercial_banks": {
+          "own_beta": 0.0521566535582697,
+          "own_se": 0.019368857403877,
+          "own_p": 0.0246826481815464,
+          "dl_weight": 0.0,
+          "dl_beta": 0.0363562044838004,
+          "dl_se": 0.0110969867218602,
+          "applied": {
+            "rule": "R0",
+            "beta": 0.036356204483800225,
+            "se": 0.011096986721860177,
+            "df": 11,
+            "critical_95": 2.200985160091639,
+            "ordinary_p": 0.007383125948010718
+          }
+        },
+        "credit_unions": {
+          "own_beta": 0.0312999457249243,
+          "own_se": 0.0198342448898847,
+          "own_p": 0.149004005346423,
+          "dl_weight": 0.0,
+          "dl_beta": 0.0363562044838004,
+          "dl_se": 0.0110969867218602,
+          "applied": {
+            "rule": "R0",
+            "beta": 0.036356204483800225,
+            "se": 0.011096986721860177,
+            "df": 11,
+            "critical_95": 2.200985160091639,
+            "ordinary_p": 0.007383125948010718
+          }
+        },
+        "auto_light_duty_manufacturing": {
+          "own_beta": 0.0268840099235345,
+          "own_se": 0.0191093519441428,
+          "own_p": 0.193052042486312,
+          "dl_weight": 0.0,
+          "dl_beta": 0.0363562044838004,
+          "dl_se": 0.0110969867218602,
+          "applied": {
+            "rule": "R0",
+            "beta": 0.036356204483800225,
+            "se": 0.011096986721860177,
+            "df": 11,
+            "critical_95": 2.200985160091639,
+            "ordinary_p": 0.007383125948010718
+          }
+        }
+      },
+      "offset": null,
+      "anchor_rule": "by_industry",
+      "anchors": {
+        "commercial_banks": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 1.544,
+              "chrono_mae": 5.082,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 1.053,
+              "chrono_mae": 5.958,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": 0.3180051813471503,
+              "chrono": -0.17237308146399055
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        },
+        "credit_unions": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 1.477,
+              "chrono_mae": 6.365,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 1.522,
+              "chrono_mae": 4.573,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": -0.030467163168584888,
+              "chrono": 0.28153967007069913
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        },
+        "auto_light_duty_manufacturing": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 0.852,
+              "chrono_mae": 5.951,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 1.338,
+              "chrono_mae": 5.438,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": -0.5704225352112677,
+              "chrono": 0.08620399932784406
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.0002285336254552925,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        }
+      },
+      "prediction": {
+        "method": "anchored_step_residual",
+        "industries": {
+          "commercial_banks": {
+            "sigma2": 0.0002285336254552925,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          },
+          "credit_unions": {
+            "sigma2": 0.0002285336254552925,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          },
+          "auto_light_duty_manufacturing": {
+            "sigma2": 0.0002285336254552925,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          }
+        }
+      },
+      "evidence": {}
+    },
+    "control_Senate": {
+      "id": "control_Senate",
+      "signal": "control",
+      "chamber": "Senate",
+      "calculator": true,
+      "specification": "AICc-selected pooled model",
+      "formula": "RShare ~ sector + RMajNow + Forecast + G_prior + Pres",
+      "terms": [
+        "Intercept",
+        "industry:commercial_banks",
+        "industry:credit_unions",
+        "RMajNow",
+        "Forecast",
+        "G_prior",
+        "Pres"
+      ],
+      "beta": [
+        0.41015943153514184,
+        0.1547147220257134,
+        0.003600335278465275,
+        0.10414698064852657,
+        0.036356204483800225,
+        0.008351819301233042,
+        0.02216550918470836
+      ],
+      "covariance": [
+        [
+          8.988578242893216e-05,
+          -2.3450448222118835e-05,
+          -2.301633582195964e-05,
+          -1.0934662069032158e-05,
+          -7.317010808288065e-05,
+          -4.655289686425461e-06,
+          -2.4093293817866495e-05
+        ],
+        [
+          -2.3450448222118835e-05,
+          4.6417350093631744e-05,
+          2.317233292107192e-05,
+          6.950420710569962e-08,
+          3.8963791690103855e-07,
+          5.536405087482971e-07,
+          2.68765474143619e-07
+        ],
+        [
+          -2.301633582195964e-05,
+          2.317233292107192e-05,
+          4.6401281819688766e-05,
+          -4.78721918103796e-08,
+          -2.6836966956718144e-07,
+          -3.8132921347464057e-07,
+          -1.8511674135992578e-07
+        ],
+        [
+          -1.0934662069032158e-05,
+          6.950420710569962e-08,
+          -4.78721918103796e-08,
+          3.893834196753923e-05,
+          -2.0829466921186722e-05,
+          1.2587088945246164e-06,
+          -1.3684006937004295e-06
+        ],
+        [
+          -7.317010808288065e-05,
+          3.8963791690103855e-07,
+          -2.6836966956718144e-07,
+          -2.0829466921186722e-05,
+          0.00012314311430514107,
+          7.05627374327885e-06,
+          1.4197817417150773e-05
+        ],
+        [
+          -4.655289686425461e-06,
+          5.536405087482971e-07,
+          -3.8132921347464057e-07,
+          1.2587088945246164e-06,
+          7.05627374327885e-06,
+          1.002633166753244e-05,
+          4.867295188782418e-06
+        ],
+        [
+          -2.4093293817866495e-05,
+          2.68765474143619e-07,
+          -1.8511674135992578e-07,
+          -1.3684006937004295e-06,
+          1.4197817417150773e-05,
+          4.867295188782418e-06,
+          3.426929801723925e-05
+        ]
+      ],
+      "ordinary_p": {
+        "Intercept": 3.4830181011124636e-08,
+        "industry:commercial_banks": 0.0013419406869537337,
+        "industry:credit_unions": 0.9240393216348883,
+        "RMajNow": 0.08131831692769821,
+        "Forecast": 0.000721705456463732,
+        "G_prior": 0.016832714697722743
+      },
+      "critical_95": 2.1788128296672284,
+      "residual_df": 12,
+      "n": 18,
+      "adjusted_r2": 0.7206754990341815,
+      "residual_sd": 0.05009277518779133,
+      "training_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022
+      ],
+      "history": [
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2012,
+          "share": 0.4671995700947135,
+          "forecast": 0.5813603329161711,
+          "current_control": 0,
+          "growth_pct": 32.3619875135,
+          "prior_growth_pct": -27.2883836489,
+          "pres": 1,
+          "candidate_total_real_2025": 527186.5016501651
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2012,
+          "share": 0.6076957417166312,
+          "forecast": 0.5813603329161711,
+          "current_control": 0,
+          "growth_pct": -9.0171860305,
+          "prior_growth_pct": -9.8695090859,
+          "pres": 1,
+          "candidate_total_real_2025": 10404274.029042905
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2012,
+          "share": 0.4083020304240258,
+          "forecast": 0.5813603329161711,
+          "current_control": 0,
+          "growth_pct": -9.6911879127,
+          "prior_growth_pct": -1.2773694115,
+          "pres": 1,
+          "candidate_total_real_2025": 766634.7735973598
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2014,
+          "share": 0.635499411342815,
+          "forecast": 0.4935815083845317,
+          "current_control": 0,
+          "growth_pct": 18.7070835029,
+          "prior_growth_pct": 32.3619875135,
+          "pres": 0,
+          "candidate_total_real_2025": 810302.5522674045
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2014,
+          "share": 0.712235939736202,
+          "forecast": 0.4935815083845317,
+          "current_control": 0,
+          "growth_pct": -4.9192790159,
+          "prior_growth_pct": -9.0171860305,
+          "pres": 0,
+          "candidate_total_real_2025": 10934310.439429421
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2014,
+          "share": 0.5180792160424205,
+          "forecast": 0.4935815083845317,
+          "current_control": 0,
+          "growth_pct": -2.8734165679,
+          "prior_growth_pct": -9.6911879127,
+          "pres": 0,
+          "candidate_total_real_2025": 748589.8607621884
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2016,
+          "share": 0.5867737810965606,
+          "forecast": 0.3842438948593813,
+          "current_control": 1,
+          "growth_pct": 12.9822664313,
+          "prior_growth_pct": 18.7070835029,
+          "pres": 1,
+          "candidate_total_real_2025": 1155877.4402515723
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2016,
+          "share": 0.6868542350764297,
+          "forecast": 0.3842438948593813,
+          "current_control": 1,
+          "growth_pct": 2.0493765672,
+          "prior_growth_pct": -4.9192790159,
+          "pres": 1,
+          "candidate_total_real_2025": 10405218.421383647
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2016,
+          "share": 0.5526224726877256,
+          "forecast": 0.3842438948593813,
+          "current_control": 1,
+          "growth_pct": 10.5919808069,
+          "prior_growth_pct": -2.8734165679,
+          "pres": 1,
+          "candidate_total_real_2025": 709872.5056603773
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2018,
+          "share": 0.4245342738795627,
+          "forecast": 0.6909567124315893,
+          "current_control": 1,
+          "growth_pct": -4.6721991481,
+          "prior_growth_pct": 12.9822664313,
+          "pres": 0,
+          "candidate_total_real_2025": 1158023.8972188632
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2018,
+          "share": 0.499313692202228,
+          "forecast": 0.6909567124315893,
+          "current_control": 1,
+          "growth_pct": 14.0964163491,
+          "prior_growth_pct": 2.0493765672,
+          "pres": 0,
+          "candidate_total_real_2025": 10672783.280532043
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2018,
+          "share": 0.41536175497007,
+          "forecast": 0.6909567124315893,
+          "current_control": 1,
+          "growth_pct": 17.1906336617,
+          "prior_growth_pct": 10.5919808069,
+          "pres": 0,
+          "candidate_total_real_2025": 674957.2212817412
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2020,
+          "share": 0.4158514859089607,
+          "forecast": 0.6658399831491117,
+          "current_control": 1,
+          "growth_pct": -6.7218646413,
+          "prior_growth_pct": -4.6721991481,
+          "pres": 1,
+          "candidate_total_real_2025": 2329763.919533528
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2020,
+          "share": 0.5888832078257062,
+          "forecast": 0.6658399831491117,
+          "current_control": 1,
+          "growth_pct": 3.0946254704,
+          "prior_growth_pct": 14.0964163491,
+          "pres": 1,
+          "candidate_total_real_2025": 15846495.702623907
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2020,
+          "share": 0.5725418563896523,
+          "forecast": 0.6658399831491117,
+          "current_control": 1,
+          "growth_pct": 15.2732398225,
+          "prior_growth_pct": 17.1906336617,
+          "pres": 1,
+          "candidate_total_real_2025": 995366.1037900875
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2022,
+          "share": 0.4421189735110646,
+          "forecast": 0.7593435316636279,
+          "current_control": 0,
+          "growth_pct": 1.093102865,
+          "prior_growth_pct": -6.7218646413,
+          "pres": 0,
+          "candidate_total_real_2025": 969808.1224055347
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2022,
+          "share": 0.585453195718547,
+          "forecast": 0.7593435316636279,
+          "current_control": 0,
+          "growth_pct": -5.3003479749,
+          "prior_growth_pct": 3.0946254704,
+          "pres": 0,
+          "candidate_total_real_2025": 8455477.556146884
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2022,
+          "share": 0.4966056090918613,
+          "forecast": 0.7593435316636279,
+          "current_control": 0,
+          "growth_pct": -0.2857126293,
+          "prior_growth_pct": 15.2732398225,
+          "pres": 0,
+          "candidate_total_real_2025": 697830.3182543905
+        }
+      ],
+      "slope_rule": "R0",
+      "slope_rule_reason": "FIXTURE: tau2 = 0, every blended slope equals the pooled slope (SP tailoring full_sample_slopes.csv)",
+      "tau2": 0.0,
+      "application": "pooled",
+      "slopes": {
+        "commercial_banks": {
+          "own_beta": -0.541341219876027,
+          "own_se": 0.175754527624041,
+          "own_p": 0.0116387185934779,
+          "dl_weight": 0.0,
+          "dl_beta": -0.424982791344569,
+          "dl_se": 0.0943583282819379,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.42498279134456995,
+            "se": 0.09435832828193788,
+            "df": 12,
+            "critical_95": 2.1788128296672284,
+            "ordinary_p": 0.000721705456463732
+          }
+        },
+        "credit_unions": {
+          "own_beta": -0.34518358675075,
+          "own_se": 0.189565905688094,
+          "own_p": 0.0986292413326364,
+          "dl_weight": 0.0,
+          "dl_beta": -0.424982791344569,
+          "dl_se": 0.0943583282819379,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.42498279134456995,
+            "se": 0.09435832828193788,
+            "df": 12,
+            "critical_95": 2.1788128296672284,
+            "ordinary_p": 0.000721705456463732
+          }
+        },
+        "auto_light_duty_manufacturing": {
+          "own_beta": -0.389295659018529,
+          "own_se": 0.192504530470935,
+          "own_p": 0.070712071913748,
+          "dl_weight": 0.0,
+          "dl_beta": -0.424982791344569,
+          "dl_se": 0.0943583282819379,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.42498279134456995,
+            "se": 0.09435832828193788,
+            "df": 12,
+            "critical_95": 2.1788128296672284,
+            "ordinary_p": 0.000721705456463732
+          }
+        }
+      },
+      "offset": null,
+      "anchor_rule": "by_industry",
+      "anchors": {
+        "commercial_banks": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 5.285,
+              "chrono_mae": 4.543,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 6.528,
+              "chrono_mae": 5.029,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": -0.23519394512771985,
+              "chrono": -0.10697776799471703
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        },
+        "credit_unions": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 6.912,
+              "chrono_mae": 9.564,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 8.308,
+              "chrono_mae": 10.502,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": -0.20196759259259256,
+              "chrono": -0.09807611877875377
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        },
+        "auto_light_duty_manufacturing": {
+          "anchor": "previous_cycle",
+          "default": "previous_cycle",
+          "slope_rule": "R0",
+          "min_gain": 0.05,
+          "reason": "previous_cycle kept: same_phase does not beat it by 5% in every design (interim fixture numbers)",
+          "backtest": {
+            "previous_cycle": {
+              "loeo_mae": 1.853,
+              "chrono_mae": 2.164,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase": {
+              "loeo_mae": 3.516,
+              "chrono_mae": 4.705,
+              "loeo_n": 5,
+              "chrono_n": 2
+            },
+            "same_phase_gain": {
+              "loeo": -0.8974635725849973,
+              "chrono": -1.1742144177449165
+            }
+          },
+          "prediction": {
+            "previous_cycle": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 15,
+              "df": 14,
+              "critical_95": 2.144786687917804
+            },
+            "same_phase": {
+              "sigma2": 0.003564790842118616,
+              "pairs": 12,
+              "df": 11,
+              "critical_95": 2.200985159
+            }
+          }
+        }
+      },
+      "prediction": {
+        "method": "anchored_step_residual",
+        "industries": {
+          "commercial_banks": {
+            "sigma2": 0.003564790842118616,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          },
+          "credit_unions": {
+            "sigma2": 0.003564790842118616,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          },
+          "auto_light_duty_manufacturing": {
+            "sigma2": 0.003564790842118616,
+            "pairs": 15,
+            "df": 14,
+            "critical_95": 2.144786687917804
+          }
+        }
+      },
+      "evidence": {}
+    }
+  },
+  "evidence_models": {
+    "seats_House": {
+      "id": "seats_House",
+      "signal": "seats",
+      "chamber": "House",
+      "specification": "Original full seat-gain sensitivity; seat gain was not retained by selected pooled share model",
+      "terms": [
+        "Intercept",
+        "industry:commercial_banks",
+        "industry:credit_unions",
+        "RMajNow",
+        "Forecast",
+        "G_prior",
+        "G_current",
+        "Pres"
+      ],
+      "beta": [
+        0.4272249363563743,
+        0.1496190876673703,
+        0.006441476291450062,
+        0.11046124976970734,
+        0.00023538021096416415,
+        0.008027757366655624,
+        -0.018949994069722555,
+        0.008110410842818211
+      ],
+      "covariance": [
+        [
+          0.0004263062412709983,
+          -0.00016456309646957024,
+          -0.00016290879555934073,
+          -0.0002678920009628003,
+          -3.112371809799895e-06,
+          -2.158640723578659e-05,
+          5.294507080638716e-05,
+          -0.000162400586918142
+        ],
+        [
+          -0.00016456309646957024,
+          0.00032699653850562304,
+          0.0001632675389153113,
+          2.519919168559833e-06,
+          7.006643401287753e-08,
+          4.713689767500032e-06,
+          -2.995050668002568e-07,
+          2.4765908204292702e-06
+        ],
+        [
+          -0.00016290879555934073,
+          0.0001632675389153113,
+          0.00032677400156416346,
+          -9.675550843872626e-07,
+          -2.6902900426212567e-08,
+          -1.8098812682833662e-06,
+          1.1499878797609539e-07,
+          -9.509186128461831e-07
+        ],
+        [
+          -0.0002678920009628003,
+          2.519919168559833e-06,
+          -9.675550843872626e-07,
+          0.0003916138272583195,
+          4.984562094255216e-06,
+          4.5506859715110884e-05,
+          -4.7691520861733154e-05,
+          4.5728870086789184e-05
+        ],
+        [
+          -3.112371809799895e-06,
+          7.006643401287753e-08,
+          -2.6902900426212567e-08,
+          4.984562094255216e-06,
+          2.7692880907868004e-07,
+          1.265319706735848e-06,
+          -9.93036929139793e-08,
+          2.1006763541836254e-06
+        ],
+        [
+          -2.158640723578659e-05,
+          4.713689767500032e-06,
+          -1.8098812682833662e-06,
+          4.5506859715110884e-05,
+          1.265319706735848e-06,
+          8.512384907674548e-05,
+          -5.408719148173412e-06,
+          4.4724399275620874e-05
+        ],
+        [
+          5.294507080638716e-05,
+          -2.995050668002568e-07,
+          1.1499878797609539e-07,
+          -4.7691520861733154e-05,
+          -9.93036929139793e-08,
+          -5.408719148173412e-06,
+          7.557156008721703e-05,
+          -3.723710047376352e-05
+        ],
+        [
+          -0.000162400586918142,
+          2.4765908204292702e-06,
+          -9.509186128461831e-07,
+          4.5728870086789184e-05,
+          2.1006763541836254e-06,
+          4.4724399275620874e-05,
+          -3.723710047376352e-05,
+          0.0002713464372248628
+        ]
+      ],
+      "ordinary_p": {
+        "Intercept": 2.4722574229625773e-11,
+        "industry:commercial_banks": 1.5436535955915215e-06,
+        "industry:credit_unions": 0.7273043586242817,
+        "RMajNow": 8.892544928265907e-05,
+        "Forecast": 0.6620299545512547,
+        "G_prior": 0.400027727589257,
+        "G_current": 0.04824703167232141,
+        "Pres": 0.6306767791508028
+      },
+      "critical_95": 2.1603686564627913,
+      "residual_df": 13,
+      "n": 21,
+      "adjusted_r2": 0.8547495789630081,
+      "residual_sd": 0.03381677573598918,
+      "training_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022,
+        2024
+      ],
+      "history": [
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2012,
+          "share": 0.5475401377284724,
+          "forecast": -3.0,
+          "current_control": 1,
+          "growth_pct": 32.3619875135,
+          "prior_growth_pct": -27.2883836489,
+          "pres": 1,
+          "candidate_total_real_2025": 1427522.0330033004
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2012,
+          "share": 0.7204638481512208,
+          "forecast": -3.0,
+          "current_control": 1,
+          "growth_pct": -9.0171860305,
+          "prior_growth_pct": -9.8695090859,
+          "pres": 1,
+          "candidate_total_real_2025": 20589728.299669966
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2012,
+          "share": 0.5698176365752767,
+          "forecast": -3.0,
+          "current_control": 1,
+          "growth_pct": -9.6911879127,
+          "prior_growth_pct": -1.2773694115,
+          "pres": 1,
+          "candidate_total_real_2025": 4307836.488448845
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2014,
+          "share": 0.564740196086071,
+          "forecast": 9.0,
+          "current_control": 1,
+          "growth_pct": 18.7070835029,
+          "prior_growth_pct": 32.3619875135,
+          "pres": 0,
+          "candidate_total_real_2025": 1758989.8939748772
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2014,
+          "share": 0.7021557428288865,
+          "forecast": 9.0,
+          "current_control": 1,
+          "growth_pct": -4.9192790159,
+          "prior_growth_pct": -9.0171860305,
+          "pres": 0,
+          "candidate_total_real_2025": 20658901.900787733
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2014,
+          "share": 0.5352015614742338,
+          "forecast": 9.0,
+          "current_control": 1,
+          "growth_pct": -2.8734165679,
+          "prior_growth_pct": -9.6911879127,
+          "pres": 0,
+          "candidate_total_real_2025": 4198693.089631679
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2016,
+          "share": 0.5634578297213478,
+          "forecast": -13.0,
+          "current_control": 1,
+          "growth_pct": 12.9822664313,
+          "prior_growth_pct": 18.7070835029,
+          "pres": 1,
+          "candidate_total_real_2025": 2605528.7836477985
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2016,
+          "share": 0.7280908130813499,
+          "forecast": -13.0,
+          "current_control": 1,
+          "growth_pct": 2.0493765672,
+          "prior_growth_pct": -4.9192790159,
+          "pres": 1,
+          "candidate_total_real_2025": 20535925.651572324
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2016,
+          "share": 0.5447565126962173,
+          "forecast": -13.0,
+          "current_control": 1,
+          "growth_pct": 10.5919808069,
+          "prior_growth_pct": -2.8734165679,
+          "pres": 1,
+          "candidate_total_real_2025": 3759887.8276729556
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2018,
+          "share": 0.5349031201813832,
+          "forecast": -34.0,
+          "current_control": 1,
+          "growth_pct": -4.6721991481,
+          "prior_growth_pct": 12.9822664313,
+          "pres": 0,
+          "candidate_total_real_2025": 3624071.123337364
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2018,
+          "share": 0.6639805713081022,
+          "forecast": -34.0,
+          "current_control": 1,
+          "growth_pct": 14.0964163491,
+          "prior_growth_pct": 2.0493765672,
+          "pres": 0,
+          "candidate_total_real_2025": 24112623.37243047
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2018,
+          "share": 0.5387210571265166,
+          "forecast": -34.0,
+          "current_control": 1,
+          "growth_pct": 17.1906336617,
+          "prior_growth_pct": 10.5919808069,
+          "pres": 0,
+          "candidate_total_real_2025": 4221876.141475211
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2020,
+          "share": 0.4340533534154398,
+          "forecast": -8.0,
+          "current_control": 0,
+          "growth_pct": -6.7218646413,
+          "prior_growth_pct": -4.6721991481,
+          "pres": 1,
+          "candidate_total_real_2025": 3617291.3434402333
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2020,
+          "share": 0.5999696661693017,
+          "forecast": -8.0,
+          "current_control": 0,
+          "growth_pct": 3.0946254704,
+          "prior_growth_pct": 14.0964163491,
+          "pres": 1,
+          "candidate_total_real_2025": 22333489.57084548
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2020,
+          "share": 0.445122992408018,
+          "forecast": -8.0,
+          "current_control": 0,
+          "growth_pct": 15.2732398225,
+          "prior_growth_pct": 17.1906336617,
+          "pres": 1,
+          "candidate_total_real_2025": 4352901.352769679
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2022,
+          "share": 0.4284788908083443,
+          "forecast": 24.0,
+          "current_control": 0,
+          "growth_pct": 1.093102865,
+          "prior_growth_pct": -6.7218646413,
+          "pres": 0,
+          "candidate_total_real_2025": 2752255.84992017
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2022,
+          "share": 0.5840341613872746,
+          "forecast": 24.0,
+          "current_control": 0,
+          "growth_pct": -5.3003479749,
+          "prior_growth_pct": 3.0946254704,
+          "pres": 0,
+          "candidate_total_real_2025": 17664338.163916975
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2022,
+          "share": 0.4630616365029806,
+          "forecast": 24.0,
+          "current_control": 0,
+          "growth_pct": -0.2857126293,
+          "prior_growth_pct": 15.2732398225,
+          "pres": 0,
+          "candidate_total_real_2025": 3829873.3475252786
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2024,
+          "share": 0.4745882845824043,
+          "forecast": -5.0,
+          "current_control": 1,
+          "growth_pct": 8.111411102,
+          "prior_growth_pct": 1.093102865,
+          "pres": 1,
+          "candidate_total_real_2025": 2370648.7907503233
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2024,
+          "share": 0.5932888924536551,
+          "forecast": -5.0,
+          "current_control": 1,
+          "growth_pct": 48.8853332525,
+          "prior_growth_pct": -5.3003479749,
+          "pres": 1,
+          "candidate_total_real_2025": 18184696.303040102
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2024,
+          "share": 0.4973655384899103,
+          "forecast": -5.0,
+          "current_control": 1,
+          "growth_pct": 34.8042488413,
+          "prior_growth_pct": -0.2857126293,
+          "pres": 1,
+          "candidate_total_real_2025": 3274223.756468305
+        }
+      ],
+      "calculator": false
+    },
+    "seats_Senate": {
+      "id": "seats_Senate",
+      "signal": "seats",
+      "chamber": "Senate",
+      "specification": "Original full seat-gain sensitivity; seat gain was not retained by selected pooled share model",
+      "terms": [
+        "Intercept",
+        "industry:commercial_banks",
+        "industry:credit_unions",
+        "RMajNow",
+        "Forecast",
+        "G_prior",
+        "G_current",
+        "Pres"
+      ],
+      "beta": [
+        0.4687218713854094,
+        0.11780762945800728,
+        -0.005898574331843836,
+        0.010547826231459462,
+        0.0052372377559975584,
+        0.033144707981023,
+        -0.009343058694174924,
+        0.036146345809682554
+      ],
+      "covariance": [
+        [
+          0.00415511029547799,
+          -0.001038251204840007,
+          -0.0010607591382051137,
+          -0.002754465398624499,
+          -0.0004664572488613129,
+          0.00029369833060633675,
+          0.0004323309005802409,
+          -0.0025896289888454457
+        ],
+        [
+          -0.001038251204840007,
+          0.00211082492772735,
+          0.0010538251078788035,
+          -2.630005264850398e-05,
+          -1.2306803797401135e-06,
+          3.242878133982706e-05,
+          -1.2942990558507598e-06,
+          1.350452417864632e-05
+        ],
+        [
+          -0.0010607591382051137,
+          0.0010538251078788035,
+          0.0021092939398663223,
+          1.009824044246241e-05,
+          4.7253541840912324e-07,
+          -1.2451443942042927e-05,
+          4.969626200029956e-07,
+          -5.185234190959347e-06
+        ],
+        [
+          -0.002754465398624499,
+          -2.630005264850398e-05,
+          1.009824044246241e-05,
+          0.0037139153029890144,
+          0.0004230415299192805,
+          -0.0004749488877689709,
+          -0.0001772823723055561,
+          0.001202875393416458
+        ],
+        [
+          -0.0004664572488613129,
+          -1.2306803797401135e-06,
+          4.7253541840912324e-07,
+          0.0004230415299192805,
+          9.089048394483763e-05,
+          -2.222468089204341e-05,
+          -6.892111303778935e-05,
+          0.0003712180106274606
+        ],
+        [
+          0.00029369833060633675,
+          3.242878133982706e-05,
+          -1.2451443942042927e-05,
+          -0.0004749488877689709,
+          -2.222468089204341e-05,
+          0.0005856267223072404,
+          -2.33735614613389e-05,
+          0.00024387626991535848
+        ],
+        [
+          0.0004323309005802409,
+          -1.2942990558507598e-06,
+          4.969626200029956e-07,
+          -0.0001772823723055561,
+          -6.892111303778935e-05,
+          -2.33735614613389e-05,
+          0.0005065833840096429,
+          -0.0005523872571336763
+        ],
+        [
+          -0.0025896289888454457,
+          1.350452417864632e-05,
+          -5.185234190959347e-06,
+          0.001202875393416458,
+          0.0003712180106274606,
+          0.00024387626991535848,
+          -0.0005523872571336763,
+          0.0033213588397565832
+        ]
+      ],
+      "ordinary_p": {
+        "Intercept": 6.258042140339634e-06,
+        "industry:commercial_banks": 0.0235522760233496,
+        "industry:credit_unions": 0.8997715225400038,
+        "RMajNow": 0.8652543111948094,
+        "Forecast": 0.5920823351753792,
+        "G_prior": 0.1939964689229667,
+        "G_current": 0.6848304013323345,
+        "Pres": 0.5413873278094473
+      },
+      "critical_95": 2.1603686564627913,
+      "residual_df": 13,
+      "n": 21,
+      "adjusted_r2": 0.17826401729983798,
+      "residual_sd": 0.08591625109196137,
+      "training_cycles": [
+        2012,
+        2014,
+        2016,
+        2018,
+        2020,
+        2022,
+        2024
+      ],
+      "history": [
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2012,
+          "share": 0.4671995700947135,
+          "forecast": 0.0,
+          "current_control": 0,
+          "growth_pct": 32.3619875135,
+          "prior_growth_pct": -27.2883836489,
+          "pres": 1,
+          "candidate_total_real_2025": 527186.5016501651
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2012,
+          "share": 0.6076957417166312,
+          "forecast": 0.0,
+          "current_control": 0,
+          "growth_pct": -9.0171860305,
+          "prior_growth_pct": -9.8695090859,
+          "pres": 1,
+          "candidate_total_real_2025": 10404274.029042905
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2012,
+          "share": 0.4083020304240258,
+          "forecast": 0.0,
+          "current_control": 0,
+          "growth_pct": -9.6911879127,
+          "prior_growth_pct": -1.2773694115,
+          "pres": 1,
+          "candidate_total_real_2025": 766634.7735973598
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2014,
+          "share": 0.635499411342815,
+          "forecast": 8.0,
+          "current_control": 0,
+          "growth_pct": 18.7070835029,
+          "prior_growth_pct": 32.3619875135,
+          "pres": 0,
+          "candidate_total_real_2025": 810302.5522674045
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2014,
+          "share": 0.712235939736202,
+          "forecast": 8.0,
+          "current_control": 0,
+          "growth_pct": -4.9192790159,
+          "prior_growth_pct": -9.0171860305,
+          "pres": 0,
+          "candidate_total_real_2025": 10934310.439429421
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2014,
+          "share": 0.5180792160424205,
+          "forecast": 8.0,
+          "current_control": 0,
+          "growth_pct": -2.8734165679,
+          "prior_growth_pct": -9.6911879127,
+          "pres": 0,
+          "candidate_total_real_2025": 748589.8607621884
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2016,
+          "share": 0.5867737810965606,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": 12.9822664313,
+          "prior_growth_pct": 18.7070835029,
+          "pres": 1,
+          "candidate_total_real_2025": 1155877.4402515723
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2016,
+          "share": 0.6868542350764297,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": 2.0493765672,
+          "prior_growth_pct": -4.9192790159,
+          "pres": 1,
+          "candidate_total_real_2025": 10405218.421383647
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2016,
+          "share": 0.5526224726877256,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": 10.5919808069,
+          "prior_growth_pct": -2.8734165679,
+          "pres": 1,
+          "candidate_total_real_2025": 709872.5056603773
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2018,
+          "share": 0.4245342738795627,
+          "forecast": 1.0,
+          "current_control": 1,
+          "growth_pct": -4.6721991481,
+          "prior_growth_pct": 12.9822664313,
+          "pres": 0,
+          "candidate_total_real_2025": 1158023.8972188632
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2018,
+          "share": 0.499313692202228,
+          "forecast": 1.0,
+          "current_control": 1,
+          "growth_pct": 14.0964163491,
+          "prior_growth_pct": 2.0493765672,
+          "pres": 0,
+          "candidate_total_real_2025": 10672783.280532043
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2018,
+          "share": 0.41536175497007,
+          "forecast": 1.0,
+          "current_control": 1,
+          "growth_pct": 17.1906336617,
+          "prior_growth_pct": 10.5919808069,
+          "pres": 0,
+          "candidate_total_real_2025": 674957.2212817412
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2020,
+          "share": 0.4158514859089607,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": -6.7218646413,
+          "prior_growth_pct": -4.6721991481,
+          "pres": 1,
+          "candidate_total_real_2025": 2329763.919533528
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2020,
+          "share": 0.5888832078257062,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": 3.0946254704,
+          "prior_growth_pct": 14.0964163491,
+          "pres": 1,
+          "candidate_total_real_2025": 15846495.702623907
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2020,
+          "share": 0.5725418563896523,
+          "forecast": -4.0,
+          "current_control": 1,
+          "growth_pct": 15.2732398225,
+          "prior_growth_pct": 17.1906336617,
+          "pres": 1,
+          "candidate_total_real_2025": 995366.1037900875
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2022,
+          "share": 0.4421189735110646,
+          "forecast": 1.0,
+          "current_control": 0,
+          "growth_pct": 1.093102865,
+          "prior_growth_pct": -6.7218646413,
+          "pres": 0,
+          "candidate_total_real_2025": 969808.1224055347
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2022,
+          "share": 0.585453195718547,
+          "forecast": 1.0,
+          "current_control": 0,
+          "growth_pct": -5.3003479749,
+          "prior_growth_pct": 3.0946254704,
+          "pres": 0,
+          "candidate_total_real_2025": 8455477.556146884
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2022,
+          "share": 0.4966056090918613,
+          "forecast": 1.0,
+          "current_control": 0,
+          "growth_pct": -0.2857126293,
+          "prior_growth_pct": 15.2732398225,
+          "pres": 0,
+          "candidate_total_real_2025": 697830.3182543905
+        },
+        {
+          "industry": "auto_light_duty_manufacturing",
+          "cycle": 2024,
+          "share": 0.4268542000493904,
+          "forecast": 3.0,
+          "current_control": 0,
+          "growth_pct": 8.111411102,
+          "prior_growth_pct": 1.093102865,
+          "pres": 1,
+          "candidate_total_real_2025": 923235.6432729624
+        },
+        {
+          "industry": "commercial_banks",
+          "cycle": 2024,
+          "share": 0.5302014906051598,
+          "forecast": 3.0,
+          "current_control": 0,
+          "growth_pct": 48.8853332525,
+          "prior_growth_pct": -5.3003479749,
+          "pres": 1,
+          "candidate_total_real_2025": 7113164.428525225
+        },
+        {
+          "industry": "credit_unions",
+          "cycle": 2024,
+          "share": 0.3989617354296092,
+          "forecast": 3.0,
+          "current_control": 0,
+          "growth_pct": 34.8042488413,
+          "prior_growth_pct": -0.2857126293,
+          "pres": 1,
+          "candidate_total_real_2025": 667801.9550452781
+        }
+      ],
+      "calculator": false
+    }
+  },
+  "lobby_model": {
+    "beta_million": -0.5367134383271494,
+    "ordinary_se_million": 0.17038067139089183,
+    "ordinary_p": 0.00263933620521582,
+    "critical_95": 2.0040447832891455,
+    "n": 71,
+    "industry_pair_counts": {
+      "auto_manufacturing": 1,
+      "commercial_banks": 15,
+      "credit_unions": 15,
+      "life_insurance": 12,
+      "property_casualty": 14,
+      "telecom": 14
+    },
+    "specification": "Change in annual real lobbying on change in forecast annual growth, year effects; same pooled slope per industry, calendar effects held fixed",
+    "wild_p": 0.0306927297668038,
+    "CR2_p": 0.0840463212361729,
+    "formula": "dy ~ dg + factor(year)",
+    "years": [
+      2009,
+      2010,
+      2011,
+      2012,
+      2013,
+      2014,
+      2015,
+      2016,
+      2017,
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023
+    ],
+    "anchor_rule": "last_year",
+    "log_refit": {
+      "formula": "dly ~ dg + factor(year)",
+      "unit": "log points of the lobbying level per +1 pp of dg",
+      "beta": -0.00814763405915353,
+      "se": 0.003636721200861857,
+      "ordinary_p": 0.029125763521828413,
+      "critical_95": 2.0040447832891455,
+      "residual_df": 55,
+      "n": 71,
+      "slope_rule": "R0",
+      "slopes": {
+        "commercial_banks": {
+          "own_beta": null,
+          "own_se": null,
+          "own_p": null,
+          "dl_weight": null,
+          "dl_beta": null,
+          "dl_se": null,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.00814763405915353,
+            "se": 0.003636721200861857,
+            "df": 55,
+            "critical_95": 2.0040447832891455,
+            "ordinary_p": 0.029125763521828413
+          }
+        },
+        "credit_unions": {
+          "own_beta": null,
+          "own_se": null,
+          "own_p": null,
+          "dl_weight": null,
+          "dl_beta": null,
+          "dl_se": null,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.00814763405915353,
+            "se": 0.003636721200861857,
+            "df": 55,
+            "critical_95": 2.0040447832891455,
+            "ordinary_p": 0.029125763521828413
+          }
+        },
+        "auto_light_duty_manufacturing": {
+          "own_beta": null,
+          "own_se": null,
+          "own_p": null,
+          "dl_weight": null,
+          "dl_beta": null,
+          "dl_se": null,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.00814763405915353,
+            "se": 0.003636721200861857,
+            "df": 55,
+            "critical_95": 2.0040447832891455,
+            "ordinary_p": 0.029125763521828413
+          }
+        },
+        "property_casualty": {
+          "own_beta": null,
+          "own_se": null,
+          "own_p": null,
+          "dl_weight": null,
+          "dl_beta": null,
+          "dl_se": null,
+          "applied": {
+            "rule": "R0",
+            "beta": -0.00814763405915353,
+            "se": 0.003636721200861857,
+            "df": 55,
+            "critical_95": 2.0040447832891455,
+            "ordinary_p": 0.029125763521828413
+          }
+        }
+      },
+      "prediction": {
+        "method": "anchored_step_residual",
+        "industries": {
+          "commercial_banks": {
+            "sigma2": 0.023714457190841767,
+            "pairs": 71,
+            "df": 70,
+            "critical_95": 1.994437111771186
+          },
+          "credit_unions": {
+            "sigma2": 0.023714457190841767,
+            "pairs": 71,
+            "df": 70,
+            "critical_95": 1.994437111771186
+          },
+          "auto_light_duty_manufacturing": {
+            "sigma2": 0.023714457190841767,
+            "pairs": 71,
+            "df": 70,
+            "critical_95": 1.994437111771186
+          },
+          "property_casualty": {
+            "sigma2": 0.023714457190841767,
+            "pairs": 71,
+            "df": 70,
+            "critical_95": 1.994437111771186
+          }
+        }
+      },
+      "provenance": "FIXTURE computed from SP phase2 p09_lobby_relative.R (lm(dly ~ dg + factor(year)) on the 71 LobbyView pairs); the R pipeline replaces it with its own log refit.",
+      "persistence": {
+        "window": "LobbyView sector-year levels (real 2025 dollars), target years 2014-2023, origin = the earlier year",
+        "method": "e = log(level[t+h]) - log(level[t]), h = 1..3; q = the ceil((n + 1) * p)-th smallest |e| (split-conformal); per industry p = 0.80, pooled p = 0.80 and 0.95",
+        "industries": {
+          "commercial_banks": {
+            "1": {
+              "n": 10,
+              "q80": 0.11332135689014677
+            },
+            "2": {
+              "n": 10,
+              "q80": 0.21942210388709427
+            },
+            "3": {
+              "n": 10,
+              "q80": 0.2463397701705361
+            }
+          },
+          "credit_unions": {
+            "1": {
+              "n": 10,
+              "q80": 0.11297249885039307
+            },
+            "2": {
+              "n": 10,
+              "q80": 0.17338143912568071
+            },
+            "3": {
+              "n": 10,
+              "q80": 0.2256476438143764
+            }
+          },
+          "auto_light_duty_manufacturing": {
+            "1": {
+              "n": 10,
+              "q80": 0.2132070857966717
+            },
+            "2": {
+              "n": 10,
+              "q80": 0.3952265255073293
+            },
+            "3": {
+              "n": 10,
+              "q80": 0.31082567627808544
+            }
+          },
+          "property_casualty": {
+            "1": {
+              "n": 10,
+              "q80": 0.25920943482670467
+            },
+            "2": {
+              "n": 10,
+              "q80": 0.17643879884819214
+            },
+            "3": {
+              "n": 10,
+              "q80": 0.24458202838496845
+            }
+          }
+        },
+        "pooled": {
+          "1": {
+            "n": 60,
+            "q80": 0.1852509758693479,
+            "q95": 0.25920943482670467
+          },
+          "2": {
+            "n": 60,
+            "q80": 0.21942210388709427,
+            "q95": 0.3364104872238478
+          },
+          "3": {
+            "n": 60,
+            "q80": 0.2767932067765173,
+            "q95": 0.43865571483590315
+          }
+        }
+      }
+    },
+    "evidence": {}
+  },
+  "political_inputs": {
+    "market_rule": "Mean P(Republican control) over January 1 to June 30 of the election year; Polymarket to Polymarket (2024 and 2026).",
+    "primary_market": "polymarket",
+    "anchor_cycles": {
+      "2024": {
+        "current_control": {
+          "House": 1,
+          "Senate": 0
+        },
+        "window": {
+          "start": "2024-01-01",
+          "end": "2024-06-30"
+        },
+        "House": {
+          "p_rep": 0.4491603053435114,
+          "market": "polymarket",
+          "days": 131,
+          "expected_days": 182,
+          "first_day": "2024-02-21",
+          "partial_window": true,
+          "note": "Kalshi has no 2024 January-June data (its 2024 series starts 2024-09-12). Polymarket window is partial: 131 of 182 days, from 2024-02-21."
+        },
+        "Senate": {
+          "p_rep": 0.7064560439560439,
+          "market": "polymarket",
+          "days": 182,
+          "expected_days": 182,
+          "first_day": "2024-01-01",
+          "partial_window": false
+        },
+        "sources": [
+          {
+            "file": "daily_polymarket_house_2024.csv",
+            "sha256": "426cc3a9811038f527587a83b394fb7bb4ba34a09d66c0af92a0088a8445b3dd",
+            "market": "polymarket",
+            "chamber": "House"
+          },
+          {
+            "file": "daily_polymarket_senate_2024.csv",
+            "sha256": "87a1efadb91162c46d421c3d2c68dac814cf3840d1200e211c1d5e9e828e3f65",
+            "market": "polymarket",
+            "chamber": "Senate"
+          }
+        ]
+      }
+    }
+  },
+  "evidence": [
+    {
+      "case": "control__House__pooled__RShare",
+      "signal": "control",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "RShare",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": true,
+      "effect": 0.363562044838002,
+      "conditional_CR2_low": -0.127730484450456,
+      "conditional_CR2_high": 0.8548545741264602,
+      "effect_unit": "percentage points of Republican share",
+      "ordinary_p": 0.0073831259480107,
+      "conditional_CR2_p": 0.0739771110500646,
+      "selection_repeated_p": 0.0671,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "control__House__pooled__log_R",
+      "signal": "control",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "log_R",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": true,
+      "effect": -4.336813419388125,
+      "conditional_CR2_low": -8.117593626090095,
+      "conditional_CR2_high": -0.4004615473858423,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": 0.0004624630391395,
+      "conditional_CR2_p": 0.0437633412827649,
+      "selection_repeated_p": 0.0646,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "control__House__pooled__log_D",
+      "signal": "control",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "log_D",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": true,
+      "effect": -5.342886062554447,
+      "conditional_CR2_low": -13.825347789977766,
+      "conditional_CR2_high": 3.974532988303626,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": 0.0005397966685898,
+      "conditional_CR2_p": 0.1045800031718393,
+      "selection_repeated_p": 0.1935,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "signal": "control",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "RShare",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": true,
+      "effect": -4.249827913445699,
+      "conditional_CR2_low": -8.40168895838749,
+      "conditional_CR2_high": -0.097966868503908,
+      "effect_unit": "percentage points of Republican share",
+      "ordinary_p": 0.0007217054564637,
+      "conditional_CR2_p": 0.0480190128347681,
+      "selection_repeated_p": 0.1266,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "control__Senate__pooled__log_R",
+      "signal": "control",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "log_R",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": false,
+      "effect": null,
+      "conditional_CR2_low": null,
+      "conditional_CR2_high": null,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": null,
+      "conditional_CR2_p": null,
+      "selection_repeated_p": 1.0,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "control__Senate__pooled__log_D",
+      "signal": "control",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "log_D",
+      "contrast": "+10 IEM score points",
+      "forecast_selected": true,
+      "effect": 10.99519023447668,
+      "conditional_CR2_low": -11.95154523564586,
+      "conditional_CR2_high": 39.92218589366221,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": 0.0170441289655642,
+      "conditional_CR2_p": 0.1931411945617412,
+      "selection_repeated_p": 0.0915,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "signal": "seats",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "RShare",
+      "contrast": "+10 projected R House seats",
+      "forecast_selected": false,
+      "effect": null,
+      "conditional_CR2_low": null,
+      "conditional_CR2_high": null,
+      "effect_unit": "percentage points of Republican share",
+      "ordinary_p": null,
+      "conditional_CR2_p": null,
+      "selection_repeated_p": 1.0,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__House__pooled__log_R",
+      "signal": "seats",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "log_R",
+      "contrast": "+10 projected R House seats",
+      "forecast_selected": true,
+      "effect": -7.474148319488442,
+      "conditional_CR2_low": -10.519678518921744,
+      "conditional_CR2_high": -4.324961203739602,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": 4.1748291445663793e-05,
+      "conditional_CR2_p": 0.0098568663689529,
+      "selection_repeated_p": 0.055,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__House__pooled__log_D",
+      "signal": "seats",
+      "chamber": "House",
+      "scope": "pooled",
+      "outcome": "log_D",
+      "contrast": "+10 projected R House seats",
+      "forecast_selected": true,
+      "effect": -7.8835218735866945,
+      "conditional_CR2_low": -14.411520485997272,
+      "conditional_CR2_high": -0.8576202007920283,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": 0.0069411682747477,
+      "conditional_CR2_p": 0.0406476947260923,
+      "selection_repeated_p": 0.1281,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "signal": "seats",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "RShare",
+      "contrast": "+1 projected R Senate seat",
+      "forecast_selected": false,
+      "effect": null,
+      "conditional_CR2_low": null,
+      "conditional_CR2_high": null,
+      "effect_unit": "percentage points of Republican share",
+      "ordinary_p": null,
+      "conditional_CR2_p": null,
+      "selection_repeated_p": 1.0,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__Senate__pooled__log_R",
+      "signal": "seats",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "log_R",
+      "contrast": "+1 projected R Senate seat",
+      "forecast_selected": false,
+      "effect": null,
+      "conditional_CR2_low": null,
+      "conditional_CR2_high": null,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": null,
+      "conditional_CR2_p": null,
+      "selection_repeated_p": 1.0,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    },
+    {
+      "case": "seats__Senate__pooled__log_D",
+      "signal": "seats",
+      "chamber": "Senate",
+      "scope": "pooled",
+      "outcome": "log_D",
+      "contrast": "+1 projected R Senate seat",
+      "forecast_selected": false,
+      "effect": null,
+      "conditional_CR2_low": null,
+      "conditional_CR2_high": null,
+      "effect_unit": "percent change in real party dollars",
+      "ordinary_p": null,
+      "conditional_CR2_p": null,
+      "selection_repeated_p": 1.0,
+      "Holm_outcome_family": 1.0,
+      "Holm_all_48": 1.0
+    }
+  ],
+  "industry_slopes": [
+    {
+      "case": "control__House__pooled__RShare",
+      "signal": "control",
+      "chamber": "House",
+      "sector": "auto_light_duty_manufacturing",
+      "effect_pp": 0.3384314905105298,
+      "conditional_CR2_low_pp": -0.23553831942765,
+      "conditional_CR2_high_pp": 0.9124013004487096,
+      "term": "Forecast:auto_light_duty_manufacturing",
+      "estimate": 0.0338431490510529,
+      "ordinary_SE": 0.0258460290631643,
+      "ordinary_p": 0.2267476508763969,
+      "CR2_SE": 0.0171475678910563,
+      "CR2_df": 2.7569093857030658,
+      "CR2_p": 0.1509761840028072,
+      "CR2_low": -0.023553831942765,
+      "CR2_high": 0.0912401300448709
+    },
+    {
+      "case": "control__House__pooled__RShare",
+      "signal": "control",
+      "chamber": "House",
+      "sector": "commercial_banks",
+      "effect_pp": 0.4824684775113169,
+      "conditional_CR2_low_pp": -0.0956522837366902,
+      "conditional_CR2_high_pp": 1.060589238759324,
+      "term": "Forecast:commercial_banks",
+      "estimate": 0.0482468477511316,
+      "ordinary_SE": 0.0222875306928812,
+      "ordinary_p": 0.0623267399900787,
+      "CR2_SE": 0.0174004700605299,
+      "CR2_df": 2.7898672723432645,
+      "CR2_p": 0.0753443107949226,
+      "CR2_low": -0.009565228373669,
+      "CR2_high": 0.1060589238759324
+    },
+    {
+      "case": "control__House__pooled__RShare",
+      "signal": "control",
+      "chamber": "House",
+      "sector": "credit_unions",
+      "effect_pp": 0.248951417711043,
+      "conditional_CR2_low_pp": -0.7693604731214737,
+      "conditional_CR2_high_pp": 1.2672633085435598,
+      "term": "Forecast:credit_unions",
+      "estimate": 0.0248951417711043,
+      "ordinary_SE": 0.0256579404451695,
+      "ordinary_p": 0.3603284271502008,
+      "CR2_SE": 0.0305152871146716,
+      "CR2_df": 2.770306825383244,
+      "CR2_p": 0.4788350370291039,
+      "CR2_low": -0.0769360473121473,
+      "CR2_high": 0.1267263308543559
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "signal": "control",
+      "chamber": "Senate",
+      "sector": "auto_light_duty_manufacturing",
+      "effect_pp": -1.7588950769245617,
+      "conditional_CR2_low_pp": -13.81260116937074,
+      "conditional_CR2_high_pp": 10.294811015521612,
+      "term": "Forecast:auto_light_duty_manufacturing",
+      "estimate": -0.1758895076924561,
+      "ordinary_SE": 0.2555413136593563,
+      "ordinary_p": 0.5107248981680136,
+      "CR2_SE": 0.2524567823536235,
+      "CR2_df": 1.8069727773735336,
+      "CR2_p": 0.5646722890406638,
+      "CR2_low": -1.381260116937074,
+      "CR2_high": 1.0294811015521614
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "signal": "control",
+      "chamber": "Senate",
+      "sector": "commercial_banks",
+      "effect_pp": -5.623889572238249,
+      "conditional_CR2_low_pp": -11.07875860539937,
+      "conditional_CR2_high_pp": -0.1690205390771271,
+      "term": "Forecast:commercial_banks",
+      "estimate": -0.5623889572238249,
+      "ordinary_SE": 0.18009035617764,
+      "ordinary_p": 0.0141682599103282,
+      "CR2_SE": 0.1426047169751028,
+      "CR2_df": 2.2864878103726003,
+      "CR2_p": 0.0469633081409931,
+      "CR2_low": -1.107875860539937,
+      "CR2_high": -0.0169020539077127
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "signal": "control",
+      "chamber": "Senate",
+      "sector": "credit_unions",
+      "effect_pp": -4.011146950758516,
+      "conditional_CR2_low_pp": -8.939178308157755,
+      "conditional_CR2_high_pp": 0.916884406640726,
+      "term": "Forecast:credit_unions",
+      "estimate": -0.4011146950758515,
+      "ordinary_SE": 0.1953307214312778,
+      "ordinary_p": 0.0741025320172494,
+      "CR2_SE": 0.1317125526853647,
+      "CR2_df": 2.351460525366815,
+      "CR2_p": 0.0760347783535196,
+      "CR2_low": -0.8939178308157756,
+      "CR2_high": 0.0916884406640726
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "signal": "seats",
+      "chamber": "House",
+      "sector": "auto_light_duty_manufacturing",
+      "effect_pp": 0.6032433816512739,
+      "conditional_CR2_low_pp": -2.4410826731167163,
+      "conditional_CR2_high_pp": 3.647569436419264,
+      "term": "Forecast:auto_light_duty_manufacturing",
+      "estimate": 0.0006032433816512,
+      "ordinary_SE": 0.000928311055233,
+      "ordinary_p": 0.5291394982252249,
+      "CR2_SE": 0.0007855896129098,
+      "CR2_df": 2.2501899413544324,
+      "CR2_p": 0.5149615800621805,
+      "CR2_low": -0.0024410826731167,
+      "CR2_high": 0.0036475694364192
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "signal": "seats",
+      "chamber": "House",
+      "sector": "commercial_banks",
+      "effect_pp": 0.1118901774961138,
+      "conditional_CR2_low_pp": -2.701815359427877,
+      "conditional_CR2_high_pp": 2.925595714420105,
+      "term": "Forecast:commercial_banks",
+      "estimate": 0.0001118901774961,
+      "ordinary_SE": 0.0008765559741358,
+      "ordinary_p": 0.9007316072620832,
+      "CR2_SE": 0.0006300280788338,
+      "CR2_df": 1.925580635269617,
+      "CR2_p": 0.8759566574734092,
+      "CR2_low": -0.0027018153594278,
+      "CR2_high": 0.0029255957144201
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "signal": "seats",
+      "chamber": "House",
+      "sector": "credit_unions",
+      "effect_pp": 0.0206304809371933,
+      "conditional_CR2_low_pp": -2.866085306111036,
+      "conditional_CR2_high_pp": 2.907346267985423,
+      "term": "Forecast:credit_unions",
+      "estimate": 2.0630480937193364e-05,
+      "ordinary_SE": 0.0008835539452272,
+      "ordinary_p": 0.981789728097072,
+      "CR2_SE": 0.0006350826703251,
+      "CR2_df": 1.8925588005456344,
+      "CR2_p": 0.9771831284069934,
+      "CR2_low": -0.002866085306111,
+      "CR2_high": 0.0029073462679854
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "signal": "seats",
+      "chamber": "Senate",
+      "sector": "auto_light_duty_manufacturing",
+      "effect_pp": 0.9339484111862948,
+      "conditional_CR2_low_pp": -5.318353206596828,
+      "conditional_CR2_high_pp": 7.186250028969416,
+      "term": "Forecast:auto_light_duty_manufacturing",
+      "estimate": 0.0093394841118629,
+      "ordinary_SE": 0.0139108904755272,
+      "ordinary_p": 0.5158302152099387,
+      "CR2_SE": 0.0181983566678909,
+      "CR2_df": 2.6480539137785626,
+      "CR2_p": 0.6475114652586735,
+      "CR2_low": -0.0531835320659682,
+      "CR2_high": 0.0718625002896941
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "signal": "seats",
+      "chamber": "Senate",
+      "sector": "commercial_banks",
+      "effect_pp": 0.8730055636199074,
+      "conditional_CR2_low_pp": -6.245050060635549,
+      "conditional_CR2_high_pp": 7.991061187875364,
+      "term": "Forecast:commercial_banks",
+      "estimate": 0.008730055636199,
+      "ordinary_SE": 0.0124800540285003,
+      "ordinary_p": 0.4987523635962959,
+      "CR2_SE": 0.0208988087355129,
+      "CR2_df": 2.6831769436706683,
+      "CR2_p": 0.7072868101975834,
+      "CR2_low": -0.0624505006063554,
+      "CR2_high": 0.0799106118787536
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "signal": "seats",
+      "chamber": "Senate",
+      "sector": "credit_unions",
+      "effect_pp": -0.0094408889456539,
+      "conditional_CR2_low_pp": -6.768149752299337,
+      "conditional_CR2_high_pp": 6.749267974408029,
+      "term": "Forecast:credit_unions",
+      "estimate": -9.440888945653956e-05,
+      "ordinary_SE": 0.012184566304923,
+      "ordinary_p": 0.99395660098937,
+      "CR2_SE": 0.0199887468761613,
+      "CR2_df": 2.713484621839892,
+      "CR2_p": 0.9965569122238812,
+      "CR2_low": -0.0676814975229933,
+      "CR2_high": 0.0674926797440802
+    }
+  ],
+  "validation_metrics": [
+    {
+      "case": "control__House__pooled__RShare",
+      "comparison": "forced_only",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 2.44316042844106,
+      "baseline_MAE": 1.6611704732661454
+    },
+    {
+      "case": "control__House__pooled__RShare",
+      "comparison": "previous_cycle",
+      "rows": 15,
+      "election_targets": 5,
+      "units": "share percentage points",
+      "stepwise_MAE": 2.6263314855497155,
+      "baseline_MAE": 3.356695877402577
+    },
+    {
+      "case": "control__House__pooled__RShare",
+      "comparison": "original_full",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 2.44316042844106,
+      "baseline_MAE": 1.1230421470749603
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "comparison": "forced_only",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 7.10659782657875,
+      "baseline_MAE": 9.253503237585576
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "comparison": "previous_cycle",
+      "rows": 15,
+      "election_targets": 5,
+      "units": "share percentage points",
+      "stepwise_MAE": 7.471371572210299,
+      "baseline_MAE": 8.92916490844647
+    },
+    {
+      "case": "control__Senate__pooled__RShare",
+      "comparison": "original_full",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 7.10659782657875,
+      "baseline_MAE": 7.446517690068838
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "comparison": "forced_only",
+      "rows": 21,
+      "election_targets": 7,
+      "units": "share percentage points",
+      "stepwise_MAE": 3.408015015516857,
+      "baseline_MAE": 2.8296428095534827
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "comparison": "previous_cycle",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 3.4065225600616054,
+      "baseline_MAE": 3.295402269098649
+    },
+    {
+      "case": "seats__House__pooled__RShare",
+      "comparison": "original_full",
+      "rows": 21,
+      "election_targets": 7,
+      "units": "share percentage points",
+      "stepwise_MAE": 3.408015015516857,
+      "baseline_MAE": 4.645134234378936
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "comparison": "forced_only",
+      "rows": 21,
+      "election_targets": 7,
+      "units": "share percentage points",
+      "stepwise_MAE": 11.94183167274799,
+      "baseline_MAE": 8.66037417280228
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "comparison": "previous_cycle",
+      "rows": 18,
+      "election_targets": 6,
+      "units": "share percentage points",
+      "stepwise_MAE": 13.305175043897814,
+      "baseline_MAE": 8.375194936134912
+    },
+    {
+      "case": "seats__Senate__pooled__RShare",
+      "comparison": "original_full",
+      "rows": 21,
+      "election_targets": 7,
+      "units": "share percentage points",
+      "stepwise_MAE": 11.94183167274799,
+      "baseline_MAE": 16.51574500602713
+    }
+  ],
+  "backtests": [
+    {
+      "model": "pac",
+      "design": "loeo",
+      "path": "prevchg",
+      "rule": "R0",
+      "n": 18,
+      "folds": 6,
+      "targets": "2014-2024",
+      "MAE": 21.9177436559486,
+      "RMSE": 33.1706274556462,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "pac",
+      "design": "loeo",
+      "path": "prevchg",
+      "rule": "R1",
+      "n": 18,
+      "folds": 6,
+      "targets": "2014-2024",
+      "MAE": 10.7653228549232,
+      "RMSE": 14.6474643846374,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "pac",
+      "design": "loeo",
+      "path": "prevchg",
+      "rule": "R2",
+      "n": 18,
+      "folds": 6,
+      "targets": "2014-2024",
+      "MAE": 14.3486835232884,
+      "RMSE": 18.5433267911999,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "pac",
+      "design": "loeo",
+      "path": "prevchg",
+      "rule": "naive_prev",
+      "n": 18,
+      "folds": 6,
+      "targets": "2014-2024",
+      "MAE": 12.7122321430646,
+      "RMSE": 17.9951359871642,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": null
+    },
+    {
+      "model": "pac",
+      "design": "chrono",
+      "path": "prevchg",
+      "rule": "R0",
+      "n": 9,
+      "folds": 3,
+      "targets": "2020-2024",
+      "MAE": 32.4806633875701,
+      "RMSE": 46.0557670368088,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "pac",
+      "design": "chrono",
+      "path": "prevchg",
+      "rule": "R1",
+      "n": 9,
+      "folds": 3,
+      "targets": "2020-2024",
+      "MAE": 14.313978053596,
+      "RMSE": 20.2550084933295,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "pac",
+      "design": "chrono",
+      "path": "prevchg",
+      "rule": "R2",
+      "n": 9,
+      "folds": 3,
+      "targets": "2020-2024",
+      "MAE": 21.5845554973885,
+      "RMSE": 27.4035218000007,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "pac",
+      "design": "chrono",
+      "path": "prevchg",
+      "rule": "naive_prev",
+      "n": 9,
+      "folds": 3,
+      "targets": "2020-2024",
+      "MAE": 12.3371197302707,
+      "RMSE": 15.147200107021,
+      "units": "log points x100",
+      "coverage_95": null,
+      "beats_naive": null
+    },
+    {
+      "model": "lobby",
+      "design": "rolling",
+      "path": "calc",
+      "rule": "R0",
+      "n": 50,
+      "folds": 10,
+      "targets": "2014-2023",
+      "MAE": 4.30449321418815,
+      "RMSE": 5.55906359473444,
+      "units": "$M 2025",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "lobby",
+      "design": "rolling",
+      "path": "calc",
+      "rule": "R1",
+      "n": 50,
+      "folds": 10,
+      "targets": "2014-2023",
+      "MAE": 4.27098091547918,
+      "RMSE": 6.04273163451174,
+      "units": "$M 2025",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "lobby",
+      "design": "rolling",
+      "path": "calc",
+      "rule": "R2",
+      "n": 50,
+      "folds": 10,
+      "targets": "2014-2023",
+      "MAE": 4.30449321418815,
+      "RMSE": 5.55906359473444,
+      "units": "$M 2025",
+      "coverage_95": null,
+      "beats_naive": false
+    },
+    {
+      "model": "lobby",
+      "design": "rolling",
+      "path": "calc",
+      "rule": "naive_prev",
+      "n": 50,
+      "folds": 10,
+      "targets": "2014-2023",
+      "MAE": 3.93581512192746,
+      "RMSE": 5.36373903575596,
+      "units": "$M 2025",
+      "coverage_95": null,
+      "beats_naive": null
+    },
+    {
+      "model": "control_House",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R0",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 1.30455522723067,
+      "RMSE": 1.56854446997628,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_House",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R1",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 1.16469423262207,
+      "RMSE": 1.38817617552811,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_House",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R2",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 1.27505960814155,
+      "RMSE": 1.54145153074354,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_House",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "naive_prev",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 3.35669587740258,
+      "RMSE": 4.56013677574705,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": null
+    },
+    {
+      "model": "control_Senate",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R0",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 6.11755949999522,
+      "RMSE": 7.26123320799601,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_Senate",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R1",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 6.04365993885998,
+      "RMSE": 7.41790061822911,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_Senate",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "R2",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 6.11755949999522,
+      "RMSE": 7.26123320799601,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": true
+    },
+    {
+      "model": "control_Senate",
+      "design": "loeo",
+      "path": "calc",
+      "rule": "naive_prev",
+      "n": 15,
+      "folds": 5,
+      "targets": "2014-2022",
+      "MAE": 8.92916490844647,
+      "RMSE": 10.8049841867605,
+      "units": "share percentage points",
+      "coverage_95": null,
+      "beats_naive": null
+    }
+  ],
+  "saved_outlook": {
+    "cycle": 2026,
+    "available_on": "2026-09-25",
+    "control": {
+      "description": "Polymarket January-June 2026 mean P(Republican control); cross-provider sensitivity to IEM, not a live feed",
+      "House": {
+        "value": 17.752326519337014,
+        "current_control": 1,
+        "window": {
+          "start": "2026-01-01",
+          "end": "2026-06-30"
+        },
+        "market": "polymarket",
+        "markets": [
+          {
+            "market": "polymarket",
+            "days": 181,
+            "p_rep": 0.17752326519337014,
+            "sha256": "7a7f0fa40a32df8749e6c01bdcc2b6ee59d009e7fead268f3fb0921905e8c37e"
+          },
+          {
+            "market": "kalshi",
+            "days": 181,
+            "p_rep": 0.20317374033149171,
+            "sha256": "4f73e7af62f8554cc5e6b924c109991495d83811d4e2035a222ffec98a9912e3"
+          }
+        ],
+        "sensitivity": {
+          "kalshi_score": 20.31737403314917,
+          "equal_weight_score": 19.03485027624309
+        },
+        "as_of": "2026-09-24/25",
+        "source": "Polymarket daily files archived with the Sector Growth Study expected-control build",
+        "notes": "Mean of daily normalized P(R) over 2026-01-01 to 2026-06-30 (181 days)."
+      },
+      "Senate": {
+        "value": 55.71359723756907,
+        "current_control": 1,
+        "window": {
+          "start": "2026-01-01",
+          "end": "2026-06-30"
+        },
+        "market": "polymarket",
+        "markets": [
+          {
+            "market": "polymarket",
+            "days": 181,
+            "p_rep": 0.5571359723756907,
+            "sha256": "c8f9a475abf92242610e23e094377f7b295f6ccb337c156f0c1c92bd10c9dd4b"
+          },
+          {
+            "market": "kalshi",
+            "days": 181,
+            "p_rep": 0.5707699502762431,
+            "sha256": "6633296cae7345917f8f54456a62634366368b44ebd411117a17d7d818d28c2b"
+          }
+        ],
+        "sensitivity": {
+          "kalshi_score": 57.076995027624314,
+          "equal_weight_score": 56.395296132596684
+        },
+        "as_of": "2026-09-24/25",
+        "source": "Polymarket daily files archived with the Sector Growth Study expected-control build",
+        "notes": "Mean of daily normalized P(R) over 2026-01-01 to 2026-06-30 (181 days)."
+      }
+    }
+  },
+  "sources": [
+    {
+      "role": "parity_ref:selected_models.csv",
+      "file": "selected_models.csv",
+      "sha256": "b1e43bf584813bdfc9ea232b41437f97a226d61474facd3b33bb43d163639ea6",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:analysis_case_panels.csv",
+      "file": "analysis_case_panels.csv",
+      "sha256": "f010d3bfc0e328eee12a1f28dccccf1e06bf4d2585742c591cd5fc02189221b2",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:regression_panel.csv",
+      "file": "regression_panel.csv",
+      "sha256": "cd16608dad9cb94c101586d59079d890ec820615bdaaf3353f21f81936e82d4c",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:pac_selected_design.csv",
+      "file": "pac_selected_design.csv",
+      "sha256": "49b170d1f2a766f5d3c06663183c122fc38bfc6a0d02100be58eeb56c8e70a95",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:year_effects__all71.csv",
+      "file": "year_effects__all71.csv",
+      "sha256": "1e7c5c10ecaf08f24269c6fd20e0d5c8f8b195829860d575422da2311ff24cc7",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:money_panel.csv",
+      "file": "money_panel.csv",
+      "sha256": "62c2dc13cb2ca00707abe4a58763986ba3f8eaf002b78cc8607d1a67fff52558",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:industry_forecast_slopes.csv",
+      "file": "industry_forecast_slopes.csv",
+      "sha256": "2717a101059cdd033b0e030b063b5e83b0461c5b2932c72a9037a274b3deb737",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:nested_validation_metrics.csv",
+      "file": "nested_validation_metrics.csv",
+      "sha256": "a9145d9ad19f849236e87456e901d27ebda6b8a5ad30d2bfff3c16a0355a13a8",
+      "pinned": true
+    },
+    {
+      "role": "parity_ref:02_election_forecasting.xlsx",
+      "file": "02_election_forecasting.xlsx",
+      "sha256": "79d051037c2383aa228a698ce7a5b85ae9c5a4cedc0d604812734550e4162ecb",
+      "pinned": true
+    }
+  ],
+  "gates": {
+    "decision": "PUBLISH",
+    "checks": [
+      {
+        "gate": "G7",
+        "status": "PASS",
+        "detail": "fixture"
+      }
+    ]
+  },
+  "cycle_model": {
+    "version": 1,
+    "rulings": {
+      "phase_trajectory_inflation": "D-092",
+      "blend": "D-099",
+      "budget_rule": "R9/R11/R12 50/50 (Paul 2026-10-05 'Lets do the 50/50')",
+      "owner_2026_10_07": "1. Yes 2. Keep senate in 3. We use the 50/50 4. Yes; Use the IBIS defaults, auto-recalculate",
+      "coordinator": "C1-C5 (2026-10-07)"
+    },
+    "source": {
+      "window_cycles": [
+        2012,
+        2024
+      ],
+      "panel_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "rebuild_reference": "phase20261001/refit (ctx.rds e2ff5b1c...)",
+      "lookback_note": "Fitted on the rebuild's tested window; D-100's six-year lookback is scoped to the PAC accuracy lane (C4)."
+    },
+    "inflation": {
+      "annual_rate": 0.025726436,
+      "base_year": 2025,
+      "convention": "cycle_midpoint",
+      "source": "Federal Reserve 10-year expected inflation, supplied by Paul 2026-10-01 (D-092)"
+    },
+    "measures": {
+      "pac_to_candidates": {
+        "candidate": "PT-noG-damp-pool@x22",
+        "handling_2022": "drop",
+        "phi": -0.025004444813599647,
+        "phi_se": 0.04069113249489017,
+        "phi_df": 15,
+        "drift": {
+          "kind": "damped_linear_trend",
+          "b0": 0.1420506718282655,
+          "b1": -0.05042481960946014,
+          "k_max": 3,
+          "damp": 0.8,
+          "pair_cycles": [
+            2014,
+            2016,
+            2018,
+            2020
+          ],
+          "d": {
+            "1": -0.04956364268768301,
+            "2": -0.08183552723773754
+          }
+        },
+        "step": {
+          "commercial_banks": {
+            "sigma2": 0.0057701438486077485,
+            "pairs": 4,
+            "df": 3,
+            "critical_95": 3.1824463052837078
+          },
+          "credit_unions": {
+            "sigma2": 0.00653943961814239,
+            "pairs": 4,
+            "df": 3,
+            "critical_95": 3.1824463052837078
+          },
+          "property_casualty": {
+            "sigma2": 0.015620883217006524,
+            "pairs": 4,
+            "df": 3,
+            "critical_95": 3.1824463052837078
+          }
+        },
+        "open_cycle_layer": "BLEND",
+        "notes": []
+      },
+      "general_giving": {
+        "candidate": "PT-noG-damp-pool",
+        "handling_2022": "none",
+        "phi": 0.7380555183437122,
+        "phi_se": 0.080198425650108,
+        "phi_df": 23,
+        "drift": {
+          "kind": "damped_linear_trend",
+          "b0": 0.21854812826899545,
+          "b1": -0.07439625082635988,
+          "k_max": 5,
+          "damp": 0.8,
+          "pair_cycles": [
+            2014,
+            2016,
+            2018,
+            2020,
+            2022,
+            2024
+          ],
+          "d": {
+            "1": -0.21295012652389184,
+            "2": -0.2605637270527622
+          }
+        },
+        "step": {
+          "commercial_banks": {
+            "sigma2": 0.07470106921955001,
+            "pairs": 6,
+            "df": 5,
+            "critical_95": 2.5705818356363146
+          },
+          "credit_unions": {
+            "sigma2": 0.3632584812079982,
+            "pairs": 6,
+            "df": 5,
+            "critical_95": 2.5705818356363146
+          },
+          "property_casualty": {
+            "sigma2": 0.13627189657369346,
+            "pairs": 6,
+            "df": 5,
+            "critical_95": 2.5705818356363146
+          }
+        },
+        "open_cycle_layer": "P1",
+        "notes": [
+          "50/50 untested on general giving",
+          "Open cycle stays on the model plus the observed-giving conditioning (P1): Mentat holds dated general giving for two complete cycles (2022, 2024), fewer than the three the pace test needs."
+        ]
+      }
+    },
+    "budget_rule": {
+      "weight_model": 0.5,
+      "lag_years": 1,
+      "growth_basis": "real",
+      "growth": {
+        "commercial_banks": {
+          "report_id": "52211",
+          "edition": "2026-08",
+          "price_basis": "CONSTANT_USD (IBIS Key Statistics convention; not printed in the capture)",
+          "source_sha256": "86c96b9b0e9c4408784bdfb0b3a987e1fd563cc7e09ad5c09c43b5037a15ccbb",
+          "annual": {
+            "2023": 0.359241928174159,
+            "2024": 0.0576696912627952,
+            "2025": -0.02855508203799395,
+            "2026": -0.02837189159263931,
+            "2027": 0.0017896962548269446
+          }
+        },
+        "credit_unions": {
+          "report_id": "52213",
+          "edition": "2026-05",
+          "price_basis": "CONSTANT_USD (IBIS Key Statistics convention; not printed in the capture)",
+          "source_sha256": "86c96b9b0e9c4408784bdfb0b3a987e1fd563cc7e09ad5c09c43b5037a15ccbb",
+          "annual": {
+            "2023": 0.24447600604994135,
+            "2024": 0.12543255634881945,
+            "2025": 0.040143788108023104,
+            "2026": 0.002569788217605673,
+            "2027": 0.007634278424327512
+          }
+        },
+        "property_casualty": {
+          "report_id": "52412",
+          "edition": "2024-11",
+          "price_basis": "CONSTANT_USD (p.82 'Figures are inflation adjusted to 2024')",
+          "source_sha256": "83ca21f4726dde52dce37fdd44adb138ff6fef1dafcb41e9f24d6331941e3f0a",
+          "annual": {
+            "2023": 0.057,
+            "2024": 0.027000000000000003,
+            "2025": 0.026000000000000002,
+            "2026": 0.015,
+            "2027": 0.013999999999999999
+          }
+        }
+      }
+    },
+    "g_prior": {
+      "source": "IBIS revenue-sum cycle growth of 2026 (2025+2026 over 2023+2024) from the same editions as the budget growth",
+      "commercial_banks": {
+        "2028": -1.5495783814812092
+      },
+      "credit_unions": {
+        "2028": 10.29432959178136
+      },
+      "property_casualty": {
+        "2028": 4.767661348629337
+      }
+    },
+    "pace": {
+      "months": {
+        "15": "03-31",
+        "18": "06-30",
+        "21": "09-30"
+      },
+      "series": {
+        "commercial_banks": {
+          "source": "pace_test/impl_py/out/series.csv",
+          "sha256": "f847a1a691169183fa4f00c3d4e1d9bdbff68e57b79dfe01dcda979b214eac69",
+          "cycles": {
+            "2012": {
+              "F": 6178695.0,
+              "O15": 3247573.0,
+              "O18": 4176188.0,
+              "O21": 5659195.0
+            },
+            "2014": {
+              "F": 7398975.0,
+              "O15": 4350350.0,
+              "O18": 5579850.0,
+              "O21": 6894125.0
+            },
+            "2016": {
+              "F": 7554394.0,
+              "O15": 4761897.0,
+              "O18": 6089897.0,
+              "O21": 7203497.0
+            },
+            "2018": {
+              "F": 7483496.0,
+              "O15": 4379396.0,
+              "O18": 5748496.0,
+              "O21": 7047996.0
+            },
+            "2020": {
+              "F": 6588800.0,
+              "O15": 4146100.0,
+              "O18": 4807800.0,
+              "O21": 5829800.0
+            },
+            "2022": {
+              "F": 4910350.0,
+              "O15": 2585200.0,
+              "O18": 3501100.0,
+              "O21": 4375600.0
+            },
+            "2024": {
+              "F": 5692500.0,
+              "O15": 3516500.0,
+              "O18": 4497500.0,
+              "O21": 5343000.0
+            }
+          }
+        },
+        "credit_unions": {
+          "source": "pace_test/impl_py/out/cu_series.csv",
+          "sha256": "161c29111a8ecb795e88a10a4bfd4db12b4cbc76f478d6e93be029befaeb7661",
+          "cycles": {
+            "2012": {
+              "F": 27760.0,
+              "O15": 16900.0,
+              "O18": 23400.0,
+              "O21": 27760.0
+            },
+            "2014": {
+              "F": 35200.0,
+              "O15": 13000.0,
+              "O18": 20000.0,
+              "O21": 30200.0
+            },
+            "2016": {
+              "F": 44700.0,
+              "O15": 26000.0,
+              "O18": 28500.0,
+              "O21": 42200.0
+            },
+            "2018": {
+              "F": 47100.0,
+              "O15": 29400.0,
+              "O18": 37400.0,
+              "O21": 44100.0
+            },
+            "2020": {
+              "F": 31800.0,
+              "O15": 24300.0,
+              "O18": 24300.0,
+              "O21": 29300.0
+            },
+            "2022": {
+              "F": 36500.0,
+              "O15": 19500.0,
+              "O18": 20500.0,
+              "O21": 36500.0
+            },
+            "2024": {
+              "F": 80800.0,
+              "O15": 24900.0,
+              "O18": 29900.0,
+              "O21": 65800.0
+            }
+          }
+        }
+      }
+    },
+    "notes": [
+      "No backtest covers the 50/50 overlay or the error of the IBISWorld path: G6 and G9 measure the phase-and-drift model only, and the intervals exclude the IBIS projection error.",
+      "The 2026-edition IBISWorld price basis is inferred as constant dollars (the 2026 captures print no basis; the 2024 editions print inflation-adjusted dollars and the 2023 growth agrees to 0.1 pp).",
+      "The 50/50 rule is untested on general giving.",
+      "The general-giving phase coefficient is phi_gen = 0.738 (the selected specification PT-noG-damp-pool)."
+    ]
+  }
+}

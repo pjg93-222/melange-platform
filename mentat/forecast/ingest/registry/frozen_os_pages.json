@@ -1,0 +1,757 @@
+{
+  "schema_version": 1,
+  "note": "Every page of the 2026-09-27 OpenSecrets captures (code, cycle, kind, file, sha256). No page content. These pages are never re-fetched or overwritten; pages missing from them may be fetched.",
+  "generated_from": "LOO outputs/opensecrets_baseline and outputs/opensecrets_partisanship (captured 2026-09-27)",
+  "pages": [
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "summary",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F03_2024_summary.json",
+      "sha256": "bed87f6a75762fb12de218d0f277f9a1b6e2e11477e1f4118f5654dd05f92af3",
+      "url": "https://www.opensecrets.org/industries/indus?cycle=2024&ind=F03",
+      "retrieved_utc": "2026-09-27T18:45:49.263315+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "totals",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F03_2024_totals.json",
+      "sha256": "a8ec8aad6e202ca6540204d87bc343cd72125aa3b6b42a3a820d8cb78c5b0103",
+      "url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F03",
+      "retrieved_utc": "2026-09-27T18:45:51.005288+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2020,
+      "kind": "summary",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F05_2020_summary.json",
+      "sha256": "a6a809c5e2d89b21208c7cc11534a4117235236f4e1d914902fda547a8801439",
+      "url": "https://www.opensecrets.org/industries/indus?cycle=2020&ind=F05",
+      "retrieved_utc": "2026-09-27T18:45:51.953361+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2020,
+      "kind": "totals",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F05_2020_totals.json",
+      "sha256": "4bae951e09038e18c4bc0d5c23a84c38315f825c3d4249bcd5e1ee56034734ff",
+      "url": "https://www.opensecrets.org/industries/totals?cycle=2020&ind=F05",
+      "retrieved_utc": "2026-09-27T18:45:52.631832+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2024,
+      "kind": "summary",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F05_2024_summary.json",
+      "sha256": "2fcc536f5de985aaf009f2309de60ebf376356406907c15d2d01827a711eb599",
+      "url": "https://www.opensecrets.org/industries/indus?cycle=2024&ind=F05",
+      "retrieved_utc": "2026-09-27T18:46:53.369631+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2024,
+      "kind": "totals",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F05_2024_totals.json",
+      "sha256": "bddd9f2c40afc21c70928062ee6225ac714cd80a4a4221ac87c6c6908d09dbb1",
+      "url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F05",
+      "retrieved_utc": "2026-09-27T18:46:54.720314+00:00"
+    },
+    {
+      "code": "F09",
+      "cycle": 2024,
+      "kind": "summary",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F09_2024_summary.json",
+      "sha256": "7ed39186f0b02877a0f8664bab775fde43e03ef47f467027f54e8ca633633459",
+      "url": "https://www.opensecrets.org/industries/indus?cycle=2024&ind=F09",
+      "retrieved_utc": "2026-09-27T18:45:53.272104+00:00"
+    },
+    {
+      "code": "F09",
+      "cycle": 2024,
+      "kind": "totals",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/F09_2024_totals.json",
+      "sha256": "115b4a7a3ba2c20595720e3128e5ad2218a11a3df7b487664f2f56d8a07aab0d",
+      "url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=F09",
+      "retrieved_utc": "2026-09-27T18:45:53.840697+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2024,
+      "kind": "summary",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/T2100_2024_summary.json",
+      "sha256": "cf50d35bff0aa8bbb1358192184f6b1f05247d21a57af60721c0bc3b37b7e6cb",
+      "url": "https://www.opensecrets.org/industries/indus?cycle=2024&ind=T2100",
+      "retrieved_utc": "2026-09-27T18:51:41.251879+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2024,
+      "kind": "totals",
+      "group": "baseline",
+      "file": "outputs/opensecrets_baseline/direct_sources/T2100_2024_totals.json",
+      "sha256": "5d8ec0e629b728806513f1e82caae8ca98245627cf85d65d8d0aa97ea90782a8",
+      "url": "https://www.opensecrets.org/industries/totals?cycle=2024&ind=T2100",
+      "retrieved_utc": "2026-09-27T18:51:42.510857+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2012,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2012_candidates_H.json",
+      "sha256": "fdb8d241b4435873c4406e27671095f2e8dd6747b55c15ca2a714201f8e8495e",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2012&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:08.144714+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2012,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2012_candidates_S.json",
+      "sha256": "45cd41e2e7daf5a1b7ece5bfc8a21b340cb804314d676a5e8384f018077c7c42",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2012&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:09.696868+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2012,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2012_presidential.json",
+      "sha256": "6f831fed530fdf0edd905f76b4d96d05ce78a775752dfccdbcb80ad38b18f8b0",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2012&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T20:59:50.684837+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2014,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2014_candidates_H.json",
+      "sha256": "6e6a38a128ee01934f292a3ce3eeebbeaca2b3b87518888a4025772fd0d1c709",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2014&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:10.452873+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2014,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2014_candidates_S.json",
+      "sha256": "a947e3da513150c7a1402e5cf84cc4bd863636f19291142667f8e5e0127b3028",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2014&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:11.040296+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2014,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2014_presidential.json",
+      "sha256": "1faaa81f9d28d113b9545e7c26bdec7b45e272de6d7d2d3d46d3efe9b4562039",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2014&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:01.946266+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2016,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2016_candidates_H.json",
+      "sha256": "3e5ed3cb5c5c87331acc3d5cc7b35174b999fec9a6b413d2436ea8e626790e79",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2016&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:12.005793+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2016,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2016_candidates_S.json",
+      "sha256": "4bd6a70347aaa038805c9229fb31f30141a530e11b0a3520cd74f8b035cd4fc7",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2016&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:12.621720+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2016,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2016_presidential.json",
+      "sha256": "b73352ffbbd354aa28900a908813663bdc448acd2d45fc1a03ef23cf72e990e0",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2016&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T20:59:51.916813+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2018,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2018_candidates_H.json",
+      "sha256": "83304de4152e0cfdb1a446571359cf19ce65a874493426199689f2056cb219a6",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2018&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:13.831158+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2018,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2018_candidates_S.json",
+      "sha256": "a555c98278eedad0cfe0309d307ab431f87f53579f64cb80fa886a85674513c5",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2018&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:14.260785+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2018,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2018_presidential.json",
+      "sha256": "932c8a50706e1a04895fdf09e919e08c59f2c964fb5c9dc59847bab70c6b1b5d",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2018&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:03.100451+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2020,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2020_candidates_H.json",
+      "sha256": "e4f4d49c6328dbe0e10bdb6e04e448e1c69ad06cbf9d0c530aca592448b8ee4d",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2020&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:15.469145+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2020,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2020_candidates_S.json",
+      "sha256": "bf92f02ff50aefea47ba2e8a4e0f437a3b911d5a228d4fa228a375c1d177e686",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2020&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:15.879318+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2020,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2020_presidential.json",
+      "sha256": "3bfca939538043906755d4a71ded88ca79ad3689754db315cae92d0ef4783952",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2020&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T20:59:53.354529+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2022,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2022_candidates_H.json",
+      "sha256": "950e03aefd475a8081875037f13263d09951e2bd2b4f59ff7e0710872aba9003",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2022&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:16.763771+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2022,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2022_candidates_S.json",
+      "sha256": "7429c14d3ae89096a1c4a278a2094ac72aa2b0a279778e65e35edca9daa6f5ee",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2022&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:17.360363+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2022,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2022_presidential.json",
+      "sha256": "5e9d5ef1c127aa9ba4d2b2792105aa6ac1364d22e9bab67cd5b52e67fb9fc084",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2022&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:03.652370+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2024_candidates_H.json",
+      "sha256": "01c9338f73f36452d7d21df327b1413accd1675612fe4b2cf6c126c57286312a",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2024&ind=F03&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:18.085315+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2024_candidates_S.json",
+      "sha256": "c06014e6c8acf402f5c9219103626568e89a5ae62ec097d8952bf12e2bdb4330",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2024&ind=F03&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:18.632323+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2024_presidential.json",
+      "sha256": "8ba77012a8d8cb74a477d7a2e9b340f5e57fa2ab36fb8e791066cbc388e3f736",
+      "url": "https://www.opensecrets.org/industries/recips?code=F03&cycle=2024&ind=F03&recipdetail=P",
+      "retrieved_utc": "2026-09-27T20:59:55.433343+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "recips",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2024_recips.json",
+      "sha256": "bd67582cac0276802624f53243c01ab146e2105af924619046528613c9d1397a",
+      "url": "https://www.opensecrets.org/industries/recips?cycle=2024&ind=F03",
+      "retrieved_utc": "2026-09-27T20:55:12.185113+00:00"
+    },
+    {
+      "code": "F03",
+      "cycle": 2024,
+      "kind": "summary",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F03_2024_summary.json",
+      "sha256": "7320ab019f5769872d7a0ac866eb90cfdd14c6035bb47696a9b33f2bf04c2b06",
+      "url": "https://www.opensecrets.org/industries/summary?code=F03&cycle=2024&ind=F03&mem=Y&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:55:33.145951+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2012,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2012_candidates_H.json",
+      "sha256": "479ef2323167c9edc74179a46646a4753fef9d687012fa6e6c1465f58bcc2f91",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2012&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:19.341917+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2012,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2012_candidates_S.json",
+      "sha256": "1521843f2f525985ab0b329f73bab57c6d5b2f03aaf66cc16710cacd32330d61",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2012&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:20.739053+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2012,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2012_presidential.json",
+      "sha256": "ddefdf9600575844c714b45288640b0db99f5733e14b6ab59ec11caf7b845141",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2012&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T20:59:58.938833+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2014,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2014_candidates_H.json",
+      "sha256": "120fd32c62a7862f15aee8eadb01d9a4664131bc0df94324b41358948d325962",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2014&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:24.717935+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2014,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2014_candidates_S.json",
+      "sha256": "c6d4809c6c4e361b003e04500eeca58eb862749502a466c5f57280987ee43248",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2014&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:28.982220+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2014,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2014_presidential.json",
+      "sha256": "7f382aa5d4b7ef700ac11a085903b111c17853ff8801df2560f69bc930aa8710",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2014&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:04.167137+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2016,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2016_candidates_H.json",
+      "sha256": "bacd6cf6f8c8adbce91da5f96246e9d00459cd240583544352beeff4b1fd9036",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2016&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:30.481336+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2016,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2016_candidates_S.json",
+      "sha256": "287e26e36ca100d88315c010374e7989dd90c209cae756537b9f2d6028ffe81f",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2016&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:32.057191+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2016,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2016_presidential.json",
+      "sha256": "6e5d75e484d9fad84a583df8930866ce3b290427a8b26b202c1607b7587488d9",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2016&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:02.111021+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2018,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2018_candidates_H.json",
+      "sha256": "05f11d83a589d272829933298c1c81a914188227b7ab08998ca2480e2b8706bd",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2018&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:34.333802+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2018,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2018_candidates_S.json",
+      "sha256": "aeac56f597141954b7befcd517592b84f59f072e0e9f27edf25883f93ddba133",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2018&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:35.619212+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2018,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2018_presidential.json",
+      "sha256": "1672a746b4a4af5019e864aa8963715649aa247f9d78a40b9b2d138d8efb48a1",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2018&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:04.666712+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2020,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2020_candidates_H.json",
+      "sha256": "8e8e3f6f2175ea50a7b5471675ae440a14f46ed2860a1995ee96509f6926e85f",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2020&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:37.763679+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2020,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2020_candidates_S.json",
+      "sha256": "c3ec8b25336f422bb70dbe88eb19e4e727c59288600673ffe2bc2fd5688b01f4",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2020&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:38.899061+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2020,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2020_presidential.json",
+      "sha256": "9802ad6829573ef27767b448f16c4291f16b142995d786897166ed910d99680c",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2020&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:03.257797+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2022,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2022_candidates_H.json",
+      "sha256": "d10c454e14897fa69bcb8eff35006c72c849999d92802794f6957c834e430ebd",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2022&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:40.281320+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2022,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2022_candidates_S.json",
+      "sha256": "ded39725312cea90a08fb6685f9364c6de8bcd8a83b610f7c13cc929d5ecc299",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2022&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:41.331396+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2022,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2022_presidential.json",
+      "sha256": "8a373e7f850ac616d12667c9c297757f1eb677b9182d86e442d450ca27dac000",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2022&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:05.271354+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2024,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2024_candidates_H.json",
+      "sha256": "2461f0e83c547a389897ddfe6db3f24d73b8d9206b230f745410eb57d2d4f3b2",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2024&ind=F05&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:42.647222+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2024,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2024_candidates_S.json",
+      "sha256": "dce79d20c258c383c7f524f7aef0b70b2e18359e21768df010ec970316682f58",
+      "url": "https://www.opensecrets.org/industries/summary?code=F05&cycle=2024&ind=F05&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:43.648973+00:00"
+    },
+    {
+      "code": "F05",
+      "cycle": 2024,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/F05_2024_presidential.json",
+      "sha256": "f804faeb2c97ae3d61a161ba01a2410bd86d5b74cbeacda593b0082b33dbe608",
+      "url": "https://www.opensecrets.org/industries/recips?code=F05&cycle=2024&ind=F05&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:04.376257+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2012,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2012_candidates_H.json",
+      "sha256": "26b7455cea7a332494299ece9aa3f6804d06783c3e5ec063e3aaff5c4581a3d1",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2012&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:45.126878+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2012,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2012_candidates_S.json",
+      "sha256": "d08a25ab14a2cf541ffff92fdd7b68cc7108399b82199084b444f644222715cf",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2012&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:46.400024+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2012,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2012_presidential.json",
+      "sha256": "14a980a826a0812a44a461cb84ab762ab6f1d9c26b15532646ea4c150eab20ef",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2012&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:05.980541+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2014,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2014_candidates_H.json",
+      "sha256": "b8166b12c4e3b6e02564a0b9ef467be2ab40d779700579fd4aee2ed76ae6a6ff",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2014&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:48.245915+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2014,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2014_candidates_S.json",
+      "sha256": "60e9b3f521ac7be7adf47e98f253ab0e76e456018780e2649bf49d0707fd8523",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2014&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:49.398988+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2014,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2014_presidential.json",
+      "sha256": "86569a3f6f45c652e6c1659e039361cd6f82972ad6be4149185fd194762100bd",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2014&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:05.778839+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2016,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2016_candidates_H.json",
+      "sha256": "4c0718b9e0c352c3b31c74f5c59407c58d66b0de25607ae957458b5da1347858",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2016&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:50.952507+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2016,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2016_candidates_S.json",
+      "sha256": "5a558264522c82536d23374226075301e82fdccc8506d91417e042c18fb6167f",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2016&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:58:52.477045+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2016,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2016_presidential.json",
+      "sha256": "574630a971c24c1deca1c4d7b5627bf4d3276d146fdba5ccb06c13b5a588fb60",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2016&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:07.150755+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2018,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2018_candidates_H.json",
+      "sha256": "dd7dba29c06f3debf86623e748e2c59bd96caf9b3a7df608b83cb3aa7ca52d6c",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2018&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:58:56.037118+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2018,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2018_candidates_S.json",
+      "sha256": "16c3244fc3255d73200010aebd26960f4dffc734f3c48d774aa5a3316677751c",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2018&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:59:01.100045+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2018,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2018_presidential.json",
+      "sha256": "2abb80526360f45b92b6d40858229f3e6f66c35cee5b1775bd1c1b112832400b",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2018&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:06.248737+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2020,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2020_candidates_H.json",
+      "sha256": "f134d59f9ab8a2fc7af2237fc86594794680146bf1b9a4a7ad13b520c1938d53",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2020&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:59:06.997487+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2020,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2020_candidates_S.json",
+      "sha256": "234b58485c4ac128b7fa6155b237381367b931f694fb3449dfcc1776eaf06f27",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2020&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:59:08.263524+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2020,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2020_presidential.json",
+      "sha256": "8049c4d8f174eecfac2d6c143e7fd7bd59709da3aefc59ed26c8f6ad0f1e4a19",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2020&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:10.898478+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2022,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2022_candidates_H.json",
+      "sha256": "1355adbc621079157b5a7dcaafa5b413f58f2f0e227a4fae21fdf09ee0d63053",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2022&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:59:09.865278+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2022,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2022_candidates_S.json",
+      "sha256": "f4c467a10611ad26f2106ee5d8663c00b142b457edec21b6fb1f03eb555cc876",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2022&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:59:11.692541+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2022,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2022_presidential.json",
+      "sha256": "25495d9e134ee9c38e58e161b25e9d0e598b7bcaa354d54d472d42cd011498a8",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2022&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:01:06.818141+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2024,
+      "kind": "candidates_H",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2024_candidates_H.json",
+      "sha256": "fb9114c78a82f26e8ad48abc43600297484a10d8a048f639587451dc3ae3f8a7",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2024&ind=T2100&mem=N&recipdetail=H",
+      "retrieved_utc": "2026-09-27T20:59:13.748515+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2024,
+      "kind": "candidates_S",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2024_candidates_S.json",
+      "sha256": "584de3ca05c7fd6604369124cb80778afcadd5cf898ccb9ab4443c18cc41040a",
+      "url": "https://www.opensecrets.org/industries/summary?code=T2100&cycle=2024&ind=T2100&mem=N&recipdetail=S",
+      "retrieved_utc": "2026-09-27T20:59:14.996334+00:00"
+    },
+    {
+      "code": "T2100",
+      "cycle": 2024,
+      "kind": "presidential",
+      "group": "partisanship",
+      "file": "outputs/opensecrets_partisanship/direct_sources/T2100_2024_presidential.json",
+      "sha256": "c5970ae9b9000a002ce88b104d07db3f1be853cbdf2af0c9e5340c21624da4c7",
+      "url": "https://www.opensecrets.org/industries/recips?code=T2100&cycle=2024&ind=T2100&recipdetail=P",
+      "retrieved_utc": "2026-09-27T21:00:13.591919+00:00"
+    }
+  ]
+}

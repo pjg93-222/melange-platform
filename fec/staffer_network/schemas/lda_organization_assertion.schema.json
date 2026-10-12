@@ -1,0 +1,7 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:melange:staffer-network:lda-organization-assertion:v1","title":"LDA source-native registrant or client assertion","type":"object","additionalProperties":false,
+  "required":["schema_id","source_system_id","source_org_id","source_numeric_id","organization_kind","display_name","name_variants","description_variants","country_variants","state_variants","activity_support_count"],
+  "properties":{
+    "schema_id":{"const":"staffer-network-lda-organization-assertion-v1"},"source_system_id":{"const":"senate-lda-api"},"source_org_id":{"type":"string","pattern":"^lda:(registrant|client):[1-9][0-9]*$"},"source_numeric_id":{"type":"integer","minimum":1},"organization_kind":{"enum":["registrant","client"]},"display_name":{"type":"string","minLength":1},"name_variants":{"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string","minLength":1}},"description_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"country_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"state_variants":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"activity_support_count":{"type":"integer","minimum":0}
+  }
+}

@@ -1,0 +1,137 @@
+# Exported to .github/workflows/deps.yml. Offline dependency bundles, rebuilt only when a lock
+# changes. One draft release per lock state: deps-<hash12>, hash of every lock that feeds it.
+name: deps
+
+on:
+  push:
+    branches: [main]
+    paths: ["ops/locks/**"]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  # Dated Posit Package Manager snapshot: the R bundle is reproducible from this date alone.
+  # TODO(Paul): ratify the date. R_VERSION is the minor of ops/locks/r-packages.txt (made with R 4.6.0); binaries are per minor.
+  PPM_SNAPSHOT_DATE: "2026-10-01"
+  R_VERSION: "4.6"
+
+jobs:
+  key:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    outputs:
+      hash12: ${{ steps.h.outputs.hash12 }}
+      exists: ${{ steps.h.outputs.exists }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - id: h
+        env: {GH_TOKEN: "${{ github.token }}"}
+        run: |
+          set -euo pipefail
+          hash12=$(cat ops/locks/*.txt | sha256sum | cut -c1-12)
+          echo "hash12=$hash12" >> "$GITHUB_OUTPUT"
+          if gh release view "deps-$hash12" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  wheelhouse:
+    needs: key
+    if: needs.key.outputs.exists != 'true'
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - name: Hash-checked downloads for Linux and Windows
+        run: |
+          set -euo pipefail
+          for lock in ops/locks/*.linux.txt; do   # pip locks only: r-packages.txt is not a requirements file
+            name=$(basename "$lock" .txt)
+            for platform in manylinux2014_x86_64 win_amd64; do
+              python -m pip download --require-hashes --only-binary=:all: --no-deps \
+                --platform "$platform" --python-version 3.12 --implementation cp --abi cp312 \
+                -r "$lock" -d "wheelhouse/$name/$platform"
+            done
+          done
+          tar --sort=name --owner=0 --group=0 --numeric-owner -cf - wheelhouse | gzip -n -9 > wheelhouse.tar.gz
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: wheelhouse, path: wheelhouse.tar.gz}
+
+  npm-cache:
+    needs: key
+    if: needs.key.outputs.exists != 'true'
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      # Geo is a separate private repo; GEO_READ_TOKEN is a fine-grained, read-only contents PAT
+      # Paul adds as a repository secret (ops/VPS.md).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: pjg93-222/Geo
+          token: ${{ secrets.GEO_READ_TOKEN }}
+          path: geo
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: {node-version: "22"}
+      - name: Populate the npm cache from the lockfile, scripts off
+        working-directory: geo/frontend
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts --cache "$GITHUB_WORKSPACE/npm-cache" --prefer-offline
+          tar --sort=name --owner=0 --group=0 --numeric-owner -cf - -C "$GITHUB_WORKSPACE" npm-cache | gzip -n -9 > "$GITHUB_WORKSPACE/npm-cache.tgz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: npm-cache, path: npm-cache.tgz}
+
+  r-bundle:
+    needs: key
+    if: needs.key.outputs.exists != 'true'
+    runs-on: windows-2022
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
+        with: {r-version: "${{ env.R_VERSION }}"}
+      - name: Download win.binary packages from the dated snapshot
+        shell: Rscript {0}
+        run: |
+          lines <- trimws(readLines("ops/locks/r-packages.txt"))
+          lines <- lines[nzchar(lines) & !startsWith(lines, "#")]
+          stopifnot(length(lines) > 0, all(grepl("^[A-Za-z][A-Za-z0-9.]*==[0-9][0-9.-]*$", lines)))
+          pkgs <- sub("==.*$", "", lines)
+          want <- sub("^.*==", "", lines)
+          repo <- sprintf("https://packagemanager.posit.co/cran/%s", Sys.getenv("PPM_SNAPSHOT_DATE"))
+          # the lock names exact versions: a snapshot that serves others is a different bundle, not a quiet substitution
+          avail <- available.packages(repos = repo, type = "win.binary")
+          have <- avail[match(pkgs, rownames(avail)), "Version"]
+          off <- paste0(pkgs, "==", want, " (snapshot: ", have, ")")[is.na(have) | have != want]
+          if (length(off)) stop("snapshot ", Sys.getenv("PPM_SNAPSHOT_DATE"), " differs from the lock: ", paste(off, collapse = ", "))
+          dir.create("r-bundle")
+          got <- download.packages(pkgs, destdir = "r-bundle", repos = repo, type = "win.binary")
+          writeLines(c(sprintf("snapshot %s", Sys.getenv("PPM_SNAPSHOT_DATE")), basename(got[, 2])), "r-bundle/MANIFEST.txt")
+      - run: tar -czf r-bundle.tgz r-bundle
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with: {name: r-bundle, path: r-bundle.tgz}
+
+  publish:
+    needs: [key, wheelhouse, npm-cache, r-bundle]
+    runs-on: ubuntu-24.04
+    permissions: {contents: write}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {path: out, merge-multiple: true}
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: deps-${{ needs.key.outputs.hash12 }}
+        run: |
+          set -euo pipefail
+          (cd out && sha256sum * > SHA256SUMS)
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "$TAG" \
+            --notes "Offline dependency bundles (wheelhouse, npm cache, R win.binary). Verify against SHA256SUMS." out/*

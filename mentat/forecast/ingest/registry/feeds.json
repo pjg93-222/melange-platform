@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "note": "Per-industry feed configuration of the Giving Forecast ingest (OpenSecrets and IBISWorld). The ingest never edits this file or the refit registry: code verification results and calibration outcomes are written as proposed_registry_patch.json next to the run receipt, and the owner applies them.",
+  "packages": { "pdftools": "3.9.0", "qpdf": "1.4.1", "xml2": "1.5.2", "data.table": "1.18.4", "curl": "7.1.0", "jsonlite": "2.0.0", "readxl": "1.5.0" },
+  "opensecrets_frozen": {
+    "codes": ["F03", "F05", "T2100"],
+    "inventory": "registry/frozen_os_pages.json",
+    "note": "The existing captures of 2026-09-27 (63 recipient captures plus the totals and summary pages, listed page by page in the inventory) are kept permanently as the frozen historical baseline: never re-fetched, overwritten or re-derived. Codes that are fully captured (F03, F05, T2100) are closed to the fetcher altogether; for any other code (F09) only the pages the inventory does not hold may be fetched. The feeds only add data."
+  },
+  "opensecrets_fetch": {
+    "permission": {
+      "kind": "owner_attestation",
+      "who": "Paul Goff",
+      "date": "2026-09-30",
+      "basis": "owner states explicit permission from OpenSecrets",
+      "evidence_file": null,
+      "recorded_by": "ingest build of 2026-09-30, on the owner ruling relayed by the orchestrator; OpenSecrets' own grant was not seen by the builder"
+    },
+    "user_agent_contact": "operator Paul Goff, Melange Systems",
+    "allowed_hosts": ["www.opensecrets.org"],
+    "url_patterns": ["^https://www\\.opensecrets\\.org/industries/(totals|summary|recips|indus)\\?"],
+    "min_interval_s": 4,
+    "min_interval_floor_s": 3,
+    "max_requests_per_run": 25,
+    "request_timeout_s": 60,
+    "terms_sha256_reviewed": null,
+    "terms_note": "The terms page is not fetched on each run: the owner holds OpenSecrets' explicit permission. Set terms_sha256_reviewed to a hash to make every run compare the live terms page against it."
+  },
+  "industries": {
+    "property_casualty": {
+      "opensecrets": {
+        "codes": ["F09"],
+        "level": "industry",
+        "code_status": "owner_ruling_f09_all_insurance",
+        "code_status_note": "Owner ruling of 2026-09-30: the OpenSecrets baseline for property and casualty insurance is F09 (Insurance), taken from its public industry pages, knowing that F09 also covers life, health and brokers. The earlier candidate, category F3400, is not published by OpenSecrets as an interest-group page (2026-09-30: the page answers 302 to the interest-group index; the public list of 2026-09-27 has no F3400) and was never verified.",
+        "expect": { "catname_regex": "^insurance$" },
+        "baseline_scope_caveat": "OpenSecrets baseline F09 = all insurance; Mentat P&C roster and IBISWorld 52412 are P&C only.",
+        "scope_caveat": "OpenSecrets baseline F09 = all insurance (life, health, brokers and property and casualty together); the Mentat P&C roster and IBISWorld 52412 are P&C only. OpenSecrets also assigns one primary category to each organisation.",
+        "superseded_candidate": { "code": "F3400", "name": "Property & casualty insurance", "status": "not_published_as_page_and_unverified" },
+        "route": "fetch",
+        "routes_allowed": ["fetch", "manual_save"],
+        "cycles_required": [2012, 2014, 2016, 2018, 2020, 2022, 2024],
+        "cycles_recommended": [2008, 2010],
+        "totals_cycle_anchor": 2024,
+        "calibration_codes": ["F03", "F05", "T2100", "F09"],
+        "recipe_version": null
+      },
+      "ibisworld": {
+        "code": "52412",
+        "titles": ["Property, Casualty and Direct Insurance in the US", "Direct Insurance (except Life, Health and Medical) Carriers in the US"],
+        "study_sector": "property_casualty",
+        "actual_vintage_policy": "single_latest_vintage",
+        "actual_min_edition": "2025-01",
+        "actual_first_year": 2006,
+        "predicted_rule": "direct",
+        "predicted_targets": [2008, 2026],
+        "scope_qualification": "IBISWorld52412 direct property/casualty and other direct insurance carriers; includes industry revenue beyond written premiums."
+      },
+      "status": "pilot"
+    }
+  },
+  "bulk_recipes": [
+    {
+      "version": "v1",
+      "note": "First recipe of FEEDS_SPEC 4.2: candidate recipients from individual gifts to N-prefixed recipients plus direct PAC gifts (DI = D); negative amounts (refunds) are kept. Not used for any number until fi_os_calibrate accepts it.",
+      "individuals": { "recipient_prefix": "N", "exclude_types": [] },
+      "pacs": { "di": ["D"] },
+      "totals": { "pacs_di": ["D"], "individuals_recipient_prefix": "N" }
+    }
+  ]
+}

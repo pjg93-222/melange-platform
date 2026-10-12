@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "note": "Industry registry of the Giving Forecast refit. `id` is the sector key used in every panel (the 07 sector name); `lobbyview.study_sector` is the 01/06 study-sector key (auto differs). A null OpenSecrets path means the capture was not supplied: the capability is withheld with a stated reason, never guessed.",
+  "industries": [
+    {
+      "id": "commercial_banks",
+      "label": "Commercial banks",
+      "mentat_key": "banking",
+      "mentat_workbook": "Banking Industry Spending Overview.xlsx",
+      "calculator": true,
+      "opensecrets": {
+        "codes": ["F03"],
+        "level": "industry",
+        "name": "Commercial banks",
+        "totals": "{LOO}/outputs/opensecrets_baseline/direct_sources/F03_2024_totals.json",
+        "recipients": "{LOO}/outputs/opensecrets_partisanship/direct_sources/F03_{cycle}_candidates_{chamber}.json",
+        "presidential": "{LOO}/outputs/opensecrets_partisanship/direct_sources/F03_{cycle}_presidential.json",
+        "status": "supplied"
+      },
+      "ibisworld": { "code": "52211", "actual_sector": "commercial_banks", "predicted_study_sector": "commercial_banks", "predicted_rule": "direct", "vintage_note": "" },
+      "lobbyview": { "study_sector": "commercial_banks", "confidence": ["high"], "naics": [] },
+      "models": { "pac": true, "control": true, "lobbying": true },
+      "status": "fitted"
+    },
+    {
+      "id": "credit_unions",
+      "label": "Credit unions",
+      "mentat_key": "credit_union",
+      "mentat_workbook": "Credit Union Industry Spending Overview.xlsx",
+      "calculator": true,
+      "opensecrets": {
+        "codes": ["F05"],
+        "level": "industry",
+        "name": "Credit unions",
+        "totals": "{LOO}/outputs/opensecrets_baseline/direct_sources/F05_2024_totals.json",
+        "recipients": "{LOO}/outputs/opensecrets_partisanship/direct_sources/F05_{cycle}_candidates_{chamber}.json",
+        "presidential": "{LOO}/outputs/opensecrets_partisanship/direct_sources/F05_{cycle}_presidential.json",
+        "status": "supplied"
+      },
+      "ibisworld": { "code": "52213", "actual_sector": "credit_unions", "predicted_study_sector": "credit_unions", "predicted_rule": "direct", "vintage_note": "" },
+      "lobbyview": { "study_sector": "credit_unions", "confidence": ["high"], "naics": [] },
+      "models": { "pac": true, "control": true, "lobbying": true },
+      "status": "fitted"
+    },
+    {
+      "id": "auto_light_duty_manufacturing",
+      "label": "Auto manufacturers",
+      "mentat_key": null,
+      "mentat_workbook": null,
+      "calculator": false,
+      "display_note": "kept in estimation, not offered: no Mentat dataset (owner ruling R-A, 2026-09-30)",
+      "opensecrets": {
+        "codes": ["T2100"],
+        "level": "industry",
+        "name": "Auto manufacturers",
+        "totals": "{LOO}/outputs/opensecrets_baseline/direct_sources/T2100_2024_totals.json",
+        "recipients": "{LOO}/outputs/opensecrets_partisanship/direct_sources/T2100_{cycle}_candidates_{chamber}.json",
+        "presidential": "{LOO}/outputs/opensecrets_partisanship/direct_sources/T2100_{cycle}_presidential.json",
+        "status": "supplied"
+      },
+      "ibisworld": { "code": "33611", "actual_sector": "auto_light_duty_manufacturing", "predicted_study_sector": "auto_manufacturing", "predicted_rule": "direct", "vintage_note": "" },
+      "lobbyview": { "study_sector": "auto_manufacturing", "confidence": ["naics"], "naics": ["33611", "336110", "336111", "336112"] },
+      "models": { "pac": true, "control": true, "lobbying": true },
+      "status": "fitted"
+    },
+    {
+      "id": "life_insurance",
+      "label": "Life insurance and annuities",
+      "mentat_key": null,
+      "mentat_workbook": null,
+      "calculator": false,
+      "opensecrets": { "codes": [], "level": "category", "name": "Life insurance", "totals": null, "recipients": null, "presidential": null, "status": "missing" },
+      "ibisworld": { "code": "52411a", "actual_sector": "life_insurance_annuities", "predicted_study_sector": "life_insurance", "predicted_rule": "direct", "vintage_note": "" },
+      "lobbyview": { "study_sector": "life_insurance", "confidence": ["naics"], "naics": ["524113"] },
+      "models": { "pac": false, "control": false, "lobbying": true },
+      "status": "fitted"
+    },
+    {
+      "id": "telecom",
+      "label": "Telecommunications",
+      "mentat_key": "telecom",
+      "mentat_workbook": "Telecom Industry Spending Overview.xlsx",
+      "calculator": true,
+      "opensecrets": { "codes": ["B09"], "level": "industry", "name": "Telecom Services & Equipment (OpenSecrets B09 only; B08 Telephone Utilities is not used)", "code_status": "owner_ruling_b09_only", "baseline_scope_caveat": "OpenSecrets baseline B09 = Telecom Services & Equipment; B08 (Telephone Utilities) is left out by the owner ruling of 2026-10-08, and Mentat's Telecom roster (wireless and cable carriers) is not the whole of B09.", "totals": "{RFDATA}/B09_totals.json", "recipients": null, "presidential": null, "status": "supplied" },
+      "ibisworld": { "code": "51721+51711a", "actual_sector": "telecom", "actual_components": ["telecom_wireless", "telecom_cable"], "predicted_study_sector": "telecom", "predicted_rule": "revenue_weighted_components", "components": ["51721", "51711a"], "vintage_note": "wireless + cable, weighted by each report's same-vintage baseline revenue; the actual series is the revenue-weighted growth of workbook 07's telecom_wireless (51721, edition 2024-10) and telecom_cable (51711a, edition 2024-12), both constant 2024 USD, with 2024 from the same editions' current-year estimates (replaced automatically when a 2025+ edition puts 2024 in the main series)", "actual_current_year": { "role": "ibis_actual_current:telecom", "year": 2024, "kind": "current-year estimate", "caveat": "Telecom 2024 revenue is IBISWorld's current-year estimate from the 2024-10 (wireless 51721) and 2024-12 (cable 51711a) editions; replaced automatically when a 2025+ edition is ingested." } },
+      "lobbyview": { "study_sector": "telecom", "confidence": ["naics"], "naics": [] },
+      "models": { "pac": true, "control": false, "lobbying": true },
+      "estimation": "scored_only",
+      "caveats": ["OpenSecrets baseline B09 = Telecom Services & Equipment (B08 Telephone Utilities left out); Mentat's Telecom roster and IBISWorld wireless (51721) + cable (51711a) are narrower or different scopes."],
+      "status": "pilot",
+      "withheld_by_model": { "control": "Telecom has a general-giving model only (owner ruling 2026-10-08, OpenSecrets B09): no House or Senate recipient capture of B09 is part of the refit, so no chamber share model is fitted and no chamber split is made." }
+    },
+    {
+      "id": "property_casualty",
+      "label": "Property & casualty insurers",
+      "mentat_key": "property_casualty_insurance",
+      "mentat_workbook": "Property & Casualty Insurance Industry Spending Overview.xlsx",
+      "calculator": true,
+      "opensecrets": { "codes": ["F09"], "level": "industry", "name": "Insurance (OpenSecrets F09: life, health, brokers and property & casualty together)", "code_status": "owner_ruling_f09_all_insurance", "baseline_scope_caveat": "OpenSecrets baseline F09 = all insurance; Mentat P&C roster and IBISWorld 52412 are P&C only.", "page_verification": {"heading": "Insurance", "parent": null, "verified_utc": "2026-09-30T18:37:00Z", "run_id": "local-f09-proposals-20260930"}, "totals": "{LOO}/outputs/opensecrets_baseline/direct_sources/F09_2024_totals.json", "recipients": "{INGEST}/local-f09-proposals-20260930/outputs/os/F09_{cycle}_candidates_{chamber}.json", "presidential": "{INGEST}/local-f09-proposals-20260930/outputs/os/F09_{cycle}_presidential.json", "status": "supplied", "superseded_candidate": { "code": "F3400", "name": "Property & casualty insurance", "status": "not_published_as_page_and_unverified" } },
+      "ibisworld": { "code": "52412", "actual_sector": "property_casualty", "predicted_study_sector": "property_casualty", "predicted_rule": "direct", "vintage_note": "single vintage: the 2024-11 edition (workbook 07 holds 2006-2023; its 2024 row is IBISWorld's current-year ESTIMATE, added from ibis_actual_current:property_casualty and replaced automatically when a 2025+ edition puts 2024 in the main series)", "actual_current_year": { "role": "ibis_actual_current:property_casualty", "year": 2024, "kind": "current-year estimate", "caveat": "P&C 2024 revenue is IBISWorld's current-year estimate from the 2024-11 edition; replaced automatically when a 2025+ edition is ingested." } },
+      "lobbyview": { "study_sector": "property_casualty", "confidence": ["naics"], "naics": ["52412", "524126", "524127", "524128"] },
+      "models": { "pac": true, "control": true, "lobbying": true },
+      "caveats": ["OpenSecrets baseline F09 = all insurance; Mentat P&C roster and IBISWorld 52412 are P&C only."],
+      "status": "pilot"
+    },
+    {
+      "id": "community_banks",
+      "label": "Community banks",
+      "mentat_key": "community_banks",
+      "mentat_workbook": "Community Banks Industry Spending Overview.xlsx",
+      "calculator": false,
+      "opensecrets": { "codes": [], "level": "none", "name": "", "totals": null, "recipients": null, "presidential": null, "status": "missing" },
+      "ibisworld": { "code": null, "actual_sector": null, "predicted_study_sector": null, "predicted_rule": "none", "vintage_note": "" },
+      "lobbyview": { "study_sector": null, "confidence": [], "naics": [] },
+      "models": { "pac": false, "control": false, "lobbying": false },
+      "status": "declined",
+      "reason": "no growth series and no OpenSecrets code today"
+    },
+    {
+      "id": "credit_arms",
+      "label": "Credit arms",
+      "mentat_key": "credit_arms",
+      "mentat_workbook": "Credit Arms Industry Spending Overview.xlsx",
+      "calculator": false,
+      "opensecrets": { "codes": [], "level": "none", "name": "", "totals": null, "recipients": null, "presidential": null, "status": "missing" },
+      "ibisworld": { "code": null, "actual_sector": null, "predicted_study_sector": null, "predicted_rule": "none", "vintage_note": "" },
+      "lobbyview": { "study_sector": "credit_arms", "confidence": [], "naics": ["52222", "522220"] },
+      "models": { "pac": false, "control": false, "lobbying": false },
+      "status": "declined",
+      "reason": "LobbyView is thin in every year and there is no predicted-growth series"
+    },
+    {
+      "id": "crypto",
+      "label": "Crypto",
+      "mentat_key": "crypto",
+      "mentat_workbook": "Crypto Industry Spending Overview.xlsx",
+      "calculator": false,
+      "opensecrets": { "codes": [], "level": "none", "name": "", "totals": null, "recipients": null, "presidential": null, "status": "missing" },
+      "ibisworld": { "code": null, "actual_sector": null, "predicted_study_sector": null, "predicted_rule": "none", "vintage_note": "" },
+      "lobbyview": { "study_sector": "crypto", "confidence": [], "naics": [] },
+      "models": { "pac": false, "control": false, "lobbying": false },
+      "status": "declined",
+      "reason": "no growth series and no OpenSecrets code today"
+    },
+    {
+      "id": "fintech",
+      "label": "Fintech",
+      "mentat_key": "fintech",
+      "mentat_workbook": "Fintech Industry Spending Overview.xlsx",
+      "calculator": false,
+      "opensecrets": { "codes": [], "level": "none", "name": "", "totals": null, "recipients": null, "presidential": null, "status": "missing" },
+      "ibisworld": { "code": null, "actual_sector": null, "predicted_study_sector": null, "predicted_rule": "none", "vintage_note": "" },
+      "lobbyview": { "study_sector": "fintech", "confidence": [], "naics": [] },
+      "models": { "pac": false, "control": false, "lobbying": false },
+      "status": "declined",
+      "reason": "no growth series and no OpenSecrets code today"
+    }
+  ]
+}

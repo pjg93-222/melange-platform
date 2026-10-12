@@ -1,0 +1,8 @@
+:root{--bg:#f7ede4;--panel:#fcf7f4;--ink:#342649;--text:#342649;--muted:#6b5e73;--border:#d8cbbc;--line:#d8cbbc;--accent:#57447b;color-scheme:light}body{font-family:articulat-cf,Aptos,'Segoe UI',sans-serif}body.unified-network{background:#f7ede4;color:#342649}body.unified-network header,body.unified-network .toolbar,body.unified-network #person-panel{background:#fcf7f4;color:#342649}header h1,h2,h3{font-family:freight-text-pro,Georgia,serif}*{scrollbar-width:thin;scrollbar-color:#bcaaa0 #f7ede4}::selection{background:#e2d5e8;color:#342649}:focus-visible{outline:2px solid #57447b;outline-offset:3px}
+
+body.unified-network #graph-caption,body.unified-network #graph-caption strong,body.unified-network #graph-legend,body.unified-network #graph-legend span{color:#f7ede4}body.unified-network .app-tabs button[aria-selected=true],body.unified-network .route-network-switch button[aria-pressed=true]{background:#57447b;color:#fcf7f4;border-color:#57447b}
+
+
+body.unified-network #legend,body.unified-network #legend small,body.unified-network #legend span{color:#f7ede4!important}body.unified-network .mobile-jumps a{color:#57447b;text-decoration:underline;text-underline-offset:3px}
+/* Build 01: the shell's page head ("People & connections") replaces this title; the Network | Sources tabs and status stay. */
+body.unified-network #app>header>:is(.brand,.divider,h1){display:none!important}

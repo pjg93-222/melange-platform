@@ -1,0 +1,6 @@
+# The Mentat console's runtime set: what the interpreter Start-MentatApp.ps1
+# launches needs to serve every route. Pinned to the versions installed there.
+openpyxl==3.1.5
+python-calamine==0.8.2
+jinja2==3.1.6
+geopy==2.5.0

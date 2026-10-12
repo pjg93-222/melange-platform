@@ -1,0 +1,106 @@
+/* people-ui.css: overlay for people.html (People & connections, Directory tab, board #43); owner: prompt 16. Loaded after ui-kit.css and restored-people.css. */
+/* Chrome tokens only (ui-kit.css defines them); no data colours are used on this view. */
+
+/* ---- 48 px row under the shell head: Network | Directory | Sources, status chip, search (Directory only) */
+body.unified-network #app>header{box-sizing:border-box;height:48px;min-height:48px;padding:0 var(--ml-gutter-end) 0 var(--ml-gutter);gap:0;flex-wrap:nowrap;background:var(--ml-page);border-bottom:1px solid var(--ml-rule)}
+body.unified-network #app>header>nav.ppl-tabs{margin:0;gap:0}
+.ppl-tabs:not(#mlk)>button{min-width:92px;padding:0 18px;font-size:14px}
+.ppl-vrule{flex:none;width:1px;height:32px;margin:0 12px;background:var(--ml-rule)}
+.ppl-chip{flex:none;display:inline-flex;align-items:center;box-sizing:border-box;height:24px;padding:0 8px;border:1px solid var(--ml-accent);border-radius:var(--ml-radius);background:color-mix(in srgb,var(--ml-accent) 7%,var(--ml-surface));color:var(--ml-ink);font:400 12px/1 var(--sans);white-space:nowrap}
+body.unified-network #app>header>#connection{margin-left:auto}
+body.ppl-view-directory #app>header>#connection{display:none}
+.ppl-search:not(#mlk){flex:none;width:388px;margin-left:auto}
+.ppl-search:not(#mlk) .mlk-search__input{height:32px;font-size:13px}
+
+/* ---- the legacy "Offices & organisations" accordion beside the map: its data now lives in the Directory tab (DOM kept) */
+body.unified-network #person-panel>#groups-panel{display:none!important}
+
+/* ---- Directory panel: two panes */
+body.ppl-view-directory #app>footer{display:none}
+#ppl-directory{grid-row:3;min-height:0;box-sizing:border-box;display:grid;grid-template-columns:390px minmax(0,1fr);gap:16px;padding:12px var(--ml-gutter-end) 24px var(--ml-gutter);overflow:hidden;background:var(--ml-page);color:var(--ml-ink);font-family:var(--sans)}
+#ppl-directory :is(h2,p){letter-spacing:0;text-transform:none}
+.ppl-left,.ppl-right{min-width:0;min-height:0;display:flex;flex-direction:column;box-sizing:border-box;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);overflow:hidden}
+
+/* left pane */
+.ppl-kind:not(#mlk){display:flex;flex:none;width:auto;margin:8px 10px 11px}
+.ppl-kind:not(#mlk)>button{flex:1 1 0;min-width:0;padding:0 10px;font-size:14px}
+.ppl-listwrap{flex:1 1 auto;min-height:0;overflow:auto;border-top:1px solid var(--ml-rule);overscroll-behavior:contain}
+.ppl-row{position:relative;display:block;box-sizing:border-box;padding:12px 20px 11px;border-bottom:1px solid var(--ml-rule);cursor:pointer;outline:none}
+.ppl-row:hover{background:var(--ml-surface-alt)}
+.ppl-row[aria-selected=true]{background:var(--ml-selection)}
+.ppl-row[aria-selected=true]::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ml-active)}
+.ppl-row:focus-visible{outline:2px solid var(--ml-accent);outline-offset:-2px}
+.ppl-row__name{display:block;color:var(--ml-ink);font:400 14px/1.35 var(--sans);overflow-wrap:anywhere}
+.ppl-row__meta{display:block;margin-top:4px;color:var(--ml-muted);font:400 12px/1.3 var(--sans);font-variant-numeric:tabular-nums}
+.ppl-sentinel{height:1px}
+.ppl-leftfoot{flex:none;padding:18px 18px 20px;border-top:1px solid var(--ml-rule)}
+.ppl-showall:not(#mlk){height:32px;font-size:14px;font-weight:400}
+
+/* right pane */
+.ppl-right{padding:14px 16px 16px}
+.ppl-rhead{flex:none;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:14px;min-height:56px}
+.ppl-rtitle{min-width:0}
+#ppl-directory .ppl-name{margin:0;color:var(--ml-ink);font:400 28px/1.15 var(--serif);overflow-wrap:anywhere}
+#ppl-directory .ppl-caption{margin:6px 0 0;color:var(--ml-muted);font:400 14px/1.3 var(--sans);font-variant-numeric:tabular-nums}
+.ppl-rtools{flex:none;display:flex;align-items:center;gap:12px;margin-top:6px}
+.ppl-split:not(#mlk)>button{min-width:86px;font-size:14px}
+/* a half that lists nobody (people past the listing cap, or none): stays focusable for its description. The kit's
+   disabled strength (ui-kit.css .mlk-btn[aria-disabled=true]: opacity .48, default cursor) applied to the label only,
+   so the segment rule and the accent focus ring keep full strength */
+.ppl-split:not(#mlk)>button[aria-disabled=true]{color:color-mix(in srgb,var(--ml-ink) 48%,transparent);cursor:default}
+.ppl-split:not(#mlk)>button[aria-disabled=true]:hover{background:transparent;color:color-mix(in srgb,var(--ml-ink) 48%,transparent)}.ppl-sort:not(#mlk){height:32px;min-width:128px;font-size:14px}
+/* r5: the Sort control is as wide as the chosen sort, as on board #43 (Sort: Name, 128px), not as wide as its longest
+   option, so the right-pane name keeps the row: 'COMMITTEE ON APPROPRIATIONS' fits on one line at 1440. */
+.ppl-sort:not(#mlk)>select{field-sizing:content}
+.ppl-body{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.ppl-tablecard:not(#mlk){flex:0 1 auto;min-height:0;overflow:auto}
+.ppl-table:not(#mlk){table-layout:fixed}
+.ppl-table:not(#mlk) col.ppl-c-name{width:34%}
+.ppl-table:not(#mlk) col.ppl-c-days{width:190px}
+.ppl-table:not(#mlk) th{height:40px;padding:0 16px}
+.ppl-table:not(#mlk) td{height:38px;padding:0 16px;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ppl-table:not(#mlk) td.ppl-title{color:var(--ml-muted)}
+/* Days on the record: right-aligned figures; a dash (no dated record) in muted ink; a short shimmer while counts load */
+.ppl-table:not(#mlk) td.ppl-days{font-variant-numeric:tabular-nums}
+.ppl-days-none{color:var(--ml-muted)}
+.ppl-days-skel:not(#mlk){display:inline-block;width:44px;height:10px;vertical-align:middle}
+#ppl-directory .ppl-days-error{flex:none;margin:12px 0 0;padding:12px 14px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface);font-size:13px;text-align:left}
+#ppl-directory .ppl-days-error p{margin:0 0 4px}
+#ppl-directory .ppl-days-error .mlk-btn{margin-top:6px}
+.ppl-table:not(#mlk) tbody tr{cursor:pointer}
+.ppl-person{display:inline;margin:0;padding:0;border:0;background:none;color:var(--ml-ink);font:inherit;text-align:left;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
+.ppl-person:hover{text-decoration:underline;text-underline-offset:3px}
+.ppl-person:focus-visible{outline:2px solid var(--ml-accent);outline-offset:2px}
+.ppl-muted{color:var(--ml-muted)}
+#ppl-directory .ppl-more{flex:none;margin:12px 2px 0;color:var(--ml-muted);font:400 13px/1.4 var(--sans)}
+#ppl-directory .ppl-more+.ppl-more{margin-top:2px}
+
+/* states */
+#ppl-directory .ppl-state{margin:0}
+#ppl-directory .ppl-state p{margin:0 0 4px}
+#ppl-directory .ppl-loading{margin:0;padding:14px 20px 10px;color:var(--ml-muted);font:400 13px/1.4 var(--sans)}
+.ppl-skelrow{display:flex;flex-direction:column;gap:8px;padding:14px 20px;border-bottom:1px solid var(--ml-rule)}
+.ppl-skelrow>.mlk-skel:first-child{width:62%}
+.ppl-skelrow>.mlk-skel:last-child{width:38%;height:10px}
+.ppl-skelhead{display:flex;flex-direction:column;gap:10px;padding:0 0 18px}
+.ppl-skelhead>.mlk-skel:first-child{width:46%;height:22px}
+.ppl-skelhead>.mlk-skel:last-child{width:30%}
+
+/* Network tab: a failed inventory load replaces the map caption ('Opening the connection network…') with an error state */
+body.ppl-net-failed #graph-caption{display:none!important}
+#network>.ppl-neterror:not(#mlk){position:absolute;left:12px;top:12px;z-index:4;box-sizing:border-box;width:max-content;max-width:min(380px,calc(100% - 24px));margin:0;padding:12px 14px;border:1px solid var(--ml-rule);border-radius:var(--ml-radius);background:var(--ml-surface);color:var(--ml-ink);font:400 13px/1.4 var(--sans);text-align:left}
+#network>.ppl-neterror[hidden]:not(#mlk){display:none}
+.ppl-neterror p{margin:0 0 4px}
+.ppl-neterror .ppl-neterror__title{font-weight:600}
+.ppl-neterror:not(#mlk) .mlk-btn{margin-top:8px}
+
+/* Sources tab: groups receipt and note (verbatim payload text) */
+.ppl-sources{border-top:1px solid var(--ml-rule);margin-top:8px}
+
+@media (max-width:900px){
+  body.unified-network #app>header{height:auto;min-height:48px;flex-wrap:wrap;padding:8px 16px;gap:8px}
+  .ppl-vrule{display:none}
+  .ppl-search:not(#mlk){width:100%;margin-left:0}
+  #ppl-directory{grid-template-columns:1fr;grid-template-rows:minmax(220px,40%) minmax(0,1fr);padding:12px 16px 16px}
+  .ppl-rhead{flex-wrap:wrap}
+}

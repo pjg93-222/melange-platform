@@ -1,0 +1,18 @@
+# Hashed Linux lock for the Mentat console image (ops/docker/mentat.Dockerfile); do not edit by hand.
+# Input: mentat/app/requirements-hosted.in (deploy/mentat-hosted).
+# Target: CPython 3.12, linux x86_64, glibc 2.36 (python:3.12-slim-bookworm); wheels only (manylinux2014 and manylinux_2_28 tags).
+# Generated 2026-10-12 with pip 25.0.1:
+#   python -m pip install --dry-run --ignore-installed --report report.json --platform manylinux2014_x86_64 --platform manylinux_2_28_x86_64 --python-version 3.12 --implementation cp --only-binary=:all: --target tgt -r mentat/app/requirements-hosted.in
+# then, for each resolved name==version, every wheel of that version on PyPI (JSON API) that the platform tags above accept;
+# each hash is that file's sha256 from PyPI.
+# Install: pip install --require-hashes --only-binary=:all: -r ops/locks/mentat-console.linux.txt
+et-xmlfile==2.0.0 \
+    --hash=sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
+jinja2==3.1.6 \
+    --hash=sha256:85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67
+markupsafe==3.0.4 \
+    --hash=sha256:8e124f974786f831d6043728e38296969d3579db8896fe004682f5758e613581
+openpyxl==3.1.5 \
+    --hash=sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2
+tzdata==2026.3 \
+    --hash=sha256:dc096730c87af6cab1b171c9d532be840741ff5d459015e7f6947bd7d7e54931

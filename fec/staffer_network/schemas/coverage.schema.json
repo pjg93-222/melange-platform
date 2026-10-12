@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:coverage:v1",
+  "title": "Staffer network coverage receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generation_id", "metrics"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-coverage-v1"},
+    "generation_id": {"type": "string", "minLength": 1},
+    "metrics": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": [
+          "metric_id", "metric_definition_version", "lifecycle_state",
+          "manifest_sha256", "provenance_manifest_state", "as_of", "measured_at", "eligible_denominator_count",
+          "cohort_query", "numerator_count", "statistic", "confidence_interval",
+          "threshold", "comparison", "strata", "exclusions", "evidence_artifact_uri",
+          "evidence_sha256", "result", "not_evaluable_reason", "consequence_class", "owner"
+        ],
+        "properties": {
+          "metric_id": {"type": "string", "minLength": 1},
+          "metric_definition_version": {"type": "string", "minLength": 1},
+          "lifecycle_state": {"enum": ["INVARIANT", "DEFINED", "PILOT", "FROZEN", "REPORT_ONLY", "RETIRED"]},
+          "manifest_sha256": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "uniqueItems": true},
+          "provenance_manifest_state": {"enum": ["SEALED", "LEGACY_UNMANIFESTED"]},
+          "as_of": {"type": "string", "format": "date-time"},
+          "measured_at": {"type": "string", "format": "date-time"},
+          "eligible_denominator_count": {"type": "integer", "minimum": 0},
+          "cohort_query": {"type": "string", "minLength": 1},
+          "numerator_count": {"type": "integer", "minimum": 0},
+          "statistic": {"type": ["number", "null"]},
+          "confidence_interval": {
+            "type": ["object", "null"],
+            "properties": {"lower": {"type": "number"}, "upper": {"type": "number"}},
+            "required": ["lower", "upper"], "additionalProperties": false
+          },
+          "threshold": {"type": ["number", "null"]},
+          "comparison": {"enum": [">=", "<=", "=", null]},
+          "strata": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["name", "count"], "properties": {"name": {"type": "string", "minLength": 1}, "count": {"type": "integer", "minimum": 0}}}},
+          "exclusions": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["reason", "count"], "properties": {"reason": {"type": "string", "minLength": 1}, "count": {"type": "integer", "minimum": 0}}}},
+          "evidence_artifact_uri": {"type": "string", "minLength": 1},
+          "evidence_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "result": {"enum": ["PASS", "FAIL", "REPORT", "NOT_EVALUABLE"]},
+          "not_evaluable_reason": {"type": ["string", "null"]},
+          "consequence_class": {"enum": ["NONE", "QUARANTINE_SOURCE", "ABORT_BUILD", "SUPPRESS_CLAIM", "BLOCK_ANALYSIS_ARM", "BLOCK_CONSUMER_ARM", "REPORT_QUEUE"]},
+          "owner": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,364 @@
+/* Maps whose marks cards are its layers (lane P, boards #47, #48, #49, #53, #54, #55).
+   .mm-* is the map itself (map-engine.js): base SVG, density canvas, marks SVG,
+   and the overlays around them. .studio-map-* and .studio-layer-* are Chart
+   Studio's map controls (map-studio.js). Colours are the theme's tokens. */
+
+/* The frame is two rows: the drawing (stage and its overlays) and, under it, the legends'
+   band, so a legend never covers the map or its Alaska and Hawaii insets (MP1). */
+.mentat-map{position:relative;display:grid;grid-template-rows:minmax(0,1fr) auto;grid-template-columns:minmax(0,1fr);width:100%;height:100%;min-height:360px;border-radius:10px;overflow:hidden;background:#fbfaf7;font-family:var(--font-sans);color:#2f273f}
+.mentat-map[data-background=dark]{background:#1f2125}
+.mm-stage{position:absolute;inset:0;grid-area:1 / 1 / 2 / 2}
+.mm-base,.mm-density,.mm-marks{position:absolute;inset:0;width:100%;height:100%;display:block}
+.mm-base{z-index:0;pointer-events:none}
+.mm-density{z-index:1;pointer-events:none}
+.mm-marks{z-index:2;touch-action:none;outline:none}
+.mm-marks:focus-visible{outline:2px solid var(--acu-purple);outline-offset:-2px}
+.mm-marks.mm-panning{cursor:grabbing}
+.mm-streets{position:absolute;inset:0;z-index:3}
+/* maplibre-gl.css (linked later) makes its map position:relative; the map keeps the frame's size. */
+.mentat-map .mm-streets .mm-streets-map{position:absolute;inset:0;width:100%;height:100%}
+.mm-overlay{position:absolute;inset:0;grid-area:1 / 1 / 2 / 2;z-index:6;pointer-events:none}
+.mm-overlay>*{pointer-events:auto}
+.mm-overlay>[hidden]{display:none}
+/* Chart Studio styles every svg in its canvas as a chart (chart-studio.css: a white block sized by its
+   viewBox; full width under Fit: Width or Entire). A map's drawing surfaces and icons are not charts:
+   the white marks surface hid the whole base under it (land, coast, washout, the data layer, county and
+   district lines), and each icon showed as a white square on a pressed button, so a layer's pointer
+   could not be read (board tiles, Canvas and the builder alike). */
+#view-chart-studio .mentat-map svg{background:none;max-width:none;max-height:none}
+#view-chart-studio .mentat-map .mm-base,#view-chart-studio .mentat-map .mm-marks{width:100%;height:100%}
+#view-chart-studio .mentat-map .mm-icon{display:block;width:var(--mm-icon,16px);height:var(--mm-icon,16px)}
+
+/* The drawing. Line widths stay in screen pixels at every zoom. */
+.mm-coast{fill:none;stroke-width:6px;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.mm-land{stroke:none}
+.mm-county{fill:none;stroke-width:.35px;opacity:.7;vector-effect:non-scaling-stroke}
+.mm-district-line{fill:none;stroke:#8b6984;stroke-width:.6px;opacity:.75;vector-effect:non-scaling-stroke}
+.mm-sld-line{fill:none;stroke:#a29bb8;stroke-width:.5px;opacity:.8;vector-effect:non-scaling-stroke}
+.mm-zcta-line{fill:none;stroke:#b8b0a6;stroke-width:.35px;opacity:.8;vector-effect:non-scaling-stroke}
+.mm-state-line{fill:none;stroke-width:.9px;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.mm-data-shape{stroke:none}
+.mm-fill{stroke:#ffffff;stroke-width:.3px;stroke-opacity:.75;vector-effect:non-scaling-stroke}
+.mm-fill.mm-hatch{stroke:none}
+.mm-line{stroke-width:1.2px;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.mm-circle{stroke:#ffffff;stroke-width:.8px;fill-opacity:.88;vector-effect:non-scaling-stroke}
+.mm-glyph{stroke:#ffffff;stroke-width:.6px;vector-effect:non-scaling-stroke}
+.mm-mark{cursor:pointer}
+.mm-locked,.mm-locked .mm-mark{pointer-events:none;cursor:default}
+.mm-selected{fill:none;stroke:var(--acu-plum);stroke-width:2.2px;vector-effect:non-scaling-stroke;pointer-events:none}
+.mm-state-name,.mm-county-name,.mm-city-name,.mm-label,.mm-text-mark{font-family:var(--font-sans);text-anchor:middle;dominant-baseline:central;paint-order:stroke;stroke:#fbfaf7;stroke-linejoin:round}
+.mm-state-name{font-weight:600;letter-spacing:.04em;stroke-width:.35px;opacity:.85;pointer-events:none}
+.mm-county-name{fill-opacity:.8;stroke-width:.3px;pointer-events:none}
+.mm-city-name{font-weight:500;stroke-width:.4px;pointer-events:none}
+.mm-label{fill:#2f273f;stroke-width:.35px;pointer-events:none}
+.mm-text-mark{fill:#2f273f;font-weight:600;stroke-width:.4px}
+.mentat-map[data-background=dark] .mm-state-name,.mentat-map[data-background=dark] .mm-county-name,.mentat-map[data-background=dark] .mm-city-name{stroke:#1f2125}
+
+/* The view toolbar: a column on the map's left, the Layer control beside it (#49, #55;
+   Chart Studio and PAC evidence alike); #54's row at the top right when a map asks for it. */
+.mm-toolbar{position:absolute;top:10px;right:10px;display:flex;gap:1px;padding:2px;border:1px solid #e1dbe5;border-radius:8px;background:#ffffff;box-shadow:0 2px 8px rgba(47,39,63,.1)}
+.mentat-map.mm-toolbar-left .mm-toolbar{left:10px;right:auto;flex-direction:column}
+.mm-tool{display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:#2f273f;cursor:pointer}
+.mm-tool:hover,.mm-tool:focus-visible{background:#f3eef8}
+.mm-tool[aria-pressed=true]{background:var(--acu-purple);color:#ffffff}
+/* The Layers toggle is set a little apart from the view buttons, as #49 draws it. */
+.mentat-map.mm-toolbar-left .mm-tool-layers:not(:first-child){margin-top:3px}
+.mm-icon{width:var(--mm-icon,16px);height:var(--mm-icon,16px);fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.mm-search{position:absolute;top:50px;right:10px;display:grid;gap:4px;width:240px;padding:7px;border:1px solid #e1dbe5;border-radius:8px;background:#ffffff;box-shadow:0 4px 14px rgba(47,39,63,.12)}
+.mentat-map.mm-toolbar-left .mm-search{left:50px;right:auto;top:10px}
+.mm-search input{box-sizing:border-box;width:100%;height:28px;padding:0 9px;border:1px solid #d8cfe0;border-radius:6px;font:400 12.5px/1 var(--font-sans)}
+.mm-search-message{font-size:11.5px;color:var(--muted)}
+
+/* The Layer control (#49, #55): compact, floating, dragged by its head; beside the toolbar. */
+.mm-control{position:absolute;top:10px;left:50px;box-sizing:border-box;width:232px;max-width:calc(100% - 60px);padding:6px 10px 6px;border:1px solid #e1dbe5;border-radius:9px;background:#ffffff;box-shadow:0 8px 24px rgba(47,39,63,.16)}
+.mentat-map:not(.mm-toolbar-left) .mm-control{left:10px;max-width:calc(100% - 20px)}
+.mm-control-head{display:flex;align-items:center;gap:6px;min-height:24px;cursor:grab;user-select:none}
+.mm-control-head:active{cursor:grabbing}
+.mm-control-head h3{flex:1;margin:0;font:600 12.5px/1.2 var(--font-sans);color:#2f273f}
+.mm-control-grip{--mm-icon:14px;display:grid;place-items:center;color:#8a8292}
+.mm-control-grip .mm-icon{fill:currentColor;stroke:none}
+.mm-control-close{--mm-icon:14px;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:5px;background:none;color:#5f5866;cursor:pointer}
+.mm-control-close:hover{background:#f3eef8}
+.mm-control-list{margin:3px 0 0;padding:0;list-style:none}
+/* A row is 28px; a long name wraps to two lines, never more (its whole text is the row's tooltip). */
+.mm-control-row{display:grid;grid-template-columns:minmax(0,1fr) 22px 1px 22px;align-items:center;column-gap:5px;min-height:28px;padding:2px 0;border-top:1px solid #f0ecf2;font-size:12px;line-height:1.25}
+.mm-control-row:first-child{border-top:0}
+.mm-control-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere;color:#3a3342}
+.mm-control-sep{width:1px;height:12px;background:#e1dbe5}
+.mm-control-eye,.mm-control-pointer{--mm-icon:15px;display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:#b3abbb;cursor:pointer}
+.mm-control-eye.is-on{color:var(--acu-teal)}
+.mm-control-pointer.is-on{color:#ffffff;background:var(--acu-purple)}
+.mm-control-pointer.is-on .mm-icon{fill:#ffffff;stroke:#ffffff}
+.mm-control-none{cursor:default}
+.mm-control-eye:focus-visible,.mm-control-pointer:focus-visible{outline:2px solid var(--acu-purple);outline-offset:1px}
+.mm-control-edit{display:block;margin:4px 0 1px;padding:5px 0 0;border:0;border-top:1px solid #f0ecf2;background:none;width:100%;text-align:left;color:var(--acu-purple);font:400 12px/1.3 var(--font-sans);cursor:pointer}
+
+/* Legends (MP1): one compact card per visible layer in the band under the drawing - the
+   name, then its ramp with the range at its two ends (or its swatch) and how many rows it
+   placed. Cards share the band's row (they wrap only below 176px each); the band's chevron
+   folds them away. */
+.mm-legends{position:relative;grid-row:2;grid-column:1;z-index:4;display:flex;flex-wrap:wrap;align-items:center;gap:4px 5px;min-width:0;padding:4px 7px 5px;border-top:1px solid #ece8e2}
+.mm-legends[hidden]{display:none}
+.mm-legend-toggle{--mm-icon:13px;display:inline-grid;place-items:center;flex:none;width:22px;height:22px;padding:0;border:1px solid #e1dbe5;border-radius:6px;background:#ffffff;color:#5f5866;font:500 11px/1 var(--font-sans);cursor:pointer}
+.mm-legend-toggle-text{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.mm-legends.is-collapsed .mm-legend-toggle{width:auto;padding:0 7px 0 4px;grid-auto-flow:column;gap:3px}
+.mm-legends.is-collapsed .mm-legend-toggle-text{position:static;width:auto;height:auto;clip:auto}
+.mm-legend-toggle:hover{background:#f7f3fa}
+.mm-legend-toggle .mm-icon{transition:transform .15s ease}
+.mm-legends.is-collapsed .mm-legend-toggle .mm-icon{transform:rotate(-90deg)}
+.mm-legend{box-sizing:border-box;display:grid;gap:3px;flex:1 1 176px;min-width:0;max-width:300px;padding:4px 7px 5px;border:1px solid var(--card-border);border-radius:7px;background:#ffffff}
+.mm-legend[hidden]{display:none}
+.mm-legend-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:500 11.5px/1.2 var(--font-sans);color:#2f273f}
+/* A log ramp's title line (#53): the title, then "log scale" as a quiet chip that never wraps. */
+.mm-legend-head{display:flex;align-items:center;gap:6px;min-width:0}
+.mm-legend-scale{flex:none;margin-left:auto;padding:1px 5px;border-radius:3px;background:#f3f0f5;font:500 9.5px/1.2 var(--font-sans);color:#5f5866;letter-spacing:.02em;white-space:nowrap}
+.mm-legend-located{flex:none;margin-left:auto;padding-left:4px;font:400 10.5px/1.2 var(--font-sans);color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.mm-legend-values{display:flex;align-items:center;gap:5px;min-width:0;font:400 10.5px/1 var(--font-sans);color:#5f5866;font-variant-numeric:tabular-nums;white-space:nowrap}
+.mm-legend-ramp{flex:1 1 auto;min-width:36px;max-width:150px;height:7px;border-radius:4px}
+.mm-legend-swatch{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;line-height:1.2;color:#3a3342;white-space:nowrap}
+.mm-legend-swatch>span:not(.mm-legend-located){min-width:0;overflow:hidden;text-overflow:ellipsis}
+.mm-legend-dot{display:inline-block;flex:none;width:9px;height:9px;border-radius:50%}
+/* The hatch of a patterned layer (#55's "Opposition" swatch), in the evidence map's ink. */
+.mm-legend-hatch{display:inline-block;flex:none;width:28px;height:11px;border-radius:2px;background:repeating-linear-gradient(-45deg,#9b3d5b 0 2.4px,rgba(155,61,91,.12) 2.4px 6px)}
+.mentat-map[data-background=dark] .mm-legends{border-top-color:#34363c}
+
+.mm-scale{position:absolute;right:12px;bottom:10px;display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:10.5px;color:#5f5866;pointer-events:none}
+.mentat-map[data-renderer=streets] .mm-scale{bottom:30px}
+.mm-scale-rule{display:block;height:5px;border:1.5px solid #5f5866;border-top:0}
+.mm-tooltip{position:absolute;z-index:8;display:grid;gap:2px;max-width:270px;padding:8px 11px;border:1px solid #e1dbe5;border-radius:8px;background:#ffffff;box-shadow:0 6px 18px rgba(47,39,63,.16);font-size:12.5px;line-height:1.35;pointer-events:none}
+.mm-tooltip strong{font-weight:600}
+.mm-tooltip span{color:#4f4857}
+.mm-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:80%;padding:7px 12px;border:1px solid #eac670;border-radius:8px;background:#fff8e6;font-size:12.5px;color:#4a3b12}
+.mm-banner-action{height:28px;padding:0 10px;font-size:12.5px}
+.mm-drop{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:8px;padding:8px 14px;border:1.5px dashed var(--acu-purple);border-radius:8px;background:rgba(255,255,255,.94);font:500 13px/1 var(--font-sans);color:var(--acu-plum)}
+.mentat-map.mm-toolbar-left .mm-drop{left:50px}
+.mm-drop.is-over{background:#f1ecf4}
+
+/* MapLibre's attribution sits on the map; its stylesheet is linked on first use. */
+.mentat-map .maplibregl-ctrl-attrib{font-size:11px}
+
+/* ------------------------------------------------ Chart Studio: map sheets */
+
+/* The left pane's Data | Map layers switch (#54). */
+.studio-side-switch{display:grid;grid-template-columns:1fr 1fr;margin:0 0 10px;border:1px solid #dcd6df;border-radius:6px;overflow:hidden;background:#ffffff}
+.studio-side-switch button{height:28px;padding:0 10px;border:0;background:#ffffff;color:#2f273f;font:400 12.5px/1 var(--font-sans);cursor:pointer}
+.studio-side-switch button+button{border-left:1px solid #e3dee6}
+.studio-side-switch button[aria-selected=true]{background:#362d74;color:#ffffff;font-weight:500}
+/* The Map layers pane (#54, MP8): one line per item, every helper note an info mark with
+   its words as the tooltip, so Background, Map layers, Data layer and Map options all fit
+   the pane at 760px high. */
+.studio-map-pane{display:block}
+.studio-map-pane h4{display:flex;align-items:center;gap:5px;margin:8px 0 2px;font:600 10.5px/13px var(--font-sans);letter-spacing:.09em;text-transform:uppercase;color:#6a6272}
+.studio-map-pane h4:first-child{margin-top:0}
+.studio-map-info{--mm-icon:12px;display:inline-grid;place-items:center;flex:none;margin-left:auto;padding:0 2px;color:#9a92a3;cursor:help}
+.studio-map-pane h4 .studio-map-info{margin-left:0}
+.studio-map-info svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round}
+.studio-map-row{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:6px;margin:0 0 3px;font-size:12px;color:#4f4857}
+.studio-map-row select{width:100%}
+.studio-map-row output{font-variant-numeric:tabular-nums}
+.studio-map-washout{display:grid;grid-template-columns:minmax(0,1fr) 34px;align-items:center;gap:6px}
+.studio-map-washout input{width:100%;accent-color:var(--acu-purple)}
+.studio-map-check{display:flex;align-items:center;gap:7px;margin:0;font-size:12px;color:#3a3342}
+.studio-map-check input{width:auto;margin:0;accent-color:var(--acu-purple)}
+.studio-map-check.is-unavailable{color:#a39bab}
+.studio-map-check .studio-map-units{margin-left:auto;font-size:11px;color:#6a6272}
+/* Chart Studio's own pane rules style every label as a block; the Map layers pane keeps its one-line rows (#54). */
+#view-chart-studio .studio-map-pane .studio-map-check{display:flex;flex-wrap:nowrap;align-items:center;column-gap:7px;min-height:16px;margin:0;padding:0;font-size:12px;line-height:16px;color:#3a3342;white-space:nowrap}
+#view-chart-studio .studio-map-pane .studio-map-check input{width:13px;height:13px;margin:0;flex:none}
+#view-chart-studio .studio-map-pane .studio-map-check .studio-map-label{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+#view-chart-studio .studio-map-pane .studio-map-check.is-unavailable{color:#a39bab}
+#view-chart-studio .studio-map-pane .studio-map-check .studio-map-units{flex:none;width:auto;height:20px;min-height:0;margin:0 0 0 auto;padding:0 2px;border:0;background:transparent;font-size:11px}
+#view-chart-studio .studio-map-pane .studio-map-row{display:grid;grid-template-columns:52px minmax(0,1fr);align-items:center;gap:6px;margin:0 0 3px;font-size:12px;line-height:1.2}
+#view-chart-studio .studio-map-pane .studio-map-row>span{margin:0;font-size:12px;color:#4f4857}
+#view-chart-studio .studio-map-pane .studio-map-row select{box-sizing:border-box;width:100%;height:23px;min-height:0;margin:0;padding:0 4px;font-size:12px}
+#view-chart-studio .studio-map-pane .studio-map-washout output{font-size:11.5px}
+
+/* The shelf row of a map sheet (#49, MP9): Geography and the level strip, which fits the
+   row; which layer it sets is the Geography button's tooltip, not words in the row. */
+#view-chart-studio .studio-shelves.is-map-layers>.studio-shelf{display:none}
+#view-chart-studio .studio-shelves.is-map-layers{padding:7px 44px 7px 10px}
+/* A map's layers carry their own sources: the builder's single-source totals and scope strip do not describe it. */
+#view-chart-studio.is-map-layers #studio-verified-summary,#view-chart-studio.is-map-layers #studio-result-controls{display:none}
+.studio-map-geo{display:flex;align-items:center;gap:8px;min-width:0;min-height:32px}
+.studio-map-geo[hidden]{display:none}
+.studio-map-geo-button{display:inline-flex;flex:none;align-items:center;gap:6px;height:30px;padding:0 11px;border:1px solid #dcd6df;border-radius:6px;background:#ffffff;color:#2f273f;font:500 12.5px/1 var(--font-sans);cursor:pointer}
+.studio-map-geo-button[aria-expanded=true]{background:#362d74;border-color:#362d74;color:#ffffff}
+.studio-layer-list svg,.studio-map-pane svg,.studio-map-aggregate svg,.studio-layer-menu svg{width:16px;height:16px;flex:none}
+.studio-map-geo-button svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.3}
+.studio-map-levels{display:inline-flex;flex:0 1 auto;min-width:0;border:1px solid #dcd6df;border-radius:6px;overflow:hidden;background:#ffffff}
+.studio-map-levels button{flex:0 1 auto;min-width:0;height:30px;padding:0 9px;border:0;border-right:1px solid #e3dee6;background:#ffffff;color:#2f273f;font:400 12px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+.studio-map-levels button:last-child{border-right:0}
+.studio-map-levels button[aria-pressed=true]{background:#57447b;color:#ffffff;font-weight:500}
+.studio-map-levels button:disabled{color:#b3abbb;cursor:not-allowed}
+
+/* Aggregate by (#53, MP6): a compact 3 x 2 grid of mini-maps, inside the chart card's top-right
+   corner over the map's right side, as the board draws it (map-studio.js placeAggregate). */
+.studio-map-aggregate{box-sizing:border-box;width:280px;max-width:calc(100vw - 16px);padding:9px 10px 10px}
+.studio-map-aggregate h4{margin:0 0 7px;font:600 12.5px/1.2 var(--font-sans);color:#2f273f;letter-spacing:0;text-transform:none}
+.studio-map-aggregate .studio-map-tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:0 0 9px}
+.studio-map-tile{position:relative;display:grid;grid-template-rows:auto auto;gap:3px;min-width:0;padding:4px;border:1px solid #e1dbe5;border-radius:7px;background:#ffffff;color:#2f273f;font:400 11px/1.2 var(--font-sans);text-align:left;cursor:pointer}
+.studio-map-tile:hover{border-color:#b9a9cf}
+.studio-map-tile[aria-pressed=true]{border:2px solid #57447b;padding:3px}
+.studio-map-tile:disabled{opacity:.5;cursor:not-allowed}
+.studio-map-thumb{display:block;width:100%;height:auto;aspect-ratio:84 / 48;border-radius:4px;background:#f4f7f7}
+.studio-map-tile[data-kind=density] .studio-map-thumb{background:#3d2f60}
+.studio-map-tile-label{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:10.5px;line-height:1.15}
+.studio-map-tile .studio-map-tick{position:absolute;top:6px;right:6px;display:grid;place-items:center;width:15px;height:15px;border-radius:50%;background:#57447b;color:#ffffff;font-size:9.5px;line-height:1}
+.studio-map-hex{display:grid;grid-template-columns:auto 1fr 38px;align-items:center;gap:8px;margin:0 0 6px;font-size:11.5px}
+.studio-map-hex input{width:100%;accent-color:var(--acu-purple)}
+.studio-map-aggregate .studio-map-note{margin:0;font-size:11px;line-height:1.35;color:#6a6272}
+
+/* Layers in the Inspector's Marks tab (#47, #49, #54): one compact line per layer. */
+.studio-layer-list{display:grid;gap:6px}
+.studio-layer-card{border:1px solid #e6e1ea;border-radius:9px;background:#ffffff}
+.studio-layer-card.is-open{border-left:3px solid #57447b}
+.studio-layer-card.is-dragging{opacity:.5}
+.studio-layer-card.is-drop-above{box-shadow:0 -3px 0 #eca91c}
+.studio-layer-card.is-drop-below{box-shadow:0 3px 0 #eca91c}
+.studio-layer-head{display:grid;grid-template-columns:12px 22px 16px minmax(0,1fr) auto 22px;align-items:center;gap:4px;padding:5px 6px 5px 4px}
+.studio-layer-grip{display:grid;place-items:center;color:#a39bab;cursor:grab}
+.studio-layer-grip svg{width:12px;height:12px;fill:currentColor}
+.studio-layer-eye{display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:50%;background:none;color:#3a3342;cursor:pointer}
+.studio-layer-eye[aria-pressed=false]{color:#b3abbb}
+.studio-layer-eye svg,.studio-layer-mark svg,.studio-layer-caret svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+.studio-layer-mark{display:grid;place-items:center;color:#57447b}
+.studio-layer-name{overflow:hidden;min-width:0;padding:0;border:0;background:none;text-align:left;text-overflow:ellipsis;white-space:nowrap;color:#2f273f;font:500 12.5px/1.2 var(--font-sans);cursor:pointer}
+.studio-layer-name input{box-sizing:border-box;width:100%;height:24px;padding:0 6px;font:500 12.5px/1 var(--font-sans)}
+.studio-layer-badge{max-width:74px;overflow:hidden;padding:1px 6px;border:1px solid #e1dbe5;border-radius:9px;background:#f7f4f9;color:#57447b;font-size:10.5px;line-height:1.35;text-overflow:ellipsis;white-space:nowrap}
+.studio-layer-caret{display:grid;place-items:center;width:22px;height:22px;padding:0;border:0;border-radius:5px;background:none;color:#5f5866;cursor:pointer}
+.studio-layer-caret:hover,.studio-layer-eye:hover{background:#f3eef8}
+.studio-layer-body{padding:0 10px 10px}
+.studio-layer-type{display:grid;grid-template-columns:72px 1fr;align-items:center;gap:8px;margin:2px 0 8px;font-size:12.5px;color:#4f4857}
+.studio-layer-subhead{margin:4px 0 6px;font:600 12px/1 var(--font-sans);color:#3a3342}
+.studio-layer-opacity{display:grid;grid-template-columns:72px 1fr 40px;align-items:center;gap:8px;margin:8px 0 0;font-size:12.5px;color:#4f4857}
+.studio-layer-opacity input{width:100%;accent-color:var(--acu-purple)}
+.studio-layer-sliders{display:grid;gap:6px;margin:6px 0 0}
+.studio-layer-sliders label{display:grid;grid-template-columns:72px 1fr 44px;align-items:center;gap:8px;font-size:12.5px;color:#4f4857}
+.studio-layer-sliders input{width:100%;accent-color:var(--acu-purple)}
+/* The open layer's Pattern (Filled) and Side (a PAC network's Spent). */
+.studio-layer-choices{display:grid;gap:6px;margin:8px 0 0}
+.studio-layer-choices .studio-layer-type{margin:0}
+.studio-layer-add{display:flex;align-items:center;gap:8px;width:100%;height:34px;padding:0 12px;border:1px dashed #cfc6d8;border-radius:9px;background:#ffffff;color:#2f273f;font:500 12.5px/1 var(--font-sans);cursor:pointer}
+.studio-layer-add:hover{background:#faf8fc}
+.studio-layer-add svg{width:14px;height:14px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.studio-layer-from{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:8px;margin-top:8px;font-size:12px;color:#4f4857}
+.studio-layer-from select{width:100%}
+.studio-layer-foot{margin:6px 0 0;font-size:11px;line-height:1.35;color:var(--muted)}
+.studio-layer-menu{position:absolute;z-index:45;min-width:188px;padding:4px 0;border:1px solid #ddd6e1;border-radius:8px;background:#ffffff;box-shadow:0 10px 28px rgba(47,39,63,.18)}
+.studio-layer-menu button{display:flex;align-items:center;gap:8px;width:100%;padding:7px 12px;border:0;background:none;color:#2f273f;font:400 13px/1.2 var(--font-sans);text-align:left;cursor:pointer}
+.studio-layer-menu button:hover,.studio-layer-menu button:focus-visible{background:#f3eef8}
+.studio-layer-menu button:disabled{color:#b3abbb;cursor:not-allowed}
+.studio-layer-menu button.is-danger{color:#b8433a}
+.studio-layer-menu hr{margin:4px 0;border:0;border-top:1px solid #efebf1}
+.studio-layer-menu .studio-layer-check{width:14px;color:#57447b}
+.studio-layer-source-menu{max-height:360px;overflow:auto}
+/* A layer card's caret menu (#54): compact - 12.5px words on 22px rows, hairline breaks - no
+   wider than its longest item, and opened beside the card (map-studio.js menuBeside). */
+.studio-layer-menu.studio-layer-caret-menu{min-width:0;width:max-content;max-width:220px;padding:3px 0;border-radius:7px;box-shadow:0 8px 22px rgba(47,39,63,.18)}
+.studio-layer-menu.studio-layer-caret-menu button{gap:6px;box-sizing:border-box;height:22px;min-height:0;margin:0;padding:0 12px 0 10px;border:0;border-radius:0;font:400 12.5px/22px var(--font-sans);white-space:nowrap}
+.studio-layer-menu.studio-layer-caret-menu hr{margin:3px 0}
+.studio-layer-source-menu .studio-layer-group{padding:8px 12px 3px;font:600 10.5px/1 var(--font-sans);letter-spacing:.08em;text-transform:uppercase;color:#8a8292}
+/* The map fills its card (MP4): the builder's map takes the card's height left under the
+   title, and a map title stays one line (its tooltip has it whole). Board tiles keep
+   their own size. */
+#view-chart-studio .studio-canvas.is-map-layers{height:min(64vh,640px);min-height:420px}
+#view-chart-studio .studio-canvas-wrap>#studio-canvas.is-map-layers{flex:1 1 auto;height:auto;min-height:280px;overflow:hidden}
+#view-chart-studio .studio-canvas-wrap>#studio-canvas.is-map-layers>.mentat-map{min-height:280px}
+#view-chart-studio.is-map-layers #studio-title{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+
+/* Layer control extras: a layer's own sliders, and Add data (#48). */
+.mm-control-extra{grid-column:1 / -1}
+.mm-control-add{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:3px 0 1px;padding-top:6px;border-top:1px solid #f0ecf2}
+.mm-control-add-title{width:100%;font:600 12px/1.2 var(--font-sans);color:#2f273f}
+.mm-control-add-button{height:26px;padding:0 9px;border:1px solid #d8cfe0;border-radius:6px;background:#ffffff;color:#2f273f;font:400 12px/1 var(--font-sans);cursor:pointer}
+.mm-control-add-button:hover{background:#faf8fc}
+
+/* ------------------------------------------------ PAC evidence: its layers */
+#evidence-map .map-head .map-open-studio{margin-left:auto;margin-right:8px}
+#evidence-map .map-layers-button{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border:1px solid #d8d1dc;border-radius:6px;background:#ffffff;color:#2f273f;font:400 13.5px/1 var(--font-sans);cursor:pointer;white-space:nowrap}
+#evidence-map .map-layers-button.on,#evidence-map .map-layers-button[aria-expanded=true]{background:#efe9f4;border-color:#b9a9cf;color:#342649}
+#evidence-map .ev-has-layers{position:relative}
+#evidence-map .ev-has-layers>.map-layers-button{position:absolute;top:10px;right:10px;z-index:4;height:32px;padding:0 10px;box-shadow:0 1px 3px rgba(40,30,60,.14)}
+#evidence-map .map-layers-glyph{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round}
+/* #55's view toolbar: a column on the map's left (find, zoom in, zoom out, home, layers). */
+#evidence-map .ev-toolbar{position:absolute;top:10px;left:10px;z-index:6;display:flex;flex-direction:column;gap:1px;padding:2px;border:1px solid #e1dbe5;border-radius:8px;background:#ffffff;box-shadow:0 2px 8px rgba(47,39,63,.1)}
+#evidence-map .ev-toolbar .ev-tool{--mm-icon:16px;display:grid;place-items:center;width:28px;height:28px;min-height:0;margin:0;padding:0;border:0;border-radius:6px;background:transparent;color:#2f273f;box-shadow:none;cursor:pointer}
+#evidence-map .ev-toolbar .ev-tool:hover,#evidence-map .ev-toolbar .ev-tool:focus-visible{background:#f3eef8}
+#evidence-map .ev-toolbar .ev-tool:disabled{opacity:.4;cursor:default}
+#evidence-map .ev-toolbar .map-layers-button{margin-top:3px}
+#evidence-map .ev-toolbar .map-layers-button.on,#evidence-map .ev-toolbar .map-layers-button[aria-expanded=true]{background:var(--acu-purple);color:#ffffff}
+#evidence-map .ev-toolbar .ev-tool-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+#evidence-map .ev-control{top:10px;left:50px;z-index:7}
+.ev-fill-off .map-areas{display:none}
+.ev-fill-off .map-state-base{fill:#f1f2f1 !important}
+.ev-locked,.ev-locked *{pointer-events:none !important}
+.ev-heat-image{pointer-events:none}
+/* The Opposition card's swatch in the evidence map's legend (#55). */
+.ev-oppose-row{display:flex;align-items:center;gap:6px}
+.ev-heat-legend .ev-heat-ramp{width:110px;height:8px;border-radius:4px}
+.ev-heat-sliders{display:grid;gap:3px;padding:4px 0 0}
+.ev-heat-slider{display:grid;grid-template-columns:54px 1fr 38px;align-items:center;gap:6px;font-size:11.5px;color:#5f5866}
+.ev-heat-slider input{width:100%;accent-color:var(--acu-purple)}
+
+/* PAC evidence's legend card (MP1): compact, under the map, and folded by its chevron. */
+body[data-view] #view-evidence #evidence-map .map-legend-card{align-items:flex-start;gap:6px 0;margin-top:4px;padding:6px 12px 7px 8px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-group{gap:4px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-group+.map-legend-group{margin-left:12px;padding-left:12px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-title{font:500 11.5px/14px var(--font-sans)}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-ramp{width:110px;height:8px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-values{font:400 11px/13px var(--font-sans)}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-swatches{gap:6px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-swatch small{font-size:10.5px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-swatch svg{width:20px;height:20px}
+body[data-view] #view-evidence #evidence-map .map-legend-toggles{flex-direction:row;flex-wrap:wrap;gap:4px 5px;max-width:420px}
+body[data-view] #view-evidence #evidence-map .map-legend-toggles .layer{min-height:22px;padding:0 8px;gap:5px;font-size:11px}
+body[data-view] #view-evidence #evidence-map .map-legend-toggles .dot{width:8px;height:8px}
+body[data-view] #view-evidence #evidence-map .map-legend-card .ev-oppose-legend{order:1}
+body[data-view] #view-evidence #evidence-map .map-legend-card .ev-heat-legend{order:1}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-kinds{order:2}
+body[data-view] #view-evidence #evidence-map .map-legend-card .map-legend-group[hidden]{display:none}
+#evidence-map .ev-legend-toggle{--mm-icon:13px;display:inline-flex;align-items:center;gap:3px;flex:none;align-self:flex-start;order:-1;height:22px;min-height:0;margin:0 8px 0 0;padding:0 7px 0 4px;border:1px solid #e1dbe5;border-radius:6px;background:#ffffff;color:#5f5866;font:500 11px/1 var(--font-sans);cursor:pointer}
+#evidence-map .ev-legend-toggle:hover{background:#f7f3fa}
+#evidence-map .ev-legend-toggle .mm-icon{transition:transform .15s ease}
+#evidence-map .map-legend-card.is-folded .ev-legend-toggle .mm-icon{transform:rotate(-90deg)}
+/* The notes under the map are footnotes (F4's share rule, the unplaced ZIPs). */
+body[data-view] #view-evidence #evidence-map :is(.map-share-rule,.map-unplaced){margin:4px 0 0;font-size:11.5px;line-height:1.4}
+
+/* PAC evidence's notes above the map (MP11): one line - the first sentence - and Details
+   with the whole text (F12's date rule, the carryover, the missing snapshots, the gap). */
+body[data-view] #view-evidence #evidence-map .map-message-details{min-width:0;margin:0;font:400 12.5px/1.45 var(--font-sans);color:var(--muted)}
+body[data-view] #view-evidence #evidence-map .map-message-line{display:flex;align-items:baseline;gap:8px;min-width:0;list-style:none;cursor:pointer}
+body[data-view] #view-evidence #evidence-map .map-message-line::-webkit-details-marker{display:none}
+body[data-view] #view-evidence #evidence-map .map-message-summary{flex:0 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+body[data-view] #view-evidence #evidence-map .map-message-more{flex:none;color:var(--acu-purple);text-decoration:underline;text-underline-offset:2px}
+body[data-view] #view-evidence #evidence-map .map-message-more::after{content:" \25B8";text-decoration:none;display:inline-block;margin-left:2px}
+body[data-view] #view-evidence #evidence-map .map-message-details[open] .map-message-summary{display:none}
+body[data-view] #view-evidence #evidence-map .map-message-details[open] .map-message-more::after{content:" \25BE"}
+body[data-view] #view-evidence #evidence-map .map-message-details .map-message{margin:4px 0 0;font-size:12.5px;line-height:1.45}
+body[data-view] #view-evidence #evidence-map>.map-note-host>.map-message,body[data-view] #view-evidence #evidence-map .map-note-host>p.map-message{font-size:12.5px;line-height:1.45}
+
+/* PAC evidence's control bar (MP10): one row at 1280px and wider - Raised | Spent, the
+   cycle, the LAYER strip, Compare with, search, zoom, Reset view and Collapse - tightened
+   between 1280 and 1519px (from 1520px the frame's own sizes already fit one row). The
+   search help stays for screen readers (and under Sources) at these widths. */
+@media (min-width:1280px) and (max-width:1519px){
+  body[data-view] #view-evidence #evidence-map .map-toolbar-card{padding:8px 10px}
+  body[data-view] #view-evidence #evidence-map .map-toolbar{gap:6px 6px}
+  body[data-view] #view-evidence #evidence-map .map-scope-controls{gap:6px}
+  body[data-view] #view-evidence #evidence-map .map-scope-controls .seg{height:32px}
+  body[data-view] #view-evidence #evidence-map .map-scope-controls .seg button{padding:0 11px;font-size:13px}
+  body[data-view] #view-evidence #evidence-map .map-toolbar .seg{height:30px}
+  body[data-view] #view-evidence #evidence-map .map-layer-group{gap:3px}
+  body[data-view] #view-evidence #evidence-map .map-layer-group .seg button{padding:0 6px;font-size:12px}
+  body[data-view] #view-evidence #evidence-map .map-toolbar select{height:30px;padding:0 4px 0 7px;font-size:12px}
+  body[data-view] #view-evidence #evidence-map .map-compare-controls{gap:5px}
+  body[data-view] #view-evidence #evidence-map .map-compare-word{font-size:12px}
+  body[data-view] #view-evidence #evidence-map .map-search-controls{min-width:96px}
+  body[data-view] #view-evidence #evidence-map .map-search input{height:30px;padding-left:28px;font-size:12px}
+  body[data-view] #view-evidence #evidence-map .map-view-controls{gap:4px}
+  body[data-view] #view-evidence #evidence-map .map-zoom-buttons{gap:4px}
+  body[data-view] #view-evidence #evidence-map button.round{width:28px;height:28px;font-size:17px}
+  body[data-view] #view-evidence #evidence-map #evidence-map-reset{height:30px;padding:0 8px;font-size:12px}
+  body[data-view] #view-evidence #evidence-map #evidence-map-collapse{width:30px;height:30px}
+  body[data-view] #view-evidence #evidence-map .map-controls-help{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+}

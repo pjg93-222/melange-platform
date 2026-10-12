@@ -1,0 +1,117 @@
+/* desk-efficiency.css: overlay for original-desk.html (Member desk > Efficiency, board #34); owner: prompt 06. Loaded after desk-bills.css. */
+/* Build 06. Sizes are the board's (34_efficiency_one_view_v2.png, board px / 1.867): control row 32px high, 20px under the
+   tab group (Investment | Spending 191, search 253, All | House | Senate 244, sort 209; 12px gaps, 23px after the mode
+   switch); table header 41px, rows 44px (--ml-row) with the member's chamber and party under the name; column starts at
+   21 / 95 / 278 / 350 / 495 / 662 / 769 / 882 / 985 / 1100px of a 1224px card; pager row 50px. ROI keeps the thin 90px
+   bar (prompt Don't-copy). Every colour is a --ml-* token or the desk's own gain/loss token (--green-text/--red-text, the
+   colours today's v2 desk already shows for these cells); data colours reach dots and pills by reference (--mlk-dot). */
+
+/* legacy #view-efficiency children (title, intro, .controls, .countline, .tablewrap) stay in the DOM, hidden */
+#view-efficiency>.eff-legacy{display:none!important}
+body.restored-desk.dsk-view-efficiency #view-efficiency.view:not(#mlk){padding-top:20px}
+.eff [hidden]:not(#mlk),.eff[hidden]:not(#mlk){display:none!important}
+.eff{color:var(--ml-ink);font:400 14px/1.3 var(--sans)}
+
+/* ---------------- control row ---------------- */
+.eff-controls{display:flex;align-items:center;flex-wrap:wrap;gap:12px;min-height:32px}
+.eff-mode:not(#mlk){margin-right:11px}
+.eff-mode:not(#mlk)>button{min-width:90px;padding:0 20px}
+.eff-mode:not(#mlk)>button:first-child{min-width:100px}
+.eff-invctl{display:flex;align-items:center;flex-wrap:wrap;gap:12px;min-width:0}
+.eff .eff-search:not(#mlk){width:253px}
+.eff .eff-search:not(#mlk) .mlk-search__input{height:32px;font-size:14px}
+.eff .eff-chamber:not(#mlk){display:inline-flex;height:32px;margin:0;gap:0}
+.eff .eff-chamber:not(#mlk)>button{min-width:72px;height:auto;padding:0 24px;border-radius:0;box-shadow:none}
+/* restored.css paints the legacy .seg button.on with !important; keep the kit's active segment exactly */
+.eff .eff-chamber:not(#mlk)>button.on{background:var(--ml-active)!important;color:var(--ml-on-dark)!important;font-weight:500}
+.eff .eff-chamber:not(#mlk)>button:not(.on){background:transparent!important;color:var(--ml-ink)!important}
+.eff .eff-chamber:not(#mlk)>button:not(.on):hover{background:var(--ml-surface-alt)!important}
+.eff .eff-sort:not(#mlk){width:209px;height:32px;font-size:14px}
+.eff .eff-sort:not(#mlk)>select{flex:1 1 auto;width:100%;min-width:0;text-overflow:ellipsis}
+.eff-count{margin-left:auto;color:var(--ml-muted);font:400 13px/1 var(--sans);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ---------------- Investment table ---------------- */
+.eff-card:not(#mlk){margin-top:16px;overflow:clip}   /* no scroll container: the header row sticks to the frame's top */
+.eff-table:not(#mlk){table-layout:fixed;min-width:1080px}
+.eff-table:not(#mlk) th{height:41px;box-sizing:border-box;padding:0 8px 0 12px;box-shadow:none;z-index:2}
+.eff-table:not(#mlk) td{height:var(--ml-row);padding:0 8px 0 12px;white-space:nowrap;font-size:14px}
+.eff-table:not(#mlk) :is(th,td).eff-c-rank{padding-left:20px}
+.eff-table:not(#mlk) th.eff-c-rank{width:83px}
+.eff-table:not(#mlk) th.eff-c-member{width:auto}
+.eff-table:not(#mlk) th.eff-c-tier{width:72px}
+/* r5: board #34 draws the tier badge 34 x 20 (as the Members table does, desk-members.css) */
+.eff-table .mlk-tier:not(#mlk){min-width:34px;height:20px}
+.eff-table:not(#mlk) th.eff-c-standing{width:145px}
+.eff-table:not(#mlk) th.eff-c-potential{width:167px}
+.eff-table:not(#mlk) th.eff-c-invested{width:107px}
+.eff-table:not(#mlk) th.eff-c-suggested{width:113px}
+.eff-table:not(#mlk) th.eff-c-gap{width:103px}
+.eff-table:not(#mlk) th.eff-c-value{width:96px}
+.eff-table:not(#mlk) th.eff-c-roi{width:156px}
+.eff-table:not(#mlk) tbody tr[data-i]{cursor:pointer}
+.eff-table:not(#mlk) td.eff-c-member{overflow:hidden}
+.eff-table:not(#mlk) td.eff-c-standing{overflow:hidden}
+.eff-table:not(#mlk) td.eff-staterow,.eff-table:not(#mlk) tr.eff-staterow td,.eff-table:not(#mlk) tr.eff-skelrow td{height:auto;padding:0;white-space:normal}
+.eff-table:not(#mlk) tr.eff-skelrow:last-child .mlk-skel-row{border-bottom:0}
+
+/* member cell: party dot, then the name (dotted-underline link) over "House · Democrat" */
+.eff-member{display:flex;align-items:center;gap:11px;min-width:0}
+.eff-dot:not(#mlk){width:9px;height:9px}
+.eff-who{display:flex;flex-direction:column;min-width:0}
+.eff .eff-name:not(#mlk){overflow:hidden;text-overflow:ellipsis;font-size:14px;line-height:17px}
+.eff-sub{overflow:hidden;text-overflow:ellipsis;color:var(--ml-muted);font:400 12px/15px var(--sans)}
+.eff-none{color:var(--ml-muted)}
+
+/* gain / loss: the desk's own tokens (restored.css maps the legacy greens and reds to exactly these) */
+.eff :is(.eff-table,.eff-stable):not(#mlk) td.eff-pos{color:var(--green-text)}
+.eff :is(.eff-table,.eff-stable):not(#mlk) td.eff-neg{color:var(--red-text)}
+.eff :is(.eff-table,.eff-stable):not(#mlk) td.eff-zero,.eff-none{color:var(--ml-muted)}
+
+/* ROI: value, then the thin neutral bar (kit .mlk-bar, 90 x 6) */
+.eff-roi{display:inline-flex;align-items:center;gap:10px}
+.eff-roi__v{min-width:40px}
+.eff .eff-bar:not(#mlk){--mlk-bar-w:90px}
+
+/* pager row: "1–25 of 533" · ‹ Previous · Next › · 25 per page */
+.eff-foot .mlk-pager:not(#mlk){box-sizing:border-box;min-height:50px;padding:8px 16px;border-top:1px solid var(--ml-rule);color:var(--ml-ink);font-size:14px}
+.eff-foot .mlk-pager__controls:not(#mlk){gap:12px}
+.eff-foot .mlk-pager:not(#mlk) .mlk-btn[data-mlk-page]{gap:8px;height:30px;padding:0 8px;border-color:transparent;background:transparent;color:var(--ml-ink);font-size:14px}
+.eff-foot .mlk-pager:not(#mlk) .mlk-btn[data-mlk-page]:hover:not([disabled]){background:var(--ml-surface-alt)}
+.eff-foot .mlk-pager:not(#mlk) .mlk-btn[data-mlk-page][disabled]{color:var(--ml-muted);opacity:.6;cursor:default}
+.eff-foot .mlk-btn[data-mlk-page=prev]::before,.eff-foot .mlk-btn[data-mlk-page=next]::after{content:'';display:inline-block;width:6px;height:6px;border-left:1.5px solid currentColor;border-bottom:1.5px solid currentColor}
+.eff-foot .mlk-btn[data-mlk-page=prev]::before{transform:rotate(45deg);margin-left:2px}
+.eff-foot .mlk-btn[data-mlk-page=next]::after{transform:rotate(-135deg);margin-right:2px}
+.eff-foot .mlk-pager:not(#mlk) .mlk-select{height:32px;min-width:108px;font-size:14px}
+
+/* ---------------- Spending: three stacked cards, the legacy tables in the same row style ---------------- */
+.eff-scard{box-sizing:border-box;margin-top:16px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);overflow:clip}
+[data-eff-panel=spending]>.eff-scard:first-of-type{margin-top:16px}
+.eff-scard__head{display:flex;align-items:baseline;gap:12px;box-sizing:border-box;min-height:52px;padding:14px 20px 10px;border-bottom:1px solid var(--ml-rule)}
+.eff .eff-scard__title:not(#mlk){margin:0;color:var(--ml-ink);font:400 22px/1.2 var(--serif);letter-spacing:0;text-transform:none}
+.eff-scard__sub{color:var(--ml-muted);font:400 12px/1.2 var(--sans)}
+.eff-layer .eff-swrap:not(#mlk){margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none;overflow:visible;max-height:none}
+.eff-stable:not(#mlk) th{height:41px;box-sizing:border-box;padding:0 8px 0 12px;box-shadow:none;position:static}
+.eff-stable:not(#mlk) td{height:var(--ml-row);padding:0 8px 0 12px;white-space:nowrap;font-size:14px}
+.eff-stable:not(#mlk) :is(th,td):first-child{padding-left:20px;width:32%}
+.eff-stable:not(#mlk) :is(th,td).num{text-align:left}
+.eff-stable:not(#mlk) td b{font-weight:600}
+.eff-layer .mlk-state:not(#mlk){margin:0}
+
+/* focus: the kit's amber ring (restored.css draws a purple ring on every :focus-visible with !important) */
+.eff :focus-visible:not(#mlk){outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+.eff :is(.mlk-seg,.eff-chamber)>button:focus-visible:not(#mlk){outline-offset:-3px}
+.eff .mlk-search__input:focus-visible:not(#mlk){outline-offset:0}
+
+/* narrow frames: the table scrolls sideways inside its card; the control row wraps */
+@media (max-width:1180px){
+ .eff-card:not(#mlk){overflow-x:auto}
+ .eff-table:not(#mlk) th{position:static}
+}
+@media (max-width:760px){
+ .eff-mode:not(#mlk){margin-right:0}
+ .eff .eff-search:not(#mlk){width:100%}
+ .eff-invctl{width:100%}
+ .eff-count{margin-left:0}
+ .eff-stable:not(#mlk){min-width:640px}
+ .eff-layer{overflow-x:auto}
+}

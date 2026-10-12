@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GLASS BOX</title>
+<style>
+:root{
+  --bg:#080a0f;
+  --bg-1:#0d1017;
+  --bg-2:#12161f;
+  --bg-3:#1a1f2b;
+  --line:#232a38;
+  --line-2:#2f394b;
+  --fg:#dfe6f2;
+  --fg-dim:#8c98ad;
+  --fg-faint:#5b6577;
+  --live:#3ddc97;
+  --live-glow:rgba(61,220,151,.16);
+  --blocked:#ffb454;
+  --failed:#ff5c5c;
+  --done:#5aa9ff;
+  --gone:#59637a;
+  --accent:#37e0d8;
+  --mono:"Cascadia Mono",Consolas,"Courier New",monospace;
+  --sans:"Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{
+  background:
+    radial-gradient(1200px 600px at 15% -10%,#101725 0%,transparent 60%),
+    radial-gradient(900px 500px at 95% 0%,#0f1a1e 0%,transparent 55%),
+    var(--bg);
+  color:var(--fg);
+  font-family:var(--sans);
+  font-size:15px;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--accent)}
+.shell{display:flex;flex-direction:column;min-height:100vh}
+
+/* ---------- top bar ---------- */
+.topbar{
+  position:sticky;top:0;z-index:40;
+  display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+  padding:10px 20px;
+  background:rgba(8,10,15,.92);
+  backdrop-filter:blur(10px);
+  border-bottom:1px solid var(--line);
+}
+.brand{display:flex;align-items:baseline;gap:12px}
+.brand h1{
+  margin:0;font-size:23px;font-weight:800;letter-spacing:.28em;
+  background:linear-gradient(92deg,#eef4ff,#7fe9df 70%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+}
+.brand .sub{font-family:var(--mono);font-size:11px;color:var(--fg-faint);letter-spacing:.12em}
+.spacer{flex:1 1 auto}
+.conn{display:flex;align-items:center;gap:9px;font-family:var(--mono);font-size:12.5px;color:var(--fg-dim)}
+.dot{width:11px;height:11px;border-radius:50%;background:var(--live);box-shadow:0 0 0 0 var(--live-glow);animation:pulse 2.4s infinite}
+.dot.bad{background:var(--failed);animation:none;box-shadow:none}
+.dot.warn{background:var(--blocked);animation:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 var(--live-glow)}70%{box-shadow:0 0 0 11px rgba(61,220,151,0)}100%{box-shadow:0 0 0 0 rgba(61,220,151,0)}}
+.offline-banner{
+  display:none;padding:9px 20px;background:#3a1013;border-bottom:1px solid #6a1f24;
+  color:#ffb3b3;font-family:var(--mono);font-size:13px;
+}
+body.offline .offline-banner{display:block}
+
+/* ---------- layout ---------- */
+.main{
+  flex:1 1 auto;display:grid;gap:16px;padding:16px 20px 28px;
+  grid-template-columns:minmax(0,1fr) minmax(340px,26%);
+  align-items:start;
+}
+@media (max-width:1180px){ .main{grid-template-columns:minmax(0,1fr)} }
+.col{display:flex;flex-direction:column;gap:16px;min-width:0}
+
+.card{
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-2));
+  border:1px solid var(--line);border-radius:12px;overflow:hidden;
+}
+.card>header{
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;
+  padding:11px 15px;border-bottom:1px solid var(--line);
+  background:rgba(255,255,255,.015);
+}
+.card>header h2{
+  margin:0;font-size:12px;font-weight:700;letter-spacing:.18em;color:var(--fg-dim);
+  text-transform:uppercase;
+}
+.card .body{padding:14px 15px}
+
+/* ---------- tiles ---------- */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(126px,1fr));gap:10px}
+.tile{
+  position:relative;padding:12px 13px;border-radius:10px;
+  background:var(--bg-3);border:1px solid var(--line);
+  cursor:pointer;transition:border-color .12s,transform .12s,background .12s;
+}
+.tile:hover{border-color:var(--line-2);transform:translateY(-1px)}
+.tile.on{background:#1d2735;border-color:var(--accent)}
+.tile .n{font-family:var(--mono);font-size:31px;font-weight:700;line-height:1}
+.tile .k{margin-top:6px;font-size:10.5px;letter-spacing:.16em;color:var(--fg-faint);text-transform:uppercase}
+.tile.s-live .n{color:var(--live)}
+.tile.s-blocked .n{color:var(--blocked)}
+.tile.s-failed .n{color:var(--failed)}
+.tile.s-completed .n{color:var(--done)}
+.tile.s-abandoned .n{color:var(--gone)}
+.tile.s-other .n{color:var(--fg-dim)}
+
+.lanebar{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.lanechip{
+  display:flex;align-items:center;gap:8px;padding:6px 11px;border-radius:999px;
+  background:var(--bg-3);border:1px solid var(--line);cursor:pointer;
+  font-family:var(--mono);font-size:12.5px;color:var(--fg-dim);
+}
+.lanechip.on{border-color:var(--accent);color:var(--fg);background:#182231}
+.lanechip b{color:var(--fg);font-weight:700}
+.lanechip .mini{width:7px;height:7px;border-radius:50%;background:var(--live)}
+.lanechip .mini.zero{background:var(--gone)}
+
+/* ---------- progress ---------- */
+.overall{margin-top:16px}
+.overall .headline{
+  display:flex;justify-content:space-between;align-items:baseline;gap:14px;flex-wrap:wrap;
+  font-family:var(--mono);font-size:13px;color:var(--fg-dim);margin-bottom:8px;
+}
+.overall .headline b{color:var(--fg);font-size:17px}
+.bar{height:14px;border-radius:7px;background:#161c27;overflow:hidden;border:1px solid var(--line)}
+.bar>i{
+  display:block;height:100%;border-radius:7px;
+  background:linear-gradient(90deg,#2bb98a,#3ddc97 60%,#7ef0c4);
+  box-shadow:0 0 16px rgba(61,220,151,.35);
+  transition:width .5s ease;
+}
+.bar.warn>i{background:linear-gradient(90deg,#c98a2a,#ffb454)}
+.runbars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+.runbar{cursor:pointer}
+.runbar .lbl{
+  display:flex;justify-content:space-between;gap:12px;
+  font-family:var(--mono);font-size:12px;color:var(--fg-dim);margin-bottom:4px;
+}
+.runbar .lbl span:first-child{color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.runbar .bar{height:9px}
+
+/* ---------- controls ---------- */
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;width:100%}
+input[type=search],select,button{
+  font-family:var(--mono);font-size:13px;color:var(--fg);
+  background:var(--bg-3);border:1px solid var(--line);border-radius:7px;
+  padding:7px 11px;outline:none;
+}
+input[type=search]{min-width:210px;flex:1 1 210px}
+input[type=search]:focus,select:focus{border-color:var(--accent)}
+button{cursor:pointer;transition:border-color .12s,background .12s}
+button:hover{border-color:var(--line-2)}
+button.on{border-color:var(--accent);background:#182231}
+.count{font-family:var(--mono);font-size:12px;color:var(--fg-faint);margin-left:auto}
+
+/* ---------- table ---------- */
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+thead th{
+  position:sticky;top:0;z-index:5;
+  background:#141922;border-bottom:1px solid var(--line-2);
+  padding:9px 11px;text-align:left;white-space:nowrap;
+  font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--fg-faint);
+  cursor:pointer;user-select:none;font-weight:700;
+}
+thead th:hover{color:var(--fg)}
+thead th .arrow{color:var(--accent);font-size:9px}
+tbody tr{border-bottom:1px solid rgba(35,42,56,.65);cursor:pointer}
+tbody tr:hover{background:rgba(55,224,216,.05)}
+tbody td{padding:9px 11px;vertical-align:middle;font-family:var(--mono);white-space:nowrap}
+tbody td.grow{white-space:normal;min-width:180px;font-family:var(--sans)}
+tbody tr.dim{opacity:.42}
+tbody tr.dim:hover{opacity:.72}
+.badge{
+  display:inline-block;padding:2px 8px;border-radius:5px;
+  font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+}
+.b-live{background:rgba(61,220,151,.14);color:var(--live);border:1px solid rgba(61,220,151,.35)}
+.b-blocked{background:rgba(255,180,84,.13);color:var(--blocked);border:1px solid rgba(255,180,84,.32)}
+.b-failed{background:rgba(255,92,92,.13);color:var(--failed);border:1px solid rgba(255,92,92,.32)}
+.b-completed{background:rgba(90,169,255,.12);color:var(--done);border:1px solid rgba(90,169,255,.3)}
+.b-abandoned{background:rgba(89,99,122,.16);color:var(--gone);border:1px solid rgba(89,99,122,.34)}
+.b-other{background:rgba(140,152,173,.12);color:var(--fg-dim);border:1px solid var(--line)}
+.b-reap{background:rgba(255,92,92,.1);color:#ff8a8a;border:1px solid rgba(255,92,92,.3);margin-left:6px}
+.lane-tag{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-dim)}
+.src{color:var(--fg);font-weight:600}
+.run{color:var(--fg-faint);font-size:12px}
+.minibar{width:120px;height:7px;border-radius:4px;background:#161c27;overflow:hidden;display:inline-block;vertical-align:middle;border:1px solid var(--line)}
+.minibar>i{display:block;height:100%;background:linear-gradient(90deg,#2bb98a,#3ddc97)}
+.minibar.stale>i{background:linear-gradient(90deg,#4a5568,#6b7688)}
+.pcttext{font-size:12px;color:var(--fg-dim);margin-left:8px}
+.age-hot{color:var(--live)}
+.age-warm{color:var(--fg)}
+.age-cold{color:var(--fg-faint)}
+.nofail{color:var(--fg-faint)}
+.hasfail{color:var(--failed);font-weight:700}
+.empty{padding:26px 15px;text-align:center;color:var(--fg-faint);font-family:var(--mono);font-size:13px}
+
+details.reaped{border-top:1px solid var(--line)}
+details.reaped>summary{
+  padding:10px 15px;cursor:pointer;list-style:none;
+  font-family:var(--mono);font-size:12.5px;color:var(--fg-faint);
+  display:flex;align-items:center;gap:9px;
+}
+details.reaped>summary::-webkit-details-marker{display:none}
+details.reaped>summary:hover{color:var(--fg-dim);background:rgba(255,255,255,.02)}
+details.reaped>summary .caret{transition:transform .15s;display:inline-block}
+details.reaped[open]>summary .caret{transform:rotate(90deg)}
+
+/* ---------- feed ---------- */
+.feed{max-height:calc(100vh - 210px);overflow-y:auto;padding:0 0 6px}
+.fe{padding:9px 14px;border-bottom:1px solid rgba(35,42,56,.6);font-family:var(--mono);font-size:12.5px}
+.fe:hover{background:rgba(255,255,255,.02)}
+.fe .h{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap}
+.fe .t{color:var(--fg-faint);font-size:11.5px}
+.fe .s{color:var(--fg);font-weight:600}
+.fe .k{color:var(--fg-faint);font-size:11px}
+.fe .m{margin-top:3px;color:var(--fg-dim);line-height:1.45;word-break:break-word}
+.fe .d{margin-top:2px;color:var(--fg-faint);font-size:11.5px;line-height:1.4;word-break:break-word}
+.fe.st-failed{border-left:3px solid var(--failed);padding-left:11px}
+.fe.st-blocked{border-left:3px solid var(--blocked);padding-left:11px}
+.fe.st-completed{border-left:3px solid var(--done);padding-left:11px}
+.fe.st-live{border-left:3px solid var(--live);padding-left:11px}
+.fe.st-abandoned{border-left:3px solid var(--gone);padding-left:11px;opacity:.6}
+
+/* ---------- modal ---------- */
+.modal{
+  position:fixed;inset:0;z-index:60;display:none;
+  background:rgba(3,5,9,.78);backdrop-filter:blur(3px);
+  padding:40px 20px;overflow-y:auto;
+}
+.modal.open{display:block}
+.sheet{
+  max-width:1020px;margin:0 auto;
+  background:linear-gradient(180deg,#0e1219,#12171f);
+  border:1px solid var(--line-2);border-radius:14px;overflow:hidden;
+  box-shadow:0 30px 80px rgba(0,0,0,.6);
+}
+.sheet header{display:flex;align-items:flex-start;gap:14px;padding:16px 18px;border-bottom:1px solid var(--line)}
+.sheet header h3{margin:0;font-size:18px}
+.sheet header .meta{font-family:var(--mono);font-size:12px;color:var(--fg-faint);margin-top:5px}
+.sheet .close{margin-left:auto;background:transparent;border:1px solid var(--line);font-size:16px;line-height:1;padding:5px 11px}
+.kv{display:grid;grid-template-columns:150px minmax(0,1fr);gap:5px 14px;padding:15px 18px;font-family:var(--mono);font-size:12.5px}
+.kv dt{color:var(--fg-faint);text-transform:uppercase;font-size:10.5px;letter-spacing:.12em;padding-top:2px}
+.kv dd{margin:0;color:var(--fg);word-break:break-word;white-space:pre-wrap}
+.errbox{margin:0 18px 15px;padding:11px 13px;border-radius:8px;background:rgba(255,92,92,.08);
+  border:1px solid rgba(255,92,92,.3);color:#ffb3b3;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap}
+.hist{border-top:1px solid var(--line);max-height:44vh;overflow-y:auto}
+.hist h4{margin:0;padding:11px 18px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--fg-faint);
+  border-bottom:1px solid var(--line);position:sticky;top:0;background:#0e1219}
+::-webkit-scrollbar{width:11px;height:11px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#242c3a;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#33405a;background-clip:padding-box}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="brand">
+      <h1>GLASS BOX</h1>
+      <span class="sub" id="eventsDir">&nbsp;</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="conn">
+      <span class="dot" id="dot"></span>
+      <span id="connText">connecting…</span>
+    </div>
+    <div class="conn" id="scanText" style="color:var(--fg-faint)"></div>
+  </div>
+
+  <div class="offline-banner" id="offlineBanner">
+    SERVER UNREACHABLE — showing the last good snapshot. Retrying…
+  </div>
+
+  <div class="main">
+    <div class="col">
+
+      <!-- OVERHEAD -->
+      <section class="card">
+        <header>
+          <h2>Overhead</h2>
+          <span class="count" id="rowCount"></span>
+        </header>
+        <div class="body">
+          <div class="tiles" id="stateTiles"></div>
+          <div class="lanebar" id="laneChips"></div>
+
+          <div class="overall">
+            <div class="headline">
+              <span><b id="overallPct">—</b> &nbsp;<span id="overallText">no run is reporting progress</span></span>
+              <span id="overallEta"></span>
+            </div>
+            <div class="bar"><i id="overallBar" style="width:0%"></i></div>
+            <div class="runbars" id="runBars"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ROWS -->
+      <section class="card">
+        <header>
+          <h2>Rows</h2>
+          <div class="controls">
+            <input type="search" id="q" placeholder="filter source / run / summary…" autocomplete="off">
+            <button id="btnAbandoned" title="Abandoned rows are collapsed into their own drawer">abandoned: hidden</button>
+            <span class="count" id="tableCount"></span>
+          </div>
+        </header>
+        <div class="tablewrap">
+          <table id="rowTable">
+            <thead><tr id="rowHead"></tr></thead>
+            <tbody id="rowBody"></tbody>
+          </table>
+          <div class="empty" id="rowEmpty" style="display:none">no rows match the current filter</div>
+        </div>
+        <details class="reaped" id="reapedBox" style="display:none">
+          <summary><span class="caret">&#9656;</span><span id="reapedLabel"></span></summary>
+          <div class="tablewrap">
+            <table><tbody id="reapedBody"></tbody></table>
+          </div>
+        </details>
+      </section>
+    </div>
+
+    <!-- FEED -->
+    <div class="col">
+      <section class="card">
+        <header>
+          <h2>Live feed</h2>
+          <div class="controls">
+            <select id="feedSource"><option value="">all sources</option></select>
+            <button id="btnPause">pause</button>
+            <span class="count" id="feedCount"></span>
+          </div>
+        </header>
+        <div class="feed" id="feed"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <header>
+      <div>
+        <h3 id="dTitle">run</h3>
+        <div class="meta" id="dMeta"></div>
+      </div>
+      <button class="close" id="dClose">&times;</button>
+    </header>
+    <dl class="kv" id="dKv"></dl>
+    <div class="errbox" id="dErr" style="display:none"></div>
+    <div class="hist">
+      <h4>Event history (newest first)</h4>
+      <div id="dHist"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const STATES = ["live","blocked","failed","completed","abandoned","other"];
+const POLL_MS = 2000;
+
+const ui = {
+  lane: null,
+  state: null,
+  q: "",
+  showAbandoned: false,
+  sort: {col:"when", dir:-1},
+  paused: false,
+  feedSource: "",
+  feedSeq: null,
+  openKey: null
+};
+
+let lastRows = [];
+let lastSummary = null;
+let feedItems = [];
+let failures = 0;
+
+/* ---------------- helpers ---------------- */
+const el = id => document.getElementById(id);
+function esc(s){
+  return String(s==null?"":s).replace(/[&<>"']/g, c =>
+    ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+}
+function fmtDur(sec){
+  if(sec==null || !isFinite(sec)) return "—";
+  sec = Math.max(0, Math.floor(sec));
+  if(sec < 60) return sec + "s";
+  if(sec < 3600) return Math.floor(sec/60) + "m " + (sec%60) + "s";
+  if(sec < 86400){ const h=Math.floor(sec/3600); return h + "h " + Math.floor((sec%3600)/60) + "m"; }
+  const d=Math.floor(sec/86400); return d + "d " + Math.floor((sec%86400)/3600) + "h";
+}
+function fmtShort(sec){
+  if(sec==null || !isFinite(sec)) return "—";
+  sec = Math.max(0, Math.floor(sec));
+  if(sec < 60) return sec + "s";
+  if(sec < 3600) return Math.floor(sec/60) + "m";
+  if(sec < 86400) return Math.floor(sec/3600) + "h";
+  return Math.floor(sec/86400) + "d";
+}
+function fmtNum(n){
+  if(n==null || !isFinite(n)) return "—";
+  return Math.round(n).toLocaleString("en-US");
+}
+function clockOf(epoch){
+  if(!epoch) return "--:--:--";
+  const d = new Date(epoch*1000);
+  return d.toTimeString().slice(0,8);
+}
+function ageClass(sec){
+  if(sec == null) return "age-cold";
+  if(sec < 60) return "age-hot";
+  if(sec < 1200) return "age-warm";
+  return "age-cold";
+}
+
+/* ---------------- polling ---------------- */
+async function poll(){
+  try{
+    const res = await fetch("/api/rows", {cache:"no-store"});
+    if(!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    lastRows = data.rows || [];
+    lastSummary = data.summary || null;
+    failures = 0;
+    document.body.classList.remove("offline");
+    el("dot").className = "dot";
+    el("connText").textContent = "live · " + clockOf(Date.now()/1000);
+    if(lastSummary){
+      el("eventsDir").textContent = lastSummary.events_dir;
+      const s = lastSummary.scan || {};
+      el("scanText").textContent =
+        fmtNum(s.files_seen) + " event files · poll " +
+        ((s.last_scan_seconds||0)*1000).toFixed(0) + "ms · +" +
+        fmtNum(s.last_scan_files_parsed) + " new";
+    }
+    renderOverhead();
+    renderTable();
+    if(ui.openKey) refreshDetail(ui.openKey);
+  }catch(err){
+    failures++;
+    document.body.classList.add("offline");
+    el("dot").className = "dot bad";
+    el("connText").textContent = "unreachable (" + failures + ")";
+  }
+  if(!ui.paused) pollFeed();
+}
+
+async function pollFeed(){
+  try{
+    let url = "/api/events?limit=" + (ui.feedSeq==null ? 120 : 200);
+    if(ui.feedSeq != null) url += "&since=" + ui.feedSeq;
+    if(ui.feedSource) url += "&source=" + encodeURIComponent(ui.feedSource);
+    const res = await fetch(url, {cache:"no-store"});
+    if(!res.ok) return;
+    const data = await res.json();
+    const incoming = data.events || [];
+    if(incoming.length){
+      ui.feedSeq = incoming[incoming.length-1].seq;
+      feedItems = feedItems.concat(incoming).slice(-400);
+      renderFeed();
+    }
+    syncSources(data.sources || []);
+  }catch(err){ /* connection state already handled by poll() */ }
+}
+
+/* ---------------- overhead ---------------- */
+function renderOverhead(){
+  if(!lastSummary) return;
+  const byState = lastSummary.by_state || {};
+
+  el("stateTiles").innerHTML = STATES.map(st => {
+    const n = byState[st] || 0;
+    if(!n && st === "other") return "";
+    const on = ui.state === st ? " on" : "";
+    return '<div class="tile s-'+st+on+'" data-state="'+st+'">' +
+           '<div class="n">'+n+'</div><div class="k">'+st+'</div></div>';
+  }).join("");
+
+  el("laneChips").innerHTML = (lastSummary.by_lane||[]).map(l => {
+    const on = ui.lane === l.lane ? " on" : "";
+    const zero = (l.live||0) === 0 ? " zero" : "";
+    return '<div class="lanechip'+on+'" data-lane="'+esc(l.lane)+'">' +
+           '<span class="mini'+zero+'"></span>' + esc(l.lane) +
+           ' <b>'+l.total+'</b> <span style="color:var(--live)">'+(l.live||0)+' live</span></div>';
+  }).join("");
+
+  el("rowCount").textContent =
+    lastSummary.rows_total + " rows · " + (lastSummary.reapable||0) +
+    " reapable · stale after " + lastSummary.stale_minutes + "m";
+
+  const o = lastSummary.overall || {};
+  if(o.total){
+    const pct = o.pct || 0;
+    el("overallPct").textContent = pct.toFixed(1) + "%";
+    el("overallText").textContent =
+      fmtNum(o.current) + " / " + fmtNum(o.total) + " across " + o.runs +
+      " active run" + (o.runs===1?"":"s");
+    el("overallBar").style.width = Math.min(100,pct) + "%";
+  }else{
+    el("overallPct").textContent = "—";
+    el("overallText").textContent = "no active run is reporting progress";
+    el("overallBar").style.width = "0%";
+  }
+
+  const bars = lastSummary.active_progress || [];
+  const etaMax = bars.reduce((m,b)=> (b.eta!=null && b.eta>m ? b.eta : m), 0);
+  el("overallEta").textContent = etaMax ? ("longest eta " + fmtDur(etaMax)) : "";
+
+  el("runBars").innerHTML = bars.map(b => {
+    const pct = Math.min(100, b.pct||0);
+    const rate = b.rate!=null ? (b.rate.toFixed(0) + "/min") : "";
+    const eta  = b.eta!=null ? (" · eta " + fmtDur(b.eta)) : "";
+    return '<div class="runbar" data-key="'+esc(b.key)+'" title="'+esc(b.lane+' · '+b.run_id)+'">' +
+      '<div class="lbl"><span>'+esc(b.source)+' <span style="color:var(--fg-faint)">'+esc(b.run_id)+'</span></span>' +
+      '<span>'+fmtNum(b.current)+'/'+fmtNum(b.total)+' · '+pct.toFixed(1)+'% '+
+      (rate?('· '+rate):'')+eta+'</span></div>' +
+      '<div class="bar'+(b.state==="blocked"?" warn":"")+'"><i style="width:'+pct+'%"></i></div></div>';
+  }).join("");
+}
+
+/* ---------------- table ---------------- */
+const COLS = [
+  {id:"lane",   label:"lane",     w:"1%"},
+  {id:"source", label:"source",   w:"22%", grow:true},
+  {id:"run_id", label:"run",      w:"18%", grow:true},
+  {id:"state",  label:"state",    w:"1%"},
+  {id:"pct",    label:"progress", w:"1%"},
+  {id:"rate",   label:"rate",     w:"1%"},
+  {id:"eta",    label:"eta",      w:"1%"},
+  {id:"failures", label:"fail",   w:"1%"},
+  {id:"age",    label:"age",      w:"1%"}
+];
+
+function renderHead(){
+  el("rowHead").innerHTML = COLS.map(c => {
+    const arrow = ui.sort.col===c.id ? ('<span class="arrow"> '+(ui.sort.dir<0?"&#9660;":"&#9650;")+'</span>') : "";
+    return '<th data-col="'+c.id+'" style="width:'+c.w+'">'+c.label+arrow+'</th>';
+  }).join("");
+}
+
+function matches(r){
+  if(ui.lane && r.lane !== ui.lane) return false;
+  if(ui.state && r.state !== ui.state) return false;
+  if(ui.q){
+    const blob = (r.source+" "+r.run_id+" "+r.summary+" "+r.status+" "+r.stage+" "+r.lane).toLowerCase();
+    if(blob.indexOf(ui.q) === -1) return false;
+  }
+  return true;
+}
+
+function sortRows(rows){
+  const col = ui.sort.col, dir = ui.sort.dir;
+  return rows.slice().sort((a,b)=>{
+    let x = a[col], y = b[col];
+    if(col === "age"){ x = a.when; y = b.when; }
+    if(x==null) x = -Infinity;
+    if(y==null) y = -Infinity;
+    if(typeof x === "string" || typeof y === "string"){
+      x = String(x).toLowerCase(); y = String(y).toLowerCase();
+      return x < y ? -dir : (x > y ? dir : 0);
+    }
+    return (x - y) * dir;
+  });
+}
+
+function rowHtml(r, dim){
+  const pct = r.pct;
+  let prog = '<span style="color:var(--fg-faint)">—</span>';
+  if(r.total){
+    const stale = (r.state==="abandoned"||r.state==="failed") ? " stale" : "";
+    prog = '<span class="minibar'+stale+'"><i style="width:'+Math.min(100,pct||0)+'%"></i></span>' +
+           '<span class="pcttext">'+fmtNum(r.current)+'/'+fmtNum(r.total)+'</span>';
+  }
+  const reap = r.reapable ? '<span class="badge b-reap">reapable</span>' : "";
+  // A live failure count wins over a historical error: a row reporting
+  // failure_count=0 right now is not a failing row just because something
+  // went wrong earlier in its history.
+  let fail;
+  if(r.failures != null){
+    fail = r.failures > 0
+      ? '<span class="hasfail">'+fmtNum(r.failures)+'</span>'
+      : '<span class="nofail">0</span>';
+  }else if(r.last_error){
+    fail = '<span class="hasfail" title="'+esc(r.last_error)+'">err</span>';
+  }else{
+    fail = '<span class="nofail">—</span>';
+  }
+  return '<tr class="'+(dim?"dim":"")+'" data-key="'+esc(r.key)+'">' +
+    '<td><span class="lane-tag">'+esc(r.lane)+'</span></td>' +
+    '<td class="grow"><div class="src">'+esc(r.source)+'</div>' +
+      '<div class="run" style="font-family:var(--mono)">'+esc(r.summary||r.kind||"")+'</div></td>' +
+    '<td class="grow"><span class="run">'+esc(r.run_id)+'</span></td>' +
+    '<td><span class="badge b-'+r.state+'">'+r.state+'</span>'+reap+'</td>' +
+    '<td>'+prog+'</td>' +
+    '<td>'+(r.rate!=null ? (r.rate.toFixed(0)+'<span style="color:var(--fg-faint)">/m</span>') : '<span class="nofail">—</span>')+'</td>' +
+    '<td>'+(r.eta!=null ? fmtShort(r.eta) : '<span class="nofail">—</span>')+'</td>' +
+    '<td>'+fail+'</td>' +
+    '<td class="'+ageClass(r.age)+'">'+fmtShort(r.age)+'</td>' +
+  '</tr>';
+}
+
+function renderTable(){
+  const all = lastRows.filter(matches);
+  const gone = all.filter(r => r.state === "abandoned");
+  const live = all.filter(r => r.state !== "abandoned");
+  const shown = ui.showAbandoned ? all : live;
+
+  el("rowBody").innerHTML = sortRows(shown).map(r => rowHtml(r, r.state==="abandoned")).join("");
+  el("rowEmpty").style.display = shown.length ? "none" : "block";
+  el("tableCount").textContent = shown.length + " of " + lastRows.length;
+
+  if(gone.length && !ui.showAbandoned){
+    el("reapedBox").style.display = "block";
+    el("reapedLabel").textContent = gone.length + " abandoned row" + (gone.length===1?"":"s") + " (dead work, collapsed)";
+    el("reapedBody").innerHTML = sortRows(gone).map(r => rowHtml(r, true)).join("");
+  }else{
+    el("reapedBox").style.display = "none";
+  }
+}
+
+/* ---------------- feed ---------------- */
+function stateOfStatus(s){
+  s = (s||"").toLowerCase();
+  if(["failed","fail","error","errored"].indexOf(s) >= 0) return "failed";
+  if(["completed","complete","success","passed","pass"].indexOf(s) >= 0) return "completed";
+  if(s === "blocked" || s === "needs-review") return "blocked";
+  if(["abandoned","cancelled","canceled"].indexOf(s) >= 0) return "abandoned";
+  if(["running","queued","dispatched","pending","in_progress","started"].indexOf(s) >= 0) return "live";
+  return "other";
+}
+function renderFeed(){
+  const feed = el("feed");
+  const atBottom = feed.scrollTop + feed.clientHeight >= feed.scrollHeight - 40;
+  const items = feedItems.slice(-260).reverse();
+  feed.innerHTML = items.map(e => {
+    const st = stateOfStatus(e.status);
+    return '<div class="fe st-'+st+'" data-key="'+esc(e.key)+'">' +
+      '<div class="h"><span class="t">'+clockOf(e.ts || e.when)+'</span>' +
+      '<span class="s">'+esc(e.source)+'</span>' +
+      '<span class="k">'+esc(e.lane)+' · '+esc(e.kind)+' · '+esc(e.status)+'</span></div>' +
+      (e.summary ? '<div class="m">'+esc(e.summary)+'</div>' : "") +
+      (e.detail ? '<div class="d">'+esc(e.detail)+'</div>' : "") +
+    '</div>';
+  }).join("");
+  el("feedCount").textContent = feedItems.length + " buffered";
+  if(atBottom) feed.scrollTop = 0;
+}
+function syncSources(sources){
+  const sel = el("feedSource");
+  const have = new Set(Array.from(sel.options).map(o => o.value));
+  let added = false;
+  sources.forEach(s => { if(!have.has(s)){ sel.add(new Option(s, s)); added = true; } });
+  if(added) sel.value = ui.feedSource;
+}
+
+/* ---------------- detail ---------------- */
+async function openDetail(key){
+  ui.openKey = key;
+  el("modal").classList.add("open");
+  await refreshDetail(key);
+}
+async function refreshDetail(key){
+  try{
+    const res = await fetch("/api/run?key=" + encodeURIComponent(key), {cache:"no-store"});
+    if(!res.ok) return;
+    const data = await res.json();
+    const r = data.run;
+    if(!r) return;
+    el("dTitle").innerHTML = esc(r.source) +
+      ' <span class="badge b-'+r.state+'" style="vertical-align:middle">'+r.state+'</span>' +
+      (r.reapable ? '<span class="badge b-reap">reapable</span>' : "");
+    el("dMeta").textContent = r.lane + " · " + r.run_id + " · " + r.events + " events · last event " + fmtDur(r.age) + " ago";
+
+    const kv = [
+      ["status", r.status + (r.stage ? "  (" + r.stage + ")" : "")],
+      ["latest kind", r.kind || "—"],
+      ["summary", r.summary || "—"],
+      ["detail", r.detail || "—"],
+      ["progress", r.total ? (fmtNum(r.current)+" / "+fmtNum(r.total)+"  ("+((r.current/r.total)*100).toFixed(2)+"%)") : "—"],
+      ["rate", r.rate!=null ? (r.rate.toFixed(2)+" /min") : "—"],
+      ["eta", r.eta!=null ? fmtDur(r.eta) : "—"],
+      ["failures", r.failures!=null ? fmtNum(r.failures) : "—"],
+      ["writer pid", (r.pid==null ? "not encoded in filename" : (r.pid + (r.pid_alive ? "  (alive)" : "  (gone)")))],
+      ["output dir", r.output_directory || "—"],
+      ["artifact", r.artifact || "—"],
+      ["invocation", r.invocation_id || "—"],
+      ["command", r.command || "—"]
+    ];
+    const extra = r.extra || {};
+    Object.keys(extra).forEach(k => kv.push([k.replace(/_/g," "), String(extra[k])]));
+    el("dKv").innerHTML = kv.map(p => "<dt>"+esc(p[0])+"</dt><dd>"+esc(p[1])+"</dd>").join("");
+
+    if(r.last_error){
+      el("dErr").style.display = "block";
+      el("dErr").textContent = "LAST ERROR / FAILURE DETAIL\n\n" + r.last_error;
+    }else{ el("dErr").style.display = "none"; }
+
+    el("dHist").innerHTML = (data.history||[]).slice().reverse().map(e => {
+      const st = stateOfStatus(e.status);
+      return '<div class="fe st-'+st+'">' +
+        '<div class="h"><span class="t">'+clockOf(e.ts || e.when)+'</span>' +
+        '<span class="s">'+esc(e.kind)+'</span><span class="k">'+esc(e.status)+
+        (e.stage ? ' · '+esc(e.stage) : '')+'</span></div>' +
+        (e.summary ? '<div class="m">'+esc(e.summary)+'</div>' : "") +
+        (e.detail ? '<div class="d">'+esc(e.detail)+'</div>' : "") +
+        (e.failure ? '<div class="d" style="color:var(--failed)">'+esc(e.failure)+'</div>' : "") +
+      '</div>';
+    }).join("") || '<div class="empty">no retained history for this run</div>';
+  }catch(err){ /* offline handled elsewhere */ }
+}
+function closeDetail(){
+  ui.openKey = null;
+  el("modal").classList.remove("open");
+}
+
+/* ---------------- wiring ---------------- */
+el("stateTiles").addEventListener("click", ev => {
+  const tile = ev.target.closest(".tile"); if(!tile) return;
+  ui.state = (ui.state === tile.dataset.state) ? null : tile.dataset.state;
+  if(ui.state === "abandoned") ui.showAbandoned = true;
+  syncAbandonedBtn(); renderOverhead(); renderTable();
+});
+el("laneChips").addEventListener("click", ev => {
+  const chip = ev.target.closest(".lanechip"); if(!chip) return;
+  ui.lane = (ui.lane === chip.dataset.lane) ? null : chip.dataset.lane;
+  renderOverhead(); renderTable();
+});
+el("rowHead").addEventListener("click", ev => {
+  const th = ev.target.closest("th"); if(!th) return;
+  const col = th.dataset.col;
+  if(ui.sort.col === col) ui.sort.dir *= -1;
+  else ui.sort = {col:col, dir: (col==="source"||col==="run_id"||col==="lane"||col==="state") ? 1 : -1};
+  renderHead(); renderTable();
+});
+el("q").addEventListener("input", ev => { ui.q = ev.target.value.trim().toLowerCase(); renderTable(); });
+function syncAbandonedBtn(){
+  el("btnAbandoned").textContent = "abandoned: " + (ui.showAbandoned ? "inline" : "hidden");
+  el("btnAbandoned").classList.toggle("on", ui.showAbandoned);
+}
+el("btnAbandoned").addEventListener("click", () => {
+  ui.showAbandoned = !ui.showAbandoned; syncAbandonedBtn(); renderTable();
+});
+document.addEventListener("click", ev => {
+  const tr = ev.target.closest("tbody tr[data-key]");
+  if(tr){ openDetail(tr.dataset.key); return; }
+  const rb = ev.target.closest(".runbar[data-key]");
+  if(rb){ openDetail(rb.dataset.key); return; }
+  const fe = ev.target.closest(".feed .fe[data-key]");
+  if(fe){ openDetail(fe.dataset.key); }
+});
+el("dClose").addEventListener("click", closeDetail);
+el("modal").addEventListener("click", ev => { if(ev.target === el("modal")) closeDetail(); });
+document.addEventListener("keydown", ev => {
+  if(ev.key === "Escape") closeDetail();
+  if(ev.key === "/" && document.activeElement !== el("q")){ ev.preventDefault(); el("q").focus(); }
+});
+el("btnPause").addEventListener("click", () => {
+  ui.paused = !ui.paused;
+  el("btnPause").textContent = ui.paused ? "resume" : "pause";
+  el("btnPause").classList.toggle("on", ui.paused);
+});
+el("feedSource").addEventListener("change", ev => {
+  ui.feedSource = ev.target.value;
+  feedItems = []; ui.feedSeq = null; renderFeed(); pollFeed();
+});
+
+renderHead();
+syncAbandonedBtn();
+poll();
+setInterval(poll, POLL_MS);
+</script>
+</body>
+</html>

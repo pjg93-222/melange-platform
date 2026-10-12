@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:person-edge:v1",
+  "title": "Typed person edge",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["edge_id", "layer", "predicate", "subject_person_id", "object_person_id", "directed", "raw_weight", "evidence_class", "precision_bucket", "support_count", "support_digest"],
+  "properties": {
+    "edge_id": {"type": "string", "minLength": 1},
+    "layer": {"type": "string", "minLength": 1},
+    "predicate": {"type": "string", "minLength": 1},
+    "subject_person_id": {"type": "string", "minLength": 1},
+    "object_person_id": {"type": "string", "minLength": 1},
+    "directed": {"type": "boolean"},
+    "raw_weight": {"type": "number", "minimum": 0},
+    "scaled_weight": {"type": ["number", "null"], "minimum": 0},
+    "evidence_class": {"type": "string", "minLength": 1},
+    "precision_bucket": {"enum": ["day", "month", "year", "undated-only"]},
+    "support_count": {"type": "integer", "minimum": 1},
+    "support_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  }
+}
+

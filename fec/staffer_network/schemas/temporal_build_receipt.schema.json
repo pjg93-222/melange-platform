@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:temporal-build-receipt:v1",
+  "title": "Employment temporal sidecar build receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "as_of", "status", "method_version",
+    "tau_days", "gap_half_life_days", "episode_rows", "eligible_episode_rows",
+    "ineligible_episode_rows", "co_tenure_candidate_keys",
+    "co_tenure_status_counts", "revolving_candidate_keys",
+    "revolving_status_counts", "primary_co_tenure_edges", "primary_revolving_edges",
+    "unresolved_identities_in_primary_edges", "undated_temporal_weights",
+    "self_loops", "files", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-temporal-build-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "as_of": {"type": "string", "format": "date"},
+    "status": {"const": "PASS"},
+    "method_version": {"const": "employment-temporal-sidecar-v1"},
+    "tau_days": {"type": "number", "minimum": 0},
+    "gap_half_life_days": {"type": "number", "minimum": 0},
+    "episode_rows": {"type": "integer", "minimum": 0},
+    "eligible_episode_rows": {"type": "integer", "minimum": 0},
+    "ineligible_episode_rows": {"type": "integer", "minimum": 0},
+    "co_tenure_candidate_keys": {"type": "integer", "minimum": 0},
+    "co_tenure_status_counts": {"type": "object", "additionalProperties": false, "required": ["GUARANTEED", "POSSIBLE_ONLY", "ZERO_OVERLAP"], "properties": {"GUARANTEED": {"type": "integer", "minimum": 0}, "POSSIBLE_ONLY": {"type": "integer", "minimum": 0}, "ZERO_OVERLAP": {"type": "integer", "minimum": 0}}},
+    "revolving_candidate_keys": {"type": "integer", "minimum": 0},
+    "revolving_status_counts": {"type": "object", "additionalProperties": false, "required": ["GUARANTEED", "POSSIBLE_ONLY", "WRONG_ORDER", "INTERVAL_BLOCKED"], "properties": {"GUARANTEED": {"type": "integer", "minimum": 0}, "POSSIBLE_ONLY": {"type": "integer", "minimum": 0}, "WRONG_ORDER": {"type": "integer", "minimum": 0}, "INTERVAL_BLOCKED": {"type": "integer", "minimum": 0}}},
+    "primary_co_tenure_edges": {"type": "integer", "minimum": 0},
+    "primary_revolving_edges": {"type": "integer", "minimum": 0},
+    "unresolved_identities_in_primary_edges": {"const": 0},
+    "undated_temporal_weights": {"const": 0},
+    "self_loops": {"const": 0},
+    "files": {"type": "array", "minItems": 3, "maxItems": 3, "items": {"type": "object", "additionalProperties": false, "required": ["role", "path", "records", "bytes", "sha256"], "properties": {"role": {"enum": ["employment_episodes", "temporal_paths", "temporal_edges"]}, "path": {"type": "string", "minLength": 1}, "records": {"type": "integer", "minimum": 0}, "bytes": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}},
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

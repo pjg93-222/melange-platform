@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:legacy-artifact-registry:v1",
+  "title": "Staffer network legacy artifact registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "restricted_backup_root", "artifacts", "remediated_surfaces", "producer_controls"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-legacy-artifact-registry-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "restricted_backup_root": {"type": "string", "minLength": 1},
+    "artifacts": {"type": "array", "minItems": 1, "items": {"type": "object", "additionalProperties": false, "required": ["repository_path", "source_system_id", "authority_status", "original_bytes", "original_sha256", "original_offices", "original_rows", "original_email_values", "original_phone_values", "restricted_backup_relative_path", "remediated_bytes", "remediated_sha256", "contact_keys_removed", "remediated_contact_key_count", "canonical_staffer_network_use", "disposition"], "properties": {"repository_path": {"type": "string"}, "source_system_id": {"type": "string"}, "authority_status": {"type": "string"}, "original_bytes": {"type": "integer", "minimum": 0}, "original_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "original_offices": {"type": "integer", "minimum": 0}, "original_rows": {"type": "integer", "minimum": 0}, "original_email_values": {"type": "integer", "minimum": 0}, "original_phone_values": {"type": "integer", "minimum": 0}, "restricted_backup_relative_path": {"type": "string"}, "remediated_bytes": {"type": "integer", "minimum": 0}, "remediated_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "contact_keys_removed": {"type": "integer", "minimum": 0}, "remediated_contact_key_count": {"type": "integer", "minimum": 0}, "canonical_staffer_network_use": {"type": "boolean"}, "disposition": {"type": "string"}}}},
+    "remediated_surfaces": {"type": "array", "items": {"type": "object", "additionalProperties": false, "required": ["repository_path", "restricted_backup_relative_path", "original_bytes", "original_sha256", "remediated_bytes", "remediated_sha256", "contact_keys_removed"], "properties": {"repository_path": {"type": "string"}, "restricted_backup_relative_path": {"type": "string"}, "original_bytes": {"type": "integer", "minimum": 0}, "original_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "remediated_bytes": {"type": "integer", "minimum": 0}, "remediated_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "contact_keys_removed": {"type": "integer", "minimum": 0}}}},
+    "producer_controls": {"type": "array", "minItems": 1, "items": {"type": "string"}}
+  }
+}

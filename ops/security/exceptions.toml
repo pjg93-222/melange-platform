@@ -1,0 +1,167 @@
+# Security-gate exceptions (ops/security_gate.py). In force: the 13 D-176 entries below (gitleaks false positives,
+# expire 2026-11-11); add nothing else without a Paul decision.
+# An exception suppresses only the findings it matches. The gate FAILS if an entry is malformed or expired,
+# if approver is not exactly "Paul", if it expires too far out (HIGH/CRITICAL: 30 days, LOW/MEDIUM: 90 days
+# from today; severity defaults to HIGH, and is HIGH whatever it says for gitleaks, data_leak, denied_names and
+# exact_secrets: a leak is never low severity), if match is only wildcards, or, on local runs, if its decision id is
+# not in the brain's DECISIONS.md. Findings are matched on `match` (a glob) against "<path>" or "<path>: <detail>".
+# Valid stage values: export, packages, farm, deps, static, terrier, images.
+# Valid check values: gitleaks, data_leak, denied_names, exact_secrets, safe_unpack, pip_audit, npm_audit, osv_scanner,
+#                     bandit, semgrep, terrier_check, terrier_no_local_admin, trivy, compose_policy.
+#
+# [[exception]]
+# id = "EX-001"
+# stage = "export"
+# check = "data_leak"
+# match = "fec/config/some_small_reference_table.csv"
+# reason = "Public, 40 KB reference table that ships with the code."
+# approver = "Paul"
+# expires = "2026-11-01"
+# decision = "D-150"
+# severity = "HIGH"   # optional: LOW | MEDIUM | HIGH | CRITICAL
+
+# D-176 (Paul, 2026-10-12): the 53 gitleaks generic-api-key findings of the export gate, one entry per file.
+# Matched on "<path>: gitleaks rule generic-api-key line *": that file and that rule only; any other rule or file still fails.
+
+[[exception]]
+id = "EX-001"
+stage = "export"
+check = "gitleaks"
+match = "fec/district/cook_pvi.py: gitleaks rule generic-api-key line *"
+reason = "INTEGER_FIELDS is a set of column names (line 38), not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-002"
+stage = "export"
+check = "gitleaks"
+match = "fec/engine/compet_reciprocity_look.py: gitleaks rule generic-api-key line *"
+reason = "Line 44 is a filename to sha256 map (a file integrity hash), not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-003"
+stage = "export"
+check = "gitleaks"
+match = "fec/surfaces/templates/make_member_desk_00.tpl: gitleaks rule generic-api-key line *"
+reason = "STFKEY ('mdesk_staffdir_v1', line 666) is the name of a browser localStorage key, not a key value."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-004"
+stage = "export"
+check = "gitleaks"
+match = "fec/tests/surfaces/test_lock_dashboard.py: gitleaks rule generic-api-key line *"
+reason = "PASSWORD (line 19) is a fake constant used only by the dashboard-lock unit test, not a real credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-005"
+stage = "export"
+check = "gitleaks"
+match = "mentat/forecast/contracts/giving-anchors-v1.example.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-006"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_anchors_cycle.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-007"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_cycle_live.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-008"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_f2_live.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-009"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_f2_live_landed.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-010"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_f2_live_p1.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-011"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_rollback_golden.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-012"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_forecast_v2_render.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"
+
+[[exception]]
+id = "EX-013"
+stage = "export"
+check = "gitleaks"
+match = "mentat/tests/fixtures/giving_telecom_cycle.json: gitleaks rule generic-api-key line *"
+reason = "Test fixture or example contract of the giving forecast: every flagged line is an \"index_token\" field holding a 64-hex content hash, not a credential."
+approver = "Paul"
+expires = "2026-11-11"
+decision = "D-176"
+severity = "HIGH"

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-adjudication-decision:v1",
+  "title": "Independent employment person or container adjudication",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "decision_id", "decision_kind", "subject_id", "status",
+    "resolved_person_id", "normalized_container_id", "container_kind",
+    "member_bioguide_id", "organization_id", "reviewer_kind", "reviewer_id",
+    "recorded_at", "rationale", "evidence_observation_ids",
+    "decision_payload_sha256", "supersedes_decision_id"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-adjudication-decision-v1"},
+    "decision_id": {"type": "string", "pattern": "^legistorm:adjudication:[0-9a-f]{64}$"},
+    "decision_kind": {"enum": ["PERSON_IDENTITY", "CONTAINER"]},
+    "subject_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["ACCEPTED", "REJECTED", "AMBIGUOUS", "REVIEW_REQUIRED"]},
+    "resolved_person_id": {"type": ["string", "null"]},
+    "normalized_container_id": {"type": ["string", "null"]},
+    "container_kind": {"type": ["string", "null"], "enum": ["member_office", "committee", "leadership", "admin", "registrant", "client_activity", "other_org", null]},
+    "member_bioguide_id": {"type": ["string", "null"]},
+    "organization_id": {"type": ["string", "null"]},
+    "reviewer_kind": {"enum": ["HUMAN", "MODEL", "RULE", "UNASSIGNED"]},
+    "reviewer_id": {"type": ["string", "null"]},
+    "recorded_at": {"type": "string", "format": "date-time"},
+    "rationale": {"type": "string", "minLength": 1},
+    "evidence_observation_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^legistorm:employment-observation:[0-9a-f]{64}$"}},
+    "decision_payload_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "supersedes_decision_id": {"type": ["string", "null"]}
+  }
+}

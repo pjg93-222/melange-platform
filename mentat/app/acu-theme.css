@@ -1,0 +1,111 @@
+/* America's Credit Unions website palette, inspected 2026-09-08.
+   Local font names are preferred; Georgia/Arial keep the console offline when
+   Freight Text Pro and Articulat CF are not installed. No Adobe/CDN requests. */
+:root{
+  --acu-plum:#342649;
+  --acu-purple:#57447b;
+  --acu-ivory:#f7ede4;
+  --acu-paper:#fcf7f4;
+  --acu-gold:#eca91c;
+  --acu-gold-soft:#eac670;
+  --acu-teal:#327a7a;
+  --acu-aqua:#9ed4d5;
+  --acu-mauve:#8b6984;
+  --acu-lilac:#d6c8e2;
+  --acu-taupe:#bcaea1;
+  --font-sans:"Articulat CF",articulat-cf,Arial,sans-serif;
+  --font-serif:"Freight Text Pro",freight-text-pro,Georgia,serif;
+  --navy:var(--acu-plum);
+  --blue:var(--acu-purple);
+  --teal:var(--acu-teal);
+  --muted:#62596e;
+  --line:#d9d4de;
+  --chart-ink:var(--acu-plum);
+  --chart-grid:#e5e1e8;
+  --chart-negative:#bf3f36;
+  /* Board S1's bar teal (TB-14, reconcile 2026-09-23): the fill of a single
+     series in Chart Studio. Compared scopes keep --scope-1/2/3, and the measure
+     pills keep --acu-teal (white text on #2b9b99 is 3.4:1). */
+  --chart-series-1:#2b9b99;
+  /* The only colours added for the 2026-09-17 UI clean-up: a party pair for
+     the candidate dots, beside the chart colours they sit among. */
+  --party-dem:#3b6db5;
+  --party-rep:#b8433a;
+  /* Console redesign, build 01 (2026-09-22): shell and shared-primitive tokens.
+     The sidebar and card colours are sampled from board M4 (the board wins). */
+  --sidebar-bg:#f3efea;
+  --sidebar-line:#e4e0db;
+  --card-border:#e8e6e5;
+  --card-radius:12px;
+  --card-shadow:0 1px 2px rgba(52,38,73,.04),0 6px 18px rgba(52,38,73,.05);
+  --scope-1:var(--acu-purple);
+  --scope-2:var(--acu-teal);
+  --scope-3:var(--acu-mauve);
+  --tint-shared:rgba(214,200,226,.38);
+  /* The base palette, captured here, so shared chrome keeps it on a view that
+     re-tints --muted and --line for its own content (Graph does). */
+  --base-muted:var(--muted);
+  --base-line:var(--line);
+  font-family:var(--font-sans);
+  color:var(--acu-plum);
+  background:var(--acu-paper);
+}
+body{font-family:var(--font-sans);color:var(--acu-plum)}
+h1,h2{font-family:var(--font-serif);font-weight:400;letter-spacing:-.35px;color:var(--acu-plum)}
+h3{font-family:var(--font-sans);color:var(--acu-plum)}
+.workspace-heading h1{font-family:var(--font-serif);font-weight:400;font-size:34px}
+.graph-panels h2,.sources-drawer h2,.chart-preview h2{font-family:var(--font-serif);font-weight:400;font-size:23px}
+.graph-info{color:var(--acu-purple)}
+.graph-legend-item{color:var(--muted)}
+.wordmark{font-family:var(--font-sans);font-weight:700;color:var(--acu-ivory);letter-spacing:.8px}
+header{background:var(--acu-plum)}
+header .workspace-tabs button{color:var(--acu-ivory)}
+header .workspace-tabs button:hover{background:rgba(247,237,228,.08)}
+header .workspace-tabs button[aria-selected=true]{color:var(--acu-ivory);border-color:var(--acu-gold)}
+.local-indicator,#connection{color:var(--acu-ivory)}
+.analysis-tabs button{color:var(--acu-plum)}
+.analysis-tabs button[aria-selected=true]{color:var(--acu-plum);border-color:var(--acu-gold)}
+.analysis-tabs button:hover{background:var(--acu-ivory)}
+.primary{background:var(--acu-plum);color:var(--acu-ivory)}
+.primary:hover{background:var(--acu-purple)}
+.secondary,.graph-actions .secondary{border-color:#b4a4bd;color:var(--acu-plum);background:white}
+.secondary:hover{border-color:var(--acu-purple);background:#f7f2fa}
+#graph-open-builder{background:var(--acu-gold);border-color:var(--acu-gold);color:var(--acu-plum);font-weight:600}
+#graph-open-builder:hover{background:#f2bb4b}
+.text-link,.report-link,.graph-text-button,.file-import>summary,.remove-company{color:var(--acu-purple)}
+.graph-text-button:hover{color:var(--acu-plum)}
+.graph-filter-grid label,.graph-candidate-controls label,.graph-metrics span,.graph-metrics small,
+#graph-status,.chart-note,#graph-advanced>summary,.source-field{color:var(--muted)}
+.graph-metrics strong{color:var(--acu-plum);font-family:var(--font-sans);font-weight:600}
+.graph-details-tools summary,.source-field>span:last-child{color:var(--acu-plum)}
+.graph-empty{background:var(--acu-paper);color:var(--muted)}
+.graph-bar-button:hover .graph-mark,.graph-bar-button:focus .graph-mark{fill:var(--acu-purple)}
+.graph-bar-button:focus{outline-color:var(--acu-gold)}
+.sources-drawer>p:first-of-type{background:var(--acu-ivory);border-color:var(--line);color:var(--acu-plum)}
+dialog::backdrop{background:rgba(52,38,73,.18)}
+.badge{background:#eee6f3;color:var(--acu-plum)}
+.subtle{background:var(--acu-ivory);color:var(--muted)}
+.company-entry,.chart-filter{background:var(--acu-paper);border-color:var(--line)}
+.upload{background:var(--acu-paper);border-color:#b4a4bd}
+.upload strong,.upload input[type=file]::file-selector-button{color:var(--acu-purple)}
+.loading-grid input[type=text],.loading-grid textarea,input[type=password],select,.chart-controls input{border-color:#c6bab0}
+.metrics{background:var(--acu-plum)}
+.metrics span{color:var(--acu-ivory)}
+.metrics>div{border-color:#786588}
+.progress-track{background:#e9dfea}
+#progress{background:var(--acu-gold)}
+.evidence-cards>div,.allocation-panel{background:var(--acu-paper);border-color:var(--line)}
+.evidence-cards strong{color:var(--acu-plum)}
+.allocation-panel .formula{color:var(--acu-plum);border-color:var(--acu-gold)}
+.allocation-ready{background:#edf5f3;border-color:#8cc3c4}
+.freshness-verified{color:var(--acu-teal)}
+.freshness-unknown,.source-field .freshness-unknown{color:#805c11!important}
+.error{background:#fcf0ed;color:#9b322c;border-color:#dfa49b}
+.quality-panel.reviewed{background:var(--acu-paper);border-color:var(--line)}
+.chart-image:empty{background:repeating-linear-gradient(0deg,var(--acu-paper),var(--acu-paper) 49px,var(--line) 50px)}
+th,code{background:var(--acu-paper)}
+td{border-bottom-color:#eee6df}
+footer{background:var(--acu-ivory);color:var(--muted)}
+:focus-visible{outline:3px solid var(--acu-purple);outline-offset:3px}
+header :focus-visible{outline-color:var(--acu-gold)}
+@media(max-width:500px){.workspace-heading h1{font-size:30px}.graph-panels h2{font-size:21px}}

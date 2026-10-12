@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:politico-adjudication-framework-receipt:v1",
+  "title": "Public-safe receipt for a restricted-local Politico adjudication framework",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version",
+    "source_manifest_sha256", "source_authorization_status", "source_enabled",
+    "source_canonical_use_enabled", "resolution_pilot_receipt_sha256",
+    "review_sample_sha256", "review_sample_count", "allocation_seed_sha256",
+    "root_binding_sha256", "split_seal_sha256", "calibration_count", "holdout_count", "reviewer_ids",
+    "review_assignments", "review_packet_fields", "excluded_machine_fields",
+    "packet_files", "machine_crosswalk_sha256", "allocation_manifest_sha256",
+    "label_record_schema_sha256", "submitted_label_count",
+    "adjudicated_candidate_count", "estimated_precision",
+    "legacy_row_collision_count", "politico_profile_collision_count",
+    "canonical_entity_merges", "auto_merge_enabled", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-politico-adjudication-framework-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["REPORT", "FAIL"]},
+    "method_version": {"type": "string", "minLength": 1},
+    "source_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_authorization_status": {"const": "AUTHORIZED"},
+    "source_enabled": {"type": "boolean"},
+    "source_canonical_use_enabled": {"const": false},
+    "resolution_pilot_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_sample_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_sample_count": {"type": "integer", "minimum": 2},
+    "allocation_seed_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "root_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "split_seal_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "calibration_count": {"type": "integer", "minimum": 1},
+    "holdout_count": {"type": "integer", "minimum": 1},
+    "reviewer_ids": {
+      "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+      "items": {"enum": ["codex-evidence-review", "fable-independent-review"]}
+    },
+    "review_assignments": {"type": "integer", "minimum": 4},
+    "review_packet_fields": {
+      "type": "array", "minItems": 8, "maxItems": 8, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "excluded_machine_fields": {
+      "type": "array", "minItems": 5, "maxItems": 5, "uniqueItems": true,
+      "items": {"enum": [
+        "disposition", "title_match", "office_evidence_available",
+        "office_match", "review_status"
+      ]}
+    },
+    "packet_files": {
+      "type": "array", "minItems": 4, "maxItems": 4,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["reviewer_id", "partition", "records", "sha256"],
+        "properties": {
+          "reviewer_id": {"enum": ["codex-evidence-review", "fable-independent-review"]},
+          "partition": {"enum": ["CALIBRATION", "HOLDOUT"]},
+          "records": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "machine_crosswalk_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "allocation_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "label_record_schema_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "submitted_label_count": {"type": "integer", "minimum": 0},
+    "adjudicated_candidate_count": {"type": "integer", "minimum": 0},
+    "estimated_precision": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "legacy_row_collision_count": {"type": "integer", "minimum": 0},
+    "politico_profile_collision_count": {"type": "integer", "minimum": 0},
+    "canonical_entity_merges": {"type": "integer", "minimum": 0},
+    "auto_merge_enabled": {"type": "boolean"},
+    "failures": {"type": "array", "items": {"type": "string"}}
+  }
+}

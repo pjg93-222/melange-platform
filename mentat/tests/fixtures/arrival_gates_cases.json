@@ -1,0 +1,1070 @@
+{
+ "name": "arrival_gates_cases",
+ "version": 1,
+ "rule": "F12 earliest arrival with one-cycle carryover (Paul approved 2026-09-25, carryover option (b)). gate(root) is its cycle window's first day and all of a root's activity counts; a transfer X->Y dated t opens Y only if t >= gate(X) and X's counted transfers to Y net above zero, and gate(Y) is the earliest such t; a committee's spending counts only on or after its gate; an undated row counts, flagged date_unverified. Carryover: a committee first reached during cycle C-1 (walking from the root's gate at C-1's first day) opens in cycle C at C's first day (gate_source carryover); one first reached during C keeps its arrival date (in-cycle); only cycle-C rows are counted; one cycle back only; 'onward' follows time-respecting C-1 transfers beyond the root, 'direct' only the root's own C-1 recipients; when the root's C-1 unit is not saved the carryover is unknown and the in-cycle rule stands alone.",
+ "format": {
+  "units": "every saved committee/cycle; a committee/cycle not listed is not saved",
+  "transfers": "committee-to-committee cash transfers (24G) the unit made: to, date (YYYY-MM-DD or empty), amount",
+  "spending": "the unit's independent expenditures supporting a candidate: date, amount",
+  "expect.gates": "cycle|committee -> [gate date, gate_source]; roots, carryover and in-cycle",
+  "expect.not_reached": "cycle|committee keys that must not be in the network",
+  "expect.counted_spending": "cycle|committee -> the spending counted downstream of the root",
+  "expect.carryover_status": "known, partial, unknown or off",
+  "expect.missing_units": "cycle|committee previous-cycle units the carryover walk needed and could not read"
+ },
+ "cases": [
+  {
+   "name": "carryover_opens_a_gate",
+   "about": "The root paid Y in the previous cycle, so Y's spending before the root's new money arrives counts.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-03-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000002": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 120
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "no_carryover_without_a_previous_cycle_transfer",
+   "about": "The root's previous cycle is saved but never paid Y: Y opens on its in-cycle arrival.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000003",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000003",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-03-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000002": [
+      "2026-02-09",
+      "in-cycle"
+     ],
+     "2026|C90000003": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 70
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "one_cycle_back_only",
+   "about": "A transfer two cycles back opens nothing.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2022",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2022-05-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-03-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000002": [
+      "2026-02-09",
+      "in-cycle"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 70
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "unknown_when_the_previous_cycle_is_not_saved",
+   "about": "No previous-cycle unit for the root: carryover unknown, the in-cycle rule alone.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-03-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000002": [
+      "2026-02-09",
+      "in-cycle"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 70
+    },
+    "carryover_status": "unknown",
+    "missing_units": [
+     "2024|C90000001"
+    ]
+   }
+  },
+  {
+   "name": "onward_previous_cycle_transfers_open_gates",
+   "about": "Variant (ii), the default: the root paid X in the previous cycle and X then paid Y, so Y's gate opens too.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": []
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000004",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-04-01",
+       "amount": 60
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000004",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-03-01",
+       "amount": 60
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-04-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000004": [
+      "2025-01-01",
+      "carryover"
+     ],
+     "2026|C90000002": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 120
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "direct_variant_opens_only_the_roots_own_recipients",
+   "about": "Variant (i): the same units, but only the root's own previous-cycle recipients open.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "direct",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": []
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000004",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-04-01",
+       "amount": 60
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2026-02-09",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000004",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2026-03-01",
+       "amount": 60
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      },
+      {
+       "date": "2026-04-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000004": [
+      "2025-01-01",
+      "carryover"
+     ],
+     "2026|C90000002": [
+      "2026-03-01",
+      "in-cycle"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 70
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "a_previous_cycle_transfer_before_its_source_was_reached_opens_nothing",
+   "about": "X paid Y in the previous cycle before the root's money reached X: time order holds across the boundary.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2024-06-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000004",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-02-01",
+       "amount": 60
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000004",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-06-01",
+       "amount": 50
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000004": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "not_reached": [
+     "2026|C90000002"
+    ],
+    "counted_spending": {},
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "a_carried_over_committee_needs_no_new_money",
+   "about": "Y got the root's money only in the previous cycle; its spending in this cycle is carried cash and counts.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000002",
+     "spending": [
+      {
+       "date": "2025-03-01",
+       "amount": 40
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000002": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000002": 40
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "partial_when_a_reached_previous_cycle_unit_is_not_saved",
+   "about": "The root paid X in the previous cycle but X's previous-cycle snapshot is not saved: X still opens, and the carryover is partial.",
+   "root": {
+    "cycle": "2026",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000004",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000001",
+     "transfers": []
+    },
+    {
+     "cycle": "2026",
+     "committee": "C90000004",
+     "spending": [
+      {
+       "date": "2025-02-01",
+       "amount": 10
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2026|C90000001": [
+      "2025-01-01",
+      "root"
+     ],
+     "2026|C90000004": [
+      "2025-01-01",
+      "carryover"
+     ]
+    },
+    "counted_spending": {
+     "2026|C90000004": 10
+    },
+    "carryover_status": "partial",
+    "missing_units": [
+     "2024|C90000004"
+    ]
+   }
+  },
+  {
+   "name": "date_impossible_branch_is_left_out",
+   "about": "The in-cycle rule (SLF 2024): CA's only onward payment predates the root's money reaching CA.",
+   "root": {
+    "cycle": "2024",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000005",
+       "date": "2023-12-04",
+       "amount": 895000
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000005",
+     "transfers": [
+      {
+       "to": "C90000006",
+       "date": "2023-02-08",
+       "amount": 41727.99
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000006",
+     "spending": [
+      {
+       "date": "2024-04-01",
+       "amount": 700000
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2024|C90000001": [
+      "2023-01-01",
+      "root"
+     ],
+     "2024|C90000005": [
+      "2023-12-04",
+      "in-cycle"
+     ]
+    },
+    "not_reached": [
+     "2024|C90000006"
+    ],
+    "counted_spending": {},
+    "carryover_status": "unknown",
+    "missing_units": [
+     "2022|C90000001"
+    ]
+   }
+  },
+  {
+   "name": "a_chain_in_date_order_is_unchanged",
+   "about": "The earliest of several transfers opens the gate; spending after it counts.",
+   "root": {
+    "cycle": "2024",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-01-10",
+       "amount": 60
+      },
+      {
+       "to": "C90000002",
+       "date": "2024-05-01",
+       "amount": 40
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": [
+      {
+       "to": "C90000003",
+       "date": "2024-03-01",
+       "amount": 10
+      }
+     ],
+     "spending": [
+      {
+       "date": "2024-02-01",
+       "amount": 80
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000003",
+     "spending": [
+      {
+       "date": "2024-04-01",
+       "amount": 10
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2024|C90000001": [
+      "2023-01-01",
+      "root"
+     ],
+     "2024|C90000002": [
+      "2024-01-10",
+      "in-cycle"
+     ],
+     "2024|C90000003": [
+      "2024-03-01",
+      "in-cycle"
+     ]
+    },
+    "counted_spending": {
+     "2024|C90000002": 80,
+     "2024|C90000003": 10
+    },
+    "carryover_status": "unknown",
+    "missing_units": [
+     "2022|C90000001"
+    ]
+   }
+  },
+  {
+   "name": "an_undated_row_counts",
+   "about": "D-040: an undated spending row counts; an undated transfer opens its destination at its source's gate.",
+   "root": {
+    "cycle": "2024",
+    "committee": "C90000001"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2024",
+     "committee": "C90000001",
+     "transfers": [
+      {
+       "to": "C90000002",
+       "date": "2024-03-01",
+       "amount": 100
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000002",
+     "transfers": [
+      {
+       "to": "C90000003",
+       "date": "",
+       "amount": 20
+      }
+     ],
+     "spending": [
+      {
+       "date": "",
+       "amount": 40
+      },
+      {
+       "date": "2024-01-01",
+       "amount": 10
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000003",
+     "spending": [
+      {
+       "date": "2024-01-05",
+       "amount": 20
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2024|C90000001": [
+      "2023-01-01",
+      "root"
+     ],
+     "2024|C90000002": [
+      "2024-03-01",
+      "in-cycle"
+     ],
+     "2024|C90000003": [
+      "2024-03-01",
+      "in-cycle"
+     ]
+    },
+    "counted_spending": {
+     "2024|C90000002": 40
+    },
+    "carryover_status": "unknown",
+    "missing_units": [
+     "2022|C90000001"
+    ]
+   }
+  },
+  {
+   "name": "company_view_first_company_opens_the_shared_committee",
+   "about": "F15, company A's own view: two companies' PACs pay one shared committee S (C90000013). A's money reaches S on 2023-02-01, so S's spending counts from then and S's 2023-06-01 payment opens T (C90000014). Company B's PAC is not in A's view.",
+   "root": {
+    "cycle": "2024",
+    "committee": "C90000011"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2022",
+     "committee": "C90000011",
+     "transfers": []
+    },
+    {
+     "cycle": "2022",
+     "committee": "C90000012",
+     "transfers": []
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000011",
+     "transfers": [
+      {
+       "to": "C90000013",
+       "date": "2023-02-01",
+       "amount": 1000
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000012",
+     "transfers": [
+      {
+       "to": "C90000013",
+       "date": "2024-04-01",
+       "amount": 500
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000013",
+     "transfers": [
+      {
+       "to": "C90000014",
+       "date": "2023-06-01",
+       "amount": 300
+      }
+     ],
+     "spending": [
+      {
+       "date": "2023-03-01",
+       "amount": 100
+      },
+      {
+       "date": "2024-05-01",
+       "amount": 50
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000014",
+     "spending": [
+      {
+       "date": "2023-07-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2024|C90000011": [
+      "2023-01-01",
+      "root"
+     ],
+     "2024|C90000013": [
+      "2023-02-01",
+      "in-cycle"
+     ],
+     "2024|C90000014": [
+      "2023-06-01",
+      "in-cycle"
+     ]
+    },
+    "not_reached": [
+     "2024|C90000012"
+    ],
+    "counted_spending": {
+     "2024|C90000013": 150,
+     "2024|C90000014": 70
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  },
+  {
+   "name": "company_view_second_company_counts_the_shared_committee_from_its_own_arrival",
+   "about": "F15, company B's own view of the same committees: B's money reaches S only on 2024-04-01, so S counts from then (50, not 150) and S's 2023-06-01 payment to T predates B's money at S: T is not in B's view. Gates from both companies' roots (the industry view) would count 150 and reach T.",
+   "root": {
+    "cycle": "2024",
+    "committee": "C90000012"
+   },
+   "carryover": "onward",
+   "units": [
+    {
+     "cycle": "2022",
+     "committee": "C90000011",
+     "transfers": []
+    },
+    {
+     "cycle": "2022",
+     "committee": "C90000012",
+     "transfers": []
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000011",
+     "transfers": [
+      {
+       "to": "C90000013",
+       "date": "2023-02-01",
+       "amount": 1000
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000012",
+     "transfers": [
+      {
+       "to": "C90000013",
+       "date": "2024-04-01",
+       "amount": 500
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000013",
+     "transfers": [
+      {
+       "to": "C90000014",
+       "date": "2023-06-01",
+       "amount": 300
+      }
+     ],
+     "spending": [
+      {
+       "date": "2023-03-01",
+       "amount": 100
+      },
+      {
+       "date": "2024-05-01",
+       "amount": 50
+      }
+     ]
+    },
+    {
+     "cycle": "2024",
+     "committee": "C90000014",
+     "spending": [
+      {
+       "date": "2023-07-01",
+       "amount": 70
+      }
+     ]
+    }
+   ],
+   "expect": {
+    "gates": {
+     "2024|C90000012": [
+      "2023-01-01",
+      "root"
+     ],
+     "2024|C90000013": [
+      "2024-04-01",
+      "in-cycle"
+     ]
+    },
+    "not_reached": [
+     "2024|C90000011",
+     "2024|C90000014"
+    ],
+    "counted_spending": {
+     "2024|C90000013": 50
+    },
+    "carryover_status": "known",
+    "missing_units": []
+   }
+  }
+ ]
+}

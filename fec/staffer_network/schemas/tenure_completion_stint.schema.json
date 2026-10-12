@@ -1,0 +1,1077 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:tenure-completion-stint:v1",
+  "title": "Tenure-completion sweep stint row",
+  "description": "One row per OFFICE-STINT, never a merged career. The unit is a stint because employment is a sequence of stints and the declaration-anchored tiers (D1/E1) search only inside the office the filer declared, so they are structurally incapable of finding a stint anywhere else. This sweep inverts the search for the 824 already-confirmed people: the resolved payroll person key, not the declaration, defines the office set. Every stint carries its own adjudication and the discriminators that produced it as fields, not prose. tenure_class DECLARED_OFFICE is the confirmed stint that the D1/E1 tier already holds; the three UNDECLARED_* classes are stints in offices the filer never declared. Only DECLARED_OFFICE and UNDECLARED_SAME_PERSON_LIKELY contribute to a person's tenure total; NAMESAKE and UNDECIDABLE stints are emitted and counted but excluded from every total, because merging on name alone would have inflated the yield. Nothing here is promoted and nothing here is an identity finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "rule_version",
+    "method_version",
+    "run_id",
+    "generation_id",
+    "phase",
+    "match_rule",
+    "stint_id",
+    "lda_source_person_id",
+    "display_name",
+    "source_tier",
+    "source_evidence_tier",
+    "scope",
+    "payroll_identity_key",
+    "resolved_payroll_person_key",
+    "declared_office_key",
+    "declared_office_texts",
+    "corpus",
+    "office_key",
+    "office_raw_examples",
+    "office_container_kind",
+    "office_member_bioguide",
+    "is_declared_office",
+    "observation_rows",
+    "pay_periods",
+    "period_first",
+    "period_last",
+    "period_intervals",
+    "observation_rows_without_dates",
+    "date_precision",
+    "date_basis_counts",
+    "date_quality_flags",
+    "corpus_window",
+    "titles",
+    "payee_raw_examples",
+    "amount_examples",
+    "middle_initials_observed",
+    "tenure_class",
+    "contributes_to_tenure_total",
+    "discriminators",
+    "sensitivity_classes",
+    "tenure_summary",
+    "tenure_completeness_band",
+    "review_status",
+    "canonical_eligible",
+    "canonical_employment_promoted",
+    "canonical_identity_decision",
+    "canonical_identity_promoted",
+    "status_is_a_label_not_a_promotion"
+  ],
+  "properties": {
+    "schema_id": {
+      "const": "staffer-network-tenure-completion-stint-v1"
+    },
+    "rule_version": {
+      "const": "tenure-completion-sweep-v1"
+    },
+    "method_version": {
+      "const": "tenure-completion-sweep-v1"
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "generation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "phase": {
+      "const": "build-tenure-completion-sweep"
+    },
+    "match_rule": {
+      "const": "COMPAT_SURNAME_AND_GIVEN_EQUAL_MIDDLE_INITIAL_EQUAL_OR_ONE_BLANK",
+      "description": "The headline match rule. STRICT (all three equal) and LOOSE (middle initial ignored) are computed as sensitivity arms and reported in the receipt, not emitted as rows. Moving LOOSE to COMPAT is discriminator M -- the middle initial -- and it is spent before the namesake test begins."
+    },
+    "stint_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "lda_source_person_id | corpus | office_key. Unique across the generation."
+    },
+    "lda_source_person_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "source_tier": {
+      "enum": [
+        "D1",
+        "E1",
+        "E1R"
+      ],
+      "description": "Which confirmed-population file this person came from: D1 declaration-directed links, E1 declaration-widened links, E1R declaration-directed recovered links."
+    },
+    "source_evidence_tier": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": [
+        "house_member",
+        "house_nonmember",
+        "senate"
+      ]
+    },
+    "payroll_identity_key": {
+      "type": "string",
+      "minLength": 1,
+      "description": "SURNAME|GIVEN|MIDDLE_INITIAL parsed from the confirmed row's resolved payroll person key. This, not the LDA display name, is what the sweep searches on."
+    },
+    "resolved_payroll_person_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "declared_office_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "declared_office_texts": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "corpus": {
+      "enum": [
+        "HOUSE",
+        "SENATE",
+        "SENCOM"
+      ],
+      "description": "HOUSE = House personnel ledger v3; SENATE = official Senate payroll employment scope v1; SENCOM = the Senate committee payroll corpus, which no prior search in this lane saw."
+    },
+    "office_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "office_raw_examples": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "office_container_kind": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "office_member_bioguide": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "is_declared_office": {
+      "type": "boolean"
+    },
+    "observation_rows": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "pay_periods": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Distinct quarters for HOUSE; distinct (report_period_start, report_period_end) pairs for SENATE and SENCOM."
+    },
+    "period_first": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "period_last": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "period_intervals": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Every distinct dated interval in this stint, endpoints INCLUSIVE. Not truncated: the temporal test is interval-level, so a truncated list would silently change the adjudication.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date"
+          },
+          "end": {
+            "type": "string",
+            "format": "date"
+          }
+        }
+      }
+    },
+    "observation_rows_without_dates": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Observation rows in this stint that carried no usable start/end pair and therefore contribute nothing to the interval-level temporal test. A stint can hold pay periods and still be partly undated."
+    },
+    "date_precision": {
+      "enum": [
+        "DAY",
+        "QUARTER",
+        "SEMIANNUAL",
+        "SEMIANNUAL_QUALIFIER_NARROWED",
+        "MIXED",
+        "NONE"
+      ],
+      "description": "The grain of this stint's dates, measured from the rows themselves. DAY: House SOD rows, which carry an explicit service_start/service_end pair (100.00% of the 975,058 House ledger rows do). QUARTER: a House row with no service span, dated only to its reporting quarter. SEMIANNUAL: a Senate or Senate-committee row dated only to its half-year report period (REPORT_PERIOD_ONLY -- 151,780 of 233,009 Senate rows and 21,646 of 34,864 Senate-committee rows). SEMIANNUAL_QUALIFIER_NARROWED: a Senate or Senate-committee row whose title qualifier ('TO JUL. 8') narrows the half-year period to a shorter span. MIXED: more than one grain inside the same stint. A pay-period total that adds DAY-grain House stints to SEMIANNUAL-grain Senate stints is mixing grains; tenure_summary carries the mix so that is stated rather than implied."
+    },
+    "date_basis_counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Observation rows by the field that supplied their dates. Basis names follow the vocabulary the corpora themselves emit.",
+      "required": [
+        "HOUSE_SOD_SERVICE_SPAN",
+        "HOUSE_SOD_QUARTER_ENVELOPE",
+        "SENATE_REPORT_PERIOD_ONLY",
+        "SENATE_ROW_QUALIFIER_NARROWED",
+        "SENATE_QUALIFIER_REVIEW_REQUIRED",
+        "NO_DATES"
+      ],
+      "properties": {
+        "HOUSE_SOD_SERVICE_SPAN": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "HOUSE_SOD_QUARTER_ENVELOPE": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "SENATE_REPORT_PERIOD_ONLY": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "SENATE_ROW_QUALIFIER_NARROWED": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "SENATE_QUALIFIER_REVIEW_REQUIRED": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "COMPLEX_QUALIFIER_REVIEW_REQUIRED or INVALID_OR_REVERSED_QUALIFIER_RANGE_REVIEW_REQUIRED. The corpus itself says these dates are not settled."
+        },
+        "NO_DATES": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "date_quality_flags": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Dates we hold but should not trust uncritically. Every count is over this stint's own observation rows.",
+      "required": [
+        "house_interval_within_quarter",
+        "house_interval_straddles_quarter_edge",
+        "house_interval_entirely_before_quarter",
+        "house_interval_end_before_start",
+        "rows_with_a_second_interval_not_used",
+        "rows_with_an_unusable_interval"
+      ],
+      "properties": {
+        "house_interval_within_quarter": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "house_interval_straddles_quarter_edge": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The service span crosses its own reporting quarter's edge. 30,478 of 975,058 House rows (3.13%) do."
+        },
+        "house_interval_entirely_before_quarter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The service span lies wholly outside -- before -- the quarter that reported it. 17,446 of 975,058 House rows (1.79%) do. These are the rows that push the raw House service-span range out to 2004-10-01..2033-10-31 against a reporting window of 2009Q3..2026Q1."
+        },
+        "house_interval_end_before_start": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Reversed span. 33 of 975,058 House rows. Excluded from the interval-level temporal test."
+        },
+        "rows_with_a_second_interval_not_used": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Senate and Senate-committee rows carrying more than one date interval, of which only the first is read. 1,163 of 233,009 Senate rows and 377 of 34,864 Senate-committee rows do. A known and deliberate conservatism, carried forward from the measurement run so the yield stays comparable."
+        },
+        "rows_with_an_unusable_interval": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "corpus_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Where this stint sits inside the observable window of its own corpus. A span that runs to a corpus edge is the span most likely to be truncated by the corpus rather than by the person leaving the job, and a reader who takes period_last as a departure date will be wrong about exactly those. The window is MEASURED from the corpus on this run, not assumed.",
+      "required": [
+        "corpus_window_start",
+        "corpus_window_end",
+        "boundary_tolerance_days",
+        "days_from_window_start",
+        "days_to_window_end",
+        "touches_window_start",
+        "touches_window_end",
+        "censoring_risk"
+      ],
+      "properties": {
+        "corpus_window_start": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "corpus_window_end": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "boundary_tolerance_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "One reporting period of the stint's corpus: 92 days for House quarters, 184 for Senate and Senate-committee half-year periods."
+        },
+        "days_from_window_start": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "days_to_window_end": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "touches_window_start": {
+          "type": "boolean"
+        },
+        "touches_window_end": {
+          "type": "boolean"
+        },
+        "censoring_risk": {
+          "enum": [
+            "NONE",
+            "LEFT_TRUNCATION_RISK",
+            "RIGHT_TRUNCATION_RISK",
+            "BOTH",
+            "UNKNOWN"
+          ],
+          "description": "LEFT_TRUNCATION_RISK: the stint begins within one reporting period of the corpus's earliest observable date, so service before the corpus starts is invisible. RIGHT_TRUNCATION_RISK: the stint ends within one reporting period of the corpus's latest observable date, so period_last is a corpus edge and not evidence of a departure. UNKNOWN: the stint has no usable dates."
+        }
+      }
+    },
+    "titles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "payee_raw_examples": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "amount_examples": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "description": "Display only. No discriminator reads an amount."
+    },
+    "middle_initials_observed": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "tenure_class": {
+      "enum": [
+        "DECLARED_OFFICE",
+        "UNDECLARED_SAME_PERSON_LIKELY",
+        "UNDECLARED_NAMESAKE_LIKELY",
+        "UNDECLARED_UNDECIDABLE"
+      ]
+    },
+    "contributes_to_tenure_total": {
+      "type": "boolean"
+    },
+    "discriminators": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "interval_relation",
+        "interval_comparison_basis",
+        "interval_containment",
+        "gap_days",
+        "overlap_days",
+        "title_progression",
+        "confirmed_seniority_rank",
+        "stint_seniority_rank",
+        "shared_titles",
+        "distinctive_shared_titles",
+        "office_relatedness",
+        "middle_initial_consistency",
+        "payee_signature_match",
+        "shared_employee_flag",
+        "shared_employee_flag_admissible",
+        "shared_employee_flag_inadmissible_reason",
+        "corroborators",
+        "admissible_corroborators",
+        "payroll_identities_sharing_first_last",
+        "payroll_people_sharing_surname",
+        "decision_reasons"
+      ],
+      "properties": {
+        "interval_relation": {
+          "enum": [
+            "SELF_DECLARED_STINT",
+            "ABUTS",
+            "SEQUENTIAL_GAP",
+            "TRANSITION_OVERLAP",
+            "SHORT_OVERLAP",
+            "SIMULTANEOUS",
+            "DISTANT",
+            "UNKNOWN"
+          ],
+          "description": "Relation of this stint to the confirmed (declared-office) stint, computed between actual pay-period intervals. ABUTS: gap <= 45 days. SEQUENTIAL_GAP: gap <= 730 days. TRANSITION_OVERLAP: 1..45 overlapping days. SHORT_OVERLAP: 46..90. SIMULTANEOUS: > 90. DISTANT: gap > 730 days. SELF_DECLARED_STINT is the confirmed stint itself."
+        },
+        "interval_comparison_basis": {
+          "const": "INTERVAL_LEVEL_NOT_ENVELOPE_LEVEL",
+          "description": "Comparing career ENVELOPES made every stint inside a long tenure read as simultaneous. Comparing actual pay-period intervals is the corrected basis; it moved the SIMULTANEOUS class from 141 to 78 on the measurement run."
+        },
+        "interval_containment": {
+          "enum": [
+            "CONTAINED_IN_CONFIRMED_ENVELOPE",
+            "NOT_CONTAINED",
+            "NOT_APPLICABLE"
+          ],
+          "description": "Reported because it is the exact signal the superseded envelope-level comparison mistook for simultaneity. It is emitted for audit and is NOT an input to the class."
+        },
+        "gap_days": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "overlap_days": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "title_progression": {
+          "enum": [
+            "MONOTONE",
+            "MILD_REGRESSION",
+            "REGRESSION",
+            "UNKNOWN",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "confirmed_seniority_rank": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 6
+        },
+        "stint_seniority_rank": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 6
+        },
+        "shared_titles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "distinctive_shared_titles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "Shared titles after removing the generic Hill title vocabulary. A generic title reproduced across two offices is not evidence of identity."
+        },
+        "office_relatedness": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "SAME_MEMBER",
+              "PERSONAL_VS_INSTITUTIONAL",
+              "COMMITTEE_FAMILY_TOKEN_OVERLAP",
+              "SAME_OFFICE_DIFFERENT_KEY",
+              "CROSS_CORPUS_SAME_OFFICE_TOKENS"
+            ]
+          }
+        },
+        "middle_initial_consistency": {
+          "enum": [
+            "EQUAL",
+            "ONE_BLANK",
+            "BOTH_BLANK",
+            "MIXED",
+            "CONFLICT",
+            "NOT_APPLICABLE"
+          ]
+        },
+        "payee_signature_match": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          },
+          "description": "An unusual raw payee spelling -- a spelled-out middle name rather than a bare initial -- reproduced in both offices."
+        },
+        "shared_employee_flag": {
+          "type": "boolean"
+        },
+        "shared_employee_flag_admissible": {
+          "type": "boolean",
+          "description": "False whenever interval_relation is DISTANT. The House shared-employee flag explains SIMULTANEITY, not a gap of years, so it is inadmissible as identity evidence across a distance. Enforcing this removed 117 spurious same-person calls on the measurement run."
+        },
+        "shared_employee_flag_inadmissible_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "corroborators": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "DISTINCTIVE_PAYEE_STRING_REPRODUCED",
+              "DISTINCTIVE_TITLE_REPRODUCED",
+              "SAME_MEMBER_OR_OFFICE",
+              "SHARED_EMPLOYEE_FLAG"
+            ]
+          }
+        },
+        "admissible_corroborators": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "DISTINCTIVE_PAYEE_STRING_REPRODUCED",
+              "DISTINCTIVE_TITLE_REPRODUCED",
+              "SAME_MEMBER_OR_OFFICE",
+              "SHARED_EMPLOYEE_FLAG"
+            ]
+          }
+        },
+        "payroll_identities_sharing_first_last": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "payroll_people_sharing_surname": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "decision_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "sensitivity_classes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "floor",
+        "published",
+        "permissive",
+        "harshest"
+      ],
+      "description": "This stint's class under each band variant, so the population band is re-derivable row by row rather than asserted.",
+      "properties": {
+        "floor": {
+          "enum": [
+            "DECLARED_OFFICE",
+            "UNDECLARED_SAME_PERSON_LIKELY",
+            "UNDECLARED_NAMESAKE_LIKELY",
+            "UNDECLARED_UNDECIDABLE"
+          ]
+        },
+        "published": {
+          "enum": [
+            "DECLARED_OFFICE",
+            "UNDECLARED_SAME_PERSON_LIKELY",
+            "UNDECLARED_NAMESAKE_LIKELY",
+            "UNDECLARED_UNDECIDABLE"
+          ]
+        },
+        "permissive": {
+          "enum": [
+            "DECLARED_OFFICE",
+            "UNDECLARED_SAME_PERSON_LIKELY",
+            "UNDECLARED_NAMESAKE_LIKELY",
+            "UNDECLARED_UNDECIDABLE"
+          ]
+        },
+        "harshest": {
+          "enum": [
+            "DECLARED_OFFICE",
+            "UNDECLARED_SAME_PERSON_LIKELY",
+            "UNDECLARED_NAMESAKE_LIKELY",
+            "UNDECLARED_UNDECIDABLE"
+          ]
+        }
+      }
+    },
+    "tenure_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The person-level tenure position, repeated on every stint of that person so a stint row is self-contained. Only DECLARED_OFFICE and UNDECLARED_SAME_PERSON_LIKELY periods enter the totals.",
+      "required": [
+        "declared_pay_periods",
+        "added_pay_periods",
+        "total_pay_periods",
+        "added_share_of_declared_pct",
+        "added_share_of_total_pct",
+        "declared_stints",
+        "added_stints",
+        "namesake_stints",
+        "undecidable_stints",
+        "excluded_pay_periods_namesake",
+        "excluded_pay_periods_undecidable",
+        "declared_pay_periods_by_precision",
+        "added_pay_periods_by_precision",
+        "tenure_total_mixes_date_precision",
+        "declared_stints_touching_a_corpus_boundary",
+        "added_stints_touching_a_corpus_boundary"
+      ],
+      "properties": {
+        "declared_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "added_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "total_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "added_share_of_declared_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "added_share_of_total_pct": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "declared_stints": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "added_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "namesake_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "undecidable_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded_pay_periods_namesake": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "excluded_pay_periods_undecidable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "declared_pay_periods_by_precision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "DAY",
+            "QUARTER",
+            "SEMIANNUAL",
+            "SEMIANNUAL_QUALIFIER_NARROWED",
+            "MIXED",
+            "NONE"
+          ],
+          "properties": {
+            "DAY": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "QUARTER": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "SEMIANNUAL": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "SEMIANNUAL_QUALIFIER_NARROWED": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "MIXED": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "NONE": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "description": "Pay periods in this person's DECLARED_OFFICE stints, by date grain."
+        },
+        "added_pay_periods_by_precision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "DAY",
+            "QUARTER",
+            "SEMIANNUAL",
+            "SEMIANNUAL_QUALIFIER_NARROWED",
+            "MIXED",
+            "NONE"
+          ],
+          "properties": {
+            "DAY": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "QUARTER": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "SEMIANNUAL": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "SEMIANNUAL_QUALIFIER_NARROWED": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "MIXED": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "NONE": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "description": "Pay periods in this person's UNDECLARED_SAME_PERSON_LIKELY stints, by date grain. Reported separately from the declared side because the added tenure leans harder on the Senate and Senate-committee corpora, whose grain is coarser."
+        },
+        "tenure_total_mixes_date_precision": {
+          "type": "boolean",
+          "description": "True when total_pay_periods sums pay periods of more than one date grain. The total is still a count of pay periods; it is not a count of days and must never be read as one."
+        },
+        "declared_stints_touching_a_corpus_boundary": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "added_stints_touching_a_corpus_boundary": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "tenure_completeness_band": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The point estimate is not the whole truth. The DISTANT rule -- no temporal adjacency between the confirmed stint and this one -- is the softest call in the test, and real staffers do leave and return. This block carries the person's added tenure as an explicit interval under a floor variant and a permissive variant alongside the published point.",
+      "required": [
+        "basis",
+        "floor_added_stints",
+        "point_added_stints",
+        "ceiling_added_stints",
+        "floor_added_pay_periods",
+        "point_added_pay_periods",
+        "ceiling_added_pay_periods",
+        "floor_total_pay_periods",
+        "point_total_pay_periods",
+        "ceiling_total_pay_periods",
+        "variant_definitions"
+      ],
+      "properties": {
+        "basis": {
+          "const": "DISTANT_RULE_SENSITIVITY_FLOOR_TO_PERMISSIVE"
+        },
+        "floor_added_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "point_added_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ceiling_added_stints": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "floor_added_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "point_added_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ceiling_added_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "floor_total_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "point_total_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ceiling_total_pay_periods": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "variant_definitions": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "floor",
+            "published",
+            "permissive",
+            "harshest"
+          ],
+          "properties": {
+            "floor": {
+              "type": "string",
+              "minLength": 1
+            },
+            "published": {
+              "type": "string",
+              "minLength": 1
+            },
+            "permissive": {
+              "type": "string",
+              "minLength": 1
+            },
+            "harshest": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      }
+    },
+    "review_status": {
+      "const": "REVIEW_REQUIRED"
+    },
+    "canonical_eligible": {
+      "const": false
+    },
+    "canonical_employment_promoted": {
+      "const": false
+    },
+    "canonical_identity_decision": {
+      "const": "NOT_ADJUDICATED"
+    },
+    "canonical_identity_promoted": {
+      "const": false
+    },
+    "status_is_a_label_not_a_promotion": {
+      "const": true
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "tenure_class": {
+            "const": "DECLARED_OFFICE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "is_declared_office": {
+            "const": true
+          },
+          "contributes_to_tenure_total": {
+            "const": true
+          },
+          "discriminators": {
+            "properties": {
+              "interval_relation": {
+                "const": "SELF_DECLARED_STINT"
+              },
+              "interval_containment": {
+                "const": "NOT_APPLICABLE"
+              },
+              "title_progression": {
+                "const": "NOT_APPLICABLE"
+              },
+              "middle_initial_consistency": {
+                "const": "NOT_APPLICABLE"
+              }
+            }
+          },
+          "sensitivity_classes": {
+            "properties": {
+              "floor": {
+                "const": "DECLARED_OFFICE"
+              },
+              "published": {
+                "const": "DECLARED_OFFICE"
+              },
+              "permissive": {
+                "const": "DECLARED_OFFICE"
+              },
+              "harshest": {
+                "const": "DECLARED_OFFICE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tenure_class": {
+            "const": "UNDECLARED_SAME_PERSON_LIKELY"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "is_declared_office": {
+            "const": false
+          },
+          "contributes_to_tenure_total": {
+            "const": true
+          },
+          "sensitivity_classes": {
+            "properties": {
+              "published": {
+                "const": "UNDECLARED_SAME_PERSON_LIKELY"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tenure_class": {
+            "const": "UNDECLARED_NAMESAKE_LIKELY"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "is_declared_office": {
+            "const": false
+          },
+          "contributes_to_tenure_total": {
+            "const": false
+          },
+          "sensitivity_classes": {
+            "properties": {
+              "published": {
+                "const": "UNDECLARED_NAMESAKE_LIKELY"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tenure_class": {
+            "const": "UNDECLARED_UNDECIDABLE"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "is_declared_office": {
+            "const": false
+          },
+          "contributes_to_tenure_total": {
+            "const": false
+          },
+          "sensitivity_classes": {
+            "properties": {
+              "published": {
+                "const": "UNDECLARED_UNDECIDABLE"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "discriminators": {
+            "properties": {
+              "interval_relation": {
+                "const": "DISTANT"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "discriminators": {
+            "properties": {
+              "shared_employee_flag_admissible": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

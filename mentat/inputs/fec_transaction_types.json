@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "verified": false,
+  "source": "FEC transaction type code descriptions (fec.gov, Campaign finance data: transaction type codes). Set verified to true after checking this file against the commission's current table.",
+  "ruling": "2026-09-17, Fable after /ecc:council. Unlisted codes, memo codes, memo-flagged rows and 24/48-hour notice reports stay visible and out of totals. Form 7 communication costs (24F/24N) are a corporation's or union's own spending, not the PAC's, and stay unsupported. The 20-series (loan repayments, Levin) are not refunds and stay unsupported. Amended filings are not de-duplicated yet.",
+  "codes": {
+    "10": {
+      "kind": "receipt",
+      "label": "Contribution to a Super PAC, hybrid PAC or non-federal account from an individual, partnership or LLC"
+    },
+    "11": {
+      "kind": "receipt",
+      "label": "Tribal contribution"
+    },
+    "12": {
+      "kind": "receipt",
+      "label": "Transfer from an affiliated committee"
+    },
+    "15": {
+      "kind": "receipt",
+      "label": "Contribution from an individual, partnership or LLC"
+    },
+    "15C": {
+      "kind": "receipt",
+      "label": "Contribution from the candidate"
+    },
+    "15E": {
+      "kind": "receipt",
+      "label": "Earmarked contribution from an individual, partnership or LLC"
+    },
+    "15Z": {
+      "kind": "receipt",
+      "label": "In-kind contribution received from a registered filer"
+    },
+    "18G": {
+      "kind": "receipt",
+      "label": "Transfer in from an affiliated committee"
+    },
+    "18K": {
+      "kind": "receipt",
+      "label": "Contribution received from a registered filer (PAC to PAC)"
+    },
+    "18U": {
+      "kind": "receipt",
+      "label": "Contribution received from an unregistered committee"
+    },
+    "19": {
+      "kind": "receipt",
+      "label": "Electioneering communication donation received"
+    },
+    "30": {
+      "kind": "receipt",
+      "label": "Convention account receipt"
+    },
+    "31": {
+      "kind": "receipt",
+      "label": "Headquarters account receipt"
+    },
+    "32": {
+      "kind": "receipt",
+      "label": "Recount account receipt"
+    },
+    "22Y": {
+      "kind": "disbursement",
+      "label": "Contribution refund to an individual, partnership or LLC"
+    },
+    "22Z": {
+      "kind": "disbursement",
+      "label": "Contribution refund to a registered filer"
+    },
+    "23Y": {
+      "kind": "disbursement",
+      "label": "Contribution refund to an unregistered committee"
+    },
+    "24C": {
+      "kind": "disbursement",
+      "label": "Coordinated party expenditure"
+    },
+    "24G": {
+      "kind": "disbursement",
+      "label": "Transfer out to an affiliated committee"
+    },
+    "24K": {
+      "kind": "disbursement",
+      "label": "Contribution made to a non-affiliated committee"
+    },
+    "24P": {
+      "kind": "disbursement",
+      "label": "Contribution made to a possible federal candidate, including in-kind"
+    },
+    "24R": {
+      "kind": "disbursement",
+      "label": "Election recount disbursement"
+    },
+    "24U": {
+      "kind": "disbursement",
+      "label": "Contribution made to an unregistered committee"
+    },
+    "24Z": {
+      "kind": "disbursement",
+      "label": "In-kind contribution made to a registered filer"
+    },
+    "28L": {
+      "kind": "disbursement",
+      "label": "Refund of a bundled contribution"
+    },
+    "29": {
+      "kind": "disbursement",
+      "label": "Electioneering communication disbursement"
+    },
+    "24E": {
+      "kind": "independent_spending",
+      "direction": "Support",
+      "label": "Independent expenditure advocating the election of a candidate"
+    },
+    "24A": {
+      "kind": "independent_spending",
+      "direction": "Oppose",
+      "label": "Independent expenditure opposing the election of a candidate"
+    }
+  },
+  "excluded_by_ruling": {
+    "24F": "Form 7 communication cost for a candidate: the corporation's or union's own spending, not the PAC's",
+    "24N": "Form 7 communication cost against a candidate: the corporation's or union's own spending, not the PAC's",
+    "15J": "Memo: recipient committee's share of a joint fundraising contribution",
+    "20A": "Levin non-federal disbursement",
+    "20B": "Loan repayment to a bank",
+    "20C": "Loan repayment to the candidate",
+    "20F": "Loan repayment to a candidate",
+    "20G": "Loan repayment to an individual",
+    "20R": "Loan repayment to a registered filer",
+    "20V": "Loan repayment to a vendor"
+  },
+  "memo_codes": [
+    "10J",
+    "11J",
+    "15J",
+    "18J",
+    "19J",
+    "30J",
+    "31J",
+    "32J"
+  ],
+  "notice_report_types": [
+    "24",
+    "48"
+  ]
+}

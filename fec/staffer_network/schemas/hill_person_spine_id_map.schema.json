@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "staffer-network-hill-person-spine-id-map-v1",
+  "title": "Hill person spine id map",
+  "description": "One row per person of the generation being re-keyed, naming the person id that replaces it under the ONE name standard and why the key moved. Total and exact by construction: the builder reads both ids off the same build rather than reconstructing the map afterwards, and because the key is resolved per person while a person carries exactly one resolved key, the map can only be many-to-one. Candidate plane only: no canonical promotion, no identity finding, no tenure assertion.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "legacy_person_id", "person_id", "reason", "causes",
+    "collision_ordinal", "key_v6", "key_v7", "merged_with", "review_status",
+    "canonical_eligible", "canonical_employment_promoted"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-hill-person-spine-id-map-v1"},
+    "legacy_person_id": {
+      "type": "string",
+      "pattern": "^hill:person:[0-9a-f]{64}$",
+      "description": "The id this person carried in the generation being re-keyed."
+    },
+    "person_id": {
+      "type": "string",
+      "pattern": "^hill:person:[0-9a-f]{64}$",
+      "description": "The id this person carries in the re-keyed generation."
+    },
+    "reason": {
+      "type": "string",
+      "pattern": "^(unchanged|merged|other|both|(ascii_punct|suffix|nickname_class|v_initial|particle_surname|annotation_strip|first_from_raw)(\\+(ascii_punct|suffix|nickname_class|v_initial|particle_surname|annotation_strip|first_from_raw))*)$",
+      "description": "Why the id moved. 'merged' whenever this row shares its person_id with another row, whatever else moved the key; 'unchanged' when the key did not move; 'both' is the ascii_punct + nickname_class pair, kept by that name from the first re-key; 'other' means the key moved and no named cause explains it, which is reported rather than hidden. Any other combination is the flags joined with '+' in the order they fired. The exact flags are always in causes."
+    },
+    "causes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"enum": ["ascii_punct", "suffix", "nickname_class", "v_initial", "particle_surname", "annotation_strip", "first_from_raw", "other"]},
+      "description": "The cause flags in the order the tests are applied. The first three are functions of the stored payee-key triple: the fold to [a-z0-9] alone, then lifting a separator-delimited suffix out of the surname, then folding the given name onto its nickname class stem. The next four exist only because the key is now read from the RAW payee string, which carries what the triple already discarded: v_initial (a bare V the builder deleted as a Roman numeral is a middle initial), particle_surname (a ruled particle joins the surname), annotation_strip (a glued job title leaves the surname, or a trailing party word stops supplying a phantom middle initial) and first_from_raw (the raw reads a different given name than the triple). Empty when the key did not move.",
+      "maxItems": 8
+    },
+    "collision_ordinal": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Part of the hashed id tuple. 1 unless the merge guard separated records sharing the anchor and name key; 2, 3, ... distinguish additional records. From v8, same-office, same-period payee variants stay separate both when service dates overlap and when usable service dates are missing. Ordered by legacy person id within a tuple."
+    },
+    "merge_basis": {
+      "type": ["string", "null"],
+      "enum": ["same_period_variant_no_day_dates", "same_period_day_level_disjoint", "no_same_period_office_co_occurrence", null],
+      "description": "Null unless this row is part of a merge group. Otherwise the weakest ground the group stands on: same_period_variant_no_day_dates means the two were recorded in one office in one report period and at least one side prints no usable service dates -- every Senate report period -- so the v7 guard could not test them and the merge proceeded anyway. Retained for archival schema compatibility only: v8 blocks this relation rather than emitting it as a merge basis; same_period_day_level_disjoint means both sides were dated and their calendars do not touch; no_same_period_office_co_occurrence means they were never in one office in one report period at all."
+    },
+    "key_v6": {"type": "string", "description": "last|first|middle_initial as the previous generation stored it."},
+    "key_v7": {"type": "string", "description": "last|first_class|middle_initial under the ONE name standard, read from the raw payee string."},
+    "merged_with": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^hill:person:[0-9a-f]{64}$"},
+      "description": "The other previous-generation ids that share this row's person_id, ascending. Empty unless this row is part of a merge group."
+    },
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false}
+  }
+}

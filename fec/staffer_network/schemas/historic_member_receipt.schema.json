@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:historic-member-receipt:v1",
+  "title": "Historic member spine preparation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "source_path", "source_sha256", "observed_rows", "accepted_rows", "rejected_rows", "blank_bioguide_rows", "unique_nonblank_bioguides", "date_semantics", "status"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-historic-member-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "source_path": {"type": "string", "minLength": 1},
+    "source_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "observed_rows": {"type": "integer", "minimum": 0},
+    "accepted_rows": {"type": "integer", "minimum": 0},
+    "rejected_rows": {"type": "integer", "minimum": 0},
+    "blank_bioguide_rows": {"type": "integer", "minimum": 0},
+    "unique_nonblank_bioguides": {"type": "integer", "minimum": 0},
+    "date_semantics": {"const": "congress-membership-only; exact service dates not asserted"},
+    "status": {"enum": ["PASS", "FAIL"]}
+  }
+}

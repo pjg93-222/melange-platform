@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-reconciliation-receipt:v1",
+  "title": "LDA sweep reconciliation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "source_root", "manifest_pages", "disk_pages", "filing_objects", "unique_filing_uuids", "duplicate_filing_uuid_occurrences", "identical_duplicate_occurrences", "conflicting_duplicate_occurrences", "cross_year_duplicate_uuid_occurrences", "source_count_first_sum", "source_count_final_sum", "unique_shortfall_vs_first_count", "unique_shortfall_vs_final_count", "page_integrity_pass", "c5_pass", "per_year", "disposition"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-reconciliation-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "source_root": {"type": "string", "minLength": 1},
+    "manifest_pages": {"type": "integer", "minimum": 0},
+    "disk_pages": {"type": "integer", "minimum": 0},
+    "filing_objects": {"type": "integer", "minimum": 0},
+    "unique_filing_uuids": {"type": "integer", "minimum": 0},
+    "duplicate_filing_uuid_occurrences": {"type": "integer", "minimum": 0},
+    "identical_duplicate_occurrences": {"type": "integer", "minimum": 0},
+    "conflicting_duplicate_occurrences": {"type": "integer", "minimum": 0},
+    "cross_year_duplicate_uuid_occurrences": {"type": "integer", "minimum": 0},
+    "source_count_first_sum": {"type": "integer", "minimum": 0},
+    "source_count_final_sum": {"type": "integer", "minimum": 0},
+    "unique_shortfall_vs_first_count": {"type": "integer", "minimum": 0},
+    "unique_shortfall_vs_final_count": {"type": "integer", "minimum": 0},
+    "page_integrity_pass": {"type": "boolean"},
+    "c5_pass": {"type": "boolean"},
+    "per_year": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["year", "pages", "filing_objects", "unique_filing_uuids", "duplicates", "source_count_first", "source_count_final", "source_count_drift", "pass"],
+        "properties": {
+          "year": {"type": "integer", "minimum": 2000},
+          "pages": {"type": "integer", "minimum": 1},
+          "filing_objects": {"type": "integer", "minimum": 0},
+          "unique_filing_uuids": {"type": "integer", "minimum": 0},
+          "duplicates": {"type": "integer", "minimum": 0},
+          "source_count_first": {"type": "integer", "minimum": 0},
+          "source_count_final": {"type": "integer", "minimum": 0},
+          "source_count_drift": {"type": "boolean"},
+          "pass": {"type": "boolean"}
+        }
+      }
+    },
+    "disposition": {"type": "string", "minLength": 1}
+  }
+}

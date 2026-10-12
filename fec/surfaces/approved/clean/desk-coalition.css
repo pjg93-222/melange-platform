@@ -1,0 +1,159 @@
+/* desk-coalition.css: overlay for original-desk.html (Member desk > Coalition builder, board #35); owner: prompt 07. Loaded after desk-efficiency.css. */
+/* Build 07 (board #35). Every rule is scoped to .dcb / #view-coalition and ends in :not(#mlk) where it must outrank the
+   legacy desk CSS or the kit. Only --ml-* tokens and the kit's --sans/--serif are used; no colour literal is typed here.
+   Measurements are board px / 1.867 (title row 56px, control bar 61px, cosponsors card 386px, table rows 56px). */
+
+/* legacy layout nodes that the overlay replaced; kept in the DOM because the legacy render still writes into them */
+#view-coalition .dcb-legacy:not(#mlk){display:none!important}
+
+.dcb{color:var(--ml-ink);font:400 14px/1.35 var(--sans)}
+
+/* ---- title row ---- */
+/* r5: board #35 draws the title row 8px lower than the other desk boards (title ink y 134-153, control bar top 173, cards
+   top 247 at 1440x810); the old -8px pull put all three 8px above the board. */
+.dcb-head{display:flex;align-items:center;gap:12px;box-sizing:border-box;min-height:56px;margin:0 0 1px}
+.dcb-title:not(#mlk){margin:0;color:var(--ml-ink);font:400 28px/1.15 var(--serif);letter-spacing:0;text-transform:none}
+.dcb-howto:not(#mlk){display:inline-flex;align-items:center}
+.dcb-info:not(#mlk){padding:2px;text-decoration:none;color:var(--ml-muted)}
+.dcb-info:not(#mlk) svg{width:18px;height:18px}
+.dcb-howto__pop:not(#mlk){width:420px;top:calc(100% + 8px)}
+.dcb-howto__text:not(#mlk){margin:0;color:var(--ml-ink);font:400 13px/1.5 var(--sans)}
+.dcb-howto__text:not(#mlk) b{color:var(--ml-ink);font-weight:600}
+.dcb-actions{display:flex;align-items:center;gap:16px;margin-left:auto}
+.dcb-btn:not(#mlk){height:32px;padding:0 24px}
+.dcb-btn.mlk-btn--text:not(#mlk){padding:0 6px}
+.dcb-btn:not(#mlk):disabled{cursor:default}
+.dcb-btn.mlk-btn--text:not(#mlk):disabled{background:transparent;text-decoration:none}
+.dcb-btn.mlk-btn--primary:not(#mlk):disabled{background:var(--ml-nav);border-color:var(--ml-nav);color:var(--ml-on-dark)}
+
+/* ---- control bar ---- */
+/* MB-07-1 (fix round 1): at 1440 with the Typekit faces the row is board-true: combobox 222 at the board's 4px left inset,
+   Party 156 as drawn, Committee 134 (the narrowest that still shows "Committee: All" unclipped past the kit select's 32px
+   chevron padding; the board draws 125), rank buttons 12px side padding. The combobox keeps flex-shrink so a wider
+   fallback face or a narrower frame takes width from it instead of pushing the segment out of the bar. */
+.dcb-controls{display:flex;align-items:center;flex-wrap:nowrap;gap:10px 12px;box-sizing:border-box;min-height:61px;padding:13px 5px 13px 4px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius)}
+.dcb-controls .mlk-select:not(#mlk){height:32px;flex:none}
+.dcb-controls .mlk-select:not(#mlk)>select{text-overflow:ellipsis;overflow:hidden;white-space:nowrap}
+.dcb-sel--area:not(#mlk){width:148px}
+.dcb-sel--party:not(#mlk){width:156px}
+.dcb-sel--committee:not(#mlk){width:134px}
+.dcb-sel:not(#mlk)>select{flex:1 1 auto;width:0}
+.dcb-sep{align-self:stretch;width:1px;margin:2px 0;background:var(--ml-rule)}
+.dcb-rankby:not(#mlk){margin:0 -2px 0 0;white-space:nowrap}
+.dcb-seg:not(#mlk){height:32px;margin:0}
+.dcb-seg:not(#mlk)>button{padding:0 12px;white-space:nowrap}
+
+/* "Add a cosponsor" combobox: a search input drawn as the board's dropdown (chevron, no search glass) */
+.dcb-add:not(#mlk){flex:0 1 222px;width:222px;min-width:150px}
+.dcb-add .dcb-add__input:not(#mlk){height:32px;padding:0 34px 0 14px;font-size:13px}
+.dcb-add .dcb-add__input:not(#mlk)::placeholder{color:var(--ml-ink)}
+.dcb-add__chev:not(#mlk){position:absolute;right:6px;top:50%;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;margin:-12px 0 0;padding:0;border:0;background:transparent;color:var(--ml-ink);cursor:pointer}
+.dcb-add__chev:not(#mlk) svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.6}
+.dcb-results:not(#mlk){right:auto;width:320px;max-height:360px;overflow:auto}
+.dcb-results .mlk-results__item:not(#mlk){gap:8px}
+.dcb-results .dcb-dot:not(#mlk){width:8px;height:8px}
+
+/* ---- status line (restored-desk.js loading / load error, moved in) ---- */
+.dcb-status:empty{display:none}
+.dcb-status .restore-loading:not(#mlk){position:static;margin:14px 0 0;padding:10px 14px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);color:var(--ml-muted);font:400 13px/1.4 var(--sans);text-align:left;box-shadow:none}
+.dcb-status .restore-loading.mlk-state--error:not(#mlk){color:var(--ml-ink)}
+.dcb-status .restore-loading:not(#mlk) .mlk-btn{height:28px;margin-left:12px;padding:0 12px;font-size:12px}
+
+/* ---- the two cards ---- */
+.dcb-grid{display:grid;grid-template-columns:386px minmax(0,1fr);gap:14px;align-items:stretch;margin-top:13px}
+.dcb-card:not(#mlk){box-sizing:border-box;min-width:0;margin:0;padding:0;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);color:var(--ml-ink);overflow:hidden;box-shadow:none}
+.dcb-card__head{display:flex;align-items:center;box-sizing:border-box;height:39px;padding:0 16px;background:var(--ml-surface-alt);border-bottom:1px solid var(--ml-rule)}
+/* restored.css sets h1-h3 to letter-spacing:0 / text-transform:none with !important; the label look wins back here */
+.dcb-card__label:not(#mlk){margin:0;color:var(--ml-ink);font:500 12px/1 var(--sans);letter-spacing:.1em!important;text-transform:uppercase!important}
+.dcb-card__body{box-sizing:border-box}
+.dcb-left .dcb-card__body{padding:14px 16px 16px}
+.dcb-state:not(#mlk){padding:28px 12px;text-align:left}
+.dcb-right .dcb-state:not(#mlk){padding:28px 16px}
+.dcb-state:not(#mlk) .mlk-btn{margin-top:12px}
+
+/* cosponsor chips (kit removable chip; party dot by reference) */
+.dcb-chips{display:flex;flex-wrap:wrap;gap:12px 10px}
+.dcb-chip:not(#mlk){height:29px;gap:6px;padding:0 2px 0 10px;background:var(--ml-surface);font-size:12px;cursor:default}
+.dcb-chip .mlk-dot:not(#mlk){width:8px;height:8px}
+.dcb-chip .mlk-close:not(#mlk){width:18px;height:20px}
+
+/* stat rows */
+.dcb-stats{margin:22px 0 0;padding:0;border-top:1px solid var(--ml-rule)}
+.dcb-stat{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:51px;border-bottom:1px solid var(--ml-rule)}
+.dcb-stat:last-child{border-bottom:0}
+.dcb-stat dt{margin:0;color:var(--ml-muted);font:400 15px/1.3 var(--sans)}
+.dcb-stat dd{margin:0;color:var(--ml-ink);font:600 15px/1.3 var(--sans);text-align:right;white-space:nowrap}
+.dcb-stat__note{display:block;color:var(--ml-muted);font:400 11px/1.3 var(--sans);white-space:normal}
+/* r5 F3: articulat-cf's word space is 0.23em (3.45px at 15px semibold) and its middle dot 3.4px, so "0 D · 1 R · 0 I" read
+   as "0D·1R·0I". The text keeps its spaces (textContent "0 D · 1 R · 0 I"); the gaps are widened, not letter-spaced
+   (prompt 07 Don't-copy): 1.5px more per word space and 3px either side of each dot (board #35: ~5px and ~9px gaps). */
+.dcb-stat dd.dcb-split{word-spacing:.1em}
+.dcb-split__sep{padding:0 .2em}
+
+/* suggestions table (kit table, board proportions: 2-line header, 56px rows) */
+.dcb-tablewrap{overflow-x:auto}
+.dcb-table:not(#mlk){table-layout:fixed;min-width:700px;font-size:13px}
+.dcb-table:not(#mlk) th{position:static;height:53px;padding:6px 8px 6px 0;background:var(--ml-surface-alt);color:var(--ml-muted);font:500 11px/1.65 var(--sans);letter-spacing:.06em;white-space:normal;vertical-align:middle}
+.dcb-table:not(#mlk) td{height:56px;padding:0 8px 0 0}
+.dcb-table:not(#mlk) :is(th,td):first-child{padding-left:18px}
+.dcb-table:not(#mlk) :is(th,td):last-child{padding-right:16px;text-align:right}
+/* r5: column starts from board #35 (CHAMBER 798, PRIORITY RANK 891, BILLS 973, NEW REACH 1083, ALREADY COVERED 1183,
+   SCORE 1269; the card is 6px narrower here because the content gutter is 24px, not the board's 18px) */
+.dcb-table col.dcb-w-chamber{width:93px}
+.dcb-table col.dcb-w-rank{width:82px}
+.dcb-table col.dcb-w-bills{width:110px}
+.dcb-table col.dcb-w-reach{width:100px}
+.dcb-table col.dcb-w-covered{width:86px}
+.dcb-table col.dcb-w-score{width:65px}
+.dcb-table col.dcb-w-add{width:84px}
+.dcb-member{display:flex;align-items:center;gap:12px;min-width:0}
+.dcb-member .mlk-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dcb-member .dcb-dot:not(#mlk){width:10px;height:10px}
+.dcb-sub:not(#mlk){padding-left:22px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.dcb-check:not(#mlk){display:inline-flex;flex:none;width:14px;height:14px;margin-left:-6px}
+.dcb-check svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.dcb-score.nextscore:not(#mlk){font-weight:500}
+.dcb-addbtn:not(#mlk){width:56px;height:30px;padding:0;font-size:13px}
+.dcb-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* loading skeleton */
+.dcb-skelchips{display:flex;flex-wrap:wrap;gap:12px}
+.dcb-skelchips .mlk-skel:not(#mlk){width:110px;height:29px}
+.dcb-stats--skel .dcb-stat .mlk-skel:not(#mlk){width:100%;height:12px}
+.dcb-skelhead{height:56px;background:var(--ml-surface-alt);border-bottom:1px solid var(--ml-rule)}
+.dcb-skelrow:not(#mlk){height:56px;padding:0 18px}
+.dcb.is-error .dcb-card__body:empty{min-height:0}
+
+/* saved snapshots (legacy card; Load / Delete keep the legacy delegated handler) */
+.dcb-snaps:not(#mlk){margin-top:14px;padding:0 16px 8px}
+.dcb-snaps:not(#mlk)>.eyebrow{display:flex;align-items:center;height:39px;margin:0 -16px 0;padding:0 16px;background:var(--ml-surface-alt);border-bottom:1px solid var(--ml-rule);color:var(--ml-ink)!important;font:500 12px/1 var(--sans);letter-spacing:.1em;text-transform:uppercase}
+.dcb-snaps .snaprow:not(#mlk){display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;border-bottom:1px solid var(--ml-rule);color:var(--ml-ink);font:400 13px/1.3 var(--sans)}
+.dcb-snaps .snaprow:not(#mlk):last-child{border-bottom:0}
+.dcb-snaps .snaprow:not(#mlk) span{color:var(--ml-muted)}
+.dcb-snaps .snaprow:not(#mlk) b{color:var(--ml-ink);font-weight:600}
+.dcb-snaps .snapacts:not(#mlk){display:inline-flex;gap:8px}
+.dcb-snaps .ghostbtn:not(#mlk){display:inline-flex;align-items:center;height:28px;margin:0;padding:0 10px;border:1px solid var(--ml-control-border);border-radius:var(--ml-radius);background:var(--ml-surface);color:var(--ml-ink);font:500 12px/1 var(--sans);cursor:pointer}
+.dcb-snaps .ghostbtn:not(#mlk):hover{background:var(--ml-surface-alt)}
+.dcb-snaps .empty:not(#mlk){padding:14px 0 8px;color:var(--ml-muted);font:400 13px/1.4 var(--sans);font-style:normal}
+
+/* kit focus ring (restored.css draws a purple ring on every :focus-visible with !important) */
+.dcb :focus-visible:not(#mlk),#view-coalition .dcb-snaps :focus-visible:not(#mlk){outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+.dcb .dcb-seg>button:focus-visible:not(#mlk){outline-offset:-3px}
+.dcb .dcb-add__input:focus-visible:not(#mlk){outline-offset:1px}
+
+/* narrower frames: the one-line control row needs a frame of about 1202px (the combobox at its 150px floor), so below
+   1210px it wraps, and the separator becomes a line break that keeps "Rank by" on the same line as its segment */
+@media (max-width:1210px){
+ .dcb-controls{flex-wrap:wrap;row-gap:5px}
+ .dcb-sep{flex:0 0 100%;height:0;margin:0;background:none}
+}
+/* the cards stack below 1100px (the table keeps its columns and scrolls sideways if needed) */
+@media (max-width:1100px){
+ .dcb-grid{grid-template-columns:minmax(0,1fr)}
+ .dcb-head{flex-wrap:wrap;row-gap:8px}
+}
+@media (max-width:760px){
+ .dcb-actions{margin-left:0;width:100%;flex-wrap:wrap}
+ .dcb-add:not(#mlk){flex:1 1 100%;width:100%}
+ .dcb-sep{display:none}
+}

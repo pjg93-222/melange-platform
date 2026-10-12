@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:employment-lookup-candidate:v1",
+  "title": "Restricted employment-history lookup candidate",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "candidate_id", "method_version", "source_binding_sha256",
+    "lda_source_person_id", "display_name", "name_variants", "filing_years",
+    "covered_position_values", "government_term_hit",
+    "covered_position_year_tokens", "covered_position_month_token", "priority",
+    "search_queries", "discovery_status", "identity_status", "canonical_merge"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-employment-lookup-candidate-v1"},
+    "candidate_id": {"type": "string", "pattern": "^employment:lookup:[0-9a-f]{64}$"},
+    "method_version": {"const": "lda-covered-position-employment-lookup-v1"},
+    "source_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "lda_source_person_id": {"type": "string", "pattern": "^lda:lobbyist:[1-9][0-9]*$"},
+    "display_name": {"type": "string", "minLength": 1},
+    "name_variants": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "filing_years": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "integer", "minimum": 2021, "maximum": 2026}},
+    "covered_position_values": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "government_term_hit": {"type": "boolean"},
+    "covered_position_year_tokens": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^(18|19|20)[0-9]{2}$"}},
+    "covered_position_month_token": {"type": "boolean"},
+    "priority": {"enum": ["P0", "P1", "P2"]},
+    "search_queries": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "discovery_status": {"const": "NOT_STARTED"},
+    "identity_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_merge": {"const": false}
+  }
+}

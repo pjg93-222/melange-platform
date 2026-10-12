@@ -1,0 +1,11 @@
+[Unit]
+Description=Healthchecks.io heartbeat (fails when release, JWKS or Terrier backup is unhealthy)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/melange/melange-ops.sh ping
+TimeoutStartSec=2min
+NoNewPrivileges=yes
+PrivateTmp=yes

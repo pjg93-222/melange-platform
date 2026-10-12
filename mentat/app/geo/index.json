@@ -1,0 +1,56 @@
+{
+ "width": 975,
+ "height": 610,
+ "built_at": "2026-09-17T19:25:48+00:00",
+ "cycles": {
+  "2022": "118",
+  "2024": "118",
+  "2026": "119"
+ },
+ "vintages": {
+  "116": {
+   "file": "cd116.json",
+   "cycle": 2022,
+   "congress": "116th (= 117th map)",
+   "source": "https://www2.census.gov/geo/tiger/GENZ2021/shp/cb_2021_us_cd116_20m.zip",
+   "districts": 437,
+   "zcta_file": null,
+   "zcta_source": null,
+   "zcta_basis": null
+  },
+  "118": {
+   "file": "cd118.json",
+   "cycle": 2024,
+   "congress": "118th",
+   "source": "https://www2.census.gov/geo/tiger/GENZ2023/shp/cb_2023_us_cd118_20m.zip",
+   "districts": 437,
+   "zcta_file": "zcta_cd118.json",
+   "zcta_source": "https://www2.census.gov/geo/docs/maps-data/data/rel2020/cd-sld/tab20_cd11820_zcta520_natl.txt",
+   "zcta_basis": "land area (AREALAND_PART); the file carries no population column",
+   "tract_file": "tract_cd118.json",
+   "tract_source": "https://www2.census.gov/geo/docs/maps-data/data/rel2020/cd-sld/tab20_cd11820_tract20_natl.txt",
+   "tract_basis": "whole 2020 census tracts (the Census CD-to-tract tabulation); a tract split across districts is omitted and keeps the ZIP basis"
+  },
+  "119": {
+   "file": "cd119.json",
+   "cycle": 2026,
+   "congress": "119th",
+   "source": "https://www2.census.gov/geo/tiger/GENZ2024/shp/cb_2024_us_cd119_20m.zip",
+   "districts": 437,
+   "zcta_file": "zcta_cd119.json",
+   "zcta_source": "https://www2.census.gov/geo/docs/maps-data/data/rel2020/cd-sld/tab20_cd11920_zcta520_natl.txt",
+   "zcta_basis": "land area (AREALAND_PART); the file carries no population column",
+   "tract_file": "tract_cd119.json",
+   "tract_source": "https://www2.census.gov/geo/docs/maps-data/data/rel2020/cd-sld/tab20_cd11920_tract20_natl.txt",
+   "tract_basis": "whole 2020 census tracts (the Census CD-to-tract tabulation); a tract split across districts is omitted and keeps the ZIP basis"
+  }
+ },
+ "notes": [
+  "Cycle -> vintage follows S6_DESIGN ruling 9 with Paul's correction of 2026-09-17: 2026 -> 119th, 2024 -> 118th, 2022 -> 118th. This map answers where the MONEY went, and the 2021-2022 FEC candidate master already numbers House seats on the redistricted 118th map (it carries NC-14, a seat the 116th map has no equivalent for), so money in the 2022 cycle belongs on 118th districts.",
+  "GENZ2022 carries no cd116 file (its congressional file is cd118); the 116th map comes from GENZ2021, the newest vintage that still publishes it.",
+  "No ZCTA-to-CD relationship file exists for the 116th map: the 2020 ZCTAs were tabulated against the 118th and 119th only. That no longer costs the 2022 cycle anything, because 2022 now draws the 118th map and so uses the 118th crosswalk; no cycle points at the 116th vintage, so 116th-map districts are never coloured with another map's ZIP shares.",
+  "ZIP shares are land area, not population: the Census relationship file has no population column. Show them as approximate (ruling 8).",
+  "SETTLED 2026-09-17 (Paul, correcting S6_DESIGN ruling 9): cycle 2022 draws the 118th map, because the 2021-2022 candidate master (cn22) already numbers House seats on the redistricted 118th map - it carries NC-14, which the 116th map has no seat for - since 2022 candidates ran in the new seats. The 116th paths stay built and shipped for anyone reading where the members who SAT during 2021-2022 sat; no cycle points at them.",
+  "S8b: street addresses are geocoded by the US Census BATCH geocoder, which returns a 2020 census block and NOT a congressional district (measured 2026-09-18; the layers parameter is ignored). The tract_cd*.json files bridge that answer to a district."
+ ]
+}

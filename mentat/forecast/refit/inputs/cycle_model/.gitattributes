@@ -1,0 +1,2 @@
+# These inputs are pinned by sha256 in registry/inputs.json (gate G1): keep their exact bytes on every checkout.
+*.csv -text

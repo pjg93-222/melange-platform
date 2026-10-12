@@ -1,0 +1,6 @@
+/* Keep original page engines; only bridge navigation into the shared shell. */
+(() => {
+const routes={'lobby-network.html':'industry','lobby-champions.html':'champions','lobby-bills.html':'research-bills','lobby-interactions.html':'interactions','lobby-forecast.html':'forecasts','lobby-screen.html':'cu-fintech','Moneyball Dashboard.html':'influence','Moneyball.html':'influence','Moneyball_Redesign.html':'influence','cu-member-desk.html':'members'};
+window.restoredNavigate=(view,extra={},hash='')=>{const q=new URLSearchParams({...extra,view});parent.location.href='/?'+q+hash;};
+document.addEventListener('click',e=>{const a=e.target.closest('a[href]');if(!a||e.defaultPrevented||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey)return;const u=new URL(a.href,location.href);if(u.origin!==location.origin)return;const path=decodeURIComponent(u.pathname.split('/').pop()),q=Object.fromEntries(u.searchParams),view=q.view||({desk:'members',industry:'industry',staffer:'people'}[q.v])||routes[path]||(u.pathname==='/'&&!u.hash?'influence':null);if(!view)return;e.preventDefault();if(q.m)window.restoredNavigate('profile',{m:q.m,tab:'overview'});else {const hash=new URLSearchParams(u.hash.slice(1));for(const key of ['bill','org'])if(hash.has(key))q[key]=hash.get(key);window.restoredNavigate(view,q,u.hash);}});
+})();

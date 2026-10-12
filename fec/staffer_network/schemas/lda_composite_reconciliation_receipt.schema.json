@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:lda-composite-reconciliation-receipt:v1",
+  "title": "LDA composite reconciliation receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "generated_at", "status", "cutoff_exclusive", "authority_basis", "supersedes_terminal_criterion", "payload_supersession_policy", "legacy_inventory_before", "legacy_inventory_after", "legacy_ordering_audit", "legacy_split_cohort_coverage", "filter_semantics", "ordering", "authentication_mode", "rate_limit_rpm", "base_page_size", "max_in_flight_requests", "transport_mode", "windows", "payload_dispositions", "per_year", "global_unique_filing_uuids", "cross_year_duplicate_uuid_occurrences", "token_scan", "anonymous_partial_generation", "resume", "downstream_gates", "failures"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-lda-composite-reconciliation-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"const": "PASS"},
+    "cutoff_exclusive": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+    "authority_basis": {"type": "string", "minLength": 1},
+    "supersedes_terminal_criterion": {"type": "string", "minLength": 1},
+    "payload_supersession_policy": {"const": "fresh-authoritative-with-per-record-diff-ledger"},
+    "legacy_inventory_before": {"type": "object", "required": ["years", "files", "bytes", "inventory_sha256", "per_year"]},
+    "legacy_inventory_after": {"type": "object", "required": ["years", "files", "bytes", "inventory_sha256", "per_year"]},
+    "legacy_ordering_audit": {
+      "type": "object",
+      "required": ["ordering_key", "direction", "years", "duplicate_occurrences", "duplicates_same_exact_timestamp", "page_shape_pass", "pass"],
+      "properties": {"page_shape_pass": {"const": true}, "pass": {"const": true}}
+    },
+    "legacy_split_cohort_coverage": {"type": "object", "required": ["localized_split_timestamps", "covered_split_timestamps", "windows", "uncovered_by_year", "pass"]},
+    "filter_semantics": {
+      "type": "object",
+      "required": ["filing_year", "first_window", "second_window", "first_count", "second_count", "union_count", "full_bounded_count", "half_open_partition_identity", "filters_combine_with_filing_year", "exact_second_windows", "exact_second_first_count", "exact_second_second_count", "exact_second_union_count", "exact_second_partition_identity", "empty_exact_second_window", "empty_exact_second_count", "offset_equivalent_window", "offset_equivalent_count", "offset_equivalence_pass", "repair_boundary_serialization", "historical_datetime_boundary_control", "pass"],
+      "properties": {
+        "repair_boundary_serialization": {"const": "UTC_Z_MICROSECOND_END_INCLUSIVE"},
+        "historical_datetime_boundary_control": {
+          "type": "object",
+          "required": ["datetime_before_semantics", "query_boundary_serialization", "partition_identity", "pinned_payloads_match", "pass"],
+          "properties": {
+            "datetime_before_semantics": {"const": "INCLUSIVE"},
+            "query_boundary_serialization": {"const": "UTC_Z_MICROSECOND_END_INCLUSIVE"},
+            "partition_identity": {"const": true},
+            "pinned_payloads_match": {"const": true},
+            "pass": {"const": true}
+          }
+        },
+        "pass": {"const": true}
+      }
+    },
+    "ordering": {"const": "dt_posted,registrant__name"},
+    "authentication_mode": {"const": "registered"},
+    "rate_limit_rpm": {"const": 120},
+    "base_page_size": {"const": 25},
+    "max_in_flight_requests": {"const": 8},
+    "transport_mode": {"const": "BOUNDED_BATCH_ASCENDING_PROCESSING"},
+    "windows": {
+      "type": "array", "minItems": 12,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["window_id", "kind", "filing_year", "start_date", "end_date_exclusive", "comparison"],
+        "properties": {
+          "window_id": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["PAGINATION_BOUNDARY_REPAIR", "POST_SWEEP_GAP", "FULL_MOVING_YEAR"]},
+          "filing_year": {"type": "integer", "minimum": 2021, "maximum": 2026},
+          "start_date": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "end_date_exclusive": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"},
+          "comparison": {
+            "type": "object", "additionalProperties": false,
+            "required": ["count_a", "count_b", "uuid_inventory_sha256_a", "uuid_inventory_sha256_b", "payload_inventory_sha256_a", "payload_inventory_sha256_b", "page_layout_sha256_a", "page_layout_sha256_b", "page_layout_equal", "base_repeated_uuid_occurrences_a", "base_repeated_uuid_occurrences_b", "page_boundary_timestamps_a", "page_boundary_timestamps_b", "tie_cohort_timestamps_a", "tie_cohort_timestamps_b", "missing_from_b", "missing_from_a", "payload_mismatches", "pass"],
+            "properties": {
+              "count_a": {"type": "integer", "minimum": 0},
+              "count_b": {"type": "integer", "minimum": 0},
+              "uuid_inventory_sha256_a": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "uuid_inventory_sha256_b": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "payload_inventory_sha256_a": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "payload_inventory_sha256_b": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "page_layout_sha256_a": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "page_layout_sha256_b": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "page_layout_equal": {"type": "boolean"},
+              "base_repeated_uuid_occurrences_a": {"type": "integer", "minimum": 0},
+              "base_repeated_uuid_occurrences_b": {"type": "integer", "minimum": 0},
+              "page_boundary_timestamps_a": {"type": "array", "items": {"type": "string"}},
+              "page_boundary_timestamps_b": {"type": "array", "items": {"type": "string"}},
+              "tie_cohort_timestamps_a": {"type": "array", "items": {"type": "string"}},
+              "tie_cohort_timestamps_b": {"type": "array", "items": {"type": "string"}},
+              "missing_from_b": {"type": "array", "maxItems": 0},
+              "missing_from_a": {"type": "array", "maxItems": 0},
+              "payload_mismatches": {"type": "array", "maxItems": 0},
+              "pass": {"const": true}
+            }
+          }
+        }
+      }
+    },
+    "payload_dispositions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["path", "records", "sha256"],
+      "properties": {"path": {"type": "string", "minLength": 1}, "records": {"type": "integer", "minimum": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+    },
+    "per_year": {
+      "type": "array", "minItems": 6, "maxItems": 6,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["year", "legacy_unique_filing_uuids", "fresh_window_unique_filing_uuids", "composite_unique_filing_uuids", "source_count_through_cutoff", "shortfall", "pass"],
+        "properties": {
+          "year": {"type": "integer", "minimum": 2021, "maximum": 2026},
+          "legacy_unique_filing_uuids": {"type": "integer", "minimum": 1},
+          "fresh_window_unique_filing_uuids": {"type": "integer", "minimum": 0},
+          "composite_unique_filing_uuids": {"type": "integer", "minimum": 1},
+          "source_count_through_cutoff": {"type": "integer", "minimum": 1},
+          "shortfall": {"const": 0},
+          "pass": {"const": true}
+        }
+      }
+    },
+    "global_unique_filing_uuids": {"type": "integer", "minimum": 1},
+    "cross_year_duplicate_uuid_occurrences": {"const": 0},
+    "token_scan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["files_scanned", "matches", "pass"],
+      "properties": {"files_scanned": {"type": "integer", "minimum": 1}, "matches": {"type": "array", "maxItems": 0}, "pass": {"const": true}}
+    },
+    "anonymous_partial_generation": {"type": "string", "minLength": 1},
+    "resume": {
+      "type": "object", "additionalProperties": false,
+      "required": ["resumed", "events"],
+      "properties": {
+        "resumed": {"type": "boolean"},
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["failed_status_sha256", "recorded_error", "resumed_at", "resume_module_sha256", "recovery_semantics", "authority_receipt"],
+            "properties": {
+              "failed_status_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "recorded_error": {"type": "string", "minLength": 1},
+              "resumed_at": {"type": "string", "format": "date-time"},
+              "resume_module_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+              "recovery_semantics": {"const": "ADDITIVE_REPLAY_SAVED_BYTES_THROUGH_ORIGINAL_VALIDATORS_THEN_FRESH_INDEPENDENT_TWIN"},
+              "authority_receipt": {
+                "type": "object", "additionalProperties": false,
+                "required": ["path", "bytes", "sha256"],
+                "properties": {
+                  "path": {"type": "string", "pattern": "^resume_authority_receipt_[0-9a-f]{64}\\.json$"},
+                  "bytes": {"type": "integer", "minimum": 1},
+                  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "downstream_gates": {
+      "type": "object", "additionalProperties": false,
+      "required": ["identity_resolution", "graph_build", "analysis", "publication", "staff_net_required_state"],
+      "properties": {"identity_resolution": {"const": "CLOSED"}, "graph_build": {"const": "CLOSED"}, "analysis": {"const": "CLOSED"}, "publication": {"const": "CLOSED"}, "staff_net_required_state": {"const": "off"}}
+    },
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

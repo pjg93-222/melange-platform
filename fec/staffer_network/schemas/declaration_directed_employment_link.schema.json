@@ -1,0 +1,257 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:declaration-directed-employment-link:v1",
+  "title": "Declaration-directed employment link row",
+  "description": "One row per declaration-directed adjudicated target that carried a payroll hit. evidence_tier discriminates the three emitted files: D1_DECLARED_OFFICE_EXACT_UNIQUE is the link tier (declared office, exact match class, in-office tie size 1); D1_DEMOTED_CANDIDATE, D3_CANDIDATE, D2_CANDIDATE and D3M_CANDIDATE are candidates and are never links; NON_EVIDENTIAL_HIT_ONLY is the FIRST_INITIAL class the paired control rejected and is never any link tier. Every row is review-only: canonical_eligible is false, canonical_employment_promoted is false, canonical_identity_decision is NOT_ADJUDICATED and review_status is REVIEW_REQUIRED. A tier is a label with a measured error rate attached, not an identity finding.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "rule_version", "method_version", "run_id", "generation_id",
+    "phase", "lda_source_person_id", "display_name", "lda_priority",
+    "evidence_tier", "evidence_tier_family", "source_adjudicated_status",
+    "source_adjudicated_substatus", "match_class",
+    "match_class_control_fpr_point_pct", "match_class_control_fpr_upper95_pct",
+    "scope", "source_scope", "declared_office_texts",
+    "declared_office_supporting_clauses",
+    "declared_office_mention_kinds", "office_key", "office_container_kind",
+    "office_member_bioguide", "office_distinct_payroll_people",
+    "resolved_payroll_person_key", "candidate_payroll_person_keys",
+    "payroll_titles", "payroll_periods", "payroll_period_count",
+    "payroll_year_first", "payroll_year_last", "in_office_tie_size",
+    "in_office_tie_size_conservative", "year_strengthener",
+    "d3_strengthened", "demotion_reason",
+    "guard_cross_clause_attachment_status", "guard_cross_clause_attachment_basis",
+    "guard_disclaimer_status", "declaration_contains_disclaimer_clause",
+    "year_strengthener_disclaimer_caveat",
+    "middle_initial_target_raw", "middle_initial_target_after_alias_strip",
+    "middle_initial_payroll", "middle_initial_conflict_original",
+    "middle_initial_conflict_after_alias_strip",
+    "middle_initial_alias_tokens_stripped", "held_status",
+    "prior_resolution_status", "prior_best_tier", "in_instructed_target_set",
+    "review_status", "canonical_eligible", "canonical_employment_promoted",
+    "canonical_identity_decision", "canonical_identity_promoted",
+    "status_is_a_label_not_a_promotion"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-declaration-directed-employment-link-v1"},
+    "rule_version": {"const": "declaration-directed-employment-tier-v1"},
+    "method_version": {"const": "declaration-directed-employment-tier-v1"},
+    "run_id": {"type": "string", "minLength": 1},
+    "generation_id": {"type": "string", "minLength": 1},
+    "phase": {"const": "build-declaration-directed-tier"},
+    "lda_source_person_id": {"type": "string", "minLength": 1},
+    "display_name": {"type": "string"},
+    "lda_priority": {"type": ["string", "null"]},
+    "evidence_tier": {
+      "enum": [
+        "D1_DECLARED_OFFICE_EXACT_UNIQUE",
+        "D1_DEMOTED_CANDIDATE",
+        "D2_CANDIDATE",
+        "D3_CANDIDATE",
+        "D3M_CANDIDATE",
+        "NON_EVIDENTIAL_HIT_ONLY"
+      ]
+    },
+    "evidence_tier_family": {"enum": ["LINK", "CANDIDATE", "NON_EVIDENTIAL"]},
+    "source_adjudicated_status": {"type": "string", "minLength": 1},
+    "source_adjudicated_substatus": {"type": "string", "minLength": 1},
+    "match_class": {
+      "enum": ["EXACT_TRIPLE", "EXACT_PAIR", "NICKNAME", "VARIANT", "FIRST_INITIAL"]
+    },
+    "match_class_control_fpr_point_pct": {"type": "number", "minimum": 0, "maximum": 100},
+    "match_class_control_fpr_upper95_pct": {"type": "number", "minimum": 0, "maximum": 100},
+    "scope": {"enum": ["house_member", "house_nonmember", "senate"]},
+    "source_scope": {"enum": ["house_member", "house_nonmember", "senate_all"]},
+    "declared_office_texts": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "declared_office_supporting_clauses": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "declared_office_mention_kinds": {
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "office_key": {"type": "string", "minLength": 1},
+    "office_container_kind": {"type": ["string", "null"]},
+    "office_member_bioguide": {"type": ["string", "null"]},
+    "office_distinct_payroll_people": {"type": ["integer", "null"], "minimum": 0},
+    "resolved_payroll_person_key": {"type": ["string", "null"]},
+    "candidate_payroll_person_keys": {
+      "description": "Every payroll person this target matched inside the declared office, at ANY match class. Populated only on rows that resolve nobody, so an ambiguous candidate always shows its whole contending set rather than one arbitrary member of it.",
+      "type": "array", "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "payroll_titles": {
+      "type": "array", "uniqueItems": true, "items": {"type": "string"}
+    },
+    "payroll_periods": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["start", "end", "basis"],
+        "properties": {
+          "start": {"type": ["string", "null"]},
+          "end": {"type": ["string", "null"]},
+          "basis": {
+            "enum": [
+              "HOUSE_SOD_SERVICE_SPAN",
+              "HOUSE_SOD_QUARTER_ENVELOPE",
+              "SENATE_REPORT_PERIOD"
+            ]
+          }
+        }
+      }
+    },
+    "payroll_period_count": {"type": "integer", "minimum": 0},
+    "payroll_year_first": {"type": ["integer", "null"]},
+    "payroll_year_last": {"type": ["integer", "null"]},
+    "in_office_tie_size": {"type": ["integer", "null"], "minimum": 1},
+    "in_office_tie_size_conservative": {"type": ["integer", "null"], "minimum": 1},
+    "year_strengthener": {
+      "enum": [
+        "D1_YEAR_CORROBORATED",
+        "D1_YEAR_UNTESTABLE",
+        "D1_YEAR_CONTRADICTED",
+        null
+      ]
+    },
+    "d3_strengthened": {"type": ["boolean", "null"]},
+    "demotion_reason": {
+      "enum": ["CROSS_CLAUSE_ATTACHMENT", "DECLARATION_IS_A_DISCLAIMER", null]
+    },
+    "guard_cross_clause_attachment_status": {
+      "enum": [
+        "CLAUSE_CARRIES_LEGISLATIVE_CUE",
+        "NO_LOCATED_CLAUSE_CARRIES_A_LEGISLATIVE_CUE",
+        "ANCHOR_NOT_LOCATED_IN_ANY_CLAUSE",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "guard_cross_clause_attachment_basis": {
+      "enum": ["CONTIGUOUS", "ORDERED_SUBSEQUENCE", "NONE"]
+    },
+    "guard_disclaimer_status": {
+      "enum": [
+        "NO_DISCLAIMER_CLAUSE_SUPPORTS_THE_ATTACHMENT",
+        "SOME_SUPPORTING_CLAUSES_ARE_DISCLAIMERS",
+        "EVERY_SUPPORTING_CLAUSE_IS_A_DISCLAIMER",
+        "NOT_APPLICABLE"
+      ]
+    },
+    "declaration_contains_disclaimer_clause": {"type": "boolean"},
+    "year_strengthener_disclaimer_caveat": {"type": "boolean"},
+    "middle_initial_target_raw": {"type": ["string", "null"]},
+    "middle_initial_target_after_alias_strip": {"type": ["string", "null"]},
+    "middle_initial_payroll": {"type": ["string", "null"]},
+    "middle_initial_conflict_original": {"type": ["boolean", "null"]},
+    "middle_initial_conflict_after_alias_strip": {"type": ["boolean", "null"]},
+    "middle_initial_alias_tokens_stripped": {
+      "type": "array", "items": {"type": "string", "minLength": 1}
+    },
+    "held_status": {"type": ["string", "null"]},
+    "prior_resolution_status": {"type": ["string", "null"]},
+    "prior_best_tier": {"type": ["string", "null"]},
+    "in_instructed_target_set": {"type": "boolean"},
+    "review_status": {"const": "REVIEW_REQUIRED"},
+    "canonical_eligible": {"const": false},
+    "canonical_employment_promoted": {"const": false},
+    "canonical_identity_decision": {"const": "NOT_ADJUDICATED"},
+    "canonical_identity_promoted": {"const": false},
+    "status_is_a_label_not_a_promotion": {"const": true}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"evidence_tier": {"const": "D1_DECLARED_OFFICE_EXACT_UNIQUE"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "LINK"},
+          "match_class": {"enum": ["EXACT_TRIPLE", "EXACT_PAIR"]},
+          "in_office_tie_size": {"const": 1},
+          "resolved_payroll_person_key": {"type": "string", "minLength": 1},
+          "demotion_reason": {"const": null},
+          "year_strengthener": {
+            "enum": [
+              "D1_YEAR_CORROBORATED",
+              "D1_YEAR_UNTESTABLE",
+              "D1_YEAR_CONTRADICTED"
+            ]
+          },
+          "guard_cross_clause_attachment_status": {
+            "const": "CLAUSE_CARRIES_LEGISLATIVE_CUE"
+          },
+          "guard_disclaimer_status": {
+            "enum": [
+              "NO_DISCLAIMER_CLAUSE_SUPPORTS_THE_ATTACHMENT",
+              "SOME_SUPPORTING_CLAUSES_ARE_DISCLAIMERS"
+            ]
+          },
+          "d3_strengthened": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"evidence_tier": {"const": "D1_DEMOTED_CANDIDATE"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "CANDIDATE"},
+          "match_class": {"enum": ["EXACT_TRIPLE", "EXACT_PAIR"]},
+          "demotion_reason": {
+            "enum": ["CROSS_CLAUSE_ATTACHMENT", "DECLARATION_IS_A_DISCLAIMER"]
+          },
+          "resolved_payroll_person_key": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"evidence_tier": {"const": "D3_CANDIDATE"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "CANDIDATE"},
+          "match_class": {"enum": ["NICKNAME", "VARIANT"]},
+          "in_office_tie_size": {"const": 1},
+          "d3_strengthened": {"type": "boolean"},
+          "year_strengthener": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"evidence_tier": {"const": "D2_CANDIDATE"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "CANDIDATE"},
+          "match_class": {"enum": ["EXACT_TRIPLE", "EXACT_PAIR"]},
+          "in_office_tie_size": {"type": "integer", "minimum": 2},
+          "resolved_payroll_person_key": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"evidence_tier": {"const": "D3M_CANDIDATE"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "CANDIDATE"},
+          "match_class": {"enum": ["NICKNAME", "VARIANT"]},
+          "in_office_tie_size": {"type": "integer", "minimum": 2},
+          "resolved_payroll_person_key": {"const": null}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"evidence_tier": {"const": "NON_EVIDENTIAL_HIT_ONLY"}}},
+      "then": {
+        "properties": {
+          "evidence_tier_family": {"const": "NON_EVIDENTIAL"},
+          "match_class": {"const": "FIRST_INITIAL"},
+          "resolved_payroll_person_key": {"const": null},
+          "year_strengthener": {"const": null},
+          "d3_strengthened": {"const": null},
+          "demotion_reason": {"const": null}
+        }
+      }
+    }
+  ]
+}

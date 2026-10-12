@@ -1,0 +1,14 @@
+[Unit]
+Description=Refresh the Cloudflare Access public keys the apps verify JWTs against
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/srv/access
+
+[Service]
+Type=oneshot
+# TEAM comes from compose.env.
+EnvironmentFile=/srv/serve/compose.env
+ExecStart=/usr/local/lib/melange/melange-ops.sh jwks
+TimeoutStartSec=2min
+NoNewPrivileges=yes
+PrivateTmp=yes

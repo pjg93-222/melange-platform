@@ -1,0 +1,42 @@
+# Mentat's own Python environment (2026-09-25).
+#
+# The launchers (tools/mentat_python.psm1) prefer the venv at
+# %LOCALAPPDATA%\Mentat\venv. Create it from the system Python 3.12, then install:
+#
+#   & "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe" -m venv "$env:LOCALAPPDATA\Mentat\venv"
+#   & "$env:LOCALAPPDATA\Mentat\venv\Scripts\python.exe" -m pip install --only-binary=:all: -r mentat\requirements-console.txt
+#
+# Every pin is imported by Mentat's own Python (an AST census of mentat/app,
+# mentat/tools and mentat/tests) or is required by one that is. Versions follow
+# what the console ran with on the Codex app's Python before the Codex app reset
+# that environment (pandas 3.0.1, numpy 2.3.5, openpyxl 3.1.5, jinja2 3.1.6,
+# geopy 2.5.0); the transitive pins are the resolver's choices for those.
+
+# Console (mentat/app)
+openpyxl==3.1.5                 # workbook reader; server.py imports it at start-up
+et_xmlfile==2.0.0               # openpyxl
+Jinja2==3.1.6                   # console_page.py renders "/" from app/templates; without it "/" is the golden index.html
+MarkupSafe==3.0.3               # Jinja2
+
+# Offline geography tools (tools/build_geo_layers.py, tools/geo_assign.py) and their tests
+geopandas==1.1.4
+shapely==2.1.2
+pyproj==3.8.0
+pyogrio==0.13.0
+pyarrow==24.0.0                 # Parquet I/O: build_geo_layers.py calls to_parquet/read_parquet, which pandas and
+                                # geopandas import pyarrow for at run time (the version the geo tools ran with)
+pandas==3.0.1
+numpy==2.3.5
+python-dateutil==2.9.0.post0    # pandas
+six==1.17.0                     # python-dateutil
+tzdata==2026.3                  # pandas on Windows
+packaging==26.3                 # geopandas, pyogrio
+certifi==2026.7.22              # pyproj, pyogrio
+psutil==7.2.2                   # tools/build_geo_layers.py imports it at module level
+geopy==2.5.0                    # tools/geo_assign.py GeoPy fallback (imported lazily)
+geographiclib==2.1              # geopy
+
+# Left out on purpose:
+#   python-calamine  optional reader app/evidence_csv.py switches to when it is importable;
+#                    the console has never run with it, so installing it would change the reader.
+#   pytest           the suites are unittest; run them with `python -m unittest`.

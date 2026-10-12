@@ -1,0 +1,16 @@
+# Canonical Moneyball production, audit, and test runtime (Python 3.12).
+# Optional paid/research-only packages are intentionally excluded from the unattended pipeline.
+cryptography==49.0.0
+joblib==1.5.3
+networkx==3.6.1
+numpy==2.4.6
+openpyxl==3.1.5
+pandas==3.0.3
+pypdf==6.19.0
+pytest==9.1.1
+requests==2.34.2
+scikit-learn==1.9.0
+scipy==1.18.0
+soundfile==0.14.0
+urllib3==2.8.0
+# pywin32 is deliberately absent: only the COM-era manual tools (fec/**/apply_*.py, write_im_sheet.py, run_greenlit_legislation_rank_shadow.py, fec/attic) import win32com; none runs in the chain (change-control law 17).

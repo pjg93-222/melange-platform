@@ -1,0 +1,160 @@
+{
+ "as_of": "2026-10-09",
+ "industries": {
+  "commercial_banks": {
+   "annual": [
+    {
+     "hired_firms": 18175500.0,
+     "in_house": 50243352.0,
+     "lobbyists": 447,
+     "orgs": 92,
+     "year": 2021
+    },
+    {
+     "hired_firms": 18640000.0,
+     "in_house": 57554279.0,
+     "lobbyists": 459,
+     "orgs": 90,
+     "year": 2022
+    },
+    {
+     "hired_firms": 20507500.0,
+     "in_house": 61400925.0,
+     "lobbyists": 469,
+     "orgs": 97,
+     "year": 2023
+    },
+    {
+     "hired_firms": 20339032.0,
+     "in_house": 57136855.0,
+     "lobbyists": 479,
+     "orgs": 94,
+     "year": 2024
+    },
+    {
+     "hired_firms": 23824000.0,
+     "in_house": 65696931.0,
+     "lobbyists": 495,
+     "orgs": 100,
+     "year": 2025
+    }
+   ],
+   "partial": {
+    "hired_firms": 13367000.0,
+    "in_house": 38975000.0,
+    "lobbyists": 463,
+    "orgs": 97,
+    "through_quarter": "Q2",
+    "year": 2026
+   },
+   "sector": "bank",
+   "source_file": "sector_spend.csv",
+   "source_sha256": "2369cd2f0b3f9a8addf1e33b8f5d23bbcaca27b9f26ad5cccf0ecb34621f4300",
+   "through": "2026-06-30"
+  },
+  "credit_unions": {
+   "annual": [
+    {
+     "hired_firms": 1573000.0,
+     "in_house": 8374000.0,
+     "lobbyists": 80,
+     "orgs": 19,
+     "year": 2021
+    },
+    {
+     "hired_firms": 1736000.0,
+     "in_house": 9037068.0,
+     "lobbyists": 86,
+     "orgs": 23,
+     "year": 2022
+    },
+    {
+     "hired_firms": 1727500.0,
+     "in_house": 9258678.0,
+     "lobbyists": 105,
+     "orgs": 25,
+     "year": 2023
+    },
+    {
+     "hired_firms": 2098000.0,
+     "in_house": 7128000.0,
+     "lobbyists": 92,
+     "orgs": 23,
+     "year": 2024
+    },
+    {
+     "hired_firms": 2054500.0,
+     "in_house": 6233000.0,
+     "lobbyists": 83,
+     "orgs": 25,
+     "year": 2025
+    }
+   ],
+   "partial": {
+    "hired_firms": 1311000.0,
+    "in_house": 3424000.0,
+    "lobbyists": 72,
+    "orgs": 26,
+    "through_quarter": "Q2",
+    "year": 2026
+   },
+   "sector": "credit_union",
+   "source_file": "sector_spend.csv",
+   "source_sha256": "2369cd2f0b3f9a8addf1e33b8f5d23bbcaca27b9f26ad5cccf0ecb34621f4300",
+   "through": "2026-06-30"
+  },
+  "property_casualty": null,
+  "telecom": {
+   "annual": [
+    {
+     "hired_firms": 35530250.0,
+     "in_house": 95333890.0,
+     "lobbyists": 537,
+     "orgs": 25,
+     "year": 2021
+    },
+    {
+     "hired_firms": 37020000.0,
+     "in_house": 98212019.0,
+     "lobbyists": 554,
+     "orgs": 23,
+     "year": 2022
+    },
+    {
+     "hired_firms": 36448000.0,
+     "in_house": 100554138.0,
+     "lobbyists": 533,
+     "orgs": 24,
+     "year": 2023
+    },
+    {
+     "hired_firms": 36967000.0,
+     "in_house": 101098642.0,
+     "lobbyists": 525,
+     "orgs": 23,
+     "year": 2024
+    },
+    {
+     "hired_firms": 37000500.0,
+     "in_house": 102385884.55,
+     "lobbyists": 532,
+     "orgs": 24,
+     "year": 2025
+    }
+   ],
+   "partial": {
+    "hired_firms": 17588500.0,
+    "in_house": 52066170.0,
+    "lobbyists": 479,
+    "orgs": 23,
+    "through_quarter": "Q2",
+    "year": 2026
+   },
+   "sector": "telecom",
+   "source_file": "sector_spend.csv",
+   "source_sha256": "2369cd2f0b3f9a8addf1e33b8f5d23bbcaca27b9f26ad5cccf0ecb34621f4300",
+   "through": "2026-06-30"
+  }
+ },
+ "recorded_from": "catalog.anchors.industries.<id>.lda_history of the console calculator, anchor snapshot rebuilt 2026-10-09 from Melange sector_spend.csv (sha256 2369cd2f...); the values are Melange's own, reconciled to sector_spend.json by test_giving_lda_history.py"
+}

@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "note": "Which Mentat dataset anchors which forecast industry. forecast_industry null = a separate Mentat dataset that has no forecast model (Community Banks are NOT merged into banks; auto has no Mentat workbook and therefore no entry). pac_roster = the roster companies' own federal PACs (FEC committee master: connected organisation = the roster company, organisation type C; they equal the 05 v3 study's pac_sets 'company' set). Trade-association PACs are NOT counted (owner ruling C1). source_db_candidates are globs under the Mentat project folder; the one whose sha256 equals the index's database_sha256 is the pinned source database. coverage_cut_back applies only while the rule's coverage end equals when_rule_coverage_end.",
+  "thin_base_threshold_usd": 100000,
+  "industries": [
+    {
+      "id": "commercial_banks",
+      "label": "Commercial banks (Mentat Banking: the ten largest banks)",
+      "forecast_industry": "commercial_banks",
+      "mentat_dataset": "Banking",
+      "workbook": "Banking Industry Spending Overview.xlsx",
+      "source_db_candidates": [".cache/report-repairs/banking-*/data/mentat.db", ".cache/receipt-metadata-repair-*/banking/mentat.db"],
+      "lda_sector": "bank",
+      "coverage_cut_back": null,
+      "pac_roster": [
+        {"id": "C00364778", "company": "Bank of America"}, {"id": "C00043489", "company": "Bank of America"},
+        {"id": "C00326595", "company": "Capital One"},
+        {"id": "C00008474", "company": "Citi"}, {"id": "C00039305", "company": "Citi"},
+        {"id": "C00350744", "company": "Goldman Sachs"},
+        {"id": "C00104299", "company": "JPMorgan Chase"}, {"id": "C00128512", "company": "JPMorgan Chase"},
+        {"id": "C00337626", "company": "Morgan Stanley"},
+        {"id": "C00035519", "company": "PNC"}, {"id": "C00186064", "company": "PNC"}, {"id": "C00142596", "company": "PNC (BBVA, 2022)"},
+        {"id": "C00386524", "company": "Truist"}, {"id": "C00009639", "company": "Truist"},
+        {"id": "C00488882", "company": "U.S. Bancorp"}, {"id": "C00018036", "company": "U.S. Bancorp"},
+        {"id": "C00034595", "company": "Wells Fargo"}, {"id": "C00300178", "company": "Wells Fargo"}, {"id": "C00429852", "company": "Wells Fargo"}
+      ]
+    },
+    {
+      "id": "credit_unions",
+      "label": "Credit unions (Mentat Credit Union: ten credit unions)",
+      "forecast_industry": "credit_unions",
+      "mentat_dataset": "Credit Union",
+      "workbook": "Credit Union Industry Spending Overview.xlsx",
+      "source_db_candidates": [".cache/receipt-metadata-repair-*/credit_union/mentat.db", ".cache/report-repairs/credit_union-*/data/mentat.db"],
+      "lda_sector": "credit_union",
+      "coverage_cut_back": {"when_rule_coverage_end": "2026-06-30", "coverage_end": "2026-05-31", "reason": "June incomplete (31 included rows, $1,353 against a $13,681 January-May monthly mean)"},
+      "pac_roster": [
+        {"id": "C00390633", "company": "SchoolsFirst Federal Credit Union"}
+      ]
+    },
+    {
+      "id": "property_casualty",
+      "label": "Property & casualty insurers (Mentat Property & Casualty Insurance)",
+      "forecast_industry": "property_casualty",
+      "mentat_dataset": "Property & Casualty Insurance",
+      "workbook": "Property & Casualty Insurance Industry Spending Overview.xlsx",
+      "source_db_candidates": [".cache/receipt-metadata-repair-*/property_casualty_insurance/mentat.db", ".cache/report-repairs/property_casualty_insurance-*/data/mentat.db"],
+      "lda_sector": null,
+      "coverage_cut_back": null,
+      "pac_roster": []
+    },
+    {
+      "id": "telecom",
+      "label": "Telecommunications (Mentat Telecom)",
+      "forecast_industry": "telecom",
+      "mentat_dataset": "Telecom",
+      "workbook": "Telecom Industry Spending Overview.xlsx",
+      "source_db_candidates": [".cache/receipt-metadata-repair-*/telecom/mentat.db", ".cache/report-repairs/telecom-*/data/mentat.db"],
+      "lda_sector": "telecom",
+      "coverage_cut_back": null,
+      "pac_roster": []
+    },
+    {
+      "id": "community_banks",
+      "label": "Community banks (Mentat Community Banks; separate from commercial banks)",
+      "forecast_industry": null,
+      "mentat_dataset": "Community Banks",
+      "workbook": "Community Banks Industry Spending Overview.xlsx",
+      "source_db_candidates": [".cache/receipt-metadata-repair-*/community_banks/mentat.db", ".cache/report-repairs/community_banks-*/data/mentat.db"],
+      "lda_sector": null,
+      "coverage_cut_back": null,
+      "pac_roster": []
+    }
+  ]
+}

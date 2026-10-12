@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:network-score:v1",
+  "title": "Non-conflated staffer network measures",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_id", "canonical_entity_id", "entity_kind", "display_name", "raw_strength", "exploratory_raw_strength", "primary_isolate", "exploratory_isolate", "component_id", "component_size", "eigenvector_component_l1", "connectedness_pagerank_0_70", "connectedness_pagerank_0_85", "connectedness_pagerank_0_95", "connectedness_within_kind", "bridging_diversity", "connectedness_exploratory_pagerank_0_85", "bridging_exploratory", "composite_influence_score"],
+  "properties": {
+    "schema_id": {"const": "staffer-network-network-score-v1"},
+    "canonical_entity_id": {"type": "string", "pattern": "^canonical:"},
+    "entity_kind": {"type": "string", "minLength": 1},
+    "display_name": {"type": ["string", "null"]},
+    "raw_strength": {"type": "number", "minimum": 0},
+    "exploratory_raw_strength": {"type": "number", "minimum": 0},
+    "primary_isolate": {"type": "boolean"},
+    "exploratory_isolate": {"type": "boolean"},
+    "component_id": {"type": "integer", "minimum": 0},
+    "component_size": {"type": "integer", "minimum": 1},
+    "eigenvector_component_l1": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "connectedness_pagerank_0_70": {"type": "number", "minimum": 0, "maximum": 1},
+    "connectedness_pagerank_0_85": {"type": "number", "minimum": 0, "maximum": 1},
+    "connectedness_pagerank_0_95": {"type": "number", "minimum": 0, "maximum": 1},
+    "connectedness_within_kind": {"type": "number", "minimum": 0, "maximum": 1},
+    "bridging_diversity": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "connectedness_exploratory_pagerank_0_85": {"type": "number", "minimum": 0, "maximum": 1},
+    "bridging_exploratory": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "composite_influence_score": {"type": "null"}
+  }
+}

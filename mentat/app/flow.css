@@ -1,0 +1,145 @@
+/* Flow (Sankey) views, lane F: PAC evidence's Flow (board #44), Graph's Follow the money
+   (#45). Theme tokens only (acu-theme.css, workspace-polish.css); no inline styles (CSP). */
+
+/* The Flow view takes the whole evidence view, as the enlarged map does. */
+#view-evidence.flow-open > .view-intro, #view-evidence.flow-open > .evidence-scope { display: none; }
+body[data-view] #view-evidence.flow-open > .evidence-layout { display: none; }
+.workspace:has(#view-evidence.flow-open:not([hidden])) > .workspace-heading { display: none; }
+#view-graph.flow-open > :not(.graph-flow) { display: none; }
+.workspace:has(#view-graph.flow-open:not([hidden])) > .workspace-heading,
+.workspace:has(#view-graph.flow-open:not([hidden])) > #graph-trail { display: none; }
+
+.evidence-flow, .graph-flow { display: grid; gap: 14px; min-width: 0; }
+.evidence-flow[hidden], .graph-flow[hidden] { display: none; }
+
+.flow-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.flow-crumb { margin: 0 0 6px; color: var(--acu-plum); font: 500 13px/1.2 var(--font-sans); letter-spacing: .08em;
+  text-transform: uppercase; }
+.flow-crumb-sep { margin: 0 10px; color: var(--muted); }
+.flow-title-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.flow-title { margin: 0; color: var(--acu-plum); font: 600 44px/1.05 var(--font-serif); letter-spacing: .01em; }
+.flow-badge { display: inline-flex; align-items: center; height: 28px; padding: 0 12px; border: 1px solid var(--line);
+  border-radius: 999px; background: #f4f1f6; color: #4c4459; font: 500 13px/1 var(--font-sans); white-space: nowrap; }
+.flow-badge:empty { display: none; }
+.flow-back { flex: none; }
+
+/* Lane F2a (FL9): the controls at the boards' density, in one row from 1280 px up (Top and
+   Colour by inline); below that they may wrap. */
+.flow-controls { display: flex; align-items: flex-end; gap: 10px 14px; flex-wrap: wrap; padding: 10px 16px; }
+.flow-control { display: grid; flex: 0 1 auto; gap: 5px; min-width: 0; color: #4c4459; font: 500 12px/1 var(--font-sans); }
+.flow-control--cycle { min-width: 112px; }
+.flow-control select { height: 32px; width: 100%; min-width: 0; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px;
+  background: white; color: var(--acu-plum); font: 500 13px/1 var(--font-sans); }
+.flow-controls .segmented { flex: none; height: 32px; }
+.flow-controls .segmented > button { padding: 0 11px; font-size: 13px; }
+@media (min-width: 1280px) { .flow-controls { flex-wrap: nowrap; } }
+/* Gold once per screen: the selected Flow segment (B19's selected pane view). */
+.flow-views.segmented > [aria-pressed=true] { background: var(--acu-gold); color: var(--acu-plum); font-weight: 600; }
+.flow-basis.segmented > [aria-pressed=true] { background: var(--acu-plum); color: white; }
+
+.flow-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 23%); gap: 14px; align-items: start; }
+.flow-card { min-width: 0; padding: 18px 20px 12px; }
+/* FL10: one line; flow-chart.js fitHeading steps a long title down to 20px, then ends it with an
+   ellipsis and puts the full words in its title. */
+.flow-heading { margin: 0; overflow: hidden; color: var(--acu-plum); font: 600 28px/1.2 var(--font-serif);
+  white-space: nowrap; text-overflow: ellipsis; }
+.flow-sub { margin: 6px 0 0; color: var(--muted); font: 400 13.5px/1.35 var(--font-sans); }
+.flow-reroot { margin: 8px 0 0; color: #4c4459; font: 400 13px/1.3 var(--font-sans); }
+.flow-status { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 12px 0 0; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 8px; background: #fbf8f5; color: #3c3449; font: 400 14px/1.4 var(--font-sans); }
+.flow-status[hidden] { display: none; }
+.flow-canvas { position: relative; min-width: 0; margin-top: 10px; }
+/* FL7: one footnote line, board style, with a Details disclosure listing every note in full. */
+.flow-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; column-gap: 12px;
+  margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--muted);
+  font: 400 11.5px/1.45 var(--font-sans); }
+.flow-foot:empty { display: none; }
+.flow-foot-line { min-width: 0; margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.flow-foot-toggle { height: auto; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none;
+  color: var(--acu-purple); font: 500 11.5px/1.45 var(--font-sans); cursor: pointer; }
+.flow-foot-toggle:hover, .flow-foot-toggle:focus-visible { text-decoration: underline; }
+.flow-foot-toggle[hidden], .flow-foot-list[hidden] { display: none; }
+.flow-foot-list { grid-column: 1 / -1; margin: 6px 0 0; padding-left: 18px; }
+.flow-foot-list li + li { margin-top: 2px; }
+
+.flow-rail { padding: 18px 18px 10px; }
+.flow-rail-title { margin: 0 0 10px; color: var(--acu-plum); font: 600 28px/1.15 var(--font-serif); }
+.flow-routes { margin: 0; padding: 0; list-style: none; }
+.flow-routes li + li { margin-top: 4px; }
+.flow-route { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'label label' 'bar amount';
+  gap: 8px 12px; width: 100%; padding: 12px 2px; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.flow-route:hover .flow-route-label, .flow-route:focus-visible .flow-route-label { color: var(--acu-purple); }
+.flow-route-label { grid-area: label; color: #2f273f; font: 400 14px/1.3 var(--font-sans); }
+.flow-route-bar { grid-area: bar; align-self: center; height: 8px; border-radius: 4px; background: #ece7ef; overflow: hidden; }
+.flow-route-fill { display: block; height: 100%; border-radius: 4px; background: var(--acu-teal); }
+.flow-route-fill--oppose { background: #83333e; }
+.flow-route-fill--contribution { background: var(--acu-purple); }
+.flow-route-amount { grid-area: amount; color: #2f273f; font: 500 14px/1 var(--font-sans); font-variant-numeric: tabular-nums; }
+
+/* The Sankey. Lane F2a: labels beside the bars at 12-13px with no halo (FL3); the ribbons
+   rest at 20% (lane G1, board #44: overlaps stay pastel; the views pass it), a hover lights its
+   route at 60% and dims only the ribbons off the route (FL2, FL4). */
+.flow-chart { display: block; max-width: 100%; height: auto; overflow: visible; }
+.flow-header { fill: #4c4459; font: 600 11px/1 var(--font-sans); letter-spacing: .14em; }
+.flow-label { fill: #2f273f; font: 400 13px/1 var(--font-sans); }
+.flow-node--root .flow-label { font-weight: 600; }
+.flow-amount { fill: #6b6376; font: 400 12px/1 var(--font-sans); }
+.flow-subline { fill: #7f7888; font: 400 11.5px/1 var(--font-sans); }
+.flow-link { transition: fill-opacity .12s ease; }
+.flow-link--unverified { stroke: #83333e; stroke-width: .8; stroke-dasharray: 3 3; }
+.flow-node { cursor: pointer; outline: none; }
+.flow-node--donor, .flow-node--balance { cursor: default; }
+.flow-node:focus-visible .flow-bar { stroke: var(--acu-plum); stroke-width: 2; }
+.flow-chart.is-tracing .flow-link:not(.is-lit) { fill-opacity: .12; }
+.flow-chart.is-tracing .flow-link.is-lit { fill-opacity: .6; }
+.flow-chart.is-tracing .flow-node:not(.is-lit) text { opacity: .9; }
+/* FL5: compact, 12px; flow-chart.js places it by the hovered point, clear of the headers. */
+.flow-tooltip { position: absolute; z-index: 5; display: grid; gap: 1px; max-width: 300px; padding: 6px 9px;
+  border: 1px solid var(--line); border-radius: 6px; background: white; box-shadow: 0 4px 14px rgba(52, 38, 73, .14);
+  color: #2f273f; font: 400 12px/1.35 var(--font-sans); pointer-events: auto; }
+.flow-tooltip[hidden] { display: none; }
+.flow-tooltip strong { font-weight: 600; }
+.flow-tooltip span:nth-of-type(2) { color: #327a7a; }
+.flow-tooltip a { color: var(--acu-purple); }
+
+/* Chart Studio's Flow mark (board #46): the Stages shelf, the Flow options, the legend. Lane
+   F2a: the drawing's text is the board's 13px over the canvas's 18px (workspace-polish.css), and
+   studio-flow.js measures it so. */
+#view-chart-studio .studio-canvas svg.flow-chart .flow-label { font-size: 13px; }
+#view-chart-studio .studio-canvas svg.flow-chart .flow-amount { font-size: 12px; }
+#view-chart-studio .studio-canvas svg.flow-chart .flow-subline { font-size: 11.5px; }
+#view-chart-studio .studio-canvas svg.flow-chart .flow-legend-label { font-size: 12.5px; }
+#view-chart-studio .studio-shelf.studio-shelf--flow-hidden { display: none; }
+#view-chart-studio .studio-shelf:has(> .studio-drop--stages) { height: auto; min-height: 30px; padding-top: 2px;
+  padding-bottom: 2px; }
+#view-chart-studio .studio-shelf .studio-drop.studio-drop--stages { flex-wrap: wrap; row-gap: 4px; align-items: center; }
+.studio-stage-arrow { flex: none; align-self: center; margin: 0 1px; color: var(--muted); font: 500 15px/1 var(--font-sans); }
+#view-chart-studio .studio-canvas:has(> svg.flow-chart) { position: relative; }
+#view-chart-studio .studio-canvas .flow-node { cursor: default; }
+.flow-legend-label { fill: #2f273f; font: 400 13px/1 var(--font-sans); }
+.studio-flow-options { display: grid; gap: 10px; margin: 12px 0 4px; padding-top: 12px; border-top: 1px solid var(--line); }
+.studio-flow-options[hidden] { display: none; }
+.studio-flow-options h4 { margin: 0; color: var(--acu-plum); font: 600 13px/1.2 var(--font-sans); }
+.studio-flow-row { display: grid; gap: 6px; }
+.studio-flow-name { color: #4c4459; font: 500 12px/1.2 var(--font-sans); }
+.studio-flow-row select { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: white;
+  color: var(--acu-plum); font: 500 12px/1 var(--font-sans); }
+.studio-flow-ribbons { display: flex; }
+.studio-flow-ribbons > button { flex: 1 1 0; padding: 7px 4px; }
+.studio-flow-ribbons > button[aria-pressed=true] { background: var(--acu-plum); }
+.studio-flow-ribbons > button[aria-disabled=true] { color: var(--muted); cursor: not-allowed; }
+.studio-flow-range { display: flex; align-items: center; gap: 10px; }
+.studio-flow-range input { flex: 1; min-width: 0; accent-color: var(--acu-plum); }
+.studio-flow-opacity-value { min-width: 38px; color: #4c4459; font: 500 12px/1 var(--font-sans); text-align: right;
+  font-variant-numeric: tabular-nums; }
+.studio-flow-note { margin: 0; color: var(--muted); font: 400 12px/1.4 var(--font-sans); }
+.studio-flow-note:empty { display: none; }
+
+@media (max-width: 1500px) {
+  .flow-heading { font-size: 25px; }
+  .flow-rail-title { font-size: 24px; }
+}
+@media (max-width: 1100px) {
+  .flow-body { grid-template-columns: minmax(0, 1fr); }
+  .flow-title { font-size: 36px; }
+}

@@ -1,0 +1,109 @@
+{
+  "note": "Worked example payloads for the Chart Studio HTTP contract. `views_save` and `briefing_add` are exactly what the browser puts on the wire; `producer` records the inputs the client builds them from, so the node suite can run the real builders in mentat/app/chart-studio-core.js over those inputs and deep-equal the result against the payloads below. That is what makes this a contract rather than a wish: if the client ever goes back to sending a caption string for `source`, the producer assertions fail here instead of a reader finding a 400 on Save view, or '[object Obje' where a workbook digest belongs. The python suite posts the same payloads to a real Console.",
+  "views_save": {
+    "name": "Crypto receipts by recipient",
+    "sourceKey": "contributions|Crypto|9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9",
+    "source": {
+      "label": "Crypto",
+      "reportName": "Crypto Industry Spending Overview.xlsx",
+      "sha256": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9",
+      "runName": "Configured completed-report folder",
+      "sheet": "Verified source observations",
+      "mode": "contributions",
+      "dataset": "Crypto",
+      "datasetLabel": "Crypto",
+      "industry": "Crypto"
+    },
+    "sheets": [
+      {"name": "Recipients", "charts": [{"kind": "bar", "field": "amount"}]},
+      {"name": "Cycles", "charts": [{"kind": "bar", "field": "amount"}]}
+    ],
+    "active": 0
+  },
+  "briefing_add": {
+    "title": "Published included receipts by recipient category",
+    "scope": "Crypto - Cycle 2025-2026",
+    "chip": "Crypto - Cycle 2025-2026",
+    "note": "Top five categories",
+    "basis": "Published included receipts",
+    "sheetId": "sheet-1",
+    "sheetName": "Recipients",
+    "source": {
+      "label": "Crypto Industry Spending Overview.xlsx",
+      "reportName": "Crypto Industry Spending Overview.xlsx",
+      "runName": "Configured completed-report folder",
+      "sheet": "Verified source observations",
+      "mode": "contributions",
+      "dataset": "Crypto",
+      "industry": "Crypto"
+    },
+    "provenance": {
+      "sha": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9",
+      "reportName": "Crypto Industry Spending Overview.xlsx",
+      "source": "Crypto Industry Spending Overview.xlsx",
+      "generatedAt": "2026-09-14T16:30:00.000Z"
+    },
+    "width": 960,
+    "height": 540,
+    "origin": "studio",
+    "svg": "<svg width=\"960\" height=\"540\"><rect width=\"960\" height=\"540\"/></svg>"
+  },
+  "producer": {
+    "view_verified": {
+      "comment": "The verified contributions path. `basis` is deliberately present in the input and absent from the payload: a saved view records where the numbers came from, not which accounting basis happened to be on screen.",
+      "sheet_source": {
+        "mode": "contributions",
+        "dataset": "Crypto",
+        "basis": "receipt",
+        "reportName": "Crypto Industry Spending Overview.xlsx",
+        "sheet": "Verified source observations",
+        "runName": "Configured completed-report folder",
+        "sha256": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9"
+      },
+      "chosen_dataset": {"id": "Crypto", "label": "Crypto", "industry": "Crypto"}
+    },
+    "view_worksheet": {
+      "comment": "A plain worksheet, with no verified dataset chosen: the caption falls back to the report name and no dataset keys appear at all.",
+      "sheet_source": {
+        "reportName": "Banking.xlsx",
+        "sha256": "bb17c0de4419a5f2d3e8b6a1470c92d5f8e3a0b7c46d91e2f5a8b3c60d7e4f21",
+        "runName": "Rebuilt reports",
+        "sheet": "Recipients"
+      },
+      "chosen_dataset": null,
+      "expected_source": {
+        "label": "Banking.xlsx",
+        "reportName": "Banking.xlsx",
+        "sha256": "bb17c0de4419a5f2d3e8b6a1470c92d5f8e3a0b7c46d91e2f5a8b3c60d7e4f21",
+        "runName": "Rebuilt reports",
+        "sheet": "Recipients"
+      }
+    },
+    "view_recovered": {
+      "comment": "A view migrated out of the old browser-local store, which recorded nothing but the key. A caption is all there is, and it still travels as an object.",
+      "label": "Crypto",
+      "expected_source": {"label": "Crypto"}
+    },
+    "chart": {
+      "comment": "What a chart carries into the briefing and from there into a slide. generated_at is supplied so the assertion is not a moving target.",
+      "sheet_source": {
+        "mode": "contributions",
+        "dataset": "Crypto",
+        "industry": "Crypto",
+        "basis": "receipt",
+        "reportName": "Crypto Industry Spending Overview.xlsx",
+        "sheet": "Verified source observations",
+        "runName": "Configured completed-report folder",
+        "sha256": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9"
+      },
+      "sha": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9",
+      "generated_at": "2026-09-14T16:30:00.000Z"
+    }
+  },
+  "expected": {
+    "workbook_sha256": "9c3f1ad27b40e5c68f2a7d1b4e0c6a3958d7f2e1b0c9a8d7e6f5a4b3c2d1e0f9",
+    "short_sha": "9c3f1ad27b40",
+    "source_caption": "Crypto Industry Spending Overview.xlsx",
+    "view_source_caption": "Crypto"
+  }
+}

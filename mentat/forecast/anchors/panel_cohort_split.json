@@ -1,0 +1,49 @@
+{
+  "basis": "canonical_cycle_office_nominal_pac_D_R",
+  "cohort_ids_sha256": "d0e1b16b3bfb54f6e827dbae865c5d1935adb472ac3ea2651de959791077902c",
+  "count": 16,
+  "cycles": {
+    "2024": {
+      "House": {
+        "D": 128256000,
+        "Other": 0,
+        "R": 127060000,
+        "Unknown": 500000
+      },
+      "Senate": {
+        "D": 21550000,
+        "Other": 1200000,
+        "R": 17200000,
+        "Unknown": 250000
+      },
+      "sum_cents": 297616000,
+      "unresolved_office_pool": 1600000
+    }
+  },
+  "note": "Cents. Only rows the panel counts (hs == 1) are split; every bucket sums to the panel total (cycle) or observed amount (to the cut) to the cent.",
+  "observed": {
+    "House": {
+      "D": 94689000,
+      "Other": 0,
+      "R": 88175000,
+      "Unknown": 500000
+    },
+    "Senate": {
+      "D": 6200000,
+      "Other": 0,
+      "R": 17075000,
+      "Unknown": 750000
+    },
+    "sum_cents": 207839000,
+    "through": "2026-09-26",
+    "unresolved_office_pool": 450000
+  },
+  "schema": "panel-cohort-party-split-v1",
+  "sector": "credit_unions",
+  "sources": {
+    "current_ledger_sha256": "7f5dace492663a2c85c475886d102ab88df761717cfeb9dc6fb7039706834f5d",
+    "history_ledger_sha256": "5e19809d1d85d4bae64064453ba7b34457e8a273bdd6328ab93664a8a9aa1625",
+    "ids_sha256": "d0e1b16b3bfb54f6e827dbae865c5d1935adb472ac3ea2651de959791077902c"
+  },
+  "target": 2026
+}

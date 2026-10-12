@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:melange:staffer-network:politico-adjudication-results-receipt:v1",
+  "title": "Aggregate-only model-assisted Politico adjudication receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id", "generated_at", "status", "method_version",
+    "framework_receipt_sha256", "root_binding_sha256", "split_seal_sha256",
+    "review_sample_sha256", "reviewer_ids", "reviewer_type", "label_files",
+    "submitted_label_count", "reviewed_candidate_count", "calibration", "holdout",
+    "human_gold_adjudicated_count", "estimated_human_gold_precision",
+    "model_assisted_only", "source_enabled", "canonical_entity_merges",
+    "auto_merge_enabled", "failures"
+  ],
+  "properties": {
+    "schema_id": {"const": "staffer-network-politico-adjudication-results-receipt-v1"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["REPORT", "FAIL"]},
+    "method_version": {"type": "string", "minLength": 1},
+    "framework_receipt_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "root_binding_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "split_seal_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "review_sample_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reviewer_ids": {
+      "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+      "items": {"enum": ["codex-evidence-review", "fable-independent-review"]}
+    },
+    "reviewer_type": {"const": "MODEL_ASSISTED"},
+    "label_files": {
+      "type": "array", "minItems": 2, "maxItems": 2,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["reviewer_id", "records", "sha256"],
+        "properties": {
+          "reviewer_id": {"enum": ["codex-evidence-review", "fable-independent-review"]},
+          "records": {"type": "integer", "minimum": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "submitted_label_count": {"type": "integer", "minimum": 0},
+    "reviewed_candidate_count": {"type": "integer", "minimum": 0},
+    "calibration": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidate_count", "reviewer_outcome_counts", "exact_agreement_count",
+        "exact_agreement_rate", "determinate_pair_count", "determinate_agreement_count",
+        "determinate_agreement_rate", "consensus_match_count", "consensus_distinct_count",
+        "consensus_match_rate", "conflicting_determinate_count",
+        "possible_or_abstain_pair_count", "disagreement_queue_count",
+        "disagreement_queue_sha256"
+      ],
+      "properties": {
+        "candidate_count": {"type": "integer", "minimum": 1},
+        "reviewer_outcome_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["codex-evidence-review", "fable-independent-review"],
+          "properties": {
+            "codex-evidence-review": {
+              "type": "object", "additionalProperties": false,
+              "required": ["MATCH", "DISTINCT", "POSSIBLE", "ABSTAIN"],
+              "properties": {
+                "MATCH": {"type": "integer", "minimum": 0},
+                "DISTINCT": {"type": "integer", "minimum": 0},
+                "POSSIBLE": {"type": "integer", "minimum": 0},
+                "ABSTAIN": {"type": "integer", "minimum": 0}
+              }
+            },
+            "fable-independent-review": {
+              "type": "object", "additionalProperties": false,
+              "required": ["MATCH", "DISTINCT", "POSSIBLE", "ABSTAIN"],
+              "properties": {
+                "MATCH": {"type": "integer", "minimum": 0},
+                "DISTINCT": {"type": "integer", "minimum": 0},
+                "POSSIBLE": {"type": "integer", "minimum": 0},
+                "ABSTAIN": {"type": "integer", "minimum": 0}
+              }
+            }
+          }
+        },
+        "exact_agreement_count": {"type": "integer", "minimum": 0},
+        "exact_agreement_rate": {"type": "number", "minimum": 0, "maximum": 1},
+        "determinate_pair_count": {"type": "integer", "minimum": 0},
+        "determinate_agreement_count": {"type": "integer", "minimum": 0},
+        "determinate_agreement_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "consensus_match_count": {"type": "integer", "minimum": 0},
+        "consensus_distinct_count": {"type": "integer", "minimum": 0},
+        "consensus_match_rate": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "conflicting_determinate_count": {"type": "integer", "minimum": 0},
+        "possible_or_abstain_pair_count": {"type": "integer", "minimum": 0},
+        "disagreement_queue_count": {"type": "integer", "minimum": 0},
+        "disagreement_queue_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    },
+    "holdout": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "candidate_count", "reviewer_label_counts", "status",
+        "outcome_counts_published", "evaluation_count"
+      ],
+      "properties": {
+        "candidate_count": {"type": "integer", "minimum": 1},
+        "reviewer_label_counts": {
+          "type": "object", "additionalProperties": false,
+          "required": ["codex-evidence-review", "fable-independent-review"],
+          "properties": {
+            "codex-evidence-review": {"type": "integer", "minimum": 0},
+            "fable-independent-review": {"type": "integer", "minimum": 0}
+          }
+        },
+        "status": {"const": "QUARANTINED"},
+        "outcome_counts_published": {"const": false},
+        "evaluation_count": {"const": 0}
+      }
+    },
+    "human_gold_adjudicated_count": {"const": 0},
+    "estimated_human_gold_precision": {"type": "null"},
+    "model_assisted_only": {"const": true},
+    "source_enabled": {"type": "boolean"},
+    "canonical_entity_merges": {"const": 0},
+    "auto_merge_enabled": {"const": false},
+    "failures": {"type": "array", "maxItems": 0}
+  }
+}

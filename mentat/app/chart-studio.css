@@ -1,0 +1,1063 @@
+/* Chart Studio. Every colour is an ACU token from acu-theme.css; the only
+   literals are the two pill fills named in the design brief (purple dimensions,
+   teal measures), which are the same tokens the chart palette already uses. */
+
+.workspace:has(#view-chart-studio:not([hidden])) { max-width: none; }
+
+/* Verified facts share the original workbench's spacing and brand tokens. */
+.studio-verified-summary {display:flex;flex-wrap:wrap;gap:20px;padding:10px 0 14px;border-bottom:1px solid var(--line);margin-bottom:14px;font-size:11px;color:var(--muted)}
+.studio-verified-summary span {display:flex;flex-direction:column;gap:3px}
+.studio-verified-summary strong {font-size:18px;font-weight:600;color:var(--acu-plum);font-variant-numeric:tabular-nums}
+.studio-result-controls {display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px;font-size:12px}
+.studio-result-controls button,.studio-inspection button,.studio .contribution-map-toolbar button {font:inherit;font-size:12px;color:var(--acu-plum);padding:5px 9px;background:var(--acu-ivory);border:1px solid var(--line);border-radius:4px;cursor:pointer}
+.studio-result-controls button:disabled,.studio-inspection button:disabled {opacity:.5;cursor:default}
+.studio-result-controls span {flex:1}
+.studio-inspection {margin-top:18px;border-top:1px solid var(--line);padding-top:12px}
+.studio-inspection .table-scroll {max-height:420px;font-size:11px;margin:10px 0}
+.studio-inspection th,.studio-inspection td {min-width:90px;max-width:300px;overflow-wrap:anywhere;padding:7px}
+.studio .contribution-map {width:100%;min-width:600px;font-size:11px}
+.studio .contribution-map-toolbar {display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.studio .contribution-map svg {width:100%;height:auto;max-height:720px;border:1px solid var(--line);touch-action:none}
+.studio .contribution-map-coverage {font-weight:600;color:var(--acu-plum)}
+.studio .contribution-map p {line-height:1.5;margin:8px 0;overflow-wrap:anywhere}
+.studio .plot-mark {cursor:pointer}
+.studio-canvas[aria-busy="true"] {opacity:.45;pointer-events:none}
+/* r7: the pending panel - the server building the view this canvas asked for,
+   or a wait that stopped, with its Retry. A busy canvas dims its last good view,
+   never the panel that explains the wait. */
+.studio-canvas[aria-busy="true"]:has(> .studio-pending) {opacity:1;pointer-events:auto}
+.studio-canvas[aria-busy="true"]:has(> .studio-pending) > :not(.studio-pending) {opacity:.45;pointer-events:none}
+.studio-pending {margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--acu-paper);color:var(--acu-plum);max-width:640px}
+.studio-pending-message {margin:0 0 8px;font-size:13px;line-height:1.45}
+.studio-pending-detail {margin:6px 0 0;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.studio-pending-bar {position:relative;height:6px;border-radius:3px;background:var(--acu-ivory);overflow:hidden}
+.studio-pending-bar > span {position:absolute;top:0;bottom:0;left:0;width:0;background:var(--acu-plum);border-radius:3px;transition:width .3s ease}
+.studio-pending-bar.is-indeterminate > span {width:32%;animation:studio-pending-sweep 1.3s ease-in-out infinite}
+@keyframes studio-pending-sweep {from {left:-32%} to {left:100%}}
+@media (prefers-reduced-motion: reduce) {.studio-pending-bar > span {transition:none}.studio-pending-bar.is-indeterminate > span {animation:none;left:0;width:100%;opacity:.35}}
+.studio-pending[data-state="stopped"] {background:#fcf0ed;border-color:#dfa49b;color:#9b322c}
+.studio-pending[data-state="stopped"] .studio-pending-message {margin-bottom:10px}
+.studio-pending-retry {font:inherit;font-size:12px;padding:6px 12px;border:1px solid var(--line);border-radius:4px;background:white;color:var(--acu-plum);cursor:pointer}
+.studio-inspection .studio-pending {margin:8px 0}
+#view-chart-studio .studio[aria-busy="true"] {cursor:progress}
+.studio .plot-mark:focus {outline:none;stroke:var(--acu-purple);stroke-width:3}
+.studio-canvas table {font-size:12px;width:100%;border-collapse:collapse}
+.studio-canvas table th,.studio-canvas table td {padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+.studio-canvas table .numeric {text-align:right;font-variant-numeric:tabular-nums}
+.studio-canvas .selectable {cursor:pointer}
+.studio-canvas .selectable:hover {background:var(--acu-ivory)}
+.studio-filter-editor small {display:block;max-width:240px;font-size:11px;color:var(--muted)}
+
+#view-chart-studio { color: var(--acu-plum); font-family: var(--font-sans); }
+.studio-quick-tools {display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px;background:var(--acu-ivory)}
+.studio-quick-tools button,.studio-quick-tools select {font:inherit;padding:7px;border:1px solid var(--line);border-radius:5px;background:var(--acu-paper);color:var(--acu-plum)}
+.studio-quick-tools label {display:flex;align-items:center;gap:6px;margin:0;min-width:0}
+.studio-quick-tools select {max-width:240px}
+.studio-options-hidden .studio-grid {grid-template-columns:minmax(0,1fr)!important;min-height:0}
+/* Canvas only: the builder surfaces go away, the way back never does. */
+.studio-options-hidden .studio-side,
+.studio-options-hidden .studio-cards,.studio-options-hidden .studio-showme,
+.studio-options-hidden .studio-shelves,.studio-options-hidden .studio-shelf,
+.studio-options-hidden .studio-quick-tools {display:none!important}
+/* Canvas only is still a reading of filtered data, so the Inspector button
+   stays in the header with its count at every width and opens the panel as
+   a drawer over the chart rather than restoring the whole builder. */
+.studio-options-hidden .studio-inspector-toggle {display:inline-flex;align-items:center}
+.studio-options-hidden .studio-inspector-toggle[aria-expanded=false]:has(.studio-inspector-badge:not([hidden])) {border-color:var(--acu-gold)}
+.studio-options-hidden .studio-inspector {display:flex!important;position:fixed;top:0;right:0;bottom:0;
+  width:min(340px,92vw);z-index:9;max-height:none;overflow-y:auto;border-left:1px solid var(--line);
+  box-shadow:-8px 0 24px rgba(52,38,73,.16)}
+.studio-options-hidden .studio-inspector[hidden] {display:none!important}
+.studio-options-hidden .studio-inspector-close {display:inline-block}
+/* Canvas only keeps the one control a reader came to the canvas for: a way
+   to take the chart away. Every other toolbar button edits the builder. */
+.studio-options-hidden .studio-toolbar {justify-content:flex-end;gap:0;border:0;background:none;padding:0;margin:0 0 8px;min-height:0}
+.studio-options-hidden .studio-toolbar > :not(#studio-download):not(#studio-views):not(#studio-board-tiles) {display:none!important}
+/* The chart variant row rides above the shelves it belongs to. */
+.studio-quick-tools {position:sticky;top:0;z-index:3}
+/* The control that put the builder away is the only way to bring it back,
+   so it can never be part of what is put away. */
+.studio-options-hidden .studio-options-restore,.studio-options-hidden .studio-header {display:flex!important}
+.studio-options-restore {border-color:var(--acu-purple)!important}
+
+.studio {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--acu-paper);
+  overflow: hidden;
+}
+
+/* ------------------------------------------------------------- toolbar */
+
+.studio-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: var(--acu-ivory);
+  border-bottom: 1px solid var(--line);
+}
+.studio-toolbar button,
+.studio-toolbar summary,
+.studio-toolbar select {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--acu-plum);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px 9px;
+  cursor: pointer;
+}
+.studio-toolbar button:hover:not(:disabled),
+.studio-toolbar summary:hover { border-color: var(--acu-purple); background: #f7f2fa; }
+.studio-toolbar button:disabled { color: var(--muted); cursor: default; opacity: .55; }
+.studio-toolbar button[aria-pressed=true] { background: var(--acu-gold); border-color: var(--acu-gold); font-weight: 600; }
+.studio-toolbar .studio-toolbar-gap { flex: 1 1 auto; }
+.studio-toolbar .studio-classic { border-style: dashed; }
+.studio-menu { position: relative; }
+.studio-menu > summary { list-style: none; display: inline-block; }
+.studio-menu > summary::-webkit-details-marker { display: none; }
+.studio-menu > div {
+  position: absolute;
+  z-index: 6;
+  right: 0;
+  margin-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(52, 38, 73, .14);
+}
+.studio-menu button { white-space: nowrap; text-align: left; }
+/* A view is named where its menu entry was, so the menu never jumps. */
+.studio-menu input.studio-view-name {
+  font: inherit; font-size: 12px; width: 190px; padding: 4px 6px; color: var(--acu-plum);
+  border: 1px solid var(--acu-purple); border-radius: 4px; background: white;
+}
+
+/* ---------------------------------------------------------------- header */
+
+.studio-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--acu-paper);
+  border-bottom: 1px solid var(--line);
+}
+.studio-heading { font-family: var(--font-serif); font-weight: 400; font-size: 21px; margin: 0; color: var(--acu-plum); }
+.studio-header-gap { flex: 1 1 auto; }
+.studio-scope-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  color: var(--acu-plum);
+  background: var(--acu-lilac);
+  border-radius: 12px;
+  padding: 4px 11px;
+  max-width: 46ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.studio-scope-chip:empty { display: none; }
+.studio-scope-block { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
+/* What the hand-off could not bring across, under the scope it did. */
+.studio-scope-note { font-size: 11px; color: var(--muted); max-width: 60ch; }
+.studio-scope-note[hidden] { display: none; }
+.studio-scope-change {
+  font: inherit; font-size: 11px; color: var(--acu-purple); background: none;
+  border: 0; border-bottom: 1px solid var(--acu-purple); padding: 0; cursor: pointer;
+}
+.studio-segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: white; }
+.studio-segmented button {
+  font: inherit; font-size: 12px; line-height: 1.2; color: var(--acu-plum);
+  background: white; border: 0; border-right: 1px solid var(--line); padding: 7px 14px; cursor: pointer;
+}
+.studio-segmented button:last-child { border-right: 0; }
+.studio-segmented button[aria-checked=true],
+.studio-segmented button[aria-pressed=true] { background: var(--acu-purple); color: white; font-weight: 600; }
+.studio-overview-toggle,
+.studio-inspector-toggle {
+  font: inherit; font-size: 12px; color: var(--acu-plum); background: white;
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 12px; cursor: pointer;
+}
+/* The filter count rides on the Inspector toggle, so a closed Inspector
+   still says how many filters are shaping the view behind it. */
+.studio-inspector-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: white;
+  background: var(--acu-purple);
+}
+.studio-inspector-badge[hidden] { display: none; }
+.studio-overview-toggle[aria-pressed=true] { background: var(--acu-purple); border-color: var(--acu-purple); color: white; font-weight: 600; }
+.studio-overview-toggle:disabled { color: var(--muted); opacity: .55; cursor: default; }
+.studio-inspector-toggle { display: none; }
+
+/* ---------------------------------------------------------------- grid */
+
+.studio-grid {
+  display: grid;
+  grid-template-columns: 260px minmax(320px, 1fr) 300px;
+  align-items: stretch;
+  min-height: 560px;
+}
+.studio-grid > * { border-right: 1px solid var(--line); min-width: 0; }
+.studio-grid > :last-child { border-right: 0; }
+
+/* ------------------------------------------------------------- side bar */
+
+.studio-side { background: var(--acu-ivory); display: flex; flex-direction: column; }
+.studio-panel-title {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--acu-plum);
+  margin: 0 0 10px;
+}
+.studio-pane { padding: 12px; }
+.studio-pane h3 {
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 16px 0 6px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+}
+.studio-pane h3.studio-panel-title { font-family: var(--font-serif); }
+.studio-pane h3:first-child { margin-top: 0; }
+.studio-pane label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.studio-pane select,
+.studio-pane input[type=text],
+.studio-pane input[type=number],
+.studio-pane input[type=search] {
+  display: block;
+  width: 100%;
+  margin-top: 3px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--acu-plum);
+  background: white;
+  border: 1px solid #c6bab0;
+  border-radius: 4px;
+  padding: 5px 6px;
+}
+.studio-pane .studio-inline { display: flex; gap: 8px; }
+.studio-pane .studio-inline > label { flex: 1; }
+.studio-pane .studio-check { display: flex; align-items: center; gap: 6px; }
+.studio-pane .studio-check input { width: auto; margin: 0; }
+.studio-source-disclosure { border-bottom: 1px solid var(--line); padding-bottom: 8px; margin-bottom: 10px; }
+.studio-source-disclosure > summary {
+  font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+  font-weight: 600; cursor: pointer; padding: 3px 0; list-style: none;
+}
+.studio-source-disclosure > summary::before { content: '\25B8 '; }
+.studio-source-disclosure[open] > summary::before { content: '\25BE '; }
+.studio-source-disclosure > summary::-webkit-details-marker { display: none; }
+.studio-source { padding-top: 8px; }
+.studio-source p { margin: 0 0 8px; font-size: 11px; color: var(--muted); }
+.studio-fields { display: flex; flex-direction: column; gap: 3px; }
+.studio-fields:empty::after { content: 'No fields'; font-size: 11px; color: var(--muted); }
+
+/* ---------------------------------------------------------------- pills */
+
+.studio-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.25;
+  color: white;
+  background: var(--acu-purple);
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 4px 10px;
+  cursor: grab;
+  text-align: left;
+}
+.studio-pill.is-measure { background: var(--acu-teal); }
+.studio-pill .studio-glyph { display: inline-flex; align-items: center; font-size: 10px; opacity: .9; font-weight: 600; letter-spacing: .04em; }
+.studio-pill .studio-glyph svg { width: 11px; height: 11px; display: block; }
+.studio-pill .studio-pill-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-pill.is-selected { outline: 2px solid var(--acu-gold); outline-offset: 1px; }
+.studio-pill:focus-visible { outline: 3px solid var(--acu-gold); outline-offset: 2px; }
+.studio-pill[data-dragging=true] { opacity: .45; }
+.studio-pill .studio-pill-menu {
+  font: inherit;
+  font-size: 11px;
+  color: white;
+  background: rgba(255, 255, 255, .18);
+  border: 0;
+  border-radius: 8px;
+  padding: 1px 5px;
+  cursor: pointer;
+}
+.studio-fields .studio-pill { width: 100%; position: relative; padding-right: 24px; }
+/* Click-to-add: the pill shows what a click will do before the click. The
+   mark is drawn, never focusable, so the pill keeps one tab stop. */
+.studio-fields .studio-pill::after {
+  content: '+';
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  line-height: 15px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  border-radius: 4px;
+  color: var(--acu-purple);
+  background: white;
+  opacity: 0;
+  pointer-events: none;
+}
+.studio-fields .studio-pill:hover::after,
+.studio-fields .studio-pill:focus-visible::after { opacity: 1; }
+@media (hover: none) { .studio-fields .studio-pill::after { opacity: 1; } }
+
+/* ---------------------------------------------------------------- cards */
+
+.studio-card { border: 1px solid var(--line); border-radius: 6px; background: white; padding: 8px; margin-bottom: 10px; }
+.studio-card h3 {
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.studio-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 4px;
+  min-height: 30px;
+  padding: 4px;
+  border: 1px dashed var(--line);
+  border-radius: 5px;
+  background: var(--acu-paper);
+}
+.studio-drop.is-over { border-color: var(--acu-gold); background: #fdf5e4; }
+.studio-drop:empty::after,
+.studio-drop[data-empty=true]::after {
+  content: attr(data-placeholder);
+  font-size: 11px;
+  color: var(--muted);
+  padding: 3px 2px;
+}
+.studio-mark-props { display: grid; grid-template-columns: 1fr; gap: 6px; margin-top: 8px; }
+.studio-prop { display: grid; grid-template-columns: 58px 1fr; gap: 6px; align-items: start; }
+.studio-prop > span { font-size: 11px; color: var(--muted); padding-top: 6px; }
+.studio-pager { display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+.studio-pager button { font: inherit; font-size: 11px; padding: 4px 7px; border: 1px solid var(--line); background: white; border-radius: 4px; cursor: pointer; }
+.studio-pager span { font-size: 11px; color: var(--muted); }
+
+/* ------------------------------------------------------- filter editing */
+
+.studio-filter-editor { margin-top: 6px; display: grid; gap: 6px; min-width: 230px; max-width: 300px; }
+.studio-filter-editor select,
+.studio-filter-editor input {
+  font: inherit; font-size: 12px; padding: 4px 5px; width: 100%; box-sizing: border-box;
+  border: 1px solid #c6bab0; border-radius: 4px; background: white; color: var(--acu-plum);
+}
+.studio-filter-editor .studio-editor-actions { display: flex; gap: 4px; flex-wrap: wrap; }
+.studio-filter-editor button { font: inherit; font-size: 11px; padding: 4px 7px; border: 1px solid var(--line); background: white; border-radius: 4px; cursor: pointer; }
+.studio-filter-editor button.is-primary { background: var(--acu-purple); border-color: var(--acu-purple); color: white; font-weight: 600; }
+.studio-filter-editor .studio-filter-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.studio-filter-editor .studio-filter-head strong { font-size: 12px; color: var(--acu-plum); }
+.studio-filter-members { max-height: 200px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; background: white; padding: 4px; }
+.studio-filter-members label { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--acu-plum); margin: 0; padding: 2px 3px; }
+.studio-filter-members input { width: auto; }
+.studio-filter-members p { margin: 4px; font-size: 11px; color: var(--muted); }
+.studio-filter-links-row { display: flex; gap: 10px; font-size: 11px; }
+.studio-filter-links-row button { border: 0; background: none; color: var(--acu-purple); border-bottom: 1px solid var(--acu-purple); padding: 0; }
+.studio-filter-rows { display: flex; flex-direction: column; gap: 6px; }
+.studio-filter-rows:empty::after { content: 'No filters yet.'; font-size: 11px; color: var(--muted); }
+.studio-filter-row { border: 1px solid var(--line); border-radius: 5px; background: white; padding: 6px 8px; }
+.studio-filter-row strong { display: block; font-size: 12px; font-weight: 600; color: var(--acu-plum); }
+.studio-filter-row span { display: block; font-size: 11px; color: var(--muted); margin: 2px 0 5px; overflow-wrap: anywhere; }
+.studio-filter-row .studio-editor-actions { display: flex; gap: 4px; }
+.studio-filter-row button { font: inherit; font-size: 11px; padding: 3px 7px; border: 1px solid var(--line); background: var(--acu-paper); border-radius: 4px; cursor: pointer; color: var(--acu-plum); }
+
+/* ----------------------------------------------------------------- view */
+
+.studio-view { display: flex; flex-direction: column; background: white; min-width: 0; }
+.studio-shelves { border-bottom: 1px solid var(--line); background: white; }
+.studio-shelf { display: flex; align-items: flex-start; gap: 8px; padding: 5px 10px; border-bottom: 1px solid #f1e9e1; }
+.studio-shelves .studio-shelf:last-child { border-bottom: 0; }
+.studio-shelf-name { flex: 0 0 58px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 600; padding-top: 7px; }
+.studio-shelf .studio-drop { flex: 1; border-style: solid; border-color: transparent; background: transparent; min-height: 28px; }
+.studio-shelf .studio-drop.is-over { border-color: var(--acu-gold); background: #fdf5e4; }
+.studio-canvas-wrap { flex: 1; padding: 12px 14px 16px; overflow: auto; min-width: 0; }
+.studio-canvas-wrap h2 { font-family: var(--font-serif); font-weight: 400; font-size: 21px; margin: 0 0 2px; }
+.studio-note { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
+/* Graph and Studio read one workbook. When their totals differ, the strip
+   names the reason on the screen where the reader met the difference. */
+.studio-reconcile {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--acu-plum);
+  background: var(--acu-ivory);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 10px;
+  margin: 0 0 10px;
+}
+.studio-reconcile[hidden] { display: none; }
+.studio-reconcile-agree { color: var(--acu-teal); font-weight: 600; }
+.studio-reconcile-differ { color: var(--chart-negative); font-weight: 600; }
+.studio-reconcile-link {
+  font: inherit;
+  font-size: 12px;
+  color: var(--acu-purple);
+  background: none;
+  border: 0;
+  padding: 0;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* A report that cannot be read states the server's reason, in ink a reader
+   reads rather than the muted grey of an aside. */
+.studio-note.is-warning {
+  color: var(--acu-plum);
+  background: #fdf5e4;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+.studio-progress {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--acu-paper);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 6px 8px;
+  margin: 0 0 8px;
+}
+.studio-progress[hidden] { display: none; }
+.studio-progress > span:first-child { flex: 1 1 140px; min-width: 0; }
+.studio-progress button { font: inherit; font-size: 11px; cursor: pointer; }
+/* The data panel is narrow, so its two rescan buttons and the progress box's
+   Cancel wear the console's secondary chrome at a compact size rather than the
+   user agent's default control. */
+.studio-rescan, .studio-progress .secondary { font-size: 12px; padding: 6px 10px; }
+.studio-canvas { overflow: auto; }
+.studio-canvas svg { display: block; max-width: 100%; height: auto; background: white; }
+/* A pie fitted to its chart box (2026-09-24) is held at the box's height and
+   takes the width that goes with it; a box flatter than the drawing centres it.
+   A box that shrinks under it (a note line arriving after the draw) caps it
+   until the redraw for the new size lands, so the canvas never scrolls for it. */
+.studio-canvas > svg[data-fit] { margin-left: auto; margin-right: auto; max-height: 100%; }
+.studio-canvas.fit-width svg { width: 100%; max-width: none; }
+.studio-canvas.fit-entire svg { width: 100%; max-width: none; max-height: calc(100vh - 430px); }
+.studio-canvas.fit-entire > svg[data-fit] { max-height: min(100%, calc(100vh - 430px)); }
+#view-chart-studio .studio-canvas-wrap>.studio-canvas.studio-canvas--scrolls { overflow-y: scroll; scrollbar-gutter: stable; }
+.studio-canvas:empty { min-height: 220px; background: repeating-linear-gradient(0deg, var(--acu-paper), var(--acu-paper) 49px, var(--line) 50px); }
+.studio-table table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.studio-table th, .studio-table td { border-bottom: 1px solid #eee6df; padding: 5px 8px; text-align: left; }
+.studio-table th { background: var(--acu-paper); font-weight: 600; position: sticky; top: 0; }
+.studio-datasource { padding: 14px 16px; background: white; }
+.studio-datasource table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.studio-datasource th, .studio-datasource td { border-bottom: 1px solid #eee6df; padding: 5px 8px; text-align: left; }
+.studio-datasource th { background: var(--acu-paper); font-weight: 600; }
+.studio-datasource dl { display: grid; grid-template-columns: 150px 1fr; gap: 4px 12px; font-size: 12px; margin: 0 0 16px; }
+.studio-datasource dt { color: var(--muted); }
+.studio-datasource dd { margin: 0; word-break: break-all; }
+
+/* ------------------------------------------------------------ inspector */
+
+.studio-inspector { background: white; display: flex; flex-direction: column; min-width: 0; }
+.studio-inspector-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 12px 0; }
+.studio-inspector-head .studio-panel-title { margin: 0; }
+.studio-inspector-close { display: none; font: inherit; font-size: 11px; border: 1px solid var(--line); background: var(--acu-paper); border-radius: 4px; padding: 3px 8px; cursor: pointer; color: var(--acu-plum); }
+.studio-inspector-tabs { display: flex; border-bottom: 1px solid var(--line); margin-top: 8px; }
+.studio-inspector-tabs button {
+  flex: 1;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 6px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+}
+.studio-inspector-tabs button[aria-selected=true] { color: var(--acu-plum); border-bottom-color: var(--acu-gold); }
+
+/* -------------------------------------------------------------- show me */
+
+.studio-showme { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; background: var(--acu-ivory); margin-bottom: 12px; }
+.studio-showme[hidden] { display: none; }
+.studio-showme-head { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.studio-showme-head h3 { margin: 0; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.studio-showme-head button { font: inherit; font-size: 11px; border: 1px solid var(--line); background: white; border-radius: 4px; padding: 3px 7px; cursor: pointer; }
+.studio-showme-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 8px; overflow-y: auto; max-height: 330px; }
+.studio-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  aspect-ratio: 1 / 1;
+  font: inherit;
+  font-size: 9px;
+  line-height: 1.15;
+  text-align: center;
+  color: var(--acu-plum);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 3px;
+  cursor: pointer;
+}
+.studio-tile svg { width: 32px; height: 26px; }
+.studio-tile:disabled { color: var(--muted); background: var(--acu-paper); cursor: default; opacity: .5; }
+.studio-tile.is-recommended { outline: 2px solid var(--acu-gold); outline-offset: -1px; }
+.studio-tile[aria-pressed=true] { border-color: var(--acu-purple); background: #f3eef8; }
+.studio-showme-foot { margin: 0; padding: 8px 10px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); min-height: 40px; }
+/* The one gold action in the builder: bring Show Me back when it is put away. */
+.studio-toolbar button#studio-showme-toggle.is-primary {
+  background: var(--acu-gold); border-color: var(--acu-gold); color: var(--acu-plum); font-weight: 600;
+}
+
+/* ----------------------------------------------------- company overview */
+
+.studio-overview-mode .studio-toolbar, .studio-overview-mode .studio-quick-tools { display: none; }
+.studio-overview { padding: 14px; background: var(--acu-paper); }
+.studio-overview[hidden] { display: none; }
+.studio-overview-head { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; margin-bottom: 12px; }
+.studio-overview-head label { font-size: 12px; color: var(--muted); margin: 0; }
+.studio-overview-head select {
+  display: block; margin-top: 3px; min-width: 240px; font: inherit; font-size: 12px;
+  color: var(--acu-plum); background: white; border: 1px solid #c6bab0; border-radius: 4px; padding: 5px 6px;
+}
+.studio-overview-head p { flex: 1 1 240px; margin: 0 0 4px; }
+.studio-overview-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.studio-overview-card { border: 1px solid var(--line); border-radius: 8px; background: white; padding: 12px 14px; min-width: 0; }
+.studio-overview-card h3 { font-family: var(--font-serif); font-weight: 400; font-size: 17px; margin: 0 0 2px; color: var(--acu-plum); }
+.studio-overview-card .studio-overview-body { overflow-x: auto; }
+.studio-overview-card svg { display: block; max-width: 100%; height: auto; }
+.studio-overview-card .studio-overview-actions { display: flex; justify-content: flex-end;
+  margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+.studio-overview-card button {
+  font: inherit; font-size: 12px; color: var(--acu-plum); background: white;
+  border: 1px solid var(--line); border-radius: 5px; padding: 5px 10px; cursor: pointer;
+}
+.studio-overview-card.is-focused { border-color: var(--acu-purple); }
+.studio-overview-card.is-focused button { background: var(--acu-gold); border-color: var(--acu-gold); font-weight: 600; }
+@media (max-width: 900px) { .studio-overview-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* ------------------------------------------------------- sheets + status */
+
+.studio-sheets { display: flex; align-items: center; gap: 4px; padding: 6px 10px; background: var(--acu-ivory); border-top: 1px solid var(--line); overflow-x: auto; }
+.studio-sheets button {
+  font: inherit;
+  font-size: 12px;
+  color: var(--acu-plum);
+  background: white;
+  border: 1px solid var(--line);
+  border-bottom: 3px solid transparent;
+  border-radius: 5px 5px 0 0;
+  padding: 6px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.studio-sheets button[aria-selected=true] { border-bottom-color: var(--acu-gold); font-weight: 600; }
+.studio-sheets .studio-sheet-tabs { display: flex; gap: 4px; }
+.studio-sheets input {
+  font: inherit; font-size: 12px; padding: 5px 8px;
+  border: 1px solid var(--acu-purple); border-radius: 5px; background: white; color: var(--acu-plum);
+}
+.studio-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  padding: 7px 12px;
+  background: white;
+  border-top: 1px solid var(--line);
+  font-size: 11px;
+  color: var(--muted);
+}
+.studio-status .studio-local { color: var(--acu-plum); font-weight: 600; letter-spacing: .04em; }
+
+/* ------------------------------------------------------------- send menu */
+
+.studio-send {
+  position: absolute;
+  z-index: 8;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(52, 38, 73, .16);
+}
+.studio-send button {
+  font: inherit; font-size: 12px; text-align: left; white-space: nowrap;
+  border: 0; background: transparent; color: var(--acu-plum); padding: 5px 10px; border-radius: 4px; cursor: pointer;
+}
+.studio-send button:hover, .studio-send button:focus-visible { background: #f3eef8; }
+.studio-send button:disabled { color: var(--muted); cursor: default; }
+.studio-send .studio-send-group { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); padding: 6px 10px 2px; }
+
+/* -------------------------------------------------------------- analytics */
+
+.studio-analytics-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--acu-plum);
+  background: white;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 7px 9px;
+  margin-bottom: 4px;
+  cursor: grab;
+}
+.studio-analytics-item .studio-analytics-text { flex: 1; min-width: 0; }
+.studio-analytics-item small { display: block; color: var(--muted); font-size: 10px; margin-top: 2px; white-space: normal; }
+.studio-analytics-item:disabled { cursor: default; background: var(--acu-paper); }
+.studio-analytics-item:disabled .studio-switch { opacity: .45; }
+.studio-switch { flex: 0 0 auto; width: 30px; height: 17px; border-radius: 9px; background: #d6ccc3; position: relative; }
+.studio-switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: white; }
+.studio-analytics-item[aria-checked=true] .studio-switch { background: var(--acu-purple); }
+.studio-analytics-item[aria-checked=true] .studio-switch::after { left: 15px; }
+.studio-analytics-item[aria-checked=true] { border-color: var(--acu-purple); }
+.studio-analytics-item[aria-checked=true] .studio-analytics-text > span { font-weight: 600; }
+.studio-analytics-group { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 10px 0 4px; }
+
+/* ------------------------------------------------------------ responsive */
+
+@media (max-width: 1200px) {
+  .studio-grid { grid-template-columns: 240px minmax(280px, 1fr); }
+  .studio-inspector-toggle { display: inline-flex; align-items: center; }
+  /* Closed, with filters behind it (the count shown), the toggle is the
+     loudest thing the reader has not looked at yet; with none it keeps the
+     plain border, since gold is opt-in (S1). */
+  .studio-inspector-toggle[aria-expanded=false]:has(.studio-inspector-badge:not([hidden])) { border-color: var(--acu-gold); }
+  .studio-inspector {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(340px, 92vw); z-index: 9;
+    border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(52, 38, 73, .16); overflow-y: auto;
+  }
+  .studio-inspector[hidden] { display: none; }
+  .studio-inspector-close { display: inline-block; }
+  .studio-pane { max-height: none; }
+}
+@media (max-width: 1000px) {
+  .studio-grid { grid-template-columns: 1fr; }
+  .studio-grid > * { border-right: 0; border-bottom: 1px solid var(--line); }
+  .studio-pane { max-height: none; }
+  .studio-showme-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) { .studio * { transition: none !important; } }
+/* -------------------------------------------------------------------- print */
+
+/* The provenance footer never shows on screen and always shows on paper, so
+   a printed chart can never be separated from the basis and the workbook
+   hash it was drawn from. */
+.studio-print-only { display: none; }
+@media print {
+  /* Printing the chart means printing the chart: the console rail, the
+     builder surfaces and the live status line all come off the page. */
+  body.studio-printing .app-navigation,
+  body.studio-printing .analysis-tabs,
+  body.studio-printing .app-footer { display: none !important; }
+  .studio-header, .studio-toolbar, .studio-quick-tools, .studio-shelves,
+  .studio-side, .studio-inspector, .studio-cards, .studio-showme,
+  .studio-sheets, .studio-status, .studio-inspection, .studio-result-controls,
+  .studio-briefing, .studio-share, .studio-reconcile, .studio-verified-summary,
+  #studio-note { display: none !important; }
+  .studio, .studio-grid, .studio-view { display: block !important; border: 0 !important; box-shadow: none !important; }
+  .studio-canvas-wrap { display: flex; flex-direction: column; overflow: visible !important; padding: 0 !important; }
+  .studio-canvas { max-height: none !important; overflow: visible !important; }
+  .studio-canvas svg, .studio-canvas-wrap svg { max-height: none !important; width: 100% !important; height: auto !important; }
+  .studio-print-only {
+    display: block; order: 99; margin-top: 10px;
+    border-top: 1px solid var(--line); padding-top: 8px;
+  }
+  .studio-print-title { font-family: var(--font-serif); font-weight: 400; font-size: 15px; margin: 0 0 3px; color: var(--acu-plum); }
+  .studio-print-line { font-size: 10px; line-height: 1.45; color: var(--muted); margin: 0 0 2px; }
+  .studio-print-mark { font-size: 10px; font-weight: 700; letter-spacing: .09em; color: var(--acu-plum); margin: 5px 0 0; }
+  @page { size: landscape; margin: 14mm; }
+}
+.studio-source-choices,.studio-model-tables{display:flex;flex-wrap:wrap;gap:10px;margin:12px 0}.studio-model-tables section{flex:1 1 240px;border:1px solid var(--line,#d8d0df);border-radius:6px;padding:12px;background:var(--surface,#fff)}.studio-model-tables h4{margin:0 0 8px}.studio-model-tables p{margin:0 0 8px}.studio-datasource table{min-width:850px}.studio-datasource{overflow:auto}
+
+/* ------------------------------------------------- UI clean-up, 2026-09-17
+   Chart Studio, option A: five chrome rows become two, equal side columns with
+   one padding and one section-label style, the Inspector column is the single
+   scroll container, and the canvas title says what the chart is. */
+
+/* Row two: one toolbar with visible groups. The Fit select stops inheriting
+   style.css's blanket `select{width:100%}` - that is what stretched it. */
+.studio-toolbar .studio-group{display:flex;align-items:center;gap:4px;flex-wrap:wrap}
+.studio-toolbar .studio-divider{flex:none;width:1px;height:22px;margin:0 3px;background:var(--line)}
+.studio-toolbar select{width:auto;max-width:150px;margin:0}
+/* Show Me is the builder's one gold action, always, and says whether the
+   Inspector's disclosure is open behind it. */
+.studio-toolbar button#studio-showme-toggle{background:var(--acu-gold);border-color:var(--acu-gold);
+  color:var(--acu-plum);font-weight:600}
+.studio-toolbar button#studio-showme-toggle:hover:not(:disabled){background:#f2bb4b;border-color:#f2bb4b}
+.studio-toolbar button#studio-showme-toggle[aria-pressed=true]{background:#f2bb4b;border-color:#d1900f}
+
+/* Row one: scope chips beside the title. */
+.studio-scope-chip{display:flex;flex-wrap:wrap;gap:5px;background:none;border-radius:0;padding:0;max-width:60ch;
+  overflow:visible;text-overflow:clip;white-space:normal}
+.studio-scope-chip>span{display:inline-flex;align-items:center;font-size:11px;color:var(--acu-plum);
+  background:var(--acu-ivory);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.studio-scope-chip>span.is-ready{color:var(--acu-teal);font-weight:600;background:none;border-color:transparent}
+.studio-scope-chip>span.coverage-gap-chip{color:#6b4300;background:#fff4dc;border-color:#d1900f;margin:0}
+
+/* Equal side columns, one padding, one section-label style, one scrollbar. */
+.studio-grid{grid-template-columns:280px minmax(0,1fr) 280px}
+.studio-side,.studio-inspector{max-height:82vh;overflow-y:auto}
+.studio-pane{padding:12px;overflow:visible;max-height:none}
+.studio-inspector .studio-pane{padding:12px}
+
+/* The Data source summary reads as a chip line with a ready mark. */
+.studio-source-disclosure>summary{display:flex;align-items:center;flex-wrap:wrap;gap:5px;
+  letter-spacing:0;text-transform:none;font-size:11px}
+.studio-source-disclosure>summary>span{display:inline-flex;align-items:center;font-size:11px;color:var(--acu-plum);
+  background:white;border:1px solid var(--line);border-radius:999px;padding:2px 8px;white-space:nowrap}
+.studio-source-disclosure>summary>span.is-ready{color:var(--acu-teal);font-weight:700;background:none;border-color:transparent;padding:0}
+.studio-source-disclosure>summary>span.is-waiting{color:var(--muted);background:none;border-color:transparent;padding:0;white-space:normal}
+
+/* Canvas column: title, scope subtitle, chart, one footer. */
+#studio-title:empty{display:none}
+.studio-subtitle{margin:0 0 8px;font-size:11.5px;color:var(--muted);line-height:1.5}
+.studio-subtitle:empty{display:none}
+.studio-foot{margin-top:10px;border-top:1px solid var(--line);padding-top:8px}
+.studio-foot .studio-reconcile{margin:0 0 6px}
+.studio-foot-line{display:flex;align-items:flex-start;flex-wrap:wrap;gap:8px 16px}
+.studio-foot-line #studio-note{flex:1 1 240px;margin:0}
+.studio-foot-line .studio-result-controls{flex:0 1 auto;margin:0;justify-content:flex-end}
+.studio-foot-line .studio-result-controls span{flex:0 0 auto}
+
+/* Inspector: properties first, then disclosures; no nested scroll. */
+.studio-disclosure{border-top:1px solid var(--line);margin-top:10px;padding-top:8px}
+.studio-disclosure[hidden]{display:none}
+.studio-disclosure>summary{list-style:none;cursor:pointer;font-size:11px;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--acu-purple);font-weight:600;padding:2px 0}
+.studio-disclosure>summary::-webkit-details-marker{display:none}
+.studio-disclosure>summary::before{content:'\25B8 '}
+.studio-disclosure[open]>summary::before{content:'\25BE '}
+.studio-disclosure-hint{margin-left:6px;font-size:10px;letter-spacing:0;text-transform:none;
+  font-weight:400;color:var(--muted)}
+.studio-disclosure-hint:empty{display:none}
+.studio-disclosure>div{padding-top:6px}
+.studio-showme{margin:6px 0 0;border:0;background:none}
+.studio-showme-head{display:none}
+.studio-showme-grid{max-height:none;overflow:visible;padding:0;grid-template-columns:repeat(3,1fr)}
+.studio-showme-foot{border-top:0;padding:8px 0 0;min-height:0}
+.studio-options-hidden .studio-showme,.studio-options-hidden #studio-showme-details{display:none!important}
+@media print{.studio-showme,#studio-showme-details,.studio-foot{display:none!important}}
+@media (max-width:1200px){
+  .studio-grid{grid-template-columns:240px minmax(280px,1fr)}
+  .studio-side,.studio-inspector{max-height:none}
+  .studio-inspector{max-height:100vh}
+}
+@media (max-width:1000px){
+  .studio-grid{grid-template-columns:1fr}
+  .studio-side,.studio-inspector{max-height:none}
+  .studio-showme-grid{grid-template-columns:repeat(4,1fr)}
+}
+
+/* The board: Canvas mode as 1, 2 or 4 sheet tiles (UI_CLEANUP_DESIGN section 4,
+   option C). One tile is outlined, and that tile is what the Inspector, Export
+   and Add to briefing act on. */
+/* The Board control is Canvas-mode chrome: Builder's toolbar is full at 1440px
+   and a fourth group there wraps it onto a second row. */
+.studio-toolbar .studio-board-control {display:none}
+.studio-options-hidden .studio-toolbar .studio-board-control {display:inline-flex;gap:2px;align-items:center}
+.studio-board-label {font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:0 4px}
+.studio-board-control button {min-width:26px;padding:3px 7px}
+.studio-board-control button[aria-pressed="true"] {background:var(--acu-ivory);color:var(--acu-plum);font-weight:600}
+.studio-board {display:grid;gap:12px;align-items:start}
+.studio-board[hidden] {display:none}
+.studio-board-2 {grid-template-columns:1fr 1fr}
+.studio-board-4 {grid-template-columns:1fr 1fr}
+.studio-board-tile {border:1px solid var(--line);border-radius:6px;padding:10px 12px 12px;background:var(--acu-paper);min-width:0}
+.studio-board-tile.is-selected {border-color:var(--acu-plum);box-shadow:0 0 0 1px var(--acu-plum)}
+.studio-board-tile-head {display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.studio-board-tile-sheet {max-width:180px;font-size:12px}
+.studio-board-tile-mark {font-size:11px;color:var(--muted)}
+.studio-board-tile-title {font-family:var(--font-serif);font-weight:400;font-size:16px;margin:0 0 2px}
+.studio-board-tile-title:empty {display:none}
+.studio-board-tile-subtitle {margin:0 0 6px;font-size:11px;color:var(--muted);line-height:1.5}
+.studio-board-tile-subtitle:empty {display:none}
+.studio-board-tile-empty {margin:16px 0;font-size:12px;color:var(--muted)}
+.studio-board-tile-foot {margin-top:8px;border-top:1px solid var(--line);padding-top:6px}
+.studio-board-tile-note,.studio-board-tile-status {margin:0;font-size:11px;color:var(--muted);line-height:1.5}
+.studio-board-tile-note:empty,.studio-board-tile-status:empty {display:none}
+.studio-board-tile-reconcile {margin:0 0 4px}
+/* While a board is up the single canvas and its footer step aside: every figure
+   on screen is inside a tile, beside the denominator that tile reconciles to. */
+.studio-board-on #studio-title,.studio-board-on #studio-subtitle,.studio-board-on #studio-canvas,
+.studio-board-on #studio-table,.studio-board-on #studio-reconcile,.studio-board-on #studio-note,
+.studio-board-on #studio-status {display:none}
+.studio-comparing > .studio-grid,.studio-comparing > .studio-datasource {display:none!important}
+.studio-comparing > .studio-header,.studio-comparing > .studio-toolbar,.studio-comparing > .studio-sheets,.studio-comparing > .studio-status {display:none!important}
+.worksheet-comparison {padding:20px;min-width:0}
+.worksheet-comparison[hidden] {display:none!important}
+.worksheet-comparison > p {max-width:75ch}
+.worksheet-comparison-sources {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin:20px 0}
+.worksheet-comparison fieldset {min-width:0;border:1px solid var(--line);padding:16px}
+.worksheet-comparison button {font:inherit;border:1px solid var(--line);border-radius:4px;padding:7px 12px;min-height:36px;background:var(--acu-paper);color:var(--acu-plum);cursor:pointer}
+.worksheet-comparison button[data-compare-run] {background:var(--acu-plum);color:white}
+.worksheet-comparison button:disabled {opacity:.5;cursor:default}
+.worksheet-comparison legend {font-weight:600;padding:0 6px}
+.worksheet-comparison label {display:grid;gap:6px;margin-bottom:10px;min-width:0;font-size:12px}
+.worksheet-comparison select,.worksheet-comparison input {width:100%;min-width:0;min-height:34px}
+.worksheet-comparison-fields {display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+.worksheet-comparison-actions {display:flex;align-items:center;flex-wrap:wrap;gap:12px}
+.worksheet-comparison-actions h2 {margin:0;margin-right:auto}
+.worksheet-comparison-actions label {margin:0}
+.worksheet-comparison-filter {display:grid;grid-template-columns:1fr 1fr;gap:0 8px;margin-top:12px}
+.worksheet-comparison-filter button {align-self:center}
+.worksheet-comparison-canvas {max-width:100%;overflow:auto}
+.worksheet-comparison-canvas svg {display:block;max-width:100%;height:auto}
+.worksheet-comparison-evidence {overflow-wrap:anywhere}
+@media(max-width:760px){.worksheet-comparison-sources{grid-template-columns:1fr}.worksheet-comparison{padding:12px}}
+@media (max-width:1000px){
+  .studio-board-2,.studio-board-4 {grid-template-columns:1fr}
+}
+
+/* Build 03 (S1): the structure the new header, note line and Inspector rail
+   need wherever this file loads; the look is in workspace-polish.css. */
+.studio-source-anchor {position:relative;display:inline-flex}
+.studio-source-popover {position:absolute;left:0;top:calc(100% + 6px);z-index:30;width:320px;padding:12px 14px;background:white;border:1px solid var(--line);border-radius:10px}
+.studio-reconcile {position:relative}
+.studio-reconcile-detail {position:absolute;left:0;bottom:calc(100% + 12px);z-index:20;width:min(520px,100%);padding:12px 14px;background:white;border:1px solid var(--line);border-radius:10px}
+.studio-inspector-rail {display:none}
+.studio-icon {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.3}
+
+/* Data pane, board S1 (reconcile 2026-09-23): each verified bucket opens on the
+   board's fields and folds the rest under "More fields", a summary one field
+   row tall (28.2px) with a chevron in the glyph column and the same in-use dot
+   as a field. The related-table choice is a menu at the end of the search box. */
+#view-chart-studio #studio-dimensions>.studio-more-fields {margin-bottom:10px}
+#view-chart-studio .studio-more-fields>summary {display:flex;align-items:center;box-sizing:border-box;height:28.2px;padding:0 8px 0 3px;border-radius:5px;list-style:none;cursor:pointer;color:#6b6770;font:400 13px/1 var(--font-sans)}
+#view-chart-studio .studio-more-fields>summary::-webkit-details-marker {display:none}
+#view-chart-studio .studio-more-fields>summary::before {content:"";flex:none;box-sizing:border-box;width:6px;height:6px;margin:0 21px 0 4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease}
+#view-chart-studio .studio-more-fields[open]>summary::before {transform:rotate(45deg)}
+#view-chart-studio .studio-more-fields>summary:hover {background:#f4f0f7;color:#2f273f}
+#view-chart-studio .studio-more-fields>summary:focus-visible {outline:3px solid var(--acu-gold);outline-offset:-3px}
+#view-chart-studio .studio-more-count {margin-left:6px;color:#8f8a96;font-variant-numeric:tabular-nums}
+#view-chart-studio .studio-more-summary.is-used .studio-more-count::after {content:"";display:inline-block;width:6px;height:6px;margin:0 0 1px 9px;border-radius:50%;background:var(--acu-purple);vertical-align:middle}
+#view-chart-studio .studio-more-list {display:flex;flex-direction:column}
+#view-chart-studio .studio-search-row {position:relative;margin-bottom:22px}
+#view-chart-studio #studio-pane-data>.studio-fields {padding-top:2px}
+#view-chart-studio .studio-search-row .studio-search input {padding-right:36px}
+#view-chart-studio .studio-from-menu {position:absolute;top:4px;right:4px}
+#view-chart-studio .studio-from-menu[hidden] {display:none}
+#view-chart-studio .studio-from-menu>summary {display:flex;align-items:center;justify-content:center;width:27px;height:27px;border-radius:5px;list-style:none;cursor:pointer;color:#6b6770}
+#view-chart-studio .studio-from-menu>summary::-webkit-details-marker {display:none}
+#view-chart-studio .studio-from-menu>summary:hover {background:#f4f0f7;color:#2f273f}
+#view-chart-studio .studio-from-menu>summary:focus-visible {outline:3px solid var(--acu-gold);outline-offset:-1px}
+#view-chart-studio .studio-from-menu.is-active>summary {background:#efe9f4;color:var(--acu-purple)}
+#view-chart-studio .studio-from-menu svg {width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linejoin:round}
+#view-chart-studio .studio-from-panel {position:absolute;z-index:6;top:calc(100% + 8px);right:-6px;box-sizing:border-box;width:196px;padding:10px;background:white;border:1px solid var(--card-border);border-radius:8px;box-shadow:0 6px 18px rgba(52,38,73,.14)}
+#view-chart-studio .studio-from-panel .studio-from {flex-direction:column;align-items:stretch;gap:6px;margin:0;padding:0}
+#view-chart-studio .studio-from-panel .studio-from select {width:100%;height:28px;min-height:28px;padding:0 4px;border:1px solid #dcd6df;border-radius:6px;background:white}
+@media (prefers-reduced-motion:reduce) {#view-chart-studio .studio-more-fields>summary::before {transition:none}}
+/* S1 draws a shelf pill's menu mark as a chevron, like the Chart select's. The
+   button keeps its text and its aria-label; only the drawing changes. */
+#view-chart-studio .studio-shelf .studio-drop .studio-pill>button.studio-pill-menu {position:relative;flex:none;width:18px;height:18px;margin:0 -4px 0 2px;padding:0;font-size:0}
+#view-chart-studio .studio-shelf .studio-drop .studio-pill>button.studio-pill-menu::before {content:"";position:absolute;left:6px;top:5px;width:5px;height:5px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg)}
+/* Room for the chart (ruling c, 2026-09-23): the reader can put the Data panel,
+   the shelves and the Inspector away, or all three with "Expand chart", and
+   the chart takes the room. With nothing stored the view is S1's, every pane
+   shown. The controls live on the desktop grid only (below 1100px the Data
+   panel and the Inspector are drawers already), and every rule names an id so
+   it outranks workspace-polish.css, which loads after this file. */
+.studio-data-rail,.studio-shelves-strip,.studio-pane-collapse,.studio-shelves-collapse,.studio-expand {display:none}
+@media (min-width:1100px) {
+  #view-chart-studio .studio:not(.studio-options-hidden) :is(#studio-data-collapse,#studio-shelves-collapse,#studio-expand) {display:inline-flex}
+  #view-chart-studio :is(#studio-data-collapse,#studio-shelves-collapse) {position:absolute;align-items:center;justify-content:center;box-sizing:border-box;width:24px;height:24px;min-height:0;margin:0;padding:0;border:1px solid transparent;border-radius:6px;background:none;color:#77727d;cursor:pointer}
+  #view-chart-studio :is(#studio-data-collapse,#studio-shelves-collapse):hover {background:#f4f0f7;border-color:#e3dce9;color:#2f273f}
+  /* On the DIMENSIONS line, under the end of the search box. */
+  #view-chart-studio #studio-data-collapse {right:0;top:calc(100% + 17px)}
+  /* Under the Chart select, on the Filters row. */
+  #view-chart-studio #studio-shelves-collapse {right:14px;bottom:10px}
+  #view-chart-studio .studio-canvas-wrap {position:relative}
+  #view-chart-studio #studio-expand {position:absolute;top:9px;right:18px;z-index:2;align-items:center;gap:7px;box-sizing:border-box;height:29px;min-height:29px;margin:0;padding:0 11px 0 9px;border:1px solid #dcd6df;border-radius:6px;background:white;color:#2f273f;font:400 12px/1 var(--font-sans);white-space:nowrap;cursor:pointer}
+  #view-chart-studio #studio-expand:hover {border-color:var(--acu-purple);background:#f7f2fa}
+  #view-chart-studio #studio-expand[aria-expanded=true] {background:#f3f2fb;border-color:#d6c8e2}
+  #view-chart-studio .studio:not(.studio-options-hidden) #studio-canvas-wrap>h2#studio-title {padding-right:132px}
+  /* The Data panel folded: a 56px rail, as the Inspector's. */
+  #view-chart-studio .studio.studio-data-collapsed:not(.studio-options-hidden):not(.studio-chart-expanded) #studio-grid {grid-template-columns:56px minmax(0,1fr) 302px}
+  #view-chart-studio .studio.studio-data-collapsed.studio-inspector-collapsed:not(.studio-options-hidden):not(.studio-chart-expanded) #studio-grid {grid-template-columns:56px minmax(0,1fr) 56px}
+  #view-chart-studio .studio.studio-data-collapsed:not(.studio-options-hidden) #studio-pane-data {display:none}
+  #view-chart-studio .studio.studio-data-collapsed:not(.studio-options-hidden) #studio-data-rail {display:flex;flex-direction:column;align-items:center;gap:10px;padding:14px 0}
+  #view-chart-studio #studio-data-rail button {display:flex;align-items:center;justify-content:center;width:38px;height:38px;min-height:0;margin:0;padding:0;border:1px solid transparent;border-radius:8px;background:none;color:#2f273f;cursor:pointer}
+  #view-chart-studio #studio-data-rail button:hover {background:#f4f0f7;border-color:#e3dce9}
+  #view-chart-studio #studio-data-rail .studio-icon {width:20px;height:20px}
+  /* The shelves folded: one line that names what is on them. */
+  #view-chart-studio .studio.studio-shelves-collapsed:not(.studio-options-hidden) #studio-shelves {display:none}
+  #view-chart-studio .studio.studio-shelves-collapsed:not(.studio-options-hidden):not(.studio-chart-expanded) #studio-shelves-strip {display:flex}
+  #view-chart-studio #studio-shelves-strip {flex:none;align-items:center;gap:10px;box-sizing:border-box;width:100%;height:36px;min-height:0;margin:0;padding:0 14px 0 20px;border:1px solid var(--card-border);border-radius:10px;background:white;box-shadow:var(--card-shadow);color:#2f273f;font:400 13px/1 var(--font-sans);text-align:left;cursor:pointer}
+  #view-chart-studio #studio-shelves-strip:hover {background:#fcfbfa;border-color:#dcd6df}
+  #view-chart-studio #studio-shelves-strip .studio-shelves-summary {flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  #view-chart-studio #studio-shelves-strip .studio-shelves-name {margin-right:8px;color:#5d5864}
+  #view-chart-studio #studio-shelves-strip .studio-shelves-sep {margin:0 12px;color:#b5aebc}
+  #view-chart-studio #studio-shelves-strip b {font-weight:500}
+  #view-chart-studio #studio-shelves-strip .studio-shelves-show {flex:none;color:#5d5864;font-size:12px}
+  /* Expand chart: the grid is the chart alone until "Show panes". */
+  #view-chart-studio .studio.studio-chart-expanded:not(.studio-options-hidden) #studio-grid {grid-template-columns:minmax(0,1fr)}
+  #view-chart-studio .studio.studio-chart-expanded:not(.studio-options-hidden) :is(#studio-data-panel,#studio-inspector,#studio-shelves) {display:none}
+}
+@media (min-width:1100px) and (max-width:1299px) {
+  #view-chart-studio .studio.studio-data-collapsed:not(.studio-options-hidden):not(.studio-chart-expanded) #studio-grid {grid-template-columns:56px minmax(0,1fr) 260px}
+}
+@media print {#view-chart-studio :is(#studio-expand,#studio-shelves-strip,#studio-data-rail,#studio-data-collapse,#studio-shelves-collapse) {display:none!important}}
+/* Per-section folds. Paul, 2026-09-23: "You should be able to expand each
+   section individually like with a census panel". Each section keeps its
+   header line, a disclosure chevron beside it points down while it is open
+   and right while it is folded, and the rest folds away - the PAC evidence
+   map's Census "Source details" panel. Everything opens as S1 draws it: the
+   chevron sits in the gutter left of each header, so no header moves. */
+.studio-folded {display:none!important}
+#view-chart-studio button.studio-fold {position:relative;display:flex;align-items:center;gap:0;box-sizing:border-box;width:100%;min-width:0;height:auto;min-height:0;margin:0;padding:0;border:0;border-radius:4px;background:none;box-shadow:none;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer}
+#view-chart-studio button.studio-fold::before {content:"";position:absolute;left:-11px;top:50%;box-sizing:border-box;width:6px;height:6px;margin-top:-4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);opacity:.5;transition:transform .15s ease,opacity .15s ease}
+#view-chart-studio button.studio-fold[aria-expanded=false]::before {transform:rotate(-45deg);margin-top:-3px;opacity:.85}
+#view-chart-studio button.studio-fold:hover::before,#view-chart-studio button.studio-fold:focus-visible::before {opacity:1}
+#view-chart-studio button.studio-fold:focus-visible {outline:3px solid var(--acu-gold);outline-offset:2px}
+#view-chart-studio .studio-fold-label {flex:none}
+#view-chart-studio .studio-fold-count {min-width:0;margin-left:8px;overflow:hidden;font-weight:400;letter-spacing:0;text-transform:none;color:var(--muted);white-space:nowrap;text-overflow:ellipsis}
+#view-chart-studio .studio-fold-count:empty {display:none}
+/* Shelves and Marks properties fold to one line that still names their
+   fields and still takes a drop. */
+#view-chart-studio .studio-shelf-name button.studio-fold::before {left:-9px}
+#view-chart-studio .studio .studio-shelves .studio-shelf.is-folded #studio-filters {margin:0;border-color:transparent;background:transparent}
+#view-chart-studio .studio .studio-shelves .studio-shelf.is-folded {height:20px;margin-bottom:6px}
+#view-chart-studio .studio .studio-shelves .studio-shelf.is-folded .studio-drop {min-height:18px;margin:0;border-color:transparent;background:transparent}
+#view-chart-studio .studio .studio-shelf .studio-drop.is-folded-drop>*,#view-chart-studio .studio .studio-prop .studio-drop.is-folded-drop>* {display:none!important}
+#view-chart-studio .studio .studio-shelf .studio-drop.is-folded-drop::after,#view-chart-studio .studio .studio-prop .studio-drop.is-folded-drop::after {content:attr(data-fold-summary);min-width:0;padding:0 2px;overflow:hidden;font:400 12px/1 var(--font-sans);color:var(--muted);white-space:nowrap;text-overflow:ellipsis}
+#view-chart-studio .studio .studio-prop.is-folded {height:32px}
+#view-chart-studio .studio .studio-prop.is-folded .studio-drop {min-height:24px;border-color:transparent;background:transparent}
+#view-chart-studio .studio-prop>span.studio-fold-head {padding-left:7px}
+#view-chart-studio .studio-prop>span.studio-fold-head button.studio-fold {gap:13px;font:inherit}
+/* The Marks card's own header, in the Data pane's section style. */
+#view-chart-studio #studio-pane-marks>h3.studio-section-head {margin:2px 0 0;padding:0 0 0 7px;font:500 11px/14px var(--font-sans);letter-spacing:.09em;text-transform:uppercase;color:#4a4552}
+#view-chart-studio .studio-analytics-group.studio-fold-head button.studio-fold {font:inherit}
+@media (prefers-reduced-motion:reduce) {#view-chart-studio button.studio-fold::before {transition:none}}
+@media print {#view-chart-studio button.studio-fold::before {display:none}}
+/* Round 5 (board S1 has no page scroll): the studio grid is 100vh less the
+   rows above it, and the shared 40px workspace padding under it pushed the
+   page 17px past the fold. On Chart Studio the padding is the studio's own
+   remaining room, so the sheet tabs and status line end at the fold. */
+@media (min-width:1100px) {body[data-view="chart-studio"] main .workspace {padding-bottom:23px}}
+/* Marks v3 (lane M, boards #50-#52, approved 2026-09-25). The Marks tab keeps
+   S1's labelled rows under a type strip of fourteen tiles (#51); a dual axis
+   stacks an All card and one card per measure (#52). Plum marks the chosen
+   tile, as it marks a selected control elsewhere; gold stays the one Show Me. */
+#view-chart-studio .studio-marks-block{display:block}
+#view-chart-studio .studio-marks-block.studio-folded{display:none}
+#view-chart-studio .studio-mark-strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px;margin:2px 0 8px}
+#view-chart-studio .studio-mark-tile{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-width:0;height:48px;padding:0;border:1px solid #e4dfe8;border-radius:6px;background:#fdfcfb;color:#4a4552;font:400 9px/1 var(--font-sans);letter-spacing:-.1px;cursor:pointer}
+#view-chart-studio .studio-mark-tile>span{max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#view-chart-studio .studio-mark-tile .studio-icon{width:18px;height:18px}
+#view-chart-studio .studio-mark-tile:hover{border-color:var(--acu-purple)}
+#view-chart-studio .studio-mark-tile:focus-visible{outline:2px solid var(--acu-gold);outline-offset:1px}
+#view-chart-studio .studio-mark-tile[aria-checked=true]{background:var(--acu-purple);border-color:var(--acu-purple);color:#fff}
+#view-chart-studio .studio-mark-tile[aria-checked=true] .studio-icon{color:#fff}
+#view-chart-studio .studio-mark-tile.is-unavailable{opacity:.42;cursor:not-allowed}
+#view-chart-studio .studio-mark-tile.is-unavailable:hover{border-color:#e4dfe8}
+#view-chart-studio .studio-mark-card-body .studio-prop{height:50px}
+#view-chart-studio .studio-mark-card-body .studio-prop .studio-drop{min-height:34px}
+#view-chart-studio .studio-prop[hidden]{display:none}
+#view-chart-studio .studio-prop.is-unavailable>span{color:#9d97a4}
+#view-chart-studio .studio-prop.is-unavailable .studio-drop{border-style:dotted;background:#f6f4f7}
+#view-chart-studio .studio-prop.is-unavailable .studio-drop[data-empty=true]::after{content:attr(data-reason-short);color:#8f8996}
+#view-chart-studio .studio-prop .studio-pill.is-inert{opacity:.55;outline:1px dashed #8f8996;outline-offset:1px}
+#view-chart-studio .studio-prop-options{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:24px;margin:0;padding:0;border:0;border-radius:4px;background:none;color:#4a4552;cursor:pointer}
+/* The fold chevron sits before the row's icon, as on every other row: 18px icon, 13px gap, 11px. */
+#view-chart-studio .studio-prop>span:has(>.studio-prop-options) button.studio-fold::before{left:-42px}
+#view-chart-studio .studio-prop-options:hover,#view-chart-studio .studio-prop-options[aria-expanded=true]{background:#f1ecf4;color:var(--acu-purple)}
+#view-chart-studio .studio-prop-options:focus-visible{outline:2px solid var(--acu-gold);outline-offset:1px}
+#view-chart-studio .studio-prop>span .studio-prop-options .studio-icon{width:18px;height:18px}
+#view-chart-studio .studio-mark-rows-note{margin:8px 0 0 7px;font:400 12px/1.35 var(--font-sans);color:#77727d}
+#view-chart-studio .studio-mark-rows-note:empty{display:none}
+#view-chart-studio .studio-mark-cards{display:grid;gap:8px;margin:2px 0 6px}
+#view-chart-studio .studio-mark-cards[hidden]{display:none}
+#view-chart-studio .studio-mark-card{border:1px solid #e4dfe8;border-radius:8px;background:#fdfcfb}
+#view-chart-studio .studio-mark-card.is-open{background:#fff;border-color:#d8cfe0}
+#view-chart-studio .studio-mark-card>.studio-mark-card-body{padding:0 8px 8px}
+/* An open card is compact (#52), so the card list, Synchronize axes and the disclosures stay in view. */
+#view-chart-studio .studio-mark-card .studio-mark-tile{height:40px;gap:3px}
+#view-chart-studio .studio-mark-card .studio-mark-card-body .studio-prop{height:42px}
+#view-chart-studio .studio-mark-card .studio-mark-rows-note{display:none}
+#view-chart-studio .studio-mark-card-head{display:flex;align-items:center;gap:8px;min-height:42px;padding:0 10px 0 4px}
+#view-chart-studio .studio-mark-card-toggle{display:flex;flex:1;align-items:center;gap:10px;min-width:0;padding:8px 4px;border:0;background:none;color:#2f273f;font:400 15px/1.1 var(--font-sans);text-align:left;cursor:pointer}
+#view-chart-studio .studio-mark-card-toggle>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#view-chart-studio .studio-mark-card-toggle::before{content:"";flex:none;width:6px;height:6px;margin:0 6px 0 4px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg)}
+#view-chart-studio .studio-mark-card-toggle[aria-expanded=true]::before{transform:rotate(-135deg);margin-top:4px}
+#view-chart-studio .studio-mark-card-type{display:inline-flex;flex:none;align-items:center;gap:6px;color:#4a4552;font:400 12.5px/1 var(--font-sans)}
+#view-chart-studio .studio-mark-card-type .studio-icon{width:17px;height:17px}
+#view-chart-studio .studio-pane select.studio-mark-card-select{flex:none;width:auto;min-width:88px;margin:0;padding:4px 6px;font:400 12.5px/1 var(--font-sans)}
+#view-chart-studio .studio-mark-sync{margin:6px 0 0;padding:0 0 0 7px}
+#view-chart-studio .studio-mark-sync[hidden]{display:none}
+#view-chart-studio .studio-mark-sync .studio-check{margin:0;font:400 14px/1.2 var(--font-sans);color:#2f273f}
+#view-chart-studio .studio-shelf .studio-drop>button.studio-dual-axis{flex:none;height:24px;margin:0 1px;padding:0 9px;border:1px solid #d8cfe0;border-radius:6px;background:#fff;color:#4a4552;font:400 12px/1 var(--font-sans);cursor:pointer}
+#view-chart-studio .studio-shelf .studio-drop>button.studio-dual-axis[aria-pressed=true]{border-color:var(--acu-purple);background:#f1ecf4;color:var(--acu-purple);font-weight:600}
+.studio-popover{position:absolute;z-index:40;box-sizing:border-box;width:292px;max-width:calc(100vw - 16px);padding:12px 14px 14px;border:1px solid #d8cfe0;border-radius:8px;background:#fff;box-shadow:0 10px 28px rgba(47,39,63,.18);color:#2f273f;font:400 13px/1.3 var(--font-sans)}
+.studio-popover h4{margin:0 0 10px;font:600 12px/1 var(--font-sans);letter-spacing:.08em;text-transform:uppercase;color:#4a4552}
+.studio-popover .studio-pop-row{display:grid;grid-template-columns:62px 1fr 42px;align-items:center;gap:8px;margin:0 0 10px}
+.studio-popover .studio-pop-row input[type=range]{width:100%;accent-color:var(--acu-purple)}
+.studio-popover .studio-pop-row output{text-align:right;font-variant-numeric:tabular-nums}
+.studio-popover .studio-pop-label{margin:4px 0 6px;font:400 12px/1 var(--font-sans);color:#62596e}
+.studio-popover .studio-swatches{display:flex;flex-wrap:wrap;gap:4px;margin:0 0 10px}
+.studio-popover .studio-swatches button{box-sizing:border-box;min-width:22px;height:22px;padding:0 6px;border:1px solid #d8cfe0;border-radius:4px;background:#fff;color:#2f273f;font:400 11.5px/1 var(--font-sans);cursor:pointer}
+.studio-popover .studio-swatches button.is-swatch{width:22px;padding:0}
+.studio-popover .studio-swatches button[aria-pressed=true]{outline:2px solid var(--acu-purple);outline-offset:1px}
+.studio-popover button:disabled,.studio-popover input:disabled{opacity:.45;cursor:not-allowed}
+.studio-popover .studio-pop-reason{margin:0 0 10px;font-size:12px;color:#77727d}
+.studio-popover .studio-glyphs{display:grid;grid-template-columns:repeat(11,1fr);gap:3px;margin:0 0 10px}
+.studio-popover .studio-glyphs button{display:flex;align-items:center;justify-content:center;height:24px;padding:0;border:1px solid #e4dfe8;border-radius:4px;background:#fff;color:#2f273f;cursor:pointer}
+.studio-popover .studio-glyphs button[aria-pressed=true]{background:#f1ecf4;border-color:var(--acu-purple);color:var(--acu-purple)}
+.studio-popover .studio-glyphs svg{width:14px;height:14px}
+.studio-popover .studio-glyph-members{display:grid;gap:2px;max-height:180px;margin:0 0 10px;overflow:auto}
+.studio-popover .studio-glyph-members button{display:flex;align-items:center;gap:8px;padding:4px 6px;border:1px solid transparent;border-radius:4px;background:none;color:#2f273f;font:400 12.5px/1.2 var(--font-sans);text-align:left;cursor:pointer}
+.studio-popover .studio-glyph-members button[aria-pressed=true]{border-color:var(--acu-purple);background:#f7f3fa}
+.studio-popover .studio-glyph-members svg{flex:none;width:14px;height:14px}
+.studio-popover .studio-pop-actions{display:flex;justify-content:space-between;gap:8px}
+.studio-popover .studio-pop-actions button{padding:5px 10px;border:1px solid #d8cfe0;border-radius:5px;background:#fff;color:#2f273f;font:400 12.5px/1 var(--font-sans);cursor:pointer}

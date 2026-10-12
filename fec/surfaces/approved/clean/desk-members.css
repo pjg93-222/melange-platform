@@ -1,0 +1,152 @@
+/* desk-members.css: overlay for original-desk.html (Members list, board #27); owner: prompt 02. Loaded after desk-shell.css. */
+/* Build 02. Sizes are the board's (27_members_columns_v2.png, board px / 1.867): filter panel 92px with two rows of 30px
+   controls (search 242, segmented 207, Area 160, Stance 173, Priority 172; chips 28; Group by 125), 10-11px gaps; table
+   header 41px, rows 48px; score bar 92 x 8 with a 20px gap after the value; Columns menu 206px wide, 28px items.
+   Every colour is a --ml-* token; data colours reach the pills by reference (--mlk-dot set by desk-members.js). */
+
+/* legacy ranked-view leftovers (the #sort select, the old count line, the old table) stay in the DOM, hidden */
+#view-ranked .dm-legacy{display:none!important}
+body.restored-desk.dsk-view-ranked #view-ranked.view:not(#mlk){padding-top:3px}
+
+/* ---------------- filter panel ---------------- */
+.dm-filters{position:relative;z-index:3;display:flex;flex-direction:column;gap:9px;box-sizing:border-box;margin:0;padding:15px 8px 6px;background:var(--ml-surface);border:1px solid var(--ml-rule);border-radius:var(--ml-radius);color:var(--ml-ink);font:400 13px/1 var(--sans)}
+.dm-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;min-width:0}
+.dm-row--2{gap:11px;min-height:30px}
+.dm-spacer{flex:1 1 auto}
+.dm-filters .dm-search:not(#mlk){width:242px}
+.dm-filters .mlk-search__input:not(#mlk){height:30px}
+.dm-filters .mlk-seg:not(#mlk){height:30px}
+.dm-filters .mlk-seg:not(#mlk)>button{min-width:57px;padding:0 18px}
+/* restored.css paints the legacy .seg button.on with !important; keep the kit's active segment exactly */
+.dm-filters .mlk-seg:not(#mlk)>button.on{background:var(--ml-active)!important;color:var(--ml-on-dark)!important;font-weight:500}
+.dm-filters .mlk-select:not(#mlk){height:30px}
+.dm-filters .mlk-select:not(#mlk)>select{flex:1 1 auto;width:100%;min-width:0;text-overflow:ellipsis}
+.dm-filters .dm-sel--area:not(#mlk){width:160px}
+.dm-filters .dm-sel--stance:not(#mlk){width:173px}
+.dm-filters .dm-sel--prio:not(#mlk){width:172px}
+.dm-filters .dm-sel--group:not(#mlk){width:auto;min-width:125px}
+.dm-filters .dm-sel--group:not(#mlk)>select{width:auto}
+.dm-sel:has(>select[hidden]){display:none!important}
+/* toggle chips: the legacy checkboxes (#fundedOnly, #potentialOnly) live inside, visually hidden */
+.dm-toggle:not(#mlk){position:relative;height:28px;cursor:pointer;user-select:none}
+.dm-toggle:not(#mlk):hover{background:var(--ml-surface-alt)}
+.dm-toggle__input{position:absolute!important;left:0;top:0;width:1px!important;height:1px!important;margin:0!important;padding:0!important;opacity:0;pointer-events:none}
+.dm-toggle:not(#mlk):has(.dm-toggle__input:checked){background:var(--ml-active);border-color:var(--ml-active);color:var(--ml-on-dark)}
+.dm-toggle:not(#mlk):has(.dm-toggle__input:focus-visible){outline:2px solid var(--ml-accent);outline-offset:2px}
+.dm-colbtn:not(#mlk){height:30px;gap:10px;padding:0 12px 0 14px}
+.dm-colbtn:not(#mlk) svg{width:12px;height:12px;stroke-width:1.8}
+.dm-colbtn:not(#mlk)[aria-expanded=true]{background:var(--ml-active);border-color:var(--ml-active);color:var(--ml-on-dark)}
+.dm-count{margin-left:4px;color:var(--ml-muted);font:400 12px/1 var(--sans);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* Columns menu: drops from Columns and overlays the table's right edge (it never narrows the table) */
+.dm-colmenu:not(#mlk){top:calc(100% - 5px);right:-4px;left:auto;width:206px;min-width:0;max-width:calc(100vw - 32px);padding:10px 12px 14px}
+.dm-colmenu__title:not(#mlk){margin:0 0 5px;letter-spacing:.08em}
+.dm-colmenu__list{margin:0;padding:0;list-style:none}
+.dm-colmenu__item{display:flex;align-items:center;gap:12px;height:28px;color:var(--ml-ink);font:400 13px/1.2 var(--sans);white-space:nowrap;cursor:pointer}
+.dm-colmenu__sep{height:1px;margin:12px 0 9px;background:var(--ml-rule)}
+.dm-reset,.dm-clear{appearance:none;margin:0;padding:0;border:0;background:none;color:var(--ml-ink);font:400 13px/1.3 var(--sans);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.dm-clear{margin-left:8px;font-size:inherit}
+
+/* ---------------- table ---------------- */
+.dm-card:not(#mlk){position:relative;margin-top:15px;overflow:clip}   /* no scroll container while the table fits: the header row sticks to the frame's top */
+/* fix round B02-D1: the table is wider than the card (desk-members.js fit(): all six optional columns in a 1440 window, or
+   any frame narrower than the table's 880px floor). The card becomes the scroller, at most one frame tall, so every column
+   is reachable, the horizontal scrollbar stays on screen and the header row sticks to the card's top. */
+.dm-card.dm-card--wide:not(#mlk){overflow:auto;max-height:calc(100vh - 16px);overscroll-behavior-x:contain}
+.dm-table:not(#mlk){min-width:880px}
+.dm-table:not(#mlk) th{height:41px;box-sizing:border-box;padding:0 12px;box-shadow:none;z-index:2}
+.dm-table:not(#mlk) td{height:48px;padding:0 12px}
+.dm-table:not(#mlk) :is(th,td).dm-c-check{width:48px;padding:0 0 0 18px}
+.dm-table:not(#mlk) :is(th,td).dm-c-check input{display:block}
+.dm-table:not(#mlk) :is(th,td):is(.dm-c-rank,.dm-c-tier){text-align:center}
+/* fix r1 MA-01: board #27 draws the tier badge flush with the column's left edge (x 795-828) and centres the TIER label
+   over it (802-821), not in the middle of the column. The badge sits at the cell's left edge; the header button is the
+   badge's width with its label centred, so label and badge share one axis. The dense layout keeps its centred column. */
+.dm-table:not(#mlk):not(.dm-table--dense) :is(th,td).dm-c-tier{text-align:left;padding-left:0}
+.dm-table:not(#mlk):not(.dm-table--dense) th.dm-c-tier .dm-sort{min-width:34px;text-align:center}
+.dm-table:not(#mlk) th.dm-c-rank{width:66px}
+.dm-table:not(#mlk) th.dm-c-member{width:327px}
+.dm-table:not(#mlk) th.dm-c-stance{width:162px}
+.dm-table:not(#mlk) th.dm-c-tier{width:70px}
+.dm-table:not(#mlk) th.dm-c-score{width:164px}
+.dm-table:not(#mlk) th.dm-c-potential{width:170px}
+.dm-table:not(#mlk) th:is(.dm-c-invested,.dm-c-indmoney,.dm-c-electoral){width:150px}
+.dm-table:not(#mlk) th.dm-c-roi{width:140px}
+.dm-table:not(#mlk) th.dm-c-area{width:230px}
+.dm-table:not(#mlk) th.dm-c-committees{width:240px}
+.dm-table:not(#mlk) th.dm-last{width:auto}   /* the last visible column takes the rest of the row */
+.dm-table:not(#mlk) tbody tr:hover{background:transparent}
+.dm-table:not(#mlk) tbody tr.dm-grouprow{cursor:default}
+.dm-sort{appearance:none;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;white-space:nowrap;cursor:pointer}
+.dm-table .dm-sort:hover{color:var(--ml-ink);background:none}
+/* fix r1 F0-1: restored.css ".restored-desk button{color:var(--ink)}" outranked ".dm-sort{color:inherit}", so the header
+   labels were ink; board #27 and prompt 02 draw them --ml-muted (the th's colour). Ink stays on hover. */
+.dm-table:not(#mlk) th .dm-sort{color:inherit}
+.dm-table:not(#mlk) th .dm-sort:hover{color:var(--ml-ink)}
+.dm-table:not(#mlk) .dm-name{font-size:14px}
+.dm-table:not(#mlk) .mlk-sub{white-space:nowrap}
+.dm-table:not(#mlk) .dm-clip{max-width:240px;overflow:hidden;text-overflow:ellipsis}
+/* fix round B02-D1: any optional column on (desk-members.js .dm-table--dense). Fixed layout: the widths below are the
+   columns' widths (a wider card shares its spare width out in proportion), headers wrap between words, and long member
+   sub-lines, area details and committee names end in an ellipsis instead of widening the table. Default columns plus
+   Return per $10,000 and Committee seats, or plus any three optional columns but the five-way money set, fit a 1440 window
+   (1222px inside the card); all six fit at 1920 (1484px of 1702px). */
+.dm-table.dm-table--dense:not(#mlk){table-layout:fixed;min-width:0}
+.dm-table.dm-table--dense:not(#mlk) :is(th,td){padding:0 8px}
+.dm-table.dm-table--dense:not(#mlk) th{padding-top:6px;padding-bottom:6px}
+.dm-table.dm-table--dense:not(#mlk) :is(th,td).dm-c-check{width:40px;padding:0 0 0 14px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-rank{width:72px}   /* "Tied 422-443" on two lines */
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-member{width:230px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-stance{width:140px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-tier{width:54px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-score{width:108px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-potential{width:104px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-invested{width:116px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-indmoney{width:100px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-roi{width:96px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-electoral{width:108px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-area{width:176px}
+.dm-table.dm-table--dense:not(#mlk) th.dm-c-committees{width:140px}
+.dm-table--dense .dm-sort{white-space:normal;text-align:inherit}
+.dm-table--dense td:is(.dm-c-member,.dm-c-stance,.dm-c-electoral,.dm-c-area,.dm-c-committees){overflow:hidden}
+.dm-table--dense:not(#mlk) td :is(.dm-name,.mlk-sub){display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dm-table--dense:not(#mlk) td .dm-name{width:max-content}
+.dm-table--dense:not(#mlk) .dm-clip{max-width:100%}
+.dm-table--dense .dm-score{gap:12px}
+.dm-table--dense .dm-bar.sbar:not(#mlk){width:52px}
+/* wide and dense (the fixed widths above are exact then): the checkbox, rank and member columns stay put while the other
+   columns scroll under them, so a row keeps its name at Committee seats */
+.dm-card--wide .dm-table--dense:not(#mlk) :is(th,td):is(.dm-c-check,.dm-c-rank,.dm-c-member){position:sticky;left:0;z-index:1}
+.dm-card--wide .dm-table--dense:not(#mlk) th:is(.dm-c-check,.dm-c-rank,.dm-c-member){z-index:3}
+.dm-card--wide .dm-table--dense:not(#mlk) :is(th,td).dm-c-rank{left:40px}
+.dm-card--wide .dm-table--dense:not(#mlk) :is(th,td).dm-c-member{left:112px;box-shadow:1px 0 0 var(--ml-rule)}
+.dm-card--wide .dm-table--dense:not(#mlk):not(:has(th.dm-c-rank)) :is(th,td).dm-c-member{left:40px}
+.dm-card.dm-card--wide .dm-table--dense:not(#mlk) tbody tr:not(.is-selected):not(.dm-grouprow) td:is(.dm-c-check,.dm-c-rank,.dm-c-member){background:var(--ml-surface)}
+.dm-none{color:var(--ml-muted)}
+.dm-nw{white-space:nowrap}
+.dm-table .mlk-tier:not(#mlk){min-width:34px}
+.dm-score{display:inline-flex;align-items:center;gap:20px;vertical-align:middle}
+.dm-score__v{min-width:28px}
+/* today's score bar: the desk stylesheet's .sbar i gradient, at the board's size on the kit track */
+.dm-table .dm-bar.sbar{flex:none;width:92px;min-width:0;height:8px;border-radius:4px;background:var(--mlk-track);overflow:hidden}
+.dm-table:not(#mlk) tr.dm-grouprow td{padding-left:18px}
+.dm-group__count{margin-left:10px;color:var(--ml-muted);font-weight:400;font-variant-numeric:tabular-nums}
+.dm-table:not(#mlk) tr.dm-skel td{height:auto;padding:0}
+.dm-table:not(#mlk) tr.dm-skel:hover td{background:transparent}
+.dm-more{display:flex;justify-content:center;padding:12px 0;border-top:1px solid var(--ml-rule)}
+.dm-more[hidden],.dm-state[hidden]{display:none}
+.dm-state{border-top:1px solid var(--ml-rule)}
+
+/* kit focus ring (restored.css draws a purple ring on every :focus-visible with !important) */
+:is(.dm-filters,.dm-card) :focus-visible:not(select,.dm-toggle__input,#mlk){outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+.dm-table :is(th,td) :focus-visible:not(#mlk){outline-offset:1px}
+
+/* narrow frames: the member column gives way first (1100px frame = about 1250px window) */
+@media (max-width:1100px){.dm-table:not(#mlk):not(.dm-table--dense) th.dm-c-member{width:240px}}
+/* phones: the shell rail is gone at 760px */
+@media (max-width:760px){
+ .dm-filters .dm-search:not(#mlk){width:100%}
+ .dm-filters .mlk-select:not(#mlk){width:auto;flex:1 1 150px}
+ .dm-spacer{display:none}
+ .dm-colmenu:not(#mlk){right:0}
+}

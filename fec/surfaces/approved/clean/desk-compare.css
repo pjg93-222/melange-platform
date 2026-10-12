@@ -1,0 +1,102 @@
+/* desk-compare.css: overlay for original-desk.html (Compare, board #31); owner: prompt 03. Loaded after desk-members.css. */
+/* Build 03 (board #31). Everything is scoped to #view-compare (the registry section desk-compare.js renders); tokens only,
+   no colour literals. Board-measured sizes (board px / 1.867): title row 56, label column 260, column head 66, rows 38,
+   section label 33, caption 38, score bar 145 x 7. */
+#view-compare{font:400 14px/1.35 var(--sans);color:var(--ml-ink)}
+body.restored-desk #view-compare.view:not(#mlk){padding-top:5px}
+#view-compare :focus-visible:not(#mlk){outline:2px solid var(--ml-accent)!important;outline-offset:2px}
+
+/* ---- title row ---- */
+#view-compare .dc-titlerow{display:flex;align-items:center;gap:24px;min-height:56px;margin:0 0 4px}
+#view-compare .dc-title{flex:1 1 auto;min-width:0;margin:0;padding:0;border:0;color:var(--ml-ink);font:400 30px/1.1 var(--serif);letter-spacing:0}
+/* r5: board #31 at 1440x810: Baseline 161px wide, 18px to the switch, switch 13px to its label, 25px to + Add member */
+#view-compare .dc-tools{display:flex;align-items:center;gap:18px;flex:none}
+#view-compare .dc-addanchor{margin-left:7px}
+#view-compare .dc-tool[hidden]{display:none}
+#view-compare .dc-select:not(#mlk){min-width:161px;height:32px}
+/* the select takes its chosen option's width (None), not its longest option's (Chamber median), as .mlp-sort does */
+#view-compare .dc-select:not(#mlk)>select{field-sizing:content}
+#view-compare .dc-switchwrap{display:inline-flex;align-items:center;gap:12px}
+#view-compare .dc-switchwrap .mlk-switch:not(#mlk){width:34px;height:20px}
+#view-compare .dc-switchlabel{color:var(--ml-ink);font:400 13px/1 var(--sans);cursor:pointer;white-space:nowrap}
+#view-compare .dc-addbtn:not(#mlk){height:32px;padding:0 14px;font-weight:600}
+#view-compare .dc-plus{width:12px;height:12px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6}
+
+/* ---- + Add member popover ---- */
+#view-compare .dc-addpop:not(#mlk){width:340px;padding:12px}
+#view-compare .dc-addsearch:not(#mlk){display:flex;width:100%}
+#view-compare .dc-addres:not(#mlk){position:static;margin-top:8px;padding:0;border:0;box-shadow:none;max-height:320px;overflow:auto}
+#view-compare .dc-addres .mlk-results__item[aria-disabled=true]:not(#mlk){color:var(--ml-muted);cursor:default}
+
+/* ---- grid card ---- */
+#view-compare .dc-card:not(#mlk){padding:0;overflow:hidden}
+#view-compare .dc-scroll{overflow-x:auto}
+#view-compare .dc-grid{width:100%;min-width:640px;border-collapse:collapse;border-spacing:0;table-layout:fixed;color:var(--ml-ink)}
+#view-compare .dc-grid .dc-col-label{width:260px}
+#view-compare .dc-grid :is(th,td){box-sizing:border-box;height:38px;padding:4px 20px;border:0;border-top:1px solid var(--ml-rule);text-align:left;vertical-align:middle;background:transparent;position:static;box-shadow:none;color:var(--ml-ink);font-size:15px;letter-spacing:0;text-transform:none}
+#view-compare .dc-grid thead :is(th,td){border-top:0}
+#view-compare .dc-grid :is(th,td)+:is(th,td){border-left:1px solid var(--ml-rule)}
+#view-compare .dc-grid .dc-label{padding-left:14px;color:var(--ml-muted);font:500 11px/1.25 var(--sans);letter-spacing:.06em;text-transform:uppercase}
+#view-compare .dc-cell{font:400 15px/1.3 var(--sans);font-variant-numeric:tabular-nums}
+#view-compare .dc-cell.dc-best{font-weight:700}
+#view-compare .dc-cell sup{font-size:.62em;line-height:0;vertical-align:.55em}
+/* the separator dot carries board #31's wider gaps (~5px each side in the column heads, ~9px in District opportunity) */
+#view-compare .dc-sep{margin:0 .2em;color:var(--ml-muted);font-weight:400}
+#view-compare .dc-v{display:block}
+
+/* column heads */
+#view-compare .dc-grid .dc-colhead{height:66px;padding:10px 12px 10px 18px;vertical-align:top;font-weight:400}
+#view-compare .dc-colhead__in{display:flex;align-items:flex-start;gap:8px;min-width:0}
+#view-compare .dc-dot:not(#mlk){width:11px;height:11px;margin-top:8px;flex:none}
+#view-compare .dc-colhead__text{display:flex;flex-direction:column;gap:5px;flex:1 1 auto;min-width:0}
+#view-compare .dc-name:not(#mlk){overflow:hidden;color:var(--ml-ink);font:400 20px/1.25 var(--serif);text-overflow:ellipsis;white-space:nowrap}
+#view-compare .dc-colhead__sub{overflow:hidden;color:var(--ml-muted);font:400 12px/1.3 var(--sans);text-overflow:ellipsis;white-space:nowrap}
+#view-compare .dc-remove:not(#mlk){width:24px;height:24px;margin:0 -2px 0 0}
+/* board #31 draws the remove x about 9px across in a thin stroke (the kit icon at 10px is 5px across) */
+#view-compare .dc-remove:not(#mlk) svg{width:17px;height:17px;stroke-width:1}
+#view-compare .dc-basehead{color:var(--ml-muted);font:400 18px/1.25 var(--serif)}
+#view-compare .dc-grid .dc-colhead--placeholder{vertical-align:middle}
+#view-compare .dc-placeholder{display:inline-flex;align-items:center;gap:8px;min-height:32px;margin:0;padding:0 10px;border:1px dashed var(--ml-control-border);border-radius:var(--ml-radius);background:transparent;color:var(--ml-muted);font:500 14px/1 var(--sans);cursor:pointer}
+#view-compare .dc-placeholder:hover{background:var(--ml-surface-alt);color:var(--ml-ink)}
+
+/* score bar: value, then today's .sbar fill at the board's size */
+#view-compare .dc-score{display:flex;align-items:center;gap:16px}
+#view-compare .dc-score__v{flex:none;min-width:64px}
+#view-compare .dc-bar.sbar{flex:0 1 145px;width:145px;min-width:36px;height:8px;border-radius:4px;background:var(--mlk-track)}
+
+/* pills: board size (24 px, 13 px text) */
+#view-compare .dc-grid .mlk-pill:not(#mlk){height:25px;padding:0 13px 0 10px;border-radius:13px;font-size:13px;gap:10px}
+/* board #31 pill dots are ~9px (the kit dot is 7px) */
+#view-compare .dc-grid .mlk-pill:not(#mlk)::before{width:9px;height:9px}
+
+/* baseline: muted final column and muted second lines */
+#view-compare .dc-grid .dc-cell--baseline{color:var(--ml-muted)}
+#view-compare .dc-baseline__line{display:block;white-space:nowrap}
+#view-compare .dc-baseline__grp{font-size:12px}
+#view-compare .dc-base{display:block;margin-top:1px;color:var(--ml-muted);font:400 12px/1.3 var(--sans)}
+#view-compare .dc-none{color:var(--ml-muted)}
+
+/* section label row and footer caption */
+#view-compare .dc-grid .dc-section__label{height:33px;padding:4px 14px 0;color:var(--ml-muted);font:600 11px/1.2 var(--sans);letter-spacing:.07em;text-transform:uppercase}
+#view-compare .dc-foot{box-sizing:border-box;min-height:38px;margin:0;padding:10px 14px;border-top:1px solid var(--ml-rule);color:var(--ml-muted);font:400 13px/1.4 var(--sans)}
+
+/* ---- states ---- */
+#view-compare .dc-emptycard:not(#mlk){max-width:560px;margin:56px auto 0;padding:32px 28px;text-align:center}
+#view-compare .dc-emptycard__text{margin:0 0 16px;color:var(--ml-ink);font:400 15px/1.45 var(--sans)}
+#view-compare .dc-card--loading:not(#mlk){padding:12px 16px}
+#view-compare .dc-card--loading .mlk-skel-row{height:38px}
+#view-compare .dc-note{display:flex;align-items:center;gap:12px;margin:0 0 12px;color:var(--ml-muted);font:400 13px/1.4 var(--sans)}
+
+/* the frame's viewport is the content column (desk-shell.css breakpoints) */
+@media (max-width:950px){
+ #view-compare .dc-titlerow{flex-wrap:wrap;gap:12px 16px}
+ #view-compare .dc-tools{flex:1 1 100%;min-width:0;flex-wrap:wrap;gap:12px 16px}
+ #view-compare .dc-addanchor{margin-left:0}
+ #view-compare .dc-grid .dc-col-label{width:180px}
+}
+@media (max-width:760px){
+ #view-compare .dc-title{font-size:24px}
+ #view-compare .dc-grid .dc-col-label{width:132px}
+ #view-compare .dc-grid :is(th,td){padding-left:10px;padding-right:10px}
+ #view-compare .dc-addpop:not(#mlk){width:calc(100vw - 32px)}
+}

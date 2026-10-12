@@ -1,0 +1,160 @@
+{
+  "schema": 1,
+  "note": "Owner waivers of G6 (hard backtest gate) cells. A listed cell that fails is WAIVED, not HOLD; every other cell stays strict. show_warning false: the cell is not shown in the review packet's warning list or on the card; every waiver is still listed in the receipt's waiver section. A shown waiver may carry `measured` (the metric, the calculator the refit was compared with and its error `comparator_value`, the model's error when the owner ruled, and the source of both): the console puts the error of the model in force beside `comparator_value` on the card. The refit gates read only the other fields.",
+  "waivers": [
+    {
+      "gate": "G6",
+      "cell": "lobby / commercial_banks",
+      "term": "lobby",
+      "industry": "commercial_banks",
+      "reason": "owner ruling: keep log refit",
+      "owner": "Paul Goff",
+      "date": "2026-09-30",
+      "show_warning": false
+    },
+    {
+      "gate": "G6",
+      "cell": "control_House / commercial_banks",
+      "term": "control_House",
+      "industry": "commercial_banks",
+      "reason": "Owner explicitly authorized the three House-share LOEO degradations measured by pod-final-20260930: \"Waive these three cells and publish\".",
+      "owner": "Paul Goff",
+      "date": "2026-09-30",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the House share change",
+        "unit": "percentage points",
+        "comparator": "the previously published calculator (pooled slope, same-phase anchor) recomputed on the same folds",
+        "comparator_value": 1.05346532256982,
+        "model_value_at_ruling": 1.54982061704938,
+        "source": "pod-final-20260930 G6 measurement, recorded in the waiver rows of receipt pod-publish-20260930 (published_MAE 1.05346532256982, new_MAE 1.54982061704938) and in forecast/BUILD_NOTES.md"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_House / credit_unions",
+      "term": "control_House",
+      "industry": "credit_unions",
+      "reason": "Owner explicitly authorized the three House-share LOEO degradations measured by pod-final-20260930: \"Waive these three cells and publish\".",
+      "owner": "Paul Goff",
+      "date": "2026-09-30",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the House share change",
+        "unit": "percentage points",
+        "comparator": "the previously published calculator (pooled slope, same-phase anchor) recomputed on the same folds",
+        "comparator_value": 1.52193157891346,
+        "model_value_at_ruling": 1.83627749233309,
+        "source": "pod-final-20260930 G6 measurement, recorded in the waiver rows of receipt pod-publish-20260930 (published_MAE 1.52193157891346, new_MAE 1.83627749233309) and in forecast/BUILD_NOTES.md"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_House / auto_light_duty_manufacturing",
+      "term": "control_House",
+      "industry": "auto_light_duty_manufacturing",
+      "reason": "Owner explicitly authorized the three House-share LOEO degradations measured by pod-final-20260930: \"Waive these three cells and publish\".",
+      "owner": "Paul Goff",
+      "date": "2026-09-30",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the House share change",
+        "unit": "percentage points",
+        "comparator": "the previously published calculator (pooled slope, same-phase anchor) recomputed on the same folds",
+        "comparator_value": 1.33826878020482,
+        "model_value_at_ruling": 1.76552202686047,
+        "source": "pod-final-20260930 G6 measurement, recorded in the waiver rows of receipt pod-publish-20260930 (published_MAE 1.33826878020482, new_MAE 1.76552202686047) and in forecast/BUILD_NOTES.md"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_Senate / commercial_banks",
+      "term": "control_Senate",
+      "industry": "commercial_banks",
+      "reason": "Owner kept the presidential-cycle term in the Senate share model: \"2. Keep senate in\" (Paul Goff, 2026-10-07, answering the 10-01 rebuild decision (b)). The ruling covers the Senate share model, not one industry.",
+      "owner": "Paul Goff",
+      "date": "2026-10-07",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the Senate share change",
+        "unit": "percentage points",
+        "comparator": "the published calculator (Senate model without the presidential-cycle term) as recorded in the published bundle",
+        "comparator_value": 5.29379900951156,
+        "model_value_at_ruling": 8.00671492303147,
+        "source": "G6 table of the staged refit of 2026-10-07 against the published bundle refit-20260930-377f7324-c3f221343515 (its recorded calculator_path_loeo_mae_by_industry); the same four Senate values are in the 10-01 rebuild's gates (phase20261001/refit work/out/bundle_gates.rds) and REPORT.md section 3c (pres-R0-prevchg vs pub-R0-prevchg)"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_Senate / credit_unions",
+      "term": "control_Senate",
+      "industry": "credit_unions",
+      "reason": "Owner kept the presidential-cycle term in the Senate share model: \"2. Keep senate in\" (Paul Goff, 2026-10-07, answering the 10-01 rebuild decision (b)). The ruling covers the Senate share model, not one industry.",
+      "owner": "Paul Goff",
+      "date": "2026-10-07",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the Senate share change",
+        "unit": "percentage points",
+        "comparator": "the published calculator (Senate model without the presidential-cycle term) as recorded in the published bundle",
+        "comparator_value": 7.29779191554919,
+        "model_value_at_ruling": 9.64817774853423,
+        "source": "G6 table of the staged refit of 2026-10-07 against the published bundle refit-20260930-377f7324-c3f221343515 (its recorded calculator_path_loeo_mae_by_industry); the same four Senate values are in the 10-01 rebuild's gates (phase20261001/refit work/out/bundle_gates.rds) and REPORT.md section 3c (pres-R0-prevchg vs pub-R0-prevchg)"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_Senate / property_casualty",
+      "term": "control_Senate",
+      "industry": "property_casualty",
+      "reason": "Owner kept the presidential-cycle term in the Senate share model: \"2. Keep senate in\" (Paul Goff, 2026-10-07, answering the 10-01 rebuild decision (b)). The ruling covers the Senate share model, not one industry.",
+      "owner": "Paul Goff",
+      "date": "2026-10-07",
+      "show_warning": true,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the Senate share change",
+        "unit": "percentage points",
+        "comparator": "the published calculator (Senate model without the presidential-cycle term) as recorded in the published bundle",
+        "comparator_value": 2.24311258242072,
+        "model_value_at_ruling": 3.70238807597984,
+        "source": "G6 table of the staged refit of 2026-10-07 against the published bundle refit-20260930-377f7324-c3f221343515 (its recorded calculator_path_loeo_mae_by_industry); the same four Senate values are in the 10-01 rebuild's gates (phase20261001/refit work/out/bundle_gates.rds) and REPORT.md section 3c (pres-R0-prevchg vs pub-R0-prevchg)"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "control_Senate / auto_light_duty_manufacturing",
+      "term": "control_Senate",
+      "industry": "auto_light_duty_manufacturing",
+      "reason": "Owner kept the presidential-cycle term in the Senate share model: \"2. Keep senate in\" (Paul Goff, 2026-10-07, answering the 10-01 rebuild decision (b)). The ruling covers the Senate share model, not one industry.",
+      "owner": "Paul Goff",
+      "date": "2026-10-07",
+      "show_warning": false,
+      "measured": {
+        "metric": "Leave-one-election-out mean absolute error of the Senate share change",
+        "unit": "percentage points",
+        "comparator": "the published calculator (Senate model without the presidential-cycle term) as recorded in the published bundle",
+        "comparator_value": 3.38046006914796,
+        "model_value_at_ruling": 5.9646967726693,
+        "source": "G6 table of the staged refit of 2026-10-07 against the published bundle refit-20260930-377f7324-c3f221343515 (its recorded calculator_path_loeo_mae_by_industry); the same four Senate values are in the 10-01 rebuild's gates (phase20261001/refit work/out/bundle_gates.rds) and REPORT.md section 3c (pres-R0-prevchg vs pub-R0-prevchg)"
+      }
+    },
+    {
+      "gate": "G6",
+      "cell": "pac / auto_light_duty_manufacturing",
+      "term": "pac",
+      "industry": "auto_light_duty_manufacturing",
+      "reason": "Owner adopted the 10-01 rebuild PAC specification PT-noG-damp-pool@x22 despite auto's leave-one-election-out conflict: \"1. Yes\" (Paul Goff, 2026-10-07, decision (a)).",
+      "owner": "Paul Goff",
+      "date": "2026-10-07",
+      "show_warning": false,
+      "measured": {
+        "metric": "Leave-one-election-out MAE of the PAC full-cycle log total (x100)",
+        "unit": "log points x 100",
+        "comparator": "PUB-R1 (published rule) on common rows",
+        "comparator_value": 14.9936398854737,
+        "model_value_at_ruling": 18.68690982586,
+        "source": "G6 table of the staged refit of 2026-10-07; phase20261001/refit/REPORT.md:258, :262 (consistency table 3a: auto PUB-R1 14.99, PT-noG-damp-pool@x22 18.69)"
+      }
+    }
+  ]
+}

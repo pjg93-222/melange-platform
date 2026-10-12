@@ -1,0 +1,165 @@
+{
+  "schema": "melange-invited-profile-v1",
+  "pending": true,
+  "notes": "pending Paul ruling. Every rule below is a RECOMMENDATION transcribed from audits/deploy_20261011/GOVERNANCE_MATRIX.md (2026-10-12); none is ruled (ruled=false). While pending is true no invited build may be released (D-164, D-169). Not legal advice.",
+  "matrix": "audits/deploy_20261011/GOVERNANCE_MATRIX.md",
+  "decisions": ["D-164", "D-169", "D-171"],
+  "generated": "2026-10-12",
+  "source_tree": "Melange main 9198e6881 (live tree read 2026-10-12); built artifacts of 2026-10-11 23:19-23:28",
+
+  "islands": {
+    "network": {
+      "page": "Moneyball Dashboard.html (merged as #app-network)",
+      "binding": "const DATA=__DATA__  (fec/surfaces/templates/make_dashboard_html_00.tpl:233)",
+      "source_artifact": "dashboard_data.json (whole file, fec/surfaces/make_dashboard_html.py:70-81)"
+    },
+    "desk": {
+      "page": "cu-member-desk.html (merged as #app-member)",
+      "binding": "const D=__BUNDLE__  (fec/surfaces/templates/make_member_desk_00.tpl:426)",
+      "source_artifact": "member_desk_bundle.json minus bill_lobbying, members[] without HEAVY_MEMBER_FIELDS (fec/surfaces/make_member_desk.py:3429-3446)"
+    },
+    "desk_profiles": {
+      "page": "cu-member-desk-profiles.js (inlined into Moneyball.html by fec/surfaces/make_combined.py:750-756)",
+      "binding": "window.__melangeProfileMerge({members_heavy:[...], bill_lobbying:{...}})  (make_member_desk.py:3440-3444; merge hook make_member_desk_00.tpl:2843)",
+      "source_artifact": "member_desk_bundle.json members[] HEAVY_MEMBER_FIELDS + bill_lobbying",
+      "note": "With DESK_SPLIT=0 the same paths live under the desk island as members[] instead of members_heavy[]; apply them there."
+    },
+    "industry": {
+      "page": "lobby-network.html (merged as #app-industry, and served standalone)",
+      "binding": "<script id=page-data type=application/json>  (fec/surfaces/make_lobby_network_html.py:3231)"
+    },
+    "staffer": {
+      "page": "staffer-network.html (merged as #app-staffer)",
+      "binding": "const SDATA=__DATA__  (fec/surfaces/templates/make_staffer_network_html_01.tpl:105)",
+      "source_artifact": "data/engine/staffer_network_section.json"
+    },
+    "staffer_offices": {
+      "binding": "const GDATA=__OFFICES__  (make_staffer_network_html_01.tpl:106)",
+      "source_artifact": "data/engine/staffer_offices_section.json"
+    },
+    "staffer_organisations": {
+      "binding": "const ODATA=__ORGS__  (make_staffer_network_html_01.tpl:107)",
+      "source_artifact": "data/engine/staffer_organisations_section.json"
+    },
+    "staffer_clients": {
+      "binding": "const CDATA=__CLIENTS__  (make_staffer_network_html_01.tpl:108)",
+      "source_artifact": "data/engine/staffer_clients_section.json"
+    },
+    "lobby_champions":    {"page": "lobby-champions.html",    "binding": "<script id=page-data type=application/json>"},
+    "lobby_forecast":     {"page": "lobby-forecast.html",     "binding": "<script id=page-data type=application/json>"},
+    "lobby_bills":        {"page": "lobby-bills.html",        "binding": "<script id=page-data type=application/json>"},
+    "lobby_screen":       {"page": "lobby-screen.html",       "binding": "<script id=page-data type=application/json>"},
+    "lobby_interactions": {"page": "lobby-interactions.html (the shell's Filings tab; a real navigation, never merged)", "binding": "<script id=page-data type=application/json>  (fec/surfaces/make_lobby_interactions_html.py:543-550)"}
+  },
+
+  "drop_sources": [
+    {"id": "legistorm",   "row": "M-26", "ruled": false, "why": "No licence (D-159 T3). Not embedded today; keep it that way."},
+    {"id": "quorum",      "row": "M-10", "ruled": false, "why": "Licensed subscription; terms for sharing with invitees not on file. Staff directory dropped; Quorum-sourced posts reduced to link + snippet (M-12)."},
+    {"id": "lda_identity_corpus_restricted", "row": "M-07", "ruled": false, "why": "Staffer-network LDA corpus files are tagged privacy_class restricted-machine-local (fec/staffer_network/lda_source_native_corpus.py:467); the organisations/clients payloads restate that class in their own meta."},
+    {"id": "littlesis",   "row": "M-09", "ruled": false, "why": "CC BY-SA share-alike publication review deferred (fec/staffer_network/littlesis_contract.py raw_storage restricted-machine-local, share_alike_publication_review_deferred=true)."},
+    {"id": "politico_pro","row": "M-25", "ruled": false, "why": "Subscription directory (Paul's own login); no redistribution right on file."},
+    {"id": "paul_private_staff_notes", "row": "M-24", "ruled": false, "why": "staff_state.json interaction notes (make_member_desk.py:2620, :2727-2728) are Paul's working notes, never third-party content. Absent today; drop defensively."}
+  ],
+
+  "drop_surfaces": [
+    {"surface": "staffer", "rows": ["M-07", "M-08", "M-09", "M-25"], "ruled": false,
+     "mechanism": "assemble(pieces, include_staffer=False): the existing three-surface path (fec/surfaces/make_combined.py:863-957), which also strips the shell's #stflink tab",
+     "why": "The panel carries 15,699 named lobbyists (ODATA) and 11,021 contract-filer names (CDATA) from the restricted LDA identity corpus, plus 19,161 named congressional staff (GDATA). Dropping the surface is one existing switch; re-admit pieces only as Paul rules M-07/M-08/M-09/M-25 Looser."}
+  ],
+
+  "drop_pages": [
+    {"page": "lobby-interactions.html", "row": "M-06", "ruled": false,
+     "mechanism": "leave it off the desk_server allowlist and the Netlify file set; strip the shell's Filings tab anchor (make_combined.py:480-481) with an exact-count cut, as assemble() already does for #stflink",
+     "why": "Filing-level LDA detail: 1,384 lobbyist names (lobs), 689 covered-position texts (covered), 4,729 verbatim activity descriptions (notes), not aggregates. Draft default is aggregates only."}
+  ],
+
+  "drop_paths": {
+    "desk_profiles": [
+      "members_heavy[].staffdir",
+      "bill_lobbying.bills{}.top_lobbyists"
+    ],
+    "desk": [
+      "members[].staffdir",
+      "members[].speech_profile.longform_interview_evidence.full_turns[].turn_audio_wav",
+      "speech_descriptive.corpus.collected_interview_transcripts.path",
+      "speech_descriptive.corpus.source_media_recovery.inventory_summary",
+      "efficiency_layers.receipts.artifact_vintages{}.path",
+      "efficiency_layers.receipts.artifact_vintages.strict_bill_lobby_indexes[].path"
+    ],
+    "network": [
+      "speech_meta.corpus.collected_interview_transcripts.path",
+      "speech_meta.corpus.source_media_recovery.inventory_summary"
+    ],
+    "staffer": [
+      "meta.closeness.member_context.path",
+      "meta.inputs.hill_person_spine_display_names.path"
+    ],
+    "industry": [
+      "receipts.bills.titles.cache_path"
+    ]
+  },
+  "drop_paths_rows": {
+    "desk_profiles:members_heavy[].staffdir": {"row": "M-10", "ruled": false},
+    "desk:members[].staffdir": {"row": "M-10", "ruled": false, "optional": true, "note": "DESK_SPLIT=0 builds only; matches nothing in a DESK_SPLIT=1 build"},
+    "desk_profiles:bill_lobbying.bills{}.top_lobbyists": {"row": "M-05", "ruled": false, "note": "17,610 named-lobbyist rows across 4,145 bills; organisations, totals, members_lobbied and joining_forecast stay. The desk's bill renderer must tolerate the missing key (verify in browser)."},
+    "desk:members[].speech_profile.longform_interview_evidence.full_turns[].turn_audio_wav": {"row": "X-09", "ruled": false, "note": "local C:\\ audio paths (9 strings)"},
+    "desk:speech_descriptive.corpus.collected_interview_transcripts.path": {"row": "X-09", "ruled": false},
+    "desk:speech_descriptive.corpus.source_media_recovery.inventory_summary": {"row": "X-09", "ruled": false},
+    "desk:efficiency_layers.receipts.artifact_vintages{}.path": {"row": "X-09", "ruled": false, "note": "local artifact paths in the receipts block of the desk island"},
+    "desk:efficiency_layers.receipts.artifact_vintages.strict_bill_lobby_indexes[].path": {"row": "X-09", "ruled": false, "note": "local artifact paths; this entry is a list of dicts, which the {} step above does not reach"},
+    "network:speech_meta.corpus.collected_interview_transcripts.path": {"row": "X-09", "ruled": false},
+    "network:speech_meta.corpus.source_media_recovery.inventory_summary": {"row": "X-09", "ruled": false},
+    "staffer:meta.closeness.member_context.path": {"row": "X-09", "ruled": false, "note": "moot while the staffer surface is dropped (drop_surfaces)"},
+    "staffer:meta.inputs.hill_person_spine_display_names.path": {"row": "X-09", "ruled": false, "note": "moot while the staffer surface is dropped (drop_surfaces)"},
+    "industry:receipts.bills.titles.cache_path": {"row": "X-09", "ruled": false, "note": "AppData path; the same island ships standalone as lobby-network.html, so apply there too"}
+  },
+
+  "redact_fields": {
+    "desk_profiles": [
+      {"row": "M-12", "ruled": false, "path": "members_heavy[].articles[]", "where": {"source": ["social", "bluesky"]}, "field": "title", "action": "truncate", "max_chars": 200,
+       "why": "X/Facebook posts ride in title at full length (median 284, max 22,582 chars; 124 over 1,000); Bluesky up to 306. Keep url + derived labels."},
+      {"row": "M-13", "ruled": false, "path": "members_heavy[].articles[]", "where": {"source": ["interview"]}, "field": "snip", "action": "truncate", "max_chars": 200,
+       "why": "Broadcast transcript excerpts (CNN/Fox/MSNOW/PBS/NPR...) up to 970 chars."},
+      {"row": "M-13", "ruled": false, "path": "members_heavy[].personal.items[]", "where": {"source": ["INTERVIEW", "TWEET", "BLUESKY", "FACEBOOK POST", "PRESS RELEASE", "PRESS_TITLE"]}, "field": "evidence", "action": "truncate", "max_chars": 200,
+       "why": "Interview evidence median 662 / max 2,953 chars; Facebook up to 2,180. CREC and CHRG (public-domain Congressional Record / GPO hearings) are not truncated (M-16)."},
+      {"row": "M-12/M-13", "ruled": false, "path": "members_heavy[].personal.items[]", "where": {"source": ["INTERVIEW", "TWEET", "BLUESKY", "FACEBOOK POST", "PRESS RELEASE", "PRESS_TITLE"]}, "field": "claim", "action": "truncate", "max_chars": 200,
+       "why": "The claim text sits beside the evidence on every personal item and quotes the same third-party source (census 2026-10-12: up to 360 chars; 123 INTERVIEW and 15 social/press items over 200). Same sources, limit and rows as the evidence rule above; CREC and CHRG stay whole (M-16)."},
+      {"row": "M-24", "ruled": false, "defensive": true, "path": "members_heavy[].staffdir[]", "field": "st", "action": "drop",
+       "why": "Defence in depth for Paul's private notes if M-10 is ruled Looser and staffdir returns."}
+    ]
+  },
+
+  "min_aggregate_n": 10,
+  "min_aggregate_n_scope": "Any count, sum or share derived from individual FEC contributor rows: suppress the cell when it rests on fewer than 10 distinct contributors. No Melange island carries such an aggregate today (matrix M-02); the value is pinned here so a future one is gated. It does NOT apply to Terrier (Paul's 2026-10-08 no-withholding ruling stands for district staff).",
+
+  "attribution": {
+    "row": "X-07",
+    "ruled": false,
+    "placement": "one footer in the shell (#melchrome sibling, after the four panels) and one in each lobby-*.html page; plain text, no external loads",
+    "footer_title": "Sources and licences",
+    "sources": [
+      {"id": "fec", "text": "Federal Election Commission filings. Information copied from FEC reports may not be sold or used to solicit contributions or for commercial purposes (52 U.S.C. 30111(a)(4))."},
+      {"id": "lda", "text": "Lobbying Disclosure Act filings (LD-1/LD-2), lda.gov (U.S. Senate Office of Public Records and Clerk of the House)."},
+      {"id": "congress_gov", "text": "Bill, cosponsor, Congressional Record and hearing data from Congress.gov and GovInfo (U.S. Government works)."},
+      {"id": "voteview", "text": "Lewis, Jeffrey B., Keith Poole, Howard Rosenthal, Adam Boche, Aaron Rudkin, and Luke Sonnet (2026). Voteview: Congressional Roll-Call Votes Database. https://voteview.com/"},
+      {"id": "census", "text": "U.S. Census Bureau: American Community Survey 2024 1-year, County Business Patterns, LEHD LODES 8. This product uses the Census Bureau Data API but is not endorsed or certified by the Census Bureau."},
+      {"id": "finance_public", "text": "FDIC Summary of Deposits; NCUA call reports; FFIEC/CFPB HMDA 2024; USAspending.gov."},
+      {"id": "wikipedia", "text": "Member biography excerpts from Wikipedia, licensed CC BY-SA 4.0; each excerpt links to the revision used."},
+      {"id": "cook_pvi", "text": "Partisan Voter Index: The Cook Political Report with Amy Walter.", "pending_row": "M-21"},
+      {"id": "ballotpedia", "text": "Election forecast inputs: Ballotpedia.", "pending_row": "M-22"},
+      {"id": "lobbyview_positions", "text": "Interest-group positions: Kim, Kim, Jeong, Oh and Kim, 'Measuring Interest Group Positions on Legislation', Harvard Dataverse doi:10.7910/DVN/D0QWM2; LobbyView (lobbyview.org).", "pending_row": "M-27"},
+      {"id": "opensecrets", "text": "Some figures are derived from OpenSecrets.org data, used under its CC BY-NC-SA licence (non-commercial, share-alike). https://www.opensecrets.org", "pending_row": "M-03", "only_if_present": true},
+      {"id": "media_links", "text": "News, broadcast and social-media items are shown as links with short excerpts; read the original at the linked source."}
+    ],
+    "invited_build_notice": "Invited build for campaign staff and collaborators: non-commercial use only, under a signed use agreement. Access is logged. Do not copy, export or redistribute."
+  },
+
+  "controls": {
+    "row": "X-01..X-06",
+    "ruled": false,
+    "no_bulk_export": "desk_server answers GET only for allowlisted files (405 otherwise); the shell's 'Notes and overrides' export buttons export only the viewer's own local notes and stay",
+    "watermark_downloads": "every downloads/<id>/ file is stamped with the Access email and UTC time at serve or pack time",
+    "use_agreement_before_invite": "audits/deploy_20261011/USE_AGREEMENT_TEMPLATE.md, signed before the Cloudflare group invite",
+    "cache_bypass": "Cloudflare Cache Rule 'bypass' on every host, plus Cache-Control: no-store, private from desk_server"
+  }
+}
