@@ -55,6 +55,10 @@ OS_LICENSE_TARGET = "OS Packages"
 OS_PKG_TYPES = {"debian", "ubuntu", "alpine", "redhat", "centos", "rocky", "alma", "fedora", "amazon", "oracle", "suse",
                 "photon", "wolfi", "chainguard", "cbl-mariner", "azurelinux"}
 LICENSE_SEVERITIES = ("CRITICAL", "HIGH", "UNKNOWN")  # forbidden, restricted, unknown: trivy's UNKNOWN is the unrecognised licence
+# SPDX-identified permissive licences that trivy's classifier has no category for, so it reports them UNKNOWN (cffi is MIT-0: the first
+# Terrier scan, 2026-10-12). A language-package finding that is UNKNOWN AND named here is reported, not blocking. Add a name only after
+# reading the licence; every other UNKNOWN still blocks.
+KNOWN_PERMISSIVE = {"MIT-0"}
 
 DENY_EXT = {".sqlite", ".sqlite3", ".db", ".parquet", ".csv", ".tsv", ".xlsx", ".xls", ".joblib", ".pkl",
             ".pickle", ".jsonl", ".ndjson", ".wav", ".mp3", ".mp4", ".m4a", ".flac",
@@ -306,7 +310,7 @@ def load_exceptions(path, ci, decisions_path, today):
 class Gate:
     def __init__(self, args):
         self.args = args
-        self.results, self.versions, self.unfixed, self.os_licenses = [], {}, {}, {}
+        self.results, self.versions, self.unfixed, self.os_licenses, self.known_licenses = [], {}, {}, {}, {}
         self.tmp = Path(tempfile.mkdtemp(prefix="secgate-"))
         self.ex, self.ex_problems = load_exceptions(args.exceptions, args.ci, args.decisions, dt.date.today())
         self._n = 0
@@ -922,7 +926,7 @@ def is_os_package_result(res):
 
 
 def trivy_licenses(g, ref):
-    """D-182: licence findings by class -> (blocking language-package findings, OS-package severity counts).
+    """D-182: licence findings by class -> (blocking language-package findings, OS-package severity counts, known-permissive names).
     A separate run so UNKNOWN can be listed for licences without turning UNKNOWN vulnerabilities into findings.
     Fail closed: any trouble here fails the gate."""
     out = g.tmpfile("trivy-license.json")
@@ -930,15 +934,17 @@ def trivy_licenses(g, ref):
                                 "--format", "json", "--output", str(out), ref])
     if rc != 0:
         raise GateError(f"trivy licence scan exited {rc} on {ref.split('@')[0]} (tool error)")
-    fs, os_counts = [], dict.fromkeys(LICENSE_SEVERITIES, 0)
+    fs, os_counts, known = [], dict.fromkeys(LICENSE_SEVERITIES, 0), set()
     for res in load_json(out, "trivy licence report").get("Results") or []:
         subj = f"{ref.split('@')[0]}: {res.get('Target', '?')}"
         for lic in res.get("Licenses") or []:
             if is_os_package_result(res):
                 os_counts[lic.get("Severity") if lic.get("Severity") in os_counts else "UNKNOWN"] += 1
+            elif lic.get("Severity") == "UNKNOWN" and lic.get("Name") in KNOWN_PERMISSIVE:
+                known.add(f"{lic.get('Name')} {lic.get('PkgName')}")
             else:
                 fs.append((subj, f"license {lic.get('Name')} {lic.get('PkgName')} {lic.get('Severity')}"))
-    return fs, os_counts
+    return fs, os_counts, sorted(known)
 
 
 def check_trivy(g):
@@ -968,7 +974,7 @@ def check_trivy(g):
         if rc == 1 and not fs:
             raise GateError(f"trivy exited 1 on {ref.split('@')[0]} with no parseable finding")
         findings += fs
-        lic_fs, g.os_licenses[ref] = trivy_licenses(g, ref)
+        lic_fs, g.os_licenses[ref], g.known_licenses[ref] = trivy_licenses(g, ref)
         findings += lic_fs
         g.unfixed[ref] = trivy_unfixed(g, ref)
     _, out, _ = g.tool("trivy", ["version", "--format", "json"])
@@ -988,6 +994,10 @@ def check_trivy(g):
     for ref, counts in g.os_licenses.items():
         print(f"INFO images/trivy: {ref.split('@')[0]} OS-package licences, not blocking (D-182): "
               + ", ".join(f"{s} {counts[s]}" for s in LICENSE_SEVERITIES))
+    for ref, names in g.known_licenses.items():
+        if names:
+            print(f"INFO images/trivy: {ref.split('@')[0]} language-package licences known permissive that trivy cannot categorise, "
+                  f"not blocking (D-182): {', '.join(names)}")
     return findings, (f"{len(g.args.image)} image(s), no fixable HIGH/CRITICAL findings, "
                       "no forbidden or unknown language-package licences")
 
@@ -1127,7 +1137,7 @@ def main(argv=None) -> int:
             Path(args.report).write_text(json.dumps({
                 "gate": "security_gate", "stage": args.stage, "ci": args.ci, "result": "PASS" if ok else "FAIL",
                 "created": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
-                "tools": g.versions, "unfixed": g.unfixed, "os_licenses": g.os_licenses, "checks": g.results}, indent=2), encoding="utf-8")
+                "tools": g.versions, "unfixed": g.unfixed, "os_licenses": g.os_licenses, "known_licenses": g.known_licenses, "checks": g.results}, indent=2), encoding="utf-8")
         return 0 if ok else 1
     finally:
         shutil.rmtree(g.tmp, ignore_errors=True)

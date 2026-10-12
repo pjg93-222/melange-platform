@@ -62,8 +62,10 @@ trivy's licence scan puts them in the result with Target `OS Packages` (a result
 `debian`, counts too). They are printed as `INFO images/trivy: <image> OS-package licences, not blocking (D-182): CRITICAL n, HIGH n, UNKNOWN n`
 and written to the `--report` JSON as `os_licenses` (`{<REF@sha256:...>: {"CRITICAL": n, "HIGH": n, "UNKNOWN": n}}`). A licence finding on
 anything else, i.e. a **language package** we add (pip, npm) that is forbidden (CRITICAL), restricted (HIGH) or unknown (UNKNOWN), blocks
-as a finding named `license <licence> <package> <severity>`. A result that is not recognisably an OS-package result also blocks (fail
-closed). The licence run is fail closed too: a trivy error or an unreadable report fails the gate. The images are private and never
+as a finding named `license <licence> <package> <severity>`. One reading of "unknown" is fixed in code (`KNOWN_PERMISSIVE`): a licence
+trivy cannot categorise (so it says UNKNOWN) but that has an SPDX id and is permissive, today only `MIT-0` (cffi), is printed as
+`INFO ... known permissive that trivy cannot categorise` and written to the report as `known_licenses`; add a name only after reading its
+licence. A result that is not recognisably an OS-package result also blocks (fail closed). The licence run is fail closed too: a trivy error or an unreadable report fails the gate. The images are private and never
 redistributed; if one is distributed outside Paul's accounts, or a language-package licence slips through, D-182 is reopened.
 Terrier's own release workflow (the Geo repo, job `scan`) applies the same policy with a stand-alone copy of this stage, `tools/image_gate.py`; change the rules in both.
 

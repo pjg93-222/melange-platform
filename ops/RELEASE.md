@@ -94,8 +94,9 @@ Order of work:
    verified against it before the manifest is pushed.
    **What the digests are trusted for.** Before it signs, the command asks `gh api` that each repo's `digests.json`
    names the exported commit and the tag, that a successful push run of that tag has `head_sha` equal to that commit
-   (the platform repo's export commit; Geo's released commit), and that the draft release and every one of its assets were
-   created by `github-actions[bot]` inside that run's time window. A hand-made release, a swapped asset, a run for another
+   (the platform repo's export commit; Geo's released commit), and that the draft release was made by `github-actions[bot]` and
+   every one of its assets was uploaded by it inside that run's time window (the assets' `created_at`: a release's own
+   `created_at` is the date of the tagged commit, which is always before the run). A hand-made release, a swapped asset, a run for another
    commit, or anything `gh` cannot show is a `PROVENANCE` stop. This does **not** cover a compromised CI run: the runner,
    a third-party action, or a workflow change that reached the tagged commit would still produce a release that passes.
    Mitigations are the pinned action SHAs, the tagged workflow being the one in the exported (reviewed) tree, and the

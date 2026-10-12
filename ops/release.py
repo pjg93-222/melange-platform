@@ -317,9 +317,11 @@ BOT = "github-actions[bot]"
 
 def verify_provenance(repo, commit, tag, release, doc):
     """Before anything is signed (PROVENANCE, fail closed): these digests are the release workflow's own for exactly `commit`.
-    digests.json names the commit and tag; a successful push run of that tag has head_sha == commit; the release and every
-    one of its assets were created by github-actions[bot] inside that run's window, so a hand-made release or a swapped
-    asset fails. A compromised CI run itself is NOT detected (ops/RELEASE.md). Anything missing is unverifiable, hence refused."""
+    digests.json names the commit and tag; a successful push run of that tag has head_sha == commit; the release was made by
+    github-actions[bot] and every one of its assets was uploaded by it inside that run's window, so a hand-made release or a
+    swapped asset fails. The window is tested on the assets' created_at: a release's own created_at is the date of the commit
+    its tag points at (GitHub's documented behaviour), which is always before the run. A compromised CI run itself is NOT
+    detected (ops/RELEASE.md). Anything missing is unverifiable, hence refused."""
     def refuse(why):
         raise ReleaseError("PROVENANCE", f"{repo} {tag}: {why}")
     if not isinstance(doc, dict) or doc.get("commit") != commit or doc.get("tag") != tag:
@@ -329,14 +331,16 @@ def verify_provenance(repo, commit, tag, release, doc):
         windows = [(r.get("run_started_at") or r.get("created_at"), r["updated_at"]) for r in runs
                    if r.get("head_sha") == commit and r.get("head_branch") == tag and r.get("event") == "push"
                    and r.get("conclusion") == "success"]
-        made, assets = release["created_at"], release["assets"]
+        assets = release["assets"]
+        made = [a["created_at"] for a in assets]
         actors = [release["author"]["login"], *(a["uploader"]["login"] for a in assets)]
     except (ReleaseError, KeyError, TypeError, ValueError) as error:
         refuse(f"the workflow runs, release author or asset uploaders cannot be read ({type(error).__name__}: {str(error)[:80]})")
     if not windows:
         refuse(f"no successful push run of this tag has head_sha {commit[:9]}")
-    if not isinstance(made, str) or not any(isinstance(a, str) and isinstance(b, str) and a <= made <= b for a, b in windows):
-        refuse("the release was not created inside a successful run for this commit")
+    inside = lambda t: isinstance(t, str) and any(isinstance(a, str) and isinstance(b, str) and a <= t <= b for a, b in windows)
+    if not all(inside(t) for t in made):
+        refuse("an asset of the release was not uploaded inside a successful run for this commit")
     if not assets or any(actor != BOT for actor in actors):
         refuse(f"the release or one of its assets was not created by {BOT}")
 

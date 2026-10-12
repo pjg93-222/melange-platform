@@ -697,6 +697,19 @@ class GateTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)                                                  # npm too
         self.assertIn("license MIT-ish npmthing UNKNOWN", out)
 
+    def test_a_known_permissive_licence_trivy_cannot_categorise_is_reported_not_blocking(self):
+        good = {"services": {"app": compliant_service()}}
+        report = self.tmp / "images.json"
+        doc = self.licences_doc(lang_lics=[self.lic("MIT-0", "cffi", "UNKNOWN")])
+        rc, out = self.images(good, "--report", report, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("known permissive that trivy cannot categorise, not blocking (D-182): MIT-0 cffi", out)
+        self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["known_licenses"], {DIGEST: ["MIT-0 cffi"]})
+        for lang in (self.lic("MIT-0", "cffi", "HIGH"), self.lic("Foo License", "other", "UNKNOWN")):    # only the named licence AND UNKNOWN
+            with self.subTest(lang["Name"]):
+                rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(self.licences_doc(lang_lics=[lang]))})
+                self.assertEqual(rc, 1, out)
+
     def test_an_unrecognised_licence_result_blocks(self):                             # fail closed: not provably an OS package
         good = {"services": {"app": compliant_service()}}
         for res in ({"Target": "mystery", "Class": "license-file"}, {"Target": "mystery", "Class": "something-new"}):

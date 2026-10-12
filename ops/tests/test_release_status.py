@@ -86,7 +86,8 @@ class RunEnv:
         os.environ["FAKE_STATE"] = str(self.releases() / rid / "state.json")
 
         def asset(i, name, size):
-            return {"id": i, "name": name, "size": size, "digest": "sha256:" + HEX, "uploader": {"login": "github-actions[bot]"}}
+            return {"id": i, "name": name, "size": size, "digest": "sha256:" + HEX, "uploader": {"login": "github-actions[bot]"},
+                    "created_at": "2026-10-12T10:15:00Z"}
         for n, (repo, images, commit) in enumerate((("pjg93-222/melange-platform", {"melange-desk": "sha256:" + "1" * 64, "mentat-console": "sha256:" + "2" * 64}, "@PLATFORM_COMMIT@"),
                                                     ("pjg93-222/Geo", {"terrier-web": "ghcr.io/pjg93-222/terrier-web@sha256:" + "3" * 64}, "@TERRIER_COMMIT@"))):
             base = f"api_repos_{repo.replace('/', '_')}"
@@ -94,7 +95,7 @@ class RunEnv:
             (self.gh / f"{base}_actions_runs.json").write_text(json.dumps({"workflow_runs": [
                 {"id": 1, "head_sha": commit, "head_branch": "v" + rid, "event": "push", "conclusion": "success",
                  "run_started_at": "2026-10-12T10:00:00Z", "updated_at": "2026-10-12T10:20:00Z"}]}))
-            (self.gh / f"{base}_releases.json").write_text(json.dumps([{"id": 100 + n, "tag_name": "v" + rid, "draft": draft, "created_at": "2026-10-12T10:15:00Z",
+            (self.gh / f"{base}_releases.json").write_text(json.dumps([{"id": 100 + n, "tag_name": "v" + rid, "draft": draft, "created_at": "2026-10-12T09:00:00Z",   # the tagged commit's date, before the run
                                                                          "author": {"login": "github-actions[bot]"},
                                                                          "assets": [asset(10 + n, "digests.json", 40), asset(20 + n, "kit.zip", 5000)]}]))
             (self.gh / f"{base}_releases_assets_{10 + n}.json").write_text(json.dumps({"tag": "v" + rid, "commit": commit, "images": images}))
@@ -489,7 +490,10 @@ class ProvenanceTests(Base):
         self.run = {"id": 1, "head_sha": self.COMMIT, "head_branch": self.TAG, "event": "push", "conclusion": "success",
                     "run_started_at": "2026-10-12T10:00:00Z", "updated_at": "2026-10-12T10:20:00Z"}
         bot = {"login": "github-actions[bot]"}
-        self.release = {"created_at": "2026-10-12T10:15:00Z", "author": bot, "assets": [{"name": "digests.json", "uploader": bot}, {"name": "kit.zip", "uploader": bot}]}
+        # a draft release's created_at is the tagged commit's date (GitHub), so it lies BEFORE the run and is not what is checked
+        self.release = {"created_at": "2026-10-12T09:00:00Z", "author": bot,
+                        "assets": [{"name": "digests.json", "uploader": bot, "created_at": "2026-10-12T10:15:00Z"},
+                                   {"name": "kit.zip", "uploader": bot, "created_at": "2026-10-12T10:15:01Z"}]}
         self.doc = {"tag": self.TAG, "commit": self.COMMIT, "images": {}}
         self.calls = []
 
@@ -529,16 +533,21 @@ class ProvenanceTests(Base):
     def test_a_release_that_the_run_did_not_make_is_refused(self):
         human = {"login": "someone"}
         self.refused("release made by a person", release={"author": human})
-        self.refused("an asset swapped by a person", release={"assets": [{"uploader": {"login": "github-actions[bot]"}}, {"uploader": human}]})
+        bot, at = {"login": "github-actions[bot]"}, "2026-10-12T10:15:00Z"
+        self.refused("an asset swapped by a person", release={"assets": [{"uploader": bot, "created_at": at}, {"uploader": human, "created_at": at}]})
         self.refused("no assets", release={"assets": []})
-        self.refused("made before the run", release={"created_at": "2026-10-12T09:00:00Z"})
-        self.refused("made after the run", release={"created_at": "2026-10-12T11:00:00Z"})
+        self.refused("an asset uploaded before the run", release={"assets": [{"uploader": bot, "created_at": at}, {"uploader": bot, "created_at": "2026-10-12T09:00:00Z"}]})
+        self.refused("an asset uploaded after the run", release={"assets": [{"uploader": bot, "created_at": at}, {"uploader": bot, "created_at": "2026-10-12T11:00:00Z"}]})
+
+    def test_the_releases_own_created_at_is_the_commit_date_and_is_not_checked(self):
+        self.check(release={"created_at": "2020-01-01T00:00:00Z"})                 # GitHub: the tagged commit's date, not the draft's
 
     def test_what_cannot_be_read_fails_closed(self):
         self.refused("gh failed", runs=core.ReleaseError("CMD_FAILED", "gh api exited 1"))
         self.refused("no author", release={"author": None})
         self.refused("no timestamps", runs=[{k: v for k, v in self.run.items() if k != "updated_at"}])
-        self.refused("no created_at", release={"created_at": None})
+        self.refused("no created_at on an asset", release={"assets": [{"uploader": {"login": "github-actions[bot]"}}]})
+        self.refused("created_at not a string", release={"assets": [{"uploader": {"login": "github-actions[bot]"}, "created_at": None}]})
 
 
 class StatusTests(Base):
