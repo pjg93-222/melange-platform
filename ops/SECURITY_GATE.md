@@ -14,7 +14,7 @@ never printed (gitleaks `Secret`/`Match` fields are never read; exact-secret hit
 | `export` | gitleaks (`detect --no-git`, JSON), data_leak, exact_secrets (local only) on each `--target` dir |
 | `packages` | safe_unpack each archive (`.zip` `.tar.gz` `.tgz`; no traversal, absolute paths, links or special files), then gitleaks + data_leak + exact_secrets on the contents; a directory target is scanned and its archives unpacked |
 | `farm` | the release's data farm: denied_names (`DENY_NAMES` plus `ops/release_lib/data.py` `DENY_PATTERNS`, on files and directories) and exact_secrets (local only). No data_leak: data files are expected there |
-| `images` | trivy per `--image REF@sha256:...` (`vuln,misconfig,secret,license`, HIGH+CRITICAL) and compose_policy on `--compose-json` (`docker compose config --format json`) |
+| `images` | trivy per `--image REF@sha256:...` (`vuln,misconfig,secret,license`, HIGH+CRITICAL, `--ignore-unfixed`: D-181) and compose_policy on `--compose-json` (`docker compose config --format json`) |
 | `all` | export + deps (`pip-audit -r <lock> --require-hashes --strict`, `npm audit --omit=dev --audit-level=high` in `<terrier-dir>/frontend`, osv-scanner) + static (bandit HIGH, semgrep `p/python p/django p/secrets` + `ops/security/semgrep`) + terrier (`manage.py check --deploy --fail-level WARNING` and a hosted-mode no-local-admin assert, both with `CU_DEPLOYMENT=hosted` and dummy non-secret env) + images |
 
 Tools are found on PATH, then in `ops/security/bin/` (gitignored). Versions used are printed and written to the
@@ -47,6 +47,14 @@ the credentials) and otherwise a "not configured" note in the PASS line. Values 
 `SHA256SUMS`). **terrier_no_local_admin** accepts exactly deploy/terrier-hosted's startup refusal (`RuntimeError: CU_LOCAL_ADMIN=1
 is refused in a hosted deployment ...`, exit 3) or a clean start that exits 0 printing `ok HOSTED=True LOCAL_ADMIN_ACCESS=False`;
 a message that merely contains "admin" fails.
+
+**trivy and unfixed findings (D-181, 2026-10-12).** The blocking run is `trivy image --severity HIGH,CRITICAL --ignore-unfixed`, so the gate
+fails only on HIGH/CRITICAL vulnerabilities that have a fixed version (and on misconfig, secret and license findings, which have no
+"unfixed" notion). A second, report-only run (`--scanners vuln`, no `--ignore-unfixed`) counts the HIGH/CRITICAL vulnerabilities
+with no `FixedVersion`; the count is printed as `INFO images/trivy: <image> unfixed, not blocking (D-181): CRITICAL n, HIGH n` and
+written to the `--report` JSON as `unfixed` (`{<REF@sha256:...>: {"CRITICAL": n, "HIGH": n}}`). That run never fails the gate: if it
+cannot complete, the entry is `{"error": ...}` and the blocking result stands. Base images are Debian 13 (trixie), pinned in
+`ops/images.lock`; a vulnerability left unfixed upstream is reported on every release and is Paul's to accept or not.
 
 **compose_policy**: every service except `cloudflared` needs `read_only: true`, `cap_drop: [ALL]`,
 `no-new-privileges:true` and a non-root `user`; no service may publish a port except on a loopback address, run

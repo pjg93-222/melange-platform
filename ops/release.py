@@ -269,6 +269,7 @@ TOKEN_RE = re.compile(r"(?:gh[pousr]_|github_pat_)\w+|(?i:bearer|token|password|
 def failed_log_tail(repo, run_id, lines=40) -> str:
     """Last lines of `gh run view --log-failed`, anything token-shaped masked (Actions already masks its own secrets)."""
     out = core.run(["gh", "run", "view", str(run_id), "--repo", repo, "--log-failed"], check=False).stdout.decode("utf-8", "replace")
+    out = out.replace("﻿", "")                                   # Actions logs open with a BOM; it only garbles the tail
     return "\n".join(TOKEN_RE.sub("****", line[:300]) for line in out.splitlines()[-lines:])
 
 
@@ -844,6 +845,9 @@ def build_parser():
 
 
 def main(argv=None, *, cfg=None, emit=None, cred=core.read_credential, sleep=time.sleep, say=print) -> int:
+    for stream in (sys.stdout, sys.stderr):    # a CI log tail can hold characters a cp1252 console cannot encode: never crash on print
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
     args = build_parser().parse_args(argv)
     cfg = cfg or core.load_config()
     ctx = Ctx(cfg, confirm=getattr(args, "confirm_outward", frozenset()), emit=emit, cred=cred, sleep=sleep, say=say)

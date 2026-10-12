@@ -150,16 +150,16 @@ it overnight. `OK` means every service answered `/version` with the new snapshot
 ## 4. Base image digests
 
 `ops/images.lock` holds the real multi-arch index digests of the python, node and cloudflared images
-(resolved 2026-10-12, patch levels in `resolved_version`); `release.yml` still refuses to build if one
+(resolved 2026-10-12, patch levels in `resolved_version`; python and node are Debian 13 `-trixie` variants, D-181); `release.yml` still refuses to build if one
 is ever a placeholder. Both Dockerfiles default `PYTHON_BASE` to the locked digest, `compose.env.example`
 carries the cloudflared one, and Terrier's Dockerfile pins the same python and node digests;
 `test_compose_policy.py` fails if any of them drifts from the lock. To refresh (no Docker needed):
 
 ```bash
 # token: https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/python:pull
-# digest: GET https://registry-1.docker.io/v2/library/python/manifests/3.12-slim-bookworm  (Accept: the OCI index and
+# digest: GET https://registry-1.docker.io/v2/library/python/manifests/3.12-slim-trixie  (Accept: the OCI index and
 # Docker manifest-list types) -> the Docker-Content-Digest header; the python/node patch level is PYTHON_VERSION /
-# NODE_VERSION in the amd64 image config. Same for library/node:22-bookworm-slim and cloudflare/cloudflared:<newest dated tag>.
+# NODE_VERSION in the amd64 image config. Same for library/node:22-trixie-slim and cloudflare/cloudflared:<newest dated tag>.
 ```
 
 Update the lock, then every place the test names. Refresh quarterly or on a base-image CVE; the
@@ -234,12 +234,14 @@ CI and the gate (`ops/security_gate.py`, whose CLI the workflow now uses as is):
 - Geo's workflow is its own (`.github/workflows/release.yml` in Geo); `ops/terrier/geo-release.yml` is gone. It passes
   `GIT_SHA`/`BUILD_TIME`, refuses an image holding data files, and writes `digests.json` as
   `{tag, commit, images: {"terrier-web": ref@digest}}`, which `release.py` parses.
-- `deps.yml` needs a repository secret `GEO_READ_TOKEN` (fine-grained PAT, read-only contents on
-  `pjg93-222/Geo`) and a ratified `PPM_SNAPSHOT_DATE`. It builds the R bundle from `ops/locks/r-packages.txt`
-  (`name==version`, CRAN only; the export no longer carries `mentat/R-packages.lock.tsv`) and fails when the dated
-  snapshot serves a different version of any package. `R_VERSION` is the minor that lock was made with (4.6). To refresh
-  the lock after Mentat's library changes, regenerate it from `mentat/R-packages.lock.tsv` (drop the paths and the
-  packages that ship inside R) and keep the header comment naming the source and date.
+- `deps.yml` builds the Linux wheelhouse only (hash-checked `pip download` of `ops/locks/*.linux.txt`; no Windows wheelhouse,
+  because compute runs in Linux containers, D-173) and needs no secret. The npm cache moved to Geo's own
+  `.github/workflows/deps.yml` (run by hand; it needs no cross-repo token). The `r-bundle` job is switched off (`if: false`)
+  until the Mentat compute lane re-enables it once the `PPM_SNAPSHOT_DATE` is ratified. When it is on, it builds the R bundle
+  from `ops/locks/r-packages.txt` (`name==version`, CRAN only; the export no longer carries `mentat/R-packages.lock.tsv`) and
+  fails when the dated snapshot serves a different version of any package. `R_VERSION` is the minor that lock was made
+  with (4.6). To refresh the lock after Mentat's library changes, regenerate it from `mentat/R-packages.lock.tsv` (drop the
+  paths and the packages that ship inside R) and keep the header comment naming the source and date.
 
 ## 8. Design calls to veto
 

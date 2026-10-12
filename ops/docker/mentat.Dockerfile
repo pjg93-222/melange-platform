@@ -6,7 +6,7 @@
 #     --build-arg GIT_SHA=... --build-arg BUILD_TIME=... .
 # Layer order is base -> deps -> code, so a code-only release pulls a few MB.
 # The default PYTHON_BASE below is the digest in ops/images.lock (a test keeps them equal).
-ARG PYTHON_BASE=python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+ARG PYTHON_BASE=python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 
 FROM ${PYTHON_BASE} AS deps
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1 PIP_NO_CACHE_DIR=1

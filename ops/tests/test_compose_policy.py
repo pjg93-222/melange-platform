@@ -468,18 +468,32 @@ def test_release_workflow_has_the_required_stages():
     assert "gh release create" in last and "--draft" in last
 
 
+def test_deps_workflow_is_linux_only_needs_no_geo_token_and_keeps_the_r_job_switched_off():
+    """The three failures of the first deps run: a win_amd64 wheelhouse (hashes are Linux-only), a cross-repo token that does not
+    exist, and an R snapshot date nobody has ratified."""
+    raw = (WF_DIR / "deps.yml").read_text(encoding="utf-8")
+    jobs = WORKFLOWS["github/workflows/deps.yml"]["jobs"]
+    assert "win_amd64" not in raw and "GEO_READ_TOKEN" not in raw and "pjg93-222/Geo" not in raw
+    assert set(jobs) == {"key", "wheelhouse", "r-bundle", "publish"}
+    assert jobs["r-bundle"]["if"] is False                                                # disabled, not deleted
+    assert "re-enabled by the Mentat compute lane once the PPM snapshot date is ratified" in raw
+    assert jobs["publish"]["needs"] == ["key", "wheelhouse"]                             # a skipped job in needs would skip publish
+
+
 def test_images_lock_has_real_digests_and_every_reference_to_them_matches():
     lock = json.loads((OPS / "images.lock").read_text(encoding="utf-8"))
     for name in ("python", "node", "cloudflared"):
         assert re.fullmatch(r"sha256:[0-9a-f]{64}", lock[name]["digest"]) and set(lock[name]["digest"][7:]) != {"0"}, name
         assert lock[name]["resolved_version"][0].isdigit(), name
-    assert lock["python"]["ref"] == "python:3.12-slim-bookworm" and lock["python"]["resolved_version"].startswith("3.12.")
-    assert lock["node"]["ref"].startswith("node:22-") and lock["node"]["resolved_version"].startswith("22.")
+    # D-181 (2026-10-12): Debian 13 bases. A bookworm ref anywhere is a regression, not a refresh.
+    assert lock["python"]["ref"] == "python:3.12-slim-trixie" and lock["python"]["resolved_version"].startswith("3.12.")
+    assert lock["node"]["ref"] == "node:22-trixie-slim" and lock["node"]["resolved_version"].startswith("22.")
     for rel in ("docker/melange-desk.Dockerfile", "docker/mentat.Dockerfile"):
         text = (OPS / rel).read_text(encoding="utf-8")
         assert f"ARG PYTHON_BASE={lock['python']['ref']}@{lock['python']['digest']}\n" in text, rel     # never floats, even without --build-arg
         assert "USER 10001:10001" in text and "HEALTHCHECK" in text and "PYTHONDONTWRITEBYTECODE=1" in text
         assert "ARG GIT_SHA=unknown" in text and "ARG BUILD_TIME=unknown" in text and "GIT_SHA=${GIT_SHA}" in text
+        assert "bookworm" not in text.lower(), rel
     example = (OPS / "compose.env.example").read_text(encoding="utf-8")
     assert f"IMAGE_CLOUDFLARED=cloudflare/cloudflared@{lock['cloudflared']['digest']}\n" in example
     assert lock["cloudflared"]["ref"] == f"cloudflare/cloudflared:{lock['cloudflared']['resolved_version']}"

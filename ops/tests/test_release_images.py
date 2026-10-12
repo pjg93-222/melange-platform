@@ -11,7 +11,7 @@ import unittest
 from unittest import mock
 
 from ops.tests.test_release_common import Base, g, read_log
-from ops.tests.test_release_status import RunEnv
+from ops.tests.test_release_status import RunEnv, cred
 from ops.release_lib import core, export
 from ops import release
 
@@ -173,6 +173,23 @@ class ImagesTests(Base):
         view = [a for a in env.gh_calls() if a[:2] == ["run", "view"]]
         self.assertEqual(view, [["run", "view", "7", "--repo", ROOT, "--log-failed"]])
         self.assertFalse((env.releases() / RID / "manifest.json").exists())
+
+    def test_a_bom_and_unencodable_characters_in_the_failed_log_do_not_crash_a_cp1252_console(self):
+        """UnicodeEncodeError under cp1252 printed over the real failure (the first Linux CI log began with a BOM)."""
+        env = ImagesEnv(self)
+        env.can_gh(RID)
+        (env.gh / "run_list.json").write_text(json.dumps([{"databaseId": 7, "status": "completed", "conclusion": "failure"}]))
+        (env.gh / "run_view.json").write_text("﻿2026-10-12T16:53:26Z ##[group]Run build\nstep ✓ → done\nlast line", encoding="utf-8")
+        console = io.TextIOWrapper(io.BytesIO(), encoding="cp1252")                      # what a Windows console gives python
+        with contextlib.redirect_stdout(console):
+            rc = release.main(["images", "--id", RID, *BOTH], cfg=env.cfg, emit=core.noop_emit, cred=cred, sleep=lambda _s: None, say=print)
+        console.flush()
+        shown = console.buffer.getvalue().decode("cp1252")
+        self.assertEqual(rc, 1, shown)
+        self.assertIn("CI_FAILED", shown)
+        self.assertIn("last line", shown)
+        self.assertNotIn("﻿", shown)                                                # stripped at the log-tail site
+        self.assertIn("step ? ? done", shown)                                            # anything else cp1252 cannot encode is replaced
 
     def test_a_run_that_never_finishes_times_out_instead_of_hanging(self):
         env = ImagesEnv(self)

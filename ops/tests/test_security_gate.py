@@ -37,9 +37,17 @@ if name == "trivy":
     if a[:1] == ["version"]:
         db = os.environ["FAKE_TRIVY_DB"]
         print(json.dumps({"Version": "0", "VulnerabilityDB": {} if db == "none" else {"UpdatedAt": db}})); sys.exit(0)
-    out = os.environ.get("FAKE_TRIVY", '{"Results": []}')
-    open(arg("--output"), "w").write(out)
-    sys.exit(1 if json.loads(out).get("Results") else 0)
+    doc = json.loads(os.environ.get("FAKE_TRIVY", '{"Results": []}'))
+    if os.environ.get("FAKE_TRIVY_LOG"):
+        open(os.environ["FAKE_TRIVY_LOG"], "a").write(json.dumps(a) + "\n")
+    if os.environ.get("FAKE_TRIVY_UNFIXED_RC") and "--ignore-unfixed" not in a:   # the report-only run
+        sys.exit(int(os.environ["FAKE_TRIVY_UNFIXED_RC"]))
+    if "--ignore-unfixed" in a:                                                   # what trivy does: hide vulns with no fix
+        for r in doc.get("Results", []):
+            r["Vulnerabilities"] = [v for v in r.get("Vulnerabilities", []) if v.get("FixedVersion")]
+        doc["Results"] = [r for r in doc.get("Results", []) if any(r.get(k) for k in ("Vulnerabilities", "Misconfigurations", "Secrets", "Licenses"))]
+    open(arg("--output"), "w").write(json.dumps(doc))
+    sys.exit(1 if doc.get("Results") and "--exit-code" in a else 0)
 sys.exit(2)
 '''
 SSN = "-".join(["123", "45", "6789"])
@@ -584,10 +592,54 @@ class GateTest(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("FAIL images/compose_policy", out)
         vuln = {"Results": [{"Target": "usr/lib/libx", "Vulnerabilities": [
-            {"VulnerabilityID": "CVE-2026-0001", "PkgName": "libx", "Severity": "CRITICAL"}]}]}
+            {"VulnerabilityID": "CVE-2026-0001", "PkgName": "libx", "Severity": "CRITICAL", "FixedVersion": "1.2.3"}]}]}
         rc, out = self.images(good, env={"FAKE_TRIVY": json.dumps(vuln)})
         self.assertEqual(rc, 1)
         self.assertIn("CVE-2026-0001 libx CRITICAL", out)
+
+    # ---- D-181: trivy blocks only on findings with a fix; unfixed ones are counted, not blocking
+
+    def trivy_doc(self):
+        def vuln(cve, pkg, sev, fixed=None):
+            return {"VulnerabilityID": cve, "PkgName": pkg, "Severity": sev, **({"FixedVersion": fixed} if fixed else {})}
+        return {"Results": [{"Target": "debian 13.1", "Vulnerabilities": [
+            vuln("CVE-2026-1001", "libunfixed", "HIGH"), vuln("CVE-2026-1002", "libunfixed", "HIGH"),
+            vuln("CVE-2026-1003", "libunfixed", "CRITICAL"), vuln("CVE-2026-1004", "libfixed", "HIGH", "9.9")]}]}
+
+    def test_trivy_blocks_on_fixable_findings_only_and_reports_the_unfixed_ones(self):
+        good = {"services": {"app": compliant_service()}}
+        log, report = self.tmp / "trivy.log", self.tmp / "images.json"
+        doc = self.trivy_doc()
+        env = {"FAKE_TRIVY": json.dumps(doc), "FAKE_TRIVY_LOG": str(log)}
+        rc, out = self.images(good, "--report", report, env=env)
+        self.assertEqual(rc, 1, out)                                                  # CVE-2026-1004 has a fix: blocking
+        self.assertIn("CVE-2026-1004 libfixed HIGH", out)
+        self.assertNotIn("CVE-2026-1001", out)                                        # unfixed ones are not findings
+        self.assertIn("INFO images/trivy: ghcr.io/example/app unfixed, not blocking (D-181): CRITICAL 1, HIGH 2", out)
+        data = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(data["unfixed"], {DIGEST: {"CRITICAL": 1, "HIGH": 2}})
+        runs = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+        blocking = [a for a in runs if "--exit-code" in a]
+        reporting = [a for a in runs if "--exit-code" not in a]
+        self.assertEqual(len(blocking), 1)
+        self.assertIn("--ignore-unfixed", blocking[0])
+        self.assertEqual(blocking[0][blocking[0].index("--severity") + 1], "HIGH,CRITICAL")
+        self.assertEqual(len(reporting), 1)
+        self.assertNotIn("--ignore-unfixed", reporting[0])                            # the report run sees the unfixed ones
+        doc["Results"][0]["Vulnerabilities"].pop()                                    # now nothing has a fix
+        rc, out = self.images(good, "--report", report, env={**env, "FAKE_TRIVY": json.dumps(doc)})
+        self.assertEqual(rc, 0, out)                                                  # unfixed HIGH/CRITICAL do not block
+        self.assertIn("PASS images/trivy: 1 image(s), no fixable HIGH/CRITICAL findings", out)
+        self.assertIn("CRITICAL 1, HIGH 2", out)
+        self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["unfixed"][DIGEST], {"CRITICAL": 1, "HIGH": 2})
+
+    def test_a_failed_unfixed_report_never_fails_the_gate(self):
+        good = {"services": {"app": compliant_service()}}
+        report = self.tmp / "images.json"
+        rc, out = self.images(good, "--report", report, env={"FAKE_TRIVY_UNFIXED_RC": "2"})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("unfixed report unavailable (trivy exited 2)", out)
+        self.assertIn("error", json.loads(report.read_text(encoding="utf-8"))["unfixed"][DIGEST])
 
     def test_images_fail_closed_cases(self):
         good = {"services": {"app": compliant_service()}}

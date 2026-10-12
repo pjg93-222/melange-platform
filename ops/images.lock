@@ -1,14 +1,14 @@
 {
-  "_note": "Base images pinned by multi-arch index digest, resolved 2026-10-12 from the registry HTTP API (registry-1.docker.io, GET manifests/<tag>, Docker-Content-Digest). The Dockerfiles' PYTHON_BASE default and compose.env.example's IMAGE_CLOUDFLARED repeat these values and ops/tests/test_compose_policy.py fails if they drift. Terrier's Dockerfile (Geo repo) pins the same python and node digests. Refresh: re-resolve the three tags, update every place the test names, and record the patch level in resolved_version (R6: latest 3.12.x).",
+  "_note": "Base images pinned by multi-arch index digest, resolved 2026-10-12 from the registry HTTP API (registry-1.docker.io, GET manifests/<tag>, Docker-Content-Digest). Debian 13 (trixie) bases per D-181 (2026-10-12): python and node are the -trixie variants, never bookworm. The Dockerfiles' PYTHON_BASE default and compose.env.example's IMAGE_CLOUDFLARED repeat these values and ops/tests/test_compose_policy.py fails if they drift. Terrier's Dockerfile (Geo repo) pins the same python and node digests (server/research/test_hosted.py checks its pin shape there). Refresh: re-resolve the three tags, update every place the test names, and record the patch level in resolved_version (R6: latest 3.12.x).",
   "python": {
-    "ref": "python:3.12-slim-bookworm",
+    "ref": "python:3.12-slim-trixie",
     "resolved_version": "3.12.15",
-    "digest": "sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258"
+    "digest": "sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1"
   },
   "node": {
-    "ref": "node:22-bookworm-slim",
+    "ref": "node:22-trixie-slim",
     "resolved_version": "22.23.3",
-    "digest": "sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392"
+    "digest": "sha256:154ba2f4d6fec323d28e4f4bb86bba4677f1223391a1979cf521304e03a98dfa"
   },
   "cloudflared": {
     "ref": "cloudflare/cloudflared:2026.10.0",

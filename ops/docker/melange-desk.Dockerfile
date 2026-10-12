@@ -6,7 +6,7 @@
 #     --build-arg GIT_SHA=... --build-arg BUILD_TIME=... .
 # The default below is the digest in ops/images.lock (a test keeps them equal), so a build that
 # forgot the build arg still never floats on a tag.
-ARG PYTHON_BASE=python:3.12-slim-bookworm@sha256:34386ef0cb081344d7ec1c103ba398e6e9f64e9ab3a1509accc92a4e24a07258
+ARG PYTHON_BASE=python:3.12-slim-trixie@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
 FROM ${PYTHON_BASE}
 
 ARG GIT_SHA=unknown
