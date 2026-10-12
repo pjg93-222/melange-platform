@@ -64,13 +64,20 @@ jobs:
           GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
         run: |
           set -euo pipefail
-          curl -fsSL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
-          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
-          sudo tar -xzf gitleaks.tgz -C /usr/local/bin gitleaks
-      # `export` is the source scan of this checkout (exceptions, gitleaks, data_leak; exact_secrets is local-only and
+          curl -fsSL -o "$RUNNER_TEMP/gitleaks.tgz" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/gitleaks.tgz" | sha256sum -c -
+          sudo tar -xzf "$RUNNER_TEMP/gitleaks.tgz" -C /usr/local/bin gitleaks
+      # `export` is the source scan of this commit's tree (exceptions, gitleaks, data_leak; exact_secrets is local-only and
       # SKIPs under --ci). `all` also needs the Geo checkout (--terrier-dir) and the built images, so it is the laptop's
       # pre-release run; the images stage runs in `scan` below.
-      - run: python ops/security_gate.py export --ci --target . --report security-export.json
+      # The scan target is `git archive` output, outside the workspace: the checkout's .git and the downloaded gitleaks
+      # tarball are not part of the release, and the data_leak check refuses both inside a target.
+      - name: Source gate on the committed tree
+        run: |
+          set -euo pipefail
+          mkdir "$RUNNER_TEMP/src"
+          git archive HEAD | tar -x -C "$RUNNER_TEMP/src"
+          python ops/security_gate.py export --ci --target "$RUNNER_TEMP/src" --report security-export.json
 
   build:
     needs: [test, security]

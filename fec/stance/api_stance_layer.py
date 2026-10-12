@@ -32,7 +32,7 @@ CACHE_SUFFIX = '' if _mk == 'sonnet' else '_' + _mk
 WORKERS = 8
 
 if not os.environ.get('ANTHROPIC_API_KEY'):
-_kf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'anthropic_key.txt')
+    _kf = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'anthropic_key.txt')
     if os.path.exists(_kf): os.environ['ANTHROPIC_API_KEY'] = open(_kf).read().strip()
 import anthropic
 client = anthropic.Anthropic()

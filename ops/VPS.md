@@ -214,7 +214,7 @@ form). To bump one: `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha`.
 
 CI and the gate (`ops/security_gate.py`, whose CLI the workflow now uses as is):
 
-- `security` runs `export --ci --target . --report ...` after installing gitleaks 8.30.1 by version and sha256
+- `security` runs `export --ci --target <git archive of the commit> --report ...` after installing gitleaks 8.30.1 by version and sha256
   (the digest GitHub publishes for the asset); the gate fetches no tools and fails closed on a missing one.
   `scan` installs trivy 0.75.0 the same way and runs `images --ci --compose-json compose.config.json --image <desk>
   <mentat> --report ...`. The `all` stage also needs the Geo checkout (`--terrier-dir`), so it stays the laptop's
