@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -260,6 +261,8 @@ def rig(tmp_path, keys, monkeypatch):
     monkeypatch.setattr(mu, "run", r)
     monkeypatch.setattr(mu, "read_link", fake_read_link)
     monkeypatch.setattr(mu, "repoint", fake_repoint)
+    # the updater wants 15 GiB free beyond the snapshot and a CI runner has about 12: report a roomy volume (a test may patch it again)
+    monkeypatch.setattr(mu.shutil, "disk_usage", lambda p: SimpleNamespace(total=1 << 40, used=0, free=1 << 40))
     yield r
     for dp, dns, fns in os.walk(tmp_path):  # read-only release trees: let pytest clean up
         for n in dns + fns:

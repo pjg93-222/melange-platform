@@ -158,7 +158,7 @@ class GateCase(unittest.TestCase):
     def denied(self, tok, reason, cfg=None, now=NOW):
         with self.assertRaises(gate.AccessDenied) as cm:
             gate.verify(tok, cfg or self.cfg, now)
-        self.assertEqual(cm.exception.reason, reason)
+        self.assertIn(cm.exception.reason, (reason,) if isinstance(reason, str) else reason)
 
 
 @needs_crypto
@@ -328,8 +328,8 @@ class VerifyTests(GateCase):
                  (h + "." + p + "." + s + "\n", "base64url"), (h + "." + p + ".éé", "base64url"),
                  (b64u(b"not json") + "." + p + "." + s, "json"), (b64u(b"[1]") + "." + p + "." + s, "json"),
                  (b64u(b"\xff\xfe") + "." + p + "." + s, "json"), (h + "." + b64u(b'"str"') + "." + s, "json"),
-                 # nesting deep enough to exhaust the parser's recursion: still a denial, not a crash
-                 (b64u(b'{"a":' + b"[" * 4000 + b"]" * 4000 + b"}") + "." + p + "." + s, "malformed token")]
+                 # nesting deep enough to exhaust the parser's recursion on some builds: still a denial, not a crash (the other builds parse it and deny on the missing alg)
+                 (b64u(b'{"a":' + b"[" * 4000 + b"]" * 4000 + b"}") + "." + p + "." + s, ("malformed token", "alg"))]
         for tok, reason in cases:
             with self.subTest(token=str(tok)[:30], reason=reason):
                 self.denied(tok, reason)

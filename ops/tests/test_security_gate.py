@@ -78,6 +78,8 @@ class GateTest(unittest.TestCase):
 
     def run_gate(self, *argv, tools=("gitleaks",), env=None):
         finder = lambda n: [sys.executable, str(self.fake), n] if n in tools else None  # noqa: E731
+        # hermetic: not the shipped exceptions.toml, whose D-ids are looked up in the brain (absent in CI); a test's own --exceptions comes later and wins
+        argv = [*argv[:1], "--exceptions", self.tmp / "no-exceptions.toml", *argv[1:]]
         out = io.StringIO()
         with mock.patch.object(gate, "find_tool", finder), mock.patch.dict(os.environ, env or {}), \
                 contextlib.redirect_stdout(out):
