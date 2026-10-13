@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from fec.paths import to_host
 from fec.speech import longform_automated_authority as auto
 
 
@@ -96,7 +97,7 @@ def load_longform_delivery(path: Path, receipt_path: Path) -> dict:
     if (receipt.get("schema") != "member-longform-turn-features-receipt-v1"
             or receipt.get("status") != "PASS_MEASUREMENT_ONLY"):
         raise ValueError("longform delivery receipt is not a measurement receipt")
-    if Path(str(receipt.get("artifact") or "")).resolve() != path.resolve():
+    if Path(to_host(str(receipt.get("artifact") or ""))).resolve() != path.resolve():
         raise ValueError("longform delivery receipt path mismatch")
     if receipt.get("artifact_sha256") != sha256(path):
         raise ValueError("longform delivery artifact hash mismatch")
@@ -104,7 +105,7 @@ def load_longform_delivery(path: Path, receipt_path: Path) -> dict:
     if not isinstance(inputs, list) or not inputs:
         raise ValueError("longform delivery receipt lacks input lineage")
     for item in inputs:
-        source = Path(str(item.get("path") or ""))
+        source = Path(to_host(str(item.get("path") or "")))
         if not source.is_file() or item.get("sha256") != sha256(source):
             raise ValueError("longform delivery input missing or changed: " + str(source))
     document = load(path)

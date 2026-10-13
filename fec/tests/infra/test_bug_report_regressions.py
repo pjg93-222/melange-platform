@@ -597,11 +597,13 @@ def _dashboard_artifact_name() -> str:
     # the builder may guard the path with an env override
     # (out = os.environ.get('DASHBOARD_HTML_OUT') or MB_ROOT + r'\...'), so that prefix is
     # optional here; the filename itself is still whatever the builder literal says.
+    # Since compute lane MEL the builder joins the root portably (os.path.join(MB_ROOT, 'name')); the earlier spelling
+    # (MB_ROOT + r'\name') is still read, so this helper holds on either side of that change.
     match = re.search(r"^\s*out\s*=\s*(?:os\.environ\.get\(\s*'[^']+'\s*\)\s*or\s*)?"
-                      r"MB_ROOT\s*\+\s*r?'\\([^']+)'",
+                      r"(?:MB_ROOT\s*\+\s*r?'\\([^']+)'|os\.path\.join\(\s*MB_ROOT\s*,\s*'([^']+)'\s*\))",
                       source("make_dashboard_html.py"), re.M)
     assert match, "could not read the dashboard output filename from make_dashboard_html.py"
-    return match.group(1)
+    return match.group(1) or match.group(2)
 
 
 class MemberDeskNavigation(unittest.TestCase):

@@ -7,8 +7,8 @@ param(
   [Parameter(Mandatory = $true)][string]$LogPath,
   [ValidatePattern('^(?:2021-2022|2022|2023-2024|2024|2025-2026|2026)(?:\|(?:2021-2022|2022|2023-2024|2024|2025-2026|2026))*$')]
   [string]$Cycles = '2022|2024|2026',
-  [string]$RScriptPath = 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe',
-  [string]$RLibraryPath = 'C:\Users\pgoff\AppData\Local\R\win-library\4.6'
+  [string]$RScriptPath = $(if ($env:MENTAT_RSCRIPT) { $env:MENTAT_RSCRIPT } else { 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' }),
+  [string]$RLibraryPath = $(if ($env:MENTAT_R_LIBRARY) { $env:MENTAT_R_LIBRARY } else { 'C:\Users\pgoff\AppData\Local\R\win-library\4.6' })
 )
 
 $ErrorActionPreference = 'Stop'

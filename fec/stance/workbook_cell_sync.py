@@ -96,7 +96,10 @@ def merge_cells(original,authored,changes,destination):
 def publish_cells(workbook,changes,root):
     if not changes:return
     root=Path(root);workbook=Path(workbook)
-    config=json.loads((root/'data/engine/artifact_tool_runtime.json').read_text(encoding='utf-8'))
+    # MELANGE_XLSX_WRITER=openpyxl authors the changed cells in process (D-178); the default runs the Node helper.
+    from xlsx_openpyxl_authors import AUTHOR_MODULE,author_cell_sync,xlsx_writer
+    writer=xlsx_writer()
+    config=json.loads((root/'data/engine/artifact_tool_runtime.json').read_text(encoding='utf-8')) if writer=='artifact' else None
     digest=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
     before=digest(workbook)
     with nullcontext(root/'data/engine/workbook_measurement_staging') as tmp:
@@ -129,19 +132,22 @@ def publish_cells(workbook,changes,root):
         context=[{'row':i+3,'press':ranks['press_pillar'][n],'influence':influence[n],'demographic':demographic[n]} for i,n in enumerate(members)]
         plan.write_text(json.dumps({'input':str(workbook),'root':str(root),'output':str(authored),'changes':changes,
                                    'views':views,'formats':formats,'context':context,'scores':ranks['score'],'ranks':ranks['rank']}),encoding='utf-8')
-        env={**os.environ,'ARTIFACT_TOOL_NODE_MODULES':config['node_modules']}
-        helper=root/'fec/stance/workbook_cell_sync.cjs';proof_path=Path(str(authored)+'.report.json')
+        env={**os.environ,'ARTIFACT_TOOL_NODE_MODULES':config['node_modules']} if config else None
+        helper=root/'fec/stance/workbook_cell_sync.cjs' if writer=='artifact' else AUTHOR_MODULE
+        proof_path=Path(str(authored)+'.report.json')
         def valid_proof():
             if not authored.exists() or not proof_path.exists():return False
             proof=json.loads(proof_path.read_text(encoding='utf-8'))
             return (proof.get('schema')=='workbook-cell-author-v1' and proof.get('status')=='PASS'
-                    and proof.get('scores_and_ranks_verified')==533
+                    and (proof.get('scores_and_ranks_verified')==533 if writer=='artifact' else proof.get('engine')=='openpyxl')
                     and proof.get('plan_sha256')==digest(plan) and proof.get('helper_sha256')==digest(helper)
                     and proof.get('output_sha256')==digest(authored))
         if valid_proof():exit_code=None
-        else:
+        elif writer=='artifact':
             result=subprocess.run([config['node'],str(helper),str(plan)],env=env)
             exit_code=result.returncode
+        else:
+            author_cell_sync(plan);exit_code=None
         # The bundled Windows runtime can fail during teardown after a successful
         # export. Only a fresh, fully hash-bound 533-member PASS permits promotion.
         if not valid_proof():raise RuntimeError('Artifact workbook sync lacks a verified PASS export')

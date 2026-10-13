@@ -156,7 +156,7 @@ PLANNING_DASHBOARD_OUTPUT_SPECS = {
         {"gap": "post-weekly-refresh-planning-semantic-gap-v1"},
     ),
 }
-FORMULA_CACHE_EXPECTED_FORMULA_COUNT = 98_726
+FORMULA_CACHE_EXPECTED_FORMULA_COUNT = 98_269
 FORMULA_CACHE_REQUIRED_UNRESOLVED_SURFACES = {
     "postsave_candidate_exact_semantics",
     "live_stored_formula_cache_freshness",
@@ -2164,6 +2164,8 @@ def validate_formula_cache_freshness_observation(
     engine_receipt_hashes: dict[str, str] = {}
     calculated_hashes: dict[str, str] = {}
     temp_source_hashes: dict[str, Any] = {}
+    receipt_files: dict[str, Path] = {}
+    engine_kinds: dict[str, str] = {}
     cache_hashes: dict[str, Any] = {}
     definition_hashes: dict[str, Any] = {}
     inventory_rows: list[dict[str, Any]] = [source_inventory]
@@ -2205,6 +2207,7 @@ def validate_formula_cache_freshness_observation(
             f"calculation_receipt_{calculation_id}"
         ] = file_receipt(receipt_file)
         engine_receipt_hashes[calculation_id] = sha256_file(receipt_file)
+        receipt_files[calculation_id] = receipt_file
         engine_receipt = read_json_object(
             receipt_file,
             label=f"formula-cache calculation receipt {calculation_id}",
@@ -2215,9 +2218,22 @@ def validate_formula_cache_freshness_observation(
             engine_receipt,
             label=f"calculation_receipt_{calculation_id}",
         )
+        # D-174: a receipt of the LibreOffice lane (ops/compute/
+        # office_recalc.py) is judged by the LibreOffice rules below; every
+        # other receipt, Excel's or not, by the Excel rules exactly as before.
+        libreoffice = (
+            engine_receipt.get("schema")
+            == FORMULA_CACHE_FRESHNESS.LIBREOFFICE_ENGINE_SCHEMA
+        )
+        engine_kinds[calculation_id] = (
+            "libreoffice" if libreoffice else "excel"
+        )
         if (
             engine_receipt.get("schema")
-            != FORMULA_CACHE_FRESHNESS.ENGINE_SCHEMA
+            not in {
+                FORMULA_CACHE_FRESHNESS.ENGINE_SCHEMA,
+                FORMULA_CACHE_FRESHNESS.LIBREOFFICE_ENGINE_SCHEMA,
+            }
             or engine_receipt.get("status")
             != "PASS_TEMP_COPY_RECALCULATED"
         ):
@@ -2237,6 +2253,20 @@ def validate_formula_cache_freshness_observation(
             ),
             label=f"calculation_receipt_{calculation_id}",
         )
+        if libreoffice:
+            required_false(
+                engine_receipt,
+                ("canonical_workbook_written",),
+                label=f"calculation_receipt_{calculation_id}",
+            )
+            if not (
+                engine_receipt.get("view_copy") is True
+                and engine_receipt.get("input_unchanged") is True
+            ):
+                issues.append(
+                    f"formula-cache calculation {calculation_id} is not an "
+                    "untouched input plus a view copy"
+                )
         before = engine_receipt.get("temporary_copy_before")
         before = before if isinstance(before, dict) else {}
         after = engine_receipt.get("temporary_copy_after")
@@ -2264,10 +2294,17 @@ def validate_formula_cache_freshness_observation(
             if isinstance(after.get("path"), str) and after.get("path")
             else None
         )
+        # The container's paths are not the host's: a LibreOffice copy is
+        # bound by hash and size alone.
+        paths_bound = expected_workbook_path is not None and (
+            libreoffice
+            or (
+                before_path == expected_workbook_path
+                and after_path == expected_workbook_path
+            )
+        )
         if (
-            expected_workbook_path is None
-            or before_path != expected_workbook_path
-            or after_path != expected_workbook_path
+            not paths_bound
             or after.get("sha256")
             != (
                 workbook_receipt.get("sha256")
@@ -2288,7 +2325,12 @@ def validate_formula_cache_freshness_observation(
         safety = engine_receipt.get("safety_preflight")
         safety = safety if isinstance(safety, dict) else {}
         if not (
-            safety.get("safe_for_isolated_excel_calculation") is True
+            safety.get(
+                "safe_for_isolated_calculation"
+                if libreoffice
+                else "safe_for_isolated_excel_calculation"
+            )
+            is True
             and safety.get("formula_count")
             == FORMULA_CACHE_EXPECTED_FORMULA_COUNT
             and not safety.get("forbidden_package_parts")
@@ -2296,6 +2338,7 @@ def validate_formula_cache_freshness_observation(
             and not safety.get("unsafe_formula_examples")
             and not safety.get("external_formula_reference_examples")
             and not safety.get("defined_name_runtime_risks")
+            and (not libreoffice or safety.get("array_formula_count") == 0)
         ):
             issues.append(
                 f"formula-cache calculation {calculation_id} safety "
@@ -2303,7 +2346,7 @@ def validate_formula_cache_freshness_observation(
             )
         engine = engine_receipt.get("engine")
         engine = engine if isinstance(engine, dict) else {}
-        if not (
+        isolated_excel = (
             engine.get("automation_security")
             == "msoAutomationSecurityForceDisable"
             and engine.get("update_links") == 0
@@ -2316,7 +2359,26 @@ def validate_formula_cache_freshness_observation(
             and engine.get("calculation_state_after") == 0
             and engine.get("ready_after") is True
             and engine.get("calculate_before_save") is False
-        ):
+        )
+        isolated_libreoffice = (
+            engine.get("product") == "LibreOffice"
+            and FORMULA_CACHE_FRESHNESS._libreoffice_at_least(
+                engine.get("version"), (24, 8)
+            )
+            and engine.get("automation_security")
+            == "MacroExecutionMode.NEVER_EXECUTE"
+            and engine.get("update_links") == 0
+            and engine.get("enable_events") is False
+            and engine.get("display_alerts") is False
+            and engine.get("ask_to_update_links") is False
+            and engine.get("visible") is False
+            and engine.get("read_only") is True
+            and engine.get("calculation_request") == "calculateAll"
+            and engine.get("calculation_completed") is True
+            and engine.get("calculate_before_save") is False
+            and engine.get("document_stored") is False
+        )
+        if not (isolated_libreoffice if libreoffice else isolated_excel):
             issues.append(
                 f"formula-cache calculation {calculation_id} engine "
                 "isolation/completion drifted"
@@ -2336,7 +2398,30 @@ def validate_formula_cache_freshness_observation(
                 "drifted from its receipt"
             )
 
-    if len(set(calculated_hashes.values())) != len(calculated_hashes):
+    kinds = set(engine_kinds.values())
+    if len(kinds) > 1:
+        issues.append("formula-cache calculations mix engine kinds")
+    if kinds == {"libreoffice"}:
+        # Deterministic LibreOffice runs on one input write byte-identical
+        # copies, and that equality is the determinism proof; what must
+        # differ is the evidence of two runs: two receipt files.
+        if (
+            len(calculated_hashes) != 2
+            or calculated_hashes["a"] != calculated_hashes["b"]
+        ):
+            issues.append(
+                "formula-cache LibreOffice calculated copies must be "
+                "byte-identical"
+            )
+        if (
+            len(receipt_files) != 2
+            or receipt_files["a"] == receipt_files["b"]
+        ):
+            issues.append(
+                "formula-cache LibreOffice calculation receipts must be "
+                "two distinct files"
+            )
+    elif len(set(calculated_hashes.values())) != len(calculated_hashes):
         issues.append("formula-cache calculated copies must be distinct files")
     if source_sha256 in set(calculated_hashes.values()):
         issues.append("formula-cache calculation was not materialized")
@@ -2431,15 +2516,31 @@ def validate_formula_cache_freshness_observation(
     ):
         if gates.get(key) is not True:
             issues.append(f"formula-cache gates.{key} must be True")
+    # Excel rewrites the whole package on save, so for its copies "exact
+    # semantics preserved" is False by construction.  A LibreOffice view copy
+    # is the original package plus cached values: the audit may truthfully
+    # record True there.  Either way no copy is promotion eligible.
+    libreoffice_run = kinds == {"libreoffice"}
     required_false(
         gates,
         (
-            "postsave_candidate_exact_semantics_preserved",
             "postsave_candidate_promotion_eligible",
             "live_stored_formula_cache_freshness_proven",
+        )
+        + (
+            ()
+            if libreoffice_run
+            else ("postsave_candidate_exact_semantics_preserved",)
         ),
         label="gates",
     )
+    if libreoffice_run and not isinstance(
+        gates.get("postsave_candidate_exact_semantics_preserved"), bool
+    ):
+        issues.append(
+            "formula-cache gates.postsave_candidate_exact_semantics_preserved "
+            "must be recorded"
+        )
 
     unresolved = manifest.get("unresolved")
     unresolved = unresolved if isinstance(unresolved, list) else []
@@ -2480,6 +2581,10 @@ def validate_formula_cache_freshness_observation(
             issues.append("formula-cache content audit_id drifted")
 
     formula_closure = {
+        "engine_kind": (
+            next(iter(kinds)) if len(kinds) == 1
+            else "mixed" if kinds else None
+        ),
         "formula_count": FORMULA_CACHE_EXPECTED_FORMULA_COUNT,
         "source_sha256": source_sha256,
         "temp_copy_source_sha256": {
@@ -2529,8 +2634,11 @@ def validate_formula_cache_freshness_observation(
         ),
         "calculated_copy_promotion_eligibility": bool(
             gates.get("postsave_candidate_promotion_eligible") is False
-            and gates.get("postsave_candidate_exact_semantics_preserved")
-            is False
+            and (
+                libreoffice_run
+                or gates.get("postsave_candidate_exact_semantics_preserved")
+                is False
+            )
             and "postsave_candidate_exact_semantics"
             in unresolved_surfaces
         ),

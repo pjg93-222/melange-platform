@@ -1,7 +1,7 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 import openpyxl, sys, json, collections, math, unicodedata, hashlib, os
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
-M=MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
+M=os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx')
 wb=openpyxl.load_workbook(M,data_only=True)
 ra=wb['Rank & Allocation']
 import moneyball_core as MC
@@ -15,14 +15,14 @@ _normM,_w535,_=MC.press_matrix()   # PHASE-2: Python-owned press normalization (
 def nfc(value):
     return unicodedata.normalize('NFC',str(value)) if value is not None else value
 members=[nfc(ra.cell(r,1).value) for r in range(3,536) if ra.cell(r,1).value]
-with open(MB_ROOT+r'\archive_leg.json',encoding='utf-8') as _handle:
+with open(os.path.join(MB_ROOT, 'archive_leg.json'),encoding='utf-8') as _handle:
     LEG={nfc(member):values for member,values in json.load(_handle).items()}
-with open(MB_ROOT+r'\legislation_routing_audit.json',encoding='utf-8') as _handle:
+with open(os.path.join(MB_ROOT, 'legislation_routing_audit.json'),encoding='utf-8') as _handle:
     _routing=json.load(_handle)
 # Equal positive and negative contributions are measured zero, not absent evidence.
 LEG_SIGNAL={(nfc(row['member']),row['effective_category']) for row in _routing['rows']
             if row.get('disposition')=='selected'}
-with open(MB_ROOT+r'\vote_category_lean.json',encoding='utf-8') as _handle:
+with open(os.path.join(MB_ROOT, 'vote_category_lean.json'),encoding='utf-8') as _handle:
     VC=json.load(_handle)
 n2b={nfc(v):k for k,v in VC['name_of'].items()}; votes=VC['votes']
 cats=[('Examination & Supervision',5),('CU Capital Requirements',6),('NCUA Budget & Insurance',7),('Interchange',8),
@@ -126,7 +126,7 @@ print('say-do gate: %d cells capped across %d members | %d high-score crown cand
       sum(len(v) for v in gate_capped.values()),len(gate_capped),len(gate_overall),
       len(gate_proven),_cbp['A'],_cbp['V']))
 cnt=collections.Counter(matrix[m][lab] for m in members for lab,_ in cats)
-_OUT = _o.environ.get('CATEGORY_STANCE_OUT') or MB_ROOT+r'\category_stance.json'
+_OUT = _o.environ.get('CATEGORY_STANCE_OUT') or os.path.join(MB_ROOT, 'category_stance.json')
 _source_paths=('archive_leg.json','legislation_routing_audit.json','vote_category_lean.json',
                'bill_repository_live.json')
 _source_hashes={path:hashlib.sha256(open(os.path.join(MB_ROOT,path),'rb').read()).hexdigest()

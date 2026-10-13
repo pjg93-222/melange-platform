@@ -18,7 +18,7 @@ from press_stream import load_tone_rows
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import networkx as nx
 B=MB_ROOT
-SRC=MB_DRAFT+r'\cu_press_stance_tone.csv'
+SRC=os.path.join(MB_DRAFT, 'cu_press_stance_tone.csv')
 CORR_T=float(os.environ.get('HCOI_CORR','0.6'))     # their correlation threshold
 MIN_W=float(os.environ.get('HCOI_MINW','3.0'))      # their transient-author filter (weighted pubs > 2)
 rows=load_tone_rows()
@@ -85,9 +85,9 @@ for c in comms:
 # D4 check: cosponsor-isolated members recovered by the HCoI layer
 try:
     import openpyxl
-    C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
+    C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
     bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-    net=max(glob.glob(B+r'\congress_cosponsor_network_*.xlsx'),key=os.path.getmtime)
+    net=max(glob.glob(os.path.join(B, 'congress_cosponsor_network_*.xlsx')),key=os.path.getmtime)
     ne=openpyxl.load_workbook(net,data_only=True)['Edges']; deg=collections.Counter()
     for r in range(2,ne.max_row+1):
         a,b=bio2name.get(ne.cell(r,1).value),bio2name.get(ne.cell(r,2).value)
@@ -119,5 +119,5 @@ json.dump({'threshold':CORR_T,'min_weight':MIN_W,'cats':CATS,
            'edges':[{'a':a,'b':b,'r':r} for a,b,r in edges],
            'd4_isolated':isolated,'d4_recovered':rec,
            'periods':{'split':mid.isoformat(),'p1':c1,'p2':c2,'genealogy':gen}},
-          open(B+r'\data\stance\press_hcoi.json','w'),indent=1)
+          open(os.path.join(B, 'data', 'stance', 'press_hcoi.json'),'w', newline='\r\n'),indent=1)
 print('\nwrote press_hcoi.json (%d communities, %d edges — candidate 2nd graph layer for the cascade)'%(len(comms),len(edges)))

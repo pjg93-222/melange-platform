@@ -211,6 +211,15 @@ def shim_main(tool, argv):
                 shutil.copyfile(src, parts[2])
     elif tool == "gh":
         canned = Path(os.environ.get("FAKE_GH_DIR", "."))
+        if argv[:2] == ["run", "download"]:                 # a workflow artifact: artifact_<name>.json becomes <dir>/digests.json
+            dest = Path(argv[argv.index("--dir") + 1])
+            dest.mkdir(parents=True, exist_ok=True)
+            text = (canned / f"artifact_{argv[argv.index('--name') + 1]}.json").read_text()
+            if os.environ.get("FAKE_STATE"):
+                state = json.loads(Path(os.environ["FAKE_STATE"]).read_text())
+                text = text.replace("@PLATFORM_COMMIT@", state.get("platform_commit", "")).replace("@TERRIER_COMMIT@", state.get("terrier_commit", ""))
+            (dest / "digests.json").write_text(text)
+            sys.exit(0)
         key = " ".join(argv[:2]) if argv[:1] != ["api"] else "api " + argv[-1].split("?")[0]
         answer = canned / (key.replace("/", "_").replace(" ", "_") + ".json")
         if answer.is_file():

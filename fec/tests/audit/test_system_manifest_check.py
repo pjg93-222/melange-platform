@@ -38,7 +38,7 @@ Each control builds its OWN fixture tree and its OWN manifest and runs in its OW
 crashing assertion hides every assertion after it.  Nothing here touches real project data: every
 path lives under a fresh tempfile.mkdtemp().
 """
-import os, sys, json, time, shutil, tempfile, hashlib, subprocess, unittest, importlib.util
+import os, sys, json, time, shutil, tempfile, hashlib, subprocess, unittest, unittest.mock, importlib.util
 
 FEC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, FEC)
@@ -1961,6 +1961,88 @@ class TestGitRepackDoesNotRedThePins(_ChainStoreCase):
         SMC._check_sentinels(dict(store, sentinels=[dead]), 'fix.git', 'gen', rec.emit,
                              lambda n, why: rec.emit(n, False, why), True, rec.note)
         self.assertTrue(rec.has_fail('A2b fix.git sentinels unchanged'), rec.failed_names())
+
+
+class _PosixOs(object):
+    """`os` as the checker sees it inside a Linux container: only `name` differs, so nothing else on this host is disturbed."""
+    name = 'posix'
+
+    def __getattr__(self, attr):
+        return getattr(os, attr)
+
+
+class TestContainerHost(ControlCase):
+    """Compute lane MEL (D-173/D-177): the chain's last step runs this section in a Linux container, where the manifest's
+    Windows paths and the Windows host's volumes and OneDrive replica do not exist."""
+
+    def _wrong_topology_manifest(self):
+        self.fx.write_file('data/keep.json', '{"a":1}')
+        store = self.fx.add_file_store('fix.keep', 'data/keep.json')
+        store['volume'] = 'Q:'                                  # a drive this host does not have
+        return self.fx.write_manifest(host=dict(self.fx.manifest()['host'], onedrive_root='Q:\\OneDrive'))
+
+    def test_on_windows_a_wrong_volume_still_fails_A6(self):
+        # negative control: the skip below must not have switched the check off where it is observable
+        mp = self._wrong_topology_manifest()
+        self.run_check(mp)
+        self.assertTrue(self.rec.has_fail('A6 every store volume matches observation'), self.rec.failed_names())
+        self.assertTrue(self.rec.has_fail('A6 OneDrive root matches observation'), self.rec.failed_names())
+
+    def test_off_windows_host_topology_is_skipped_with_its_reason_not_passed_or_failed(self):
+        mp = self._wrong_topology_manifest()
+        with unittest.mock.patch.object(SMC, 'os', _PosixOs()):
+            tally = self.run_check(mp)
+        self.assertEqual([n for n in self.rec.failed_names() if 'A6' in n and 'durable' not in n], [], self.rec.failed_names())
+        self.assertFalse(self.rec.has_pass('A6 every store volume matches observation'), 'a vacuous pass is not a skip')
+        reasons = [why for name, why in tally['skips'] if name == 'A6 host topology']
+        self.assertEqual(len(reasons), 1)
+        self.assertIn('Windows host', reasons[0])
+        self.assertTrue(self.rec.has_pass('A1 fix.keep still exists'), 'the stores themselves are still examined')
+
+    def test_the_manifest_paths_are_mapped_onto_the_mounts(self):
+        import paths
+        self.fx.write_file('data/keep.json', '{"a":1}')
+        store = self.fx.add_file_store('fix.keep', 'data/keep.json')
+        store['root_id'] = 'melange_data'
+        store['path'] = 'C:\\melange-data\\data\\keep.json'     # as the Windows host wrote it
+        mp = self.fx.write_manifest(roots=[
+            {'id': 'melange_data', 'path': 'C:\\melange-data', 'label': 'data root', 'present': True}])
+        with unittest.mock.patch.object(paths, '_IS_WINDOWS', False), \
+                unittest.mock.patch.object(paths, 'MELANGE_DATA', self.fx.root):
+            with unittest.mock.patch.object(SMC, 'os', _PosixOs()):
+                self.run_check(mp)
+        self.assertTrue(self.rec.has_pass('A1 fix.keep still exists'), self.rec.failed_names())
+        self.assertFalse(self.rec.has_fail('A0 at least one declared root'), self.rec.failed_names())
+
+    def test_no_git_binary_skips_commit_pins_off_windows_and_still_fails_on_windows(self):
+        pin = {'rel': None, 'git_commit': 'a' * 40, 'git_ref': 'HEAD'}
+        store = {'path': self.fx.root, 'measured': {'kind': 'dir'}, 'sentinels': [pin]}
+        no_git = unittest.mock.patch.object(SMC.subprocess, 'run', side_effect=FileNotFoundError('git'))
+
+        def check():
+            rec, skips = Recorder(), []
+            SMC._check_sentinels(store, 'fix.git', 'gen', rec.emit, lambda n, why: skips.append((n, why)), True, rec.note)
+            return rec, skips
+
+        with no_git, unittest.mock.patch.object(SMC, 'os', _PosixOs()):
+            rec, skips = check()
+        self.assertEqual(rec.failed_names(), [], 'a container without git must not fail the commit pin')
+        self.assertEqual([n for n, _w in skips], ['A2b fix.git git commit pins'])
+        with no_git:                                              # negative control: this host is Windows, behaviour unchanged
+            rec, skips = check()
+        self.assertTrue(rec.has_fail('A2b fix.git sentinels unchanged'), rec.failed_names())
+        self.assertEqual(skips, [])
+
+    def test_unmapped_roots_stay_absent_and_every_root_missing_still_fails(self):
+        import paths
+        self.fx.write_file('data/keep.json', '{"a":1}')
+        store = self.fx.add_file_store('fix.keep', 'data/keep.json')
+        store['root_id'] = 'elsewhere'
+        store['path'] = 'D:\\elsewhere\\keep.json'
+        mp = self.fx.write_manifest(roots=[{'id': 'elsewhere', 'path': 'D:\\elsewhere', 'label': 'x', 'present': True}])
+        with unittest.mock.patch.object(paths, '_IS_WINDOWS', False):
+            self.run_check(mp)
+        self.assertTrue(self.rec.has_fail('A0 at least one declared root is present on this host'), self.rec.failed_names())
 
 
 if __name__ == '__main__':

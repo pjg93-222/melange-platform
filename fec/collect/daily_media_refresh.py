@@ -29,6 +29,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from paths import ROOT
+import compute_engine
 from lane_file_io import replace_atomic
 from pipeline_lock import child_lock_environment, pipeline_run_lock
 
@@ -382,9 +383,12 @@ def terminate_tree(process):
 
 
 def run_process(step, root, log_path, environment):
-    command = [sys.executable, str(CODE / step.script), *step.args]
+    # Collectors follow the collect engine (ops/compute/engines.json); this process stays on the host because it holds the writer
+    # lease. Engine 'windows' (the default): the same argv and environment as always.
+    spec = compute_engine.launch(str(CODE / step.script), step.args, phases=('collect',), root=root, cwd=root, environ=environment)
     with log_path.open('w', encoding='utf-8') as handle:
-        process = subprocess.Popen(command, cwd=root, env=environment, stdout=handle, stderr=subprocess.STDOUT,
+        process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
+                                   stdout=handle, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
                                    start_new_session=os.name != 'nt')
         try:
@@ -392,6 +396,7 @@ def run_process(step, root, log_path, environment):
         except BaseException:
             if process.poll() is None:
                 terminate_tree(process)
+            compute_engine.reap(spec)
             raise
 
 
@@ -403,6 +408,8 @@ def execute_step(step, root, run_dir, environment, runner=run_process):
            'timeout_seconds': step.timeout, 'log': str(log_path), 'error_count': 0}
     before = {}
     try:
+        if compute_engine.engine_of(step.script, ('collect',)) == 'container':
+            row['engine'] = 'container'   # 'command' above is the host form; the run itself was compute_engine.launch's container
         table = 'cr_fetch_log' if step.kind == 'congress_record' else 'iv_fetch_log'
         before = fetch_log_snapshot(root, table) if step.kind in ('congress_record', 'interview') else {}
         code = runner(step, root, log_path, environment)

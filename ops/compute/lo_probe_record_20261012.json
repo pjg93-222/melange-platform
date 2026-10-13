@@ -1,0 +1,5146 @@
+{
+ "excel": "Microsoft 365 click-to-run 16.0.20430.20146 x64, Windows 11, CalculateFullRebuild",
+ "excel_oracle": {
+  "average": [
+   {
+    "documented_or_model": [
+     "n",
+     2.5
+    ],
+    "excel": [
+     "n",
+     2.5
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "numbers",
+    "lo": [
+     "n",
+     2.5
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     2.0
+    ],
+    "excel": [
+     "n",
+     2.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "zero_counts",
+    "lo": [
+     "n",
+     2.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     4.0
+    ],
+    "excel": [
+     "n",
+     4.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "blanks",
+    "lo": [
+     "n",
+     4.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "text",
+    "lo": [
+     "n",
+     3.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "logical_constants",
+    "lo": [
+     "n",
+     1.75
+    ],
+    "ulp_excel_vs_lo": 3377699720527872
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "numeric_text",
+    "lo": [
+     "n",
+     3.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "formula_empty_string",
+    "lo": [
+     "n",
+     3.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "formula_logical",
+    "lo": [
+     "n",
+     2.3333333333333335
+    ],
+    "ulp_excel_vs_lo": 1501199875790165
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#N/A"
+    ],
+    "excel": [
+     "e",
+     "#N/A"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "error_na",
+    "lo": [
+     "e",
+     "#N/A"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "error_div0",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#N/A"
+    ],
+    "excel": [
+     "e",
+     "#N/A"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "two_errors",
+    "lo": [
+     "e",
+     "#N/A"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "formula_error",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "all_blank",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "all_text",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     1.6666666666666667
+    ],
+    "excel": [
+     "n",
+     1.6666666666666667
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "direct_arguments",
+    "lo": [
+     "e",
+     "#VALUE!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#VALUE!"
+    ],
+    "excel": [
+     "e",
+     "#VALUE!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "direct_bad_text",
+    "lo": [
+     "e",
+     "#VALUE!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     1.5
+    ],
+    "excel": [
+     "n",
+     1.5
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "array_constant",
+    "lo": [
+     "n",
+     1.3333333333333333
+    ],
+    "ulp_excel_vs_lo": 750599937895083
+   },
+   {
+    "documented_or_model": [
+     "n",
+     3.0
+    ],
+    "excel": [
+     "n",
+     3.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "two_areas",
+    "lo": [
+     "n",
+     3.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "single_ref_logical",
+    "lo": [
+     "n",
+     1.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "single_ref_numeric_text",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     0.0
+    ],
+    "excel": [
+     "n",
+     0.0
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": true,
+    "id": "sum_order",
+    "lo": [
+     "n",
+     0.0
+    ]
+   },
+   {
+    "documented_or_model": [
+     "n",
+     0.20000000000000004
+    ],
+    "excel": [
+     "n",
+     0.20000000000000004
+    ],
+    "excel_equals_documented": true,
+    "excel_equals_lo": false,
+    "id": "sum_tenths",
+    "lo": [
+     "n",
+     0.19999999999999998
+    ],
+    "ulp_excel_vs_lo": 2
+   }
+  ],
+  "avg_forms": {
+   "AVERAGE({r})": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   },
+   "AVERAGEIF({r},\">-1E+300\")": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   },
+   "SUM({r})/COUNT({r})": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   },
+   "SUMIFS({r},{r},\">-1E+300\")/COUNTIF({r},\">-1E+300\")": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   },
+   "SUMPRODUCT({r})/COUNT({r})": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   },
+   "SUMPRODUCT({r}*1)/COUNT({r})": {
+    "draws": 30,
+    "excel_equals_excel_AVERAGE": 30,
+    "lo_equals_excel_AVERAGE": 2,
+    "lo_vs_excel_AVERAGE_ulp_max": 8,
+    "lo_vs_excel_AVERAGE_ulp_median": 3
+   }
+  },
+  "avg_shape": {
+   "C29_excel": 0.4826714766094412,
+   "C29_excel_hex": "0x1.ee416e7aff91ap-2",
+   "C29_lo": 0.48267147660944165,
+   "C29_lo_hex": "0x1.ee416e7aff922p-2",
+   "S_cells_excel_equal_lo": 533,
+   "excel_ulp_vs": {
+    "fsum/n": 8,
+    "running_sum/n": 0
+   },
+   "ulp_excel_vs_lo": 8
+  },
+  "comparator_excel_vs_lo": {
+   "average": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       1.75
+      ],
+      "cell": "A5",
+      "formula": "AVERAGE(Data!I1:I4)",
+      "reference": [
+       "n",
+       3.0
+      ],
+      "sheet": "Probe",
+      "ulp": 3377699720527872,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       2.3333333333333335
+      ],
+      "cell": "A8",
+      "formula": "AVERAGE(Data!O1:O3)",
+      "reference": [
+       "n",
+       3.0
+      ],
+      "sheet": "Probe",
+      "ulp": 1501199875790165,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "e",
+       "#VALUE!"
+      ],
+      "cell": "A15",
+      "formula": "AVERAGE(1,TRUE,\"3\")",
+      "reference": [
+       "n",
+       1.6666666666666667
+      ],
+      "sheet": "Probe",
+      "why": "type"
+     }
+    ],
+    "formulas": 25,
+    "problems": [
+     "6 cell(s) differ"
+    ]
+   },
+   "avg_forms": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       0.5000358982496713
+      ],
+      "cell": "B1",
+      "formula": "SUM(Data!$A$1:$A$533)/COUNT(Data!$A$1:$A$533)",
+      "reference": [
+       "n",
+       0.500035898249671
+      ],
+      "sheet": "Probe",
+      "ulp": 3,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.5000358982496713
+      ],
+      "cell": "C1",
+      "formula": "SUMPRODUCT(Data!$A$1:$A$533)/COUNT(Data!$A$1:$A$533)",
+      "reference": [
+       "n",
+       0.500035898249671
+      ],
+      "sheet": "Probe",
+      "ulp": 3,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.5000358982496713
+      ],
+      "cell": "D1",
+      "formula": "SUMPRODUCT(Data!$A$1:$A$533*1)/COUNT(Data!$A$1:$A$533)",
+      "reference": [
+       "n",
+       0.500035898249671
+      ],
+      "sheet": "Probe",
+      "ulp": 3,
+      "why": "tier0_number"
+     }
+    ],
+    "formulas": 180,
+    "problems": [
+     "146 cell(s) differ"
+    ]
+   },
+   "avg_shape": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       0.48267147660944165
+      ],
+      "cell": "C29",
+      "formula": "AVERAGE('Blended Model'!$S$3:$S$535)",
+      "reference": [
+       "n",
+       0.4826714766094412
+      ],
+      "sheet": "Coalition Profiles",
+      "ulp": 8,
+      "why": "tier1_number"
+     }
+    ],
+    "formulas": 534,
+    "problems": [
+     "1 cell(s) differ"
+    ]
+   },
+   "iferror": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       0.47446
+      ],
+      "cell": "A1",
+      "formula": "IFERROR(PERCENTRANK(Data!$A$1:$A$533,Data!C1,5),-1)",
+      "reference": [
+       "n",
+       0.47445
+      ],
+      "sheet": "Probe",
+      "ulp": 180143985095,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.47446
+      ],
+      "cell": "D1",
+      "formula": "PERCENTRANK(Data!$A$1:$A$533,Data!C1,5)",
+      "reference": [
+       "n",
+       0.47445
+      ],
+      "sheet": "Probe",
+      "ulp": 180143985095,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.50889
+      ],
+      "cell": "A5",
+      "formula": "IFERROR(PERCENTRANK(Data!$A$1:$A$533,Data!C5,5),-1)",
+      "reference": [
+       "n",
+       0.50888
+      ],
+      "sheet": "Probe",
+      "ulp": 90071992547,
+      "why": "tier0_number"
+     }
+    ],
+    "formulas": 301,
+    "problems": [
+     "54 cell(s) differ"
+    ]
+   },
+   "percentrank": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       0.66667
+      ],
+      "cell": "A1",
+      "formula": "PERCENTRANK(Data!$A$1:$A$4,30,5)",
+      "reference": [
+       "n",
+       0.66666
+      ],
+      "sheet": "Probe",
+      "ulp": 90071992547,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.364
+      ],
+      "cell": "A2",
+      "formula": "PERCENTRANK(Data!$B$1:$B$12,Data!B1,3)",
+      "reference": [
+       "n",
+       0.363
+      ],
+      "sheet": "Probe",
+      "ulp": 18014398509482,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.306
+      ],
+      "cell": "A3",
+      "formula": "PERCENTRANK(Data!$C$1:$C$37,Data!C17,3)",
+      "reference": [
+       "n",
+       0.305
+      ],
+      "sheet": "Probe",
+      "ulp": 18014398509482,
+      "why": "tier0_number"
+     }
+    ],
+    "formulas": 45,
+    "problems": [
+     "38 cell(s) differ"
+    ]
+   },
+   "pr_shape": {
+    "equivalent": false,
+    "first_differences": [
+     {
+      "candidate": [
+       "n",
+       0.56955
+      ],
+      "cell": "A1",
+      "formula": "PERCENTRANK(Data!$A$1:$A$533,Data!A1,5)",
+      "reference": [
+       "n",
+       0.56954
+      ],
+      "sheet": "Probe",
+      "ulp": 90071992547,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.33083
+      ],
+      "cell": "B1",
+      "formula": "PERCENTRANK(Data!$B$1:$B$533,Data!B1,5)",
+      "reference": [
+       "n",
+       0.33082
+      ],
+      "sheet": "Probe",
+      "ulp": 180143985095,
+      "why": "tier0_number"
+     },
+     {
+      "candidate": [
+       "n",
+       0.57331
+      ],
+      "cell": "C1",
+      "formula": "PERCENTRANK(Data!$C$1:$C$533,Data!C1,5)",
+      "reference": [
+       "n",
+       0.5733
+      ],
+      "sheet": "Probe",
+      "ulp": 90071992547,
+      "why": "tier0_number"
+     }
+    ],
+    "formulas": 9472,
+    "problems": [
+     "1298 cell(s) differ"
+    ]
+   }
+  },
+  "iferror": {
+   "A_lo_equals_orig_excel_wrapped": 50,
+   "A_unmoved_bare_excel": 50,
+   "A_unmoved_wrapped_excel": 50,
+   "B_lo_equals_orig_excel_wrapped": 7,
+   "B_unmoved_bare_excel": 7,
+   "B_unmoved_wrapped_excel": 7,
+   "orig_excel_equals_lo_wrapped": 26,
+   "rows": [
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.47446
+      ],
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.47446
+      ],
+      [
+       "n",
+       0.47445
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 1,
+     "x": null,
+     "x_kind": "blank"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 2,
+     "x": "abc",
+     "x_kind": "text"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 3,
+     "x": "\"\"",
+     "x_kind": "empty_string_formula"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ],
+      [
+       "n",
+       0.06203
+      ]
+     ],
+     "row": 4,
+     "x": -4.373,
+     "x_kind": "member"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.50889
+      ],
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.50889
+      ],
+      [
+       "n",
+       0.50888
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 5,
+     "x": 0.5,
+     "x_kind": "interpolated"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 6,
+     "x": -100.0,
+     "x_kind": "below_min"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 7,
+     "x": 100.0,
+     "x_kind": "above_max"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 8,
+     "x": "#N/A",
+     "x_kind": "error_constant"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       0.55256
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 9,
+     "x": true,
+     "x_kind": "logical_true"
+    },
+    {
+     "excel_bare": [
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#VALUE!"
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 10,
+     "x": "5",
+     "x_kind": "numeric_text"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.88951
+      ],
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.88951
+      ],
+      [
+       "n",
+       0.8895
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 11,
+     "x": 4.0606,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       0.19553
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 12,
+     "x": -2.9553,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       0.44894
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 13,
+     "x": -0.1864,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       0.78727
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 14,
+     "x": 3.1356,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.044971
+      ],
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.044971
+      ],
+      [
+       "n",
+       0.04497
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 15,
+     "x": -4.505,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       0.55867
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 16,
+     "x": 1.0784,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       0.49636
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 17,
+     "x": 0.2467,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.40926
+      ],
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.40926
+      ],
+      [
+       "n",
+       0.40925
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 18,
+     "x": -0.7592,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       0.37018
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 19,
+     "x": -1.0217,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       0.60411
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 20,
+     "x": 1.4955,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       0.96106
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 21,
+     "x": 4.7071,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.58205
+      ],
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.58205
+      ],
+      [
+       "n",
+       0.58204
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 22,
+     "x": 1.2858,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       0.60435
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 23,
+     "x": 1.5006,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.97506
+      ],
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.97506
+      ],
+      [
+       "n",
+       0.97505
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 24,
+     "x": 4.8526,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.79588
+      ],
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.79588
+      ],
+      [
+       "n",
+       0.79587
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 25,
+     "x": 3.2402,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.74407
+      ],
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.74407
+      ],
+      [
+       "n",
+       0.74406
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 26,
+     "x": 2.8392,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       0.47216
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 27,
+     "x": -0.0229,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       0.81875
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 28,
+     "x": 3.4547,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.069672
+      ],
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.069672
+      ],
+      [
+       "n",
+       0.06967
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 29,
+     "x": -4.3308,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.22454
+      ],
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.22454
+      ],
+      [
+       "n",
+       0.22453
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 30,
+     "x": -2.6052,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       0.18029
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 31,
+     "x": -3.1363,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.971
+      ],
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.971
+      ],
+      [
+       "n",
+       0.97099
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 32,
+     "x": 4.8097,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.24317
+      ],
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.24317
+      ],
+      [
+       "n",
+       0.24316
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 33,
+     "x": -2.2424,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.33194
+      ],
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.33194
+      ],
+      [
+       "n",
+       0.33193
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 34,
+     "x": -1.4574,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.90651
+      ],
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.90651
+      ],
+      [
+       "n",
+       0.9065
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 35,
+     "x": 4.2154,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       0.24246
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 36,
+     "x": -2.2536,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.36706
+      ],
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.36706
+      ],
+      [
+       "n",
+       0.36705
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 37,
+     "x": -1.0697,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       0.81237
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 38,
+     "x": 3.4074,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.055592
+      ],
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.055592
+      ],
+      [
+       "n",
+       0.05559
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 39,
+     "x": -4.4545,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       0.7794
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 40,
+     "x": 3.0843,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.89972
+      ],
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.89972
+      ],
+      [
+       "n",
+       0.89971
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 41,
+     "x": 4.1609,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.75852
+      ],
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.75852
+      ],
+      [
+       "n",
+       0.75851
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 42,
+     "x": 2.9543,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.49936
+      ],
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.49936
+      ],
+      [
+       "n",
+       0.49935
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 43,
+     "x": 0.3689,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.41043
+      ],
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.41043
+      ],
+      [
+       "n",
+       0.41042
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 44,
+     "x": -0.733,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.85282
+      ],
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.85282
+      ],
+      [
+       "n",
+       0.85281
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 45,
+     "x": 3.7843,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       0.59807
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 46,
+     "x": 1.4305,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.60972
+      ],
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.60972
+      ],
+      [
+       "n",
+       0.60971
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 47,
+     "x": 1.5698,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       0.47045
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 48,
+     "x": -0.0358,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       0.12033
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 49,
+     "x": -3.7794,
+     "x_kind": "interpolated_random"
+    },
+    {
+     "excel_bare": [
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "excel_wrapped": [
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "lo_bare": [
+      [
+       "n",
+       0.079076
+      ],
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "e",
+       "#N/A"
+      ]
+     ],
+     "lo_wrapped": [
+      [
+       "n",
+       0.079076
+      ],
+      [
+       "n",
+       0.07907
+      ],
+      [
+       "n",
+       -1.0
+      ]
+     ],
+     "row": 50,
+     "x": -4.2207,
+     "x_kind": "interpolated_random"
+    }
+   ],
+   "rows_total": 50
+  },
+  "percentrank_cases": {
+   "cases": 45,
+   "differing_cases": 35,
+   "differing_excel_equals_model": 35,
+   "excel_equals_lo": 7,
+   "excel_equals_model": 45,
+   "not_equal_model": []
+  },
+  "pr_shape": {
+   "all_equal": {
+    "A_excel_equals_orig_excel": 533,
+    "A_lo_equals_orig_excel": 533,
+    "B_excel_equals_orig_excel": 533,
+    "B_lo_equals_orig_excel": 533,
+    "cells": 533,
+    "excel_equals_authority": 533,
+    "excel_equals_lo": 533
+   },
+   "blank_text_empty_x (original, IFERROR -1)": {
+    "excel": [
+     [
+      "n",
+      0.47445
+     ],
+     [
+      "n",
+      -1.0
+     ],
+     [
+      "n",
+      -1.0
+     ]
+    ],
+    "lo": [
+     [
+      "n",
+      0.47446
+     ],
+     [
+      "n",
+      -1.0
+     ],
+     [
+      "n",
+      -1.0
+     ]
+    ]
+   },
+   "distinct": {
+    "A_excel_equals_orig_excel": 533,
+    "A_lo_equals_orig_excel": 533,
+    "B_excel_equals_orig_excel": 533,
+    "B_lo_equals_orig_excel": 533,
+    "cells": 533,
+    "excel_equals_authority": 533,
+    "excel_equals_lo": 250
+   },
+   "signed": {
+    "A_excel_equals_orig_excel": 533,
+    "A_lo_equals_orig_excel": 533,
+    "B_excel_equals_orig_excel": 533,
+    "B_lo_equals_orig_excel": 533,
+    "cells": 533,
+    "excel_equals_authority": 533,
+    "excel_equals_lo": 252
+   },
+   "tie_clusters": {
+    "A_excel_equals_orig_excel": 533,
+    "A_lo_equals_orig_excel": 533,
+    "B_excel_equals_orig_excel": 533,
+    "B_lo_equals_orig_excel": 533,
+    "cells": 533,
+    "excel_equals_authority": 533,
+    "excel_equals_lo": 248
+   },
+   "with_blanks": {
+    "A_excel_equals_orig_excel": 491,
+    "A_lo_equals_orig_excel": 491,
+    "B_excel_equals_orig_excel": 491,
+    "B_lo_equals_orig_excel": 491,
+    "cells": 491,
+    "excel_equals_authority": 491,
+    "excel_equals_lo": 229
+   },
+   "zeros_30pct": {
+    "A_excel_equals_orig_excel": 533,
+    "A_lo_equals_orig_excel": 533,
+    "B_excel_equals_orig_excel": 533,
+    "B_lo_equals_orig_excel": 533,
+    "cells": 533,
+    "excel_equals_authority": 533,
+    "excel_equals_lo": 347
+   }
+  }
+ },
+ "libreoffice_vs_models": {
+  "average": [
+   {
+    "excel": [
+     "n",
+     2.5
+    ],
+    "formula": "AVERAGE(Data!?1:?4)",
+    "id": "numbers",
+    "lo": [
+     "n",
+     2.5
+    ],
+    "status": "PASS",
+    "what": "plain numbers"
+   },
+   {
+    "excel": [
+     "n",
+     2.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "zero_counts",
+    "lo": [
+     "n",
+     2.0
+    ],
+    "status": "PASS",
+    "what": "a zero is a number"
+   },
+   {
+    "excel": [
+     "n",
+     4.0
+    ],
+    "formula": "AVERAGE(Data!?1:?5)",
+    "id": "blanks",
+    "lo": [
+     "n",
+     4.0
+    ],
+    "status": "PASS",
+    "what": "blank cells are ignored"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "text",
+    "lo": [
+     "n",
+     3.0
+    ],
+    "status": "PASS",
+    "what": "text in a range is ignored"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?4)",
+    "id": "logical_constants",
+    "lo": [
+     "n",
+     1.75
+    ],
+    "status": "DIVERGENCE",
+    "ulp": 3377699720527872,
+    "what": "TRUE/FALSE in a range are ignored"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "numeric_text",
+    "lo": [
+     "n",
+     3.0
+    ],
+    "status": "PASS",
+    "what": "numeric-looking text in a range is ignored"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "formula_empty_string",
+    "lo": [
+     "n",
+     3.0
+    ],
+    "status": "PASS",
+    "what": "a formula returning \"\" is text"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "formula_logical",
+    "lo": [
+     "n",
+     2.3333333333333335
+    ],
+    "status": "DIVERGENCE",
+    "ulp": 1501199875790165,
+    "what": "a formula returning TRUE is a logical"
+   },
+   {
+    "excel": [
+     "e",
+     "#N/A"
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "error_na",
+    "lo": [
+     "e",
+     "#N/A"
+    ],
+    "status": "PASS",
+    "what": "an error propagates"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "error_div0",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ],
+    "status": "PASS",
+    "what": "an error propagates"
+   },
+   {
+    "excel": [
+     "e",
+     "#N/A"
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "two_errors",
+    "lo": [
+     "e",
+     "#N/A"
+    ],
+    "status": "PASS",
+    "what": "the first error in row order wins"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "formula_error",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ],
+    "status": "PASS",
+    "what": "a formula error propagates"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1:?2)",
+    "id": "all_blank",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ],
+    "status": "PASS",
+    "what": "no numbers"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1:?2)",
+    "id": "all_text",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ],
+    "status": "PASS",
+    "what": "no numbers"
+   },
+   {
+    "excel": [
+     "n",
+     1.6666666666666667
+    ],
+    "formula": "AVERAGE(1,TRUE,\"3\")",
+    "id": "direct_arguments",
+    "lo": [
+     "e",
+     "#VALUE!"
+    ],
+    "status": "DIVERGENCE",
+    "what": "typed TRUE and \"3\" are counted: (1+1+3)/3"
+   },
+   {
+    "excel": [
+     "e",
+     "#VALUE!"
+    ],
+    "formula": "AVERAGE(1,\"abc\")",
+    "id": "direct_bad_text",
+    "lo": [
+     "e",
+     "#VALUE!"
+    ],
+    "status": "PASS",
+    "what": "typed text that is not a number"
+   },
+   {
+    "excel": [
+     "n",
+     1.5
+    ],
+    "formula": "AVERAGE({1,2,TRUE,\"x\"})",
+    "id": "array_constant",
+    "lo": [
+     "n",
+     1.3333333333333333
+    ],
+    "status": "DIVERGENCE",
+    "ulp": 750599937895083,
+    "what": "logicals and text inside an array are ignored"
+   },
+   {
+    "excel": [
+     "n",
+     3.0
+    ],
+    "formula": "AVERAGE(Data!?1:?2,Data!?1:?2)",
+    "id": "two_areas",
+    "lo": [
+     "n",
+     3.0
+    ],
+    "status": "PASS",
+    "what": "two ranges, text ignored"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1)",
+    "id": "single_ref_logical",
+    "lo": [
+     "n",
+     1.0
+    ],
+    "status": "DIVERGENCE",
+    "what": "one cell reference holding TRUE"
+   },
+   {
+    "excel": [
+     "e",
+     "#DIV/0!"
+    ],
+    "formula": "AVERAGE(Data!?1)",
+    "id": "single_ref_numeric_text",
+    "lo": [
+     "e",
+     "#DIV/0!"
+    ],
+    "status": "PASS",
+    "what": "one cell reference holding \"5\""
+   },
+   {
+    "excel": [
+     "n",
+     0.0
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "sum_order",
+    "lo": [
+     "n",
+     0.0
+    ],
+    "status": "PASS",
+    "what": "[1e16,1,-1e16]: a plain running sum loses the 1 (MODEL, not an Excel run)"
+   },
+   {
+    "excel": [
+     "n",
+     0.20000000000000004
+    ],
+    "formula": "AVERAGE(Data!?1:?3)",
+    "id": "sum_tenths",
+    "lo": [
+     "n",
+     0.19999999999999998
+    ],
+    "status": "DIVERGENCE",
+    "ulp": 2,
+    "what": "[0.1,0.2,0.3]: plain running sum (MODEL, not an Excel run)"
+   }
+  ],
+  "avg_shape": {
+   "C29": [
+    "n",
+    0.48267147660944165
+   ],
+   "S_cells": 533,
+   "S_equal_python": 533,
+   "S_kinds": [
+    "n"
+   ],
+   "ulp_vs": {
+    "fsum/n": 0,
+    "running_sum/n": 8,
+    "statistics.fmean": 0
+   }
+  },
+  "determinism": {
+   "average": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "3f15d8209a3a2e158c07184de86c33a42d3ab47e4b9e15be27f52a92582cff3a",
+    "view_b": "3f15d8209a3a2e158c07184de86c33a42d3ab47e4b9e15be27f52a92582cff3a"
+   },
+   "avg_forms": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "8f95bf3707bc7abc5d9e631337bc3be49330fd880537589f10cd0ef08ef68ce6",
+    "view_b": "8f95bf3707bc7abc5d9e631337bc3be49330fd880537589f10cd0ef08ef68ce6"
+   },
+   "avg_shape": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "5ede425d5319b18e220c6bdcca19ae74bc53856ca1481cd2ec911268b299b9b2",
+    "view_b": "5ede425d5319b18e220c6bdcca19ae74bc53856ca1481cd2ec911268b299b9b2"
+   },
+   "iferror": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "ae4fe66479e23739009fd1acf1be8139e69d4092e97971cc0afe841451aa51da",
+    "view_b": "ae4fe66479e23739009fd1acf1be8139e69d4092e97971cc0afe841451aa51da"
+   },
+   "percentrank": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "12c6852c961b549716b5b3ce1fc7186f756d54a778b231dae3a95c6b9fae93e2",
+    "view_b": "12c6852c961b549716b5b3ce1fc7186f756d54a778b231dae3a95c6b9fae93e2"
+   },
+   "pr_shape": {
+    "byte_identical": true,
+    "receipts_equal_apart_from_times_and_view_hash": true,
+    "view_a": "db17c38b984c7409061d4e706aa179ef1f727ef14b5c3b23218d3c5868cc2642",
+    "view_b": "db17c38b984c7409061d4e706aa179ef1f727ef14b5c3b23218d3c5868cc2642"
+   }
+  },
+  "percentrank": {
+   "default_significance_cases": 9,
+   "differing_cases": 35,
+   "interpolated_cases": 10,
+   "rows": [
+    {
+     "case": 1,
+     "differ": true,
+     "excel_trunc": 0.66666,
+     "excel_would_round_to": 0.66667,
+     "group": "vector",
+     "lo": [
+      "n",
+      0.66667
+     ],
+     "n": 4,
+     "round_to_sig_digits": 0.66667,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 30.0
+    },
+    {
+     "case": 2,
+     "differ": true,
+     "excel_trunc": 0.363,
+     "excel_would_round_to": 0.364,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.364
+     ],
+     "n": 12,
+     "round_to_sig_digits": 0.364,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 215.65
+    },
+    {
+     "case": 3,
+     "differ": true,
+     "excel_trunc": 0.305,
+     "excel_would_round_to": 0.306,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.306
+     ],
+     "n": 37,
+     "round_to_sig_digits": 0.306,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 71.26
+    },
+    {
+     "case": 4,
+     "differ": true,
+     "excel_trunc": 0.0,
+     "excel_would_round_to": 0.1,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.06
+     ],
+     "n": 33,
+     "round_to_sig_digits": 0.06,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "ROUNDS_SIG",
+     "x": -39.43
+    },
+    {
+     "case": 5,
+     "differ": true,
+     "excel_trunc": 0.29411,
+     "excel_would_round_to": 0.29412,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.29412
+     ],
+     "n": 18,
+     "round_to_sig_digits": 0.29412,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 115.51
+    },
+    {
+     "case": 6,
+     "differ": true,
+     "excel_trunc": 0.58823,
+     "excel_would_round_to": 0.58824,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.58824
+     ],
+     "n": 18,
+     "round_to_sig_digits": 0.58824,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 346.45
+    },
+    {
+     "case": 7,
+     "differ": true,
+     "excel_trunc": 0.7,
+     "excel_would_round_to": 0.8,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.8
+     ],
+     "n": 36,
+     "round_to_sig_digits": 0.8,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 370.15
+    },
+    {
+     "case": 8,
+     "differ": true,
+     "excel_trunc": 0.3428,
+     "excel_would_round_to": 0.3429,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.3429
+     ],
+     "n": 36,
+     "round_to_sig_digits": 0.3429,
+     "sig": 4,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 92.78
+    },
+    {
+     "case": 9,
+     "differ": true,
+     "excel_trunc": 0.157,
+     "excel_would_round_to": 0.158,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.158
+     ],
+     "n": 39,
+     "round_to_sig_digits": 0.158,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": -5.83
+    },
+    {
+     "case": 10,
+     "differ": true,
+     "excel_trunc": 0.18181,
+     "excel_would_round_to": 0.18182,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.18182
+     ],
+     "n": 12,
+     "round_to_sig_digits": 0.18182,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 157.25
+    },
+    {
+     "case": 11,
+     "differ": true,
+     "excel_trunc": 0.777,
+     "excel_would_round_to": 0.778,
+     "group": "member_distinct",
+     "lo": [
+      "n",
+      0.778
+     ],
+     "n": 28,
+     "round_to_sig_digits": 0.778,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 408.4
+    },
+    {
+     "case": 12,
+     "differ": true,
+     "excel_trunc": 0.384,
+     "excel_would_round_to": 0.385,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.385
+     ],
+     "n": 14,
+     "round_to_sig_digits": 0.385,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 20.0
+    },
+    {
+     "case": 13,
+     "differ": true,
+     "excel_trunc": 0.827,
+     "excel_would_round_to": 0.828,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.828
+     ],
+     "n": 30,
+     "round_to_sig_digits": 0.828,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 25.0
+    },
+    {
+     "case": 14,
+     "differ": true,
+     "excel_trunc": 0.785,
+     "excel_would_round_to": 0.786,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.786
+     ],
+     "n": 15,
+     "round_to_sig_digits": 0.786,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 25.0
+    },
+    {
+     "case": 15,
+     "differ": true,
+     "excel_trunc": 0.1428,
+     "excel_would_round_to": 0.1429,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.1429
+     ],
+     "n": 8,
+     "round_to_sig_digits": 0.1429,
+     "sig": 4,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 5.0
+    },
+    {
+     "case": 16,
+     "differ": true,
+     "excel_trunc": 0.166,
+     "excel_would_round_to": 0.167,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.167
+     ],
+     "n": 7,
+     "round_to_sig_digits": 0.167,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 10.0
+    },
+    {
+     "case": 17,
+     "differ": true,
+     "excel_trunc": 0.3,
+     "excel_would_round_to": 0.4,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.4
+     ],
+     "n": 18,
+     "round_to_sig_digits": 0.4,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 10.0
+    },
+    {
+     "case": 18,
+     "differ": true,
+     "excel_trunc": 0.1,
+     "excel_would_round_to": 0.2,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.2
+     ],
+     "n": 19,
+     "round_to_sig_digits": 0.2,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 10.0
+    },
+    {
+     "case": 19,
+     "differ": true,
+     "excel_trunc": 0.695,
+     "excel_would_round_to": 0.696,
+     "group": "member_ties",
+     "lo": [
+      "n",
+      0.696
+     ],
+     "n": 24,
+     "round_to_sig_digits": 0.696,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 20.0
+    },
+    {
+     "case": 20,
+     "differ": true,
+     "excel_trunc": 0.06,
+     "excel_would_round_to": 0.07,
+     "group": "between",
+     "lo": [
+      "n",
+      0.069
+     ],
+     "n": 8,
+     "round_to_sig_digits": 0.069,
+     "sig": 2,
+     "sig_given": true,
+     "verdict": "ROUNDS_SIG",
+     "x": 3.0541
+    },
+    {
+     "case": 21,
+     "differ": true,
+     "excel_trunc": 0.29711,
+     "excel_would_round_to": 0.29712,
+     "group": "between",
+     "lo": [
+      "n",
+      0.29712
+     ],
+     "n": 40,
+     "round_to_sig_digits": 0.29712,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 183.2954
+    },
+    {
+     "case": 22,
+     "differ": true,
+     "excel_trunc": 0.1337,
+     "excel_would_round_to": 0.1338,
+     "group": "between",
+     "lo": [
+      "n",
+      0.1338
+     ],
+     "n": 40,
+     "round_to_sig_digits": 0.1338,
+     "sig": 4,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 87.409
+    },
+    {
+     "case": 23,
+     "differ": true,
+     "excel_trunc": 0.414,
+     "excel_would_round_to": 0.415,
+     "group": "between",
+     "lo": [
+      "n",
+      0.415
+     ],
+     "n": 27,
+     "round_to_sig_digits": 0.415,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 189.7496
+    },
+    {
+     "case": 24,
+     "differ": true,
+     "excel_trunc": 0.869,
+     "excel_would_round_to": 0.87,
+     "group": "between",
+     "lo": [
+      "n",
+      0.87
+     ],
+     "n": 17,
+     "round_to_sig_digits": 0.87,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 453.1609
+    },
+    {
+     "case": 25,
+     "differ": true,
+     "excel_trunc": 0.1742,
+     "excel_would_round_to": 0.1743,
+     "group": "between",
+     "lo": [
+      "n",
+      0.1743
+     ],
+     "n": 5,
+     "round_to_sig_digits": 0.1743,
+     "sig": 4,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 233.7345
+    },
+    {
+     "case": 26,
+     "differ": true,
+     "excel_trunc": 0.11,
+     "excel_would_round_to": 0.111,
+     "group": "between",
+     "lo": [
+      "n",
+      0.111
+     ],
+     "n": 9,
+     "round_to_sig_digits": 0.111,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 124.7439
+    },
+    {
+     "case": 27,
+     "differ": true,
+     "excel_trunc": 0.66838,
+     "excel_would_round_to": 0.66839,
+     "group": "between",
+     "lo": [
+      "n",
+      0.66839
+     ],
+     "n": 35,
+     "round_to_sig_digits": 0.66839,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 298.8127
+    },
+    {
+     "case": 28,
+     "differ": true,
+     "excel_trunc": 0.99309,
+     "excel_would_round_to": 0.9931,
+     "group": "between",
+     "lo": [
+      "n",
+      0.9931
+     ],
+     "n": 12,
+     "round_to_sig_digits": 0.9931,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 468.063
+    },
+    {
+     "case": 29,
+     "differ": true,
+     "excel_trunc": 0.808,
+     "excel_would_round_to": 0.809,
+     "group": "between",
+     "lo": [
+      "n",
+      0.809
+     ],
+     "n": 33,
+     "round_to_sig_digits": 0.809,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 416.5255
+    },
+    {
+     "case": 30,
+     "differ": false,
+     "excel_trunc": 0.6,
+     "excel_would_round_to": 0.6,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.6
+     ],
+     "n": 23,
+     "round_to_sig_digits": 0.6,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 349.43
+    },
+    {
+     "case": 31,
+     "differ": false,
+     "excel_trunc": 0.1,
+     "excel_would_round_to": 0.1,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.1
+     ],
+     "n": 27,
+     "round_to_sig_digits": 0.1,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 18.64
+    },
+    {
+     "case": 32,
+     "differ": false,
+     "excel_trunc": 0.83,
+     "excel_would_round_to": 0.83,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.83
+     ],
+     "n": 37,
+     "round_to_sig_digits": 0.83,
+     "sig": 2,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 408.12
+    },
+    {
+     "case": 33,
+     "differ": false,
+     "excel_trunc": 0.99,
+     "excel_would_round_to": 0.99,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.99
+     ],
+     "n": 18,
+     "round_to_sig_digits": 0.99,
+     "sig": 2,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 486.3736
+    },
+    {
+     "case": 34,
+     "differ": false,
+     "excel_trunc": 0.07,
+     "excel_would_round_to": 0.07,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.074
+     ],
+     "n": 13,
+     "round_to_sig_digits": 0.074,
+     "sig": 2,
+     "sig_given": true,
+     "verdict": "ROUNDS_SIG",
+     "x": 58.3502
+    },
+    {
+     "case": 35,
+     "differ": false,
+     "excel_trunc": 0.996,
+     "excel_would_round_to": 0.996,
+     "group": "control_equal",
+     "lo": [
+      "n",
+      0.996
+     ],
+     "n": 16,
+     "round_to_sig_digits": 0.996,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 482.2616
+    },
+    {
+     "case": 36,
+     "differ": false,
+     "excel_trunc": 0.0,
+     "excel_would_round_to": 0.0,
+     "group": "edge_min",
+     "lo": [
+      "n",
+      0.0
+     ],
+     "n": 4,
+     "round_to_sig_digits": 0.0,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 10.0
+    },
+    {
+     "case": 37,
+     "differ": false,
+     "excel_trunc": 1.0,
+     "excel_would_round_to": 1.0,
+     "group": "edge_max",
+     "lo": [
+      "n",
+      1.0
+     ],
+     "n": 4,
+     "round_to_sig_digits": 1.0,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "PASS",
+     "x": 40.0
+    },
+    {
+     "case": 38,
+     "differ": false,
+     "excel_trunc": "#N/A",
+     "excel_would_round_to": null,
+     "group": "edge_below",
+     "lo": [
+      "e",
+      "#VALUE!"
+     ],
+     "n": 4,
+     "round_to_sig_digits": null,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "DIVERGENCE",
+     "x": 9.0
+    },
+    {
+     "case": 39,
+     "differ": false,
+     "excel_trunc": "#N/A",
+     "excel_would_round_to": null,
+     "group": "edge_above",
+     "lo": [
+      "e",
+      "#VALUE!"
+     ],
+     "n": 4,
+     "round_to_sig_digits": null,
+     "sig": 5,
+     "sig_given": true,
+     "verdict": "DIVERGENCE",
+     "x": 41.0
+    },
+    {
+     "case": 40,
+     "differ": true,
+     "excel_trunc": 0.363,
+     "excel_would_round_to": 0.364,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.364
+     ],
+     "n": 12,
+     "round_to_sig_digits": 0.364,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 215.65
+    },
+    {
+     "case": 41,
+     "differ": true,
+     "excel_trunc": 0.305,
+     "excel_would_round_to": 0.306,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.306
+     ],
+     "n": 37,
+     "round_to_sig_digits": 0.306,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 71.26
+    },
+    {
+     "case": 42,
+     "differ": true,
+     "excel_trunc": 0.0,
+     "excel_would_round_to": 0.1,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.06
+     ],
+     "n": 33,
+     "round_to_sig_digits": 0.06,
+     "sig": 1,
+     "sig_given": true,
+     "verdict": "ROUNDS_SIG",
+     "x": -39.43
+    },
+    {
+     "case": 43,
+     "differ": true,
+     "excel_trunc": 0.384,
+     "excel_would_round_to": 0.385,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.385
+     ],
+     "n": 14,
+     "round_to_sig_digits": 0.385,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 20.0
+    },
+    {
+     "case": 44,
+     "differ": true,
+     "excel_trunc": 0.827,
+     "excel_would_round_to": 0.828,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.828
+     ],
+     "n": 30,
+     "round_to_sig_digits": 0.828,
+     "sig": 3,
+     "sig_given": true,
+     "verdict": "ROUNDS",
+     "x": 25.0
+    },
+    {
+     "case": 45,
+     "differ": true,
+     "excel_trunc": 0.785,
+     "excel_would_round_to": 0.786,
+     "group": "spelling_INC",
+     "lo": [
+      "n",
+      0.786
+     ],
+     "n": 15,
+     "round_to_sig_digits": 0.786,
+     "sig": 3,
+     "sig_given": false,
+     "verdict": "ROUNDS",
+     "x": 25.0
+    }
+   ],
+   "tally": {
+    "OTHER": 0,
+    "ROUNDS": 32,
+    "ROUNDS_SIG": 3,
+    "TRUNCATES": 0
+   },
+   "verdict": "ROUNDS (decimal places for raw >= 0.1, significant digits below)"
+  },
+  "pr_shape": {
+   "all_equal": {
+    "cells": 533,
+    "cells_that_differ_from_excel_model": 0,
+    "differ_trunc_vs_round": 0,
+    "equal_authority": 533,
+    "equal_exact_trunc": 533,
+    "equal_round": 533,
+    "equal_round_sig": 533,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 533,
+    "rewrite_B_trunc_rank_count": 533
+   },
+   "distinct": {
+    "cells": 533,
+    "cells_that_differ_from_excel_model": 283,
+    "differ_trunc_vs_round": 264,
+    "equal_authority": 250,
+    "equal_exact_trunc": 250,
+    "equal_round": 483,
+    "equal_round_sig": 533,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 533,
+    "rewrite_B_trunc_rank_count": 533
+   },
+   "iferror_shape": {
+    "blank_x": [
+     "n",
+     0.47446
+    ],
+    "empty_string_x": [
+     "n",
+     -1.0
+    ],
+    "note": "fallback -1 means PERCENTRANK errored; Excel: blank x = 0, text and \"\" = #VALUE! (documented, not Excel-run)",
+    "text_x": [
+     "n",
+     -1.0
+    ]
+   },
+   "signed": {
+    "cells": 533,
+    "cells_that_differ_from_excel_model": 281,
+    "differ_trunc_vs_round": 262,
+    "equal_authority": 252,
+    "equal_exact_trunc": 252,
+    "equal_round": 485,
+    "equal_round_sig": 533,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 533,
+    "rewrite_B_trunc_rank_count": 533
+   },
+   "tie_clusters": {
+    "cells": 533,
+    "cells_that_differ_from_excel_model": 285,
+    "differ_trunc_vs_round": 264,
+    "equal_authority": 248,
+    "equal_exact_trunc": 248,
+    "equal_round": 488,
+    "equal_round_sig": 533,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 533,
+    "rewrite_B_trunc_rank_count": 533
+   },
+   "with_blanks": {
+    "cells": 491,
+    "cells_that_differ_from_excel_model": 262,
+    "differ_trunc_vs_round": 240,
+    "equal_authority": 229,
+    "equal_exact_trunc": 229,
+    "equal_round": 447,
+    "equal_round_sig": 491,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 491,
+    "rewrite_B_trunc_rank_count": 491
+   },
+   "zeros_30pct": {
+    "cells": 533,
+    "cells_that_differ_from_excel_model": 186,
+    "differ_trunc_vs_round": 186,
+    "equal_authority": 347,
+    "equal_exact_trunc": 347,
+    "equal_round": 533,
+    "equal_round_sig": 533,
+    "other": 0,
+    "rewrite_A_trunc_percentrank15": 533,
+    "rewrite_B_trunc_rank_count": 533
+   }
+  }
+ },
+ "office_calc_image": {
+  "built_from": "compute/integration-1 bf9233aba (ops/)",
+  "id": "sha256:bcda0b5acbb30b693d844592bb61370e83637672696a44269b055f52a7b957d3",
+  "libreoffice": "LibreOffice 25.2.3.2 (4:25.2.3-2+deb13u8)",
+  "tag": "office-calc:local-bf9233aba"
+ },
+ "probe_workbook_sha256": {
+  "average": "4d79d2b84dfdaf13a40e86abfbfe977c9d0dfeb5405dc4528ed8784d6b68aa9e",
+  "avg_forms": "edef99e0ceb151a0061c78a2caa77b1346c0c40423371dd1282acf858c26be97",
+  "avg_shape": "0b58a6e5f52df002e14504652b2c1fd02ea966b9484ff93552b7c164105907da",
+  "iferror": "6b36e5a4c008f5c370b36e6b7a0b046b7ee9248b12a929621cd3526b30612c88",
+  "percentrank": "be878d9e9e763b85cc8f2e80f0beb9f79570444c27e1600df32c0a2cf838fa69",
+  "pr_shape": "0a028739689ac4b27a67fd6ce2a349a3d3e65d46090a04188ffb6f54f20958cd"
+ },
+ "recorded": "2026-10-12",
+ "what": "lo_probe.py run + excel + oracle on the synthetic probe workbooks (no real workbook opened). 'lo' = office-calc image; 'excel' = Excel recalculation of the same files in a separate instance."
+}

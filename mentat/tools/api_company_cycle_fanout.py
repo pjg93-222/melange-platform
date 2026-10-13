@@ -37,6 +37,7 @@ from typing import Any, Iterable, Sequence
 
 from sqlite_snapshot import create_snapshot, verify_database
 from fec_key_store import load_keys
+from mentat_env import seam
 from api_request_pool import RequestPool
 from merge_company_shards import (
     committed_merge_lease, content_sha256, file_sha256, merge_lock_path,
@@ -1048,7 +1049,7 @@ def parse_arguments(arguments: Sequence[str]) -> argparse.Namespace:
     parser.add_argument(
         "--rscript-path",
         type=Path,
-        default=Path(r"C:\Program Files\R\R-4.6.0\bin\Rscript.exe"),
+        default=Path(seam("MENTAT_RSCRIPT")),
     )
     parser.add_argument("--r-library-path", type=Path)
     parser.add_argument(

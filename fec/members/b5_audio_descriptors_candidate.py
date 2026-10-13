@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, MELANGE_DATA, to_host
 """Build fail-closed, direct audio delivery measurements (candidate; consumed by NOTHING).
 
 This replaces the narrative layer's unsupported proxy translations.  ``loudnessPeaksPerSec`` is not
@@ -79,8 +79,8 @@ def _manifest_clip(raw, manifest_rows):
             'source_audio_sha256':'source_audio_sha256'}
     for stored,source in checks.items():
         if binding.get(stored)!=row.get(source): errors.append('manifest binding mismatch: '+stored)
-    path=os.path.realpath(str(row.get('out_wav') or ''))
-    allowed=os.path.realpath(r'C:\melange-data')
+    path=os.path.realpath(to_host(str(row.get('out_wav') or '')))
+    allowed=os.path.realpath(MELANGE_DATA)
     try:
         if os.path.commonpath((path,allowed))!=allowed: errors.append('manifest audio path escapes accepted root')
     except ValueError:

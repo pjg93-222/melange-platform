@@ -33,7 +33,7 @@ in the browser from an inverted index rather than materialized, because the
 materialized join is roughly twenty times larger than the data it joins.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 
 import argparse
 import csv
@@ -120,10 +120,7 @@ COVERAGE_NOTE = (
 
 
 def _default_data_root():
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if not local_appdata:
-        raise IngestError("LOCALAPPDATA is not set; pass --data-root")
-    return os.path.join(local_appdata, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _input_paths(data_root, ledger_dir=None, **identity_paths):

@@ -3,8 +3,8 @@ import json,sys,os,collections
 import moneyball_core as MC   # QME 2026-10-01: kernel only (import-safe) -- stance_gate_tiers/STANCE_GATE_BLOCKED for the gate checks
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-CO=json.load(open(B+r'\data\money\budget_frontier.json')); EL=json.load(open(B+r'\data\money\budget_frontier_electoral.json'))
-EP=json.load(open(B+r'\data\money\electoral_plays.json'))
+CO=json.load(open(os.path.join(B, 'data', 'money', 'budget_frontier.json'))); EL=json.load(open(os.path.join(B, 'data', 'money', 'budget_frontier_electoral.json')))
+EP=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json')))
 P,F=[],[]
 def ck(name,cond,detail=''):
     (P if cond else F).append(name); print(('  OK  ' if cond else 'FAIL  ')+name+(' :: '+detail if detail and not cond else ''))
@@ -46,7 +46,7 @@ ck('defend seeds are gated allies',dbad==0,'%d mismatched'%dbad)
 # Defender/Ally). A missing/unreadable category_stance fails the check rather than skipping (keeps the ck count fixed).
 GATE_ON=os.environ.get('FRONTIER_STANCE_GATE','1')!='0'
 try:
-    _CSD=json.load(open(os.environ.get('CATSTANCE',B+r'\category_stance.json'))); _cs_ok=True
+    _CSD=json.load(open(os.environ.get('CATSTANCE',os.path.join(B, 'category_stance.json')))); _cs_ok=True
 except Exception: _CSD={'matrix':{}}; _cs_ok=False
 def _tiers(names): return MC.stance_gate_tiers(_CSD,sorted(set(names)))
 _dseeds=[p['seed'] for d in EL['topics'].values() for p in d['path'][1:] if p.get('type')=='defend']
@@ -78,7 +78,7 @@ for t,d in EL['topics'].items():
 # audit_full) and (b) a party-blind receptivity gate — so test the GATES directly, and only enforce the
 # entry proportion when the sample is big enough to mean something (n>=12).
 try:
-    _rc=json.load(open(B+r'\member_receptivity.json'))['members']
+    _rc=json.load(open(os.path.join(B, 'member_receptivity.json')))['members']
     _gd=[max(0.15,_rc[m]['seed_prob']*0.35) for m,d in EP.items() if d.get('play')=='contest' and d.get('party')=='D']
     _gr=[max(0.15,_rc[m]['seed_prob']*0.35) for m,d in EP.items() if d.get('play')=='contest' and d.get('party')=='R']
     _gap=(abs(sum(_gd)/len(_gd)-sum(_gr)/len(_gr)) if _gd and _gr else None)

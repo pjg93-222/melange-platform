@@ -71,9 +71,9 @@ param(
   [string]$RosterPath = '',
   [string]$GeneratorPath = '',
   [string]$RScriptPath =
-    'C:\Program Files\R\R-4.6.0\bin\Rscript.exe',
+    $(if ($env:MENTAT_RSCRIPT) { $env:MENTAT_RSCRIPT } else { 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' }),
   [string]$RLibraryPath =
-    'C:\Users\pgoff\AppData\Local\R\win-library\4.6',
+    $(if ($env:MENTAT_R_LIBRARY) { $env:MENTAT_R_LIBRARY } else { 'C:\Users\pgoff\AppData\Local\R\win-library\4.6' }),
   [string]$PythonPath = '',
   [string]$ExcelMutexName = 'Global\MentatIndustryExcelFinalize',
   [switch]$NoCache,

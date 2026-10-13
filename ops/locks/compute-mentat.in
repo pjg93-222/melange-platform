@@ -1,0 +1,29 @@
+# Python inputs of the Mentat compute image (ops/docker/compute-mentat.Dockerfile), CPython 3.12.10 (D-172).
+# Source: mentat/requirements-console.txt on codex/mentat-crypto (902285f8a), which pins exactly what the Windows venv
+# %LOCALAPPDATA%\Mentat\venv (CPython 3.12.10) holds: the 19 packages below, checked against its dist-info 2026-10-12.
+# An AST census of mentat/app, mentat/tools, mentat/forecast and mentat/tests finds no other third-party import that a
+# scheduled or console job reaches. Left out on purpose, because the host has them nowhere (nothing to match):
+#   scipy, statsmodels  tools/build_giving_models.py (manual J6 giving-model freeze, unpinned)
+#   matplotlib          forecast/partisan_dollars/plot_bounded_results.py (research plot)
+#   cryptography        mentat/tests/test_hosted_mode.py only
+#   python-calamine     optional reader in app/evidence_csv.py; the console has never run with it
+# pip compile is not used: every transitive pin is already here, and the resolver run that makes the lock checks that.
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+geopandas==1.1.4
+shapely==2.1.2
+pyproj==3.8.0
+pyogrio==0.13.0
+pyarrow==24.0.0
+pandas==3.0.1
+numpy==2.3.5
+python-dateutil==2.9.0.post0
+six==1.17.0
+tzdata==2026.3
+packaging==26.3
+certifi==2026.7.22
+psutil==7.2.2
+geopy==2.5.0
+geographiclib==2.1

@@ -3,6 +3,7 @@ import os as _o,sys as _s
 _s.path.insert(0,_o.path.dirname(_o.path.abspath(__file__)))
 from paths import DRAFT as MB_DRAFT
 from paths import ROOT as MB_ROOT
+from paths import LOCAL_MELANGE
 
 """Canonical fail-closed Moneyball pipeline runner.
 
@@ -395,7 +396,7 @@ def _record_tolerated(receipt_path,entry=None,reset=False):
     if parent:
         os.makedirs(parent,exist_ok=True)
     tmp='%s.%d.tmp'%(receipt_path,os.getpid())
-    with open(tmp,'w',encoding='utf-8') as f:
+    with open(tmp,'w',encoding='utf-8', newline='\r\n') as f:
         json.dump(entries,f,indent=2)
     os.replace(tmp,receipt_path)
     return entries
@@ -424,7 +425,7 @@ def _prune_tolerated(receipt_path,steps_in_slice,full_reset):
     if parent:
         os.makedirs(parent,exist_ok=True)
     tmp='%s.%d.tmp'%(receipt_path,os.getpid())
-    with open(tmp,'w',encoding='utf-8') as f:
+    with open(tmp,'w',encoding='utf-8', newline='\r\n') as f:
         json.dump(entries,f,indent=2)
     os.replace(tmp,receipt_path)
     return entries
@@ -466,9 +467,7 @@ for _chain_script,_chain_args in CHAIN:
 # so skipping them can never move ranks.
 _DEMO_DATA_ROOT=os.environ.get('DEMO_DATA_ROOT')
 if not _DEMO_DATA_ROOT:
-    _DEMO_DATA_ROOT=os.path.join(
-        os.environ.get('LOCALAPPDATA') or os.path.expanduser(r'~\AppData\Local'),
-        'Melange','demographics')
+    _DEMO_DATA_ROOT=os.path.join(LOCAL_MELANGE,'demographics')
 OPTIONAL_INPUTS={
     # The collector->ledger gate needs the previous desk bundle AND a completed weekly bill
     # scrape. In a fresh or data-isolated worktree those are absent, and a clean skip is
@@ -512,8 +511,7 @@ OPTIONAL_INPUTS={
         'staffer_social_network_verification_receipt.json',
         'audits/staffer_network/tiered_corroboration_sidecar_20260907_v3_primary',
         os.path.join(
-            os.environ.get('LOCALAPPDATA') or os.path.expanduser(r'~\AppData\Local'),
-            'Melange','staffer_network','normalized','lda-source-native',
+            LOCAL_MELANGE,'staffer_network','normalized','lda-source-native',
             'generation-20260830T231200Z'),
     ),
     'make_staffer_network_html.py':'data/engine/staffer_network_section.json',

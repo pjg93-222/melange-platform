@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root
+import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,today  # centralized root
 """PYTHON RANK AUTHORITY — roadmap #9 phase 2 (system-of-record inversion, user sign-off 2026-07-02).
 
 Python computes the ENTIRE rank chain from raw inputs; the workbook is a self-refreshing VIEW
@@ -40,7 +40,7 @@ from engine.pillar_policy import PILLAR_WEIGHTS, scoring_policy
 from engine.effectiveness_integration import legislative_percentiles
 B=MB_ROOT
 WRITE='--write' in sys.argv
-wb=openpyxl.load_workbook(B+r'\Moneyball Main Version - Blended.xlsx',data_only=True)   # NOT read_only (random-access pathology; empty reads on openpyxl-saved files)
+wb=openpyxl.load_workbook(os.path.join(B, 'Moneyball Main Version - Blended.xlsx'),data_only=True)   # NOT read_only (random-access pathology; empty reads on openpyxl-saved files)
 pn=wb['Press Release - Normalized']; ra=wb['Rank & Allocation']; bm=wb['Blended Model']
 # Member roster from R&A col A (TYPED values — survives openpyxl saves; Blended col A is formula-backed
 # and its cache dies whenever sync/blend save the workbook: the openpyxl-save/cached-value dragon).
@@ -61,7 +61,7 @@ def percentrank(vals,x):
 # only revive when the user opens+saves in Excel. They change ONLY via user edits in Excel (which
 # restores caches), so: read live when alive (+ refresh the snapshot), else fall back to the snapshot.
 # Bootstrap: newest cache-alive workbook in backups/ (pre-write copies are Excel-saved).
-SNAP=B+r'\data\engine\pillar_inputs_snapshot.json'
+SNAP=os.path.join(B, 'data', 'engine', 'pillar_inputs_snapshot.json')
 def _read_OEF(bmx,rows):
     o={m:bmx.cell(rows[m],15).value for m in members}
     e={m:bmx.cell(rows[m],5).value  for m in members}
@@ -102,7 +102,7 @@ else:
             print('  (view cache dead -> O/E/F from snapshot%s; they change only via user Excel edits, which revive the cache)'%_agenote)
         except FileNotFoundError:
             import glob as _g
-            cands=sorted(_g.glob(B+r'\backups\*.xlsx'),key=os.path.getmtime,reverse=True)
+            cands=sorted(_g.glob(os.path.join(B, 'backups', '*.xlsx')),key=os.path.getmtime,reverse=True)
             for cb in cands:
                 try:
                     _wb2=openpyxl.load_workbook(cb,data_only=True); _bm2=_wb2['Blended Model']
@@ -119,11 +119,11 @@ else:
                 print('FATAL: no O/E/F source (view dead, no snapshot, no cache-alive backup)'); sys.exit(1)
 # Formal chamber/party office is display-only public-exposure context. The registry is validated and
 # shipped beside the rank decomposition, but its hand-entered weights do not modify Influence or rank.
-ROLE_PATH=B+r'\data\members\formal_visibility_roles.json'
+ROLE_PATH=os.path.join(B, 'data', 'members', 'formal_visibility_roles.json')
 try:
     _roles=json.load(open(ROLE_PATH,encoding='utf-8'))
     if _roles.get('schema')!='party-elite-influence-roles-v3': raise ValueError('schema mismatch')
-    if datetime.date.today()>=datetime.date.fromisoformat(_roles['valid_until']): raise ValueError('registry expired')
+    if today()>=datetime.date.fromisoformat(_roles['valid_until']): raise ValueError('registry expired')
     _unknown=sorted(set((_roles.get('members') or {}))-set(members))
     if _unknown: raise ValueError('unknown roster names: %s'%_unknown[:3])
     _not_elite=sorted(m for m,v in (_roles.get('members') or {}).items() if v.get('role_type')!='party_elite')
@@ -141,7 +141,7 @@ except (FileNotFoundError,KeyError,ValueError) as _e:
 # registry for the new Congress; do NOT just extend valid_until, which hides a stale roster.
 ROLE_EXPIRY_WARN=''
 try:
-    _dleft=(datetime.date.fromisoformat(_roles['valid_until'])-datetime.date.today()).days
+    _dleft=(datetime.date.fromisoformat(_roles['valid_until'])-today()).days
     if _dleft<=120:
         ROLE_EXPIRY_WARN='!! ROLE REGISTRY EXPIRES IN %d DAYS (%s) - CHAIN WILL FATAL HERE !! '%(_dleft,_roles['valid_until'])
         print('WARNING: data/members/formal_visibility_roles.json expires in %d days (%s). compute_pillars will'
@@ -248,7 +248,7 @@ if WRITE:
                                  'committee_overlap_excluded':sum(ROLE_REASON[m]=='committee_leadership_already_in_base' for m in members),
                                  'contract':'formal office is display-only public-exposure context; no office weight modifies Influence or rank'},
         'provenance':'python rank authority (compute_pillars --write); press sentiment is active at a diminished 10% weight and may affect labels; legislative action is 45%; influence = workbook committee score only; formal office is display-only context and does not modify rank'},
-        B+r'\ranks_python.json')
+        os.path.join(B, 'ranks_python.json'))
     # NOTE the warning PREFIXES this line: run_pipeline truncates the step's last line at 90 chars
     # and this line already exceeds that, so a suffix would be silently cut off and never seen.
     print('%swrote ranks_python.json (rank authority): %d members | %d formal-office contexts display-only | %d committee overlaps noted | workbook view %s'%(
@@ -270,7 +270,7 @@ if coherent:
 else:
     print('view STALE (expected between pipeline runs and Excel opens) -> verifying the AUTHORITY instead')
 try:
-    auth=json.load(open(B+r'\ranks_python.json'))
+    auth=json.load(open(os.path.join(B, 'ranks_python.json')))
     amis=[m for m in members if abs(auth['score'].get(m,-1)-score[m])>1e-12 or auth['rank'].get(m)!=rank[m]]
     if amis:
         print('SHIPPED AUTHORITY PARITY: AUTHORITY STALE — ranks_python.json does not match current inputs (%d members, e.g. %s). Rerun the pipeline.'%(len(amis),amis[:3])); sys.exit(1)

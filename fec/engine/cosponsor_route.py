@@ -10,8 +10,8 @@ K=int(os.environ.get('K','5'))               # recruitment bandwidth: a member p
 CEDGE=float(os.environ.get('CEDGE','10000')) # base $ per recruitment ask
 TOPIC=os.environ.get('TOPIC','Interchange')
 PRO={'Champion','Defender','Ally'}
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=list(C.keys())
-CS=json.load(open(B+r'\category_stance.json')); MAT=CS['matrix']; cats=CS['cats']
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=list(C.keys())
+CS=json.load(open(os.path.join(B, 'category_stance.json'))); MAT=CS['matrix']; cats=CS['cats']
 cat=[c for c in cats if TOPIC.lower() in c.lower()][0]
 adj=MBC.load_network()
 # N-1 (audit 2026-07-08): use the ONE shared cascade kernel. MBC.build_P applies bridge-amplified

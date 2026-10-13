@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from paths import ROOT
+import compute_engine
 from lane_file_io import replace_atomic
 from pipeline_lock import pipeline_run_lock, child_lock_environment
 from process_liveness import process_alive
@@ -336,8 +337,12 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
             step_start = time.time()
             last_beat = 0.0
             with log_path.open("w", encoding="utf-8") as log:
-                process = subprocess.Popen([sys.executable, str(CODE / script), *arguments],
-                                           cwd=root, env=environment, stdout=log, stderr=subprocess.STDOUT)
+                # Collector steps follow the collect engine (ops/compute/engines.json); the chain step stays on the host, where
+                # this process holds the writer lease. Engine 'windows' (the default): the same argv and environment as always.
+                spec = compute_engine.launch(str(CODE / script), arguments, phases=("collect",), root=root, cwd=root,
+                                             environ=environment)
+                process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
+                                           stdout=log, stderr=subprocess.STDOUT)
                 try:
                     while process.poll() is None:
                         try:
@@ -360,6 +365,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                 except BaseException:
                     if process.poll() is None:
                         terminate_tree(process)
+                    compute_engine.reap(spec)
                     raise
             return step_start, process.returncode, round(time.time() - step_start, 2)
 

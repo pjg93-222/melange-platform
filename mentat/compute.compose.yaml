@@ -1,0 +1,171 @@
+# Mentat compute jobs, one service per job (D-173..D-182). Run through tools/run_job.ps1, never by hand:
+#   docker compose -f compute.compose.yaml run --rm --no-deps <job> run <job> --run-id <id> -- <job arguments>
+# The image is built in CI (ghcr.io/pjg93-222/compute-mentat) and runs by digest only; code and data are mounted, never baked
+# (D-175), so the container runs the tree that is on disk, exactly as the Windows job does. tests/test_compute_job.py enforces:
+#   - every service: read-only root, uid 10001, cap_drop ALL, no-new-privileges, tmpfs /tmp, memory/cpu/pid limits, no ports;
+#   - network only for the two jobs that call the FEC API (collect-fanout, pac-evidence); every other service has none;
+#   - the FEC keys are a Docker secret file (read-only, /run/secrets/fec_api_keys), staged per run by compute_secrets.py;
+#   - /mentat (code, state, inputs, caches) is read-only; each job gets a rw mount only where it writes, and no bind mount is
+#     ever created on the host by Docker (create_host_path: false).
+# Host paths arrive as forward-slash variables from run_job.ps1: DIGEST, MENTAT_HOST (C:/Users/pgoff/Mentat), LOCALAPPDATA_HOST,
+# GLASSBOX_HOST are required; the rest only for the job that mounts them (an unset one fails that job with "bind source does not exist").
+# ANCHORS_OUT_HOST, when set, replaces the live state/giving-anchors folder as the anchors job's output (a parity run writes to scratch).
+name: mentat-compute
+
+x-job: &job
+  image: ghcr.io/pjg93-222/compute-mentat@${DIGEST:?DIGEST must be the sha256:... digest in the image lock; run_job.ps1 sets it}
+  entrypoint: ["python", "/mentat/mentat/tools/compute_job.py"]
+  working_dir: /mentat/mentat
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=2g,mode=1777,noexec,nosuid"]
+  init: true
+  restart: "no"
+  pids_limit: 512
+  logging: {driver: local, options: {max-size: 20m, max-file: "5"}}
+  environment: &env
+    TZ: America/Chicago
+    HOME: /tmp
+    PYTHONDONTWRITEBYTECODE: "1"
+    LOCALAPPDATA: /localappdata
+    MENTAT_REPORT_DIRECTORY: /reports
+    MENTAT_COMPUTE_RECEIPT_DIR: /localappdata/Mentat/compute/receipts
+    GLASSBOX_EVENTS_DIR: /glassbox/events
+    ANCHORS_GLASSBOX_DIR: /glassbox/events
+    RF_GLASSBOX_DIR: /glassbox/events
+    MENTAT_RSCRIPT: /usr/local/bin/Rscript
+
+x-mounts:
+  mentat: &m-mentat {type: bind, source: "${MENTAT_HOST:?MENTAT_HOST is the Windows Mentat tree, for example C:/Users/pgoff/Mentat}", target: /mentat, read_only: true, bind: {create_host_path: false}}
+  receipts: &m-receipts {type: bind, source: "${LOCALAPPDATA_HOST:?LOCALAPPDATA_HOST is %LOCALAPPDATA% with forward slashes}/Mentat/compute/receipts", target: /localappdata/Mentat/compute/receipts, bind: {create_host_path: false}}
+  glassbox: &m-glassbox {type: bind, source: "${GLASSBOX_HOST:?GLASSBOX_HOST is the Glass Box events folder}", target: /glassbox/events, bind: {create_host_path: false}}
+  reports: &m-reports {type: bind, source: "${REPORTS_HOST:-/unset/REPORTS_HOST}", target: /reports, read_only: true, bind: {create_host_path: false}}
+  refit-runtime: &m-refit-runtime {type: bind, source: "${LOCALAPPDATA_HOST}/Mentat/forecast/refit", target: /localappdata/Mentat/forecast/refit, bind: {create_host_path: false}}
+
+services:
+  # MentatNightlyAnchors (03:30, 45 min). Reads the published workbooks, the analytics indexes, the FEC bulk files and Melange's LDA
+  # output; writes only state/giving-anchors.
+  anchors:
+    <<: *job
+    command: ["run", "anchors"]
+    network_mode: none
+    mem_limit: 6g
+    cpus: 2
+    volumes:
+      - *m-mentat
+      - {type: bind, source: "${ANCHORS_OUT_HOST:-${MENTAT_HOST}/mentat/state/giving-anchors}", target: /mentat/mentat/state/giving-anchors, bind: {create_host_path: false}}
+      - *m-reports
+      # The two files the anchors build reads from Melange, read-only, and nothing else under Melange (least privilege, decided 2026-10-12):
+      # forecast/anchors/build_giving_anchors.py:103-105 (sector_spend.csv) and :368 (fullscope_receipts.json, one folder up). The rest of
+      # LOCALAPPDATA/Melange (lda_rebuild keys and backups, dashboard_password.txt, the other data folders) is not visible to this job.
+      - {type: bind, source: "${LOCALAPPDATA_HOST}/Melange/lda_rebuild/derived/sector_spend/sector_spend.csv", target: /localappdata/Melange/lda_rebuild/derived/sector_spend/sector_spend.csv, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${LOCALAPPDATA_HOST}/Melange/lda_rebuild/derived/fullscope_receipts.json", target: /localappdata/Melange/lda_rebuild/derived/fullscope_receipts.json, read_only: true, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
+  # MentatRefitWatcher (04:00, 20 min): scans the report directory read-only, queues new industries under the refit runtime.
+  refit-detect:
+    <<: *job
+    command: ["run", "refit-detect"]
+    network_mode: none
+    mem_limit: 2g
+    cpus: 1
+    environment:
+      <<: *env
+      RF_RUNTIME: /localappdata/Mentat/forecast/refit
+      RF_REPORT_DIR: /reports
+    volumes:
+      - *m-mentat
+      - *m-reports
+      - *m-refit-runtime
+      - *m-receipts
+      - *m-glassbox
+
+  # Manual: rebuild the v1 bundle from the ~121 pinned raw inputs and compare. Every input root is its own read-only mount.
+  refit-parity: &refit-inputs
+    <<: *job
+    command: ["run", "refit-parity"]
+    network_mode: none
+    mem_limit: 12g
+    cpus: 8
+    environment:
+      <<: *env
+      RF_RUNTIME: /localappdata/Mentat/forecast/refit
+      RF_REPORT_DIR: /reports
+      REFIT_CORES: "4"
+      RF_ROOT_LOO: /inputs/loo
+      RF_ROOT_CHE: /inputs/che
+      RF_ROOT_ZIPC: /inputs/House_Senate_Control_Forecasts_CSV.zip
+      RF_ROOT_RLIBX: /inputs/loo/work/lobbying_followup/Rlib
+      RF_ROOT_SGSD: /mentat/sector_growth_study/data
+      RF_ROOT_SGSA: /mentat/sector_growth_study/archive/session_d613b40c_scratchpad
+    volumes:
+      - *m-mentat
+      - *m-reports
+      - *m-refit-runtime
+      - {type: bind, source: "${LOO_HOST:-/unset/LOO_HOST}", target: /inputs/loo, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${CHE_HOST:-/unset/CHE_HOST}", target: /inputs/che, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${ZIPC_HOST:-/unset/ZIPC_HOST}", target: /inputs/House_Senate_Control_Forecasts_CSV.zip, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${LOCALAPPDATA_HOST}/Mentat/forecast/ingest", target: /localappdata/Mentat/forecast/ingest, read_only: true, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
+  # Manual: the v2 refit. Never publishes (the job fixes --publish never; app/data is read-only here): a publish stays a host decision.
+  refit:
+    <<: *refit-inputs
+    command: ["run", "refit"]
+    mem_limit: 12g
+
+  # Console publish: inline a data snapshot into the pocket page. Pure function of its two inputs; no network.
+  pocket-build:
+    <<: *job
+    command: ["run", "pocket-build"]
+    network_mode: none
+    mem_limit: 1g
+    cpus: 1
+    volumes:
+      - *m-mentat
+      - {type: bind, source: "${POCKET_IN_HOST:-/unset/POCKET_IN_HOST}", target: /work/in, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${POCKET_OUT_HOST:-/unset/POCKET_OUT_HOST}", target: /work/out, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
+  # Industry report collect lane: the FEC API across key lanes (R lanes inside this container), source database and run folder on /collect.
+  collect-fanout:
+    <<: *job
+    command: ["run", "collect-fanout"]
+    networks: [collect]
+    secrets: [fec_api_keys]
+    mem_limit: 10g
+    cpus: 6
+    volumes:
+      - *m-mentat
+      - {type: bind, source: "${MENTAT_HOST}/mentat/.cache", target: /mentat/mentat/.cache, bind: {create_host_path: false}}
+      - {type: bind, source: "${COLLECT_HOST:-/unset/COLLECT_HOST}", target: /collect, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
+  # Console: dated, source-linked PAC legs from the FEC API.
+  pac-evidence:
+    <<: *job
+    command: ["run", "pac-evidence"]
+    networks: [collect]
+    secrets: [fec_api_keys]
+    mem_limit: 2g
+    cpus: 2
+    volumes:
+      - *m-mentat
+      - {type: bind, source: "${EVIDENCE_HOST:-/unset/EVIDENCE_HOST}", target: /evidence, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
+networks:
+  collect: {}
+
+# One file per run, written by compute_secrets.py under %LOCALAPPDATA%\Melange\compute\run\<id>\ and deleted when the run ends.
+# The default is only so a run that needs no keys can load this file; a collecting job refuses an empty secret.
+secrets:
+  fec_api_keys:
+    file: ${FEC_KEYS_FILE:-/dev/null}

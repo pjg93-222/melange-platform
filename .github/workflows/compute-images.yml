@@ -1,0 +1,261 @@
+# Exported to .github/workflows/compute-images.yml in pjg93-222/melange-platform.
+# Builds the compute-plane images (D-173, D-175): CI is the only builder and the laptop runs them by digest. One image so far,
+# compute-mentat; the Terrier and Melange lanes add their own jobs. digests.json is uploaded only after the smoke test, the
+# SBOM and the images gate have all passed on that digest. Runs on the same v* tags as release.yml, or by hand.
+# Automatic propagation (ops/RELEASE.md): the image is built only when its inputs changed (ops/image_inputs.json, the tag
+# inputs-<hash>); otherwise the digest already in GHCR is reused and the same smoke test, SBOM and gate run on it.
+#
+# Every action is pinned to a full commit SHA, the same ones release.yml uses (the tag it was resolved from is the trailing
+# comment); re-resolve with `gh api repos/<owner>/<repo>/commits/<tag> --jq .sha` when bumping one (ops/VPS.md, "Pin the actions").
+name: compute-images
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: compute-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: ghcr.io/pjg93-222/compute-mentat
+  # The image carries exactly the versions of ops/locks/r-packages.txt (the Windows machine's library): the base PPM date for the
+  # packages it serves at the lock version, a dated repo per package for the rest (ops/locks/r-package-repos.txt). These are
+  # exact per-package pins (decided 2026-10-12). The Dockerfile fails the build on any difference and the smoke test checks again on
+  # the pushed digest, so the accepted count is 0. Raising it would be a decision (Paul's), never a drift.
+  R_LOCK_MISMATCHES_ACCEPTED: "0"
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: write}
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Image tag (v<YYYY>.<MM>.<DD>.<n> on a tag push, dispatch-<run id> by hand)
+        id: tag
+        env: {REF_TYPE: "${{ github.ref_type }}", REF_NAME: "${{ github.ref_name }}", RUN_ID: "${{ github.run_id }}"}
+        run: |
+          # a ref name may hold commas (buildx splits `outputs:` on them) or other odd characters: nothing runs on one
+          if [ "$REF_TYPE" = tag ]; then
+            [[ "$REF_NAME" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || { echo "::error::tag does not match v<YYYY>.<MM>.<DD>.<n>"; exit 1; }
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dispatch-$RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Base images from ops/images.lock
+        id: base
+        run: |
+          set -euo pipefail
+          for k in debian node; do
+            dig=$(jq -r ".$k.digest" ops/images.lock)
+            if ! [[ "$dig" =~ ^sha256:[0-9a-f]{64}$ ]] || [[ "$dig" =~ ^sha256:0{64}$ ]]; then
+              echo "::error::ops/images.lock $k digest is a placeholder; resolve it (ops/VPS.md)"; exit 1
+            fi
+          done
+          {
+            echo "debian=$(jq -r '.debian.ref + "@" + .debian.digest' ops/images.lock)"
+            echo "node=$(jq -r '.node.ref + "@" + .node.digest' ops/images.lock)"
+            echo "epoch=$(git log -1 --format=%ct)"
+            echo "created=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
+      # The image is several GB and the runner's disk is small: drop toolchains this job never uses before building and pulling it.
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Input hash of this image
+        id: inputs
+        run: echo "hash=$(python3 ops/release_lib/inputs.py hash compute-mentat)" >> "$GITHUB_OUTPUT"
+      - name: Reuse the image built from the same inputs, if there is one
+        id: reuse
+        env: {HASH: "${{ steps.inputs.outputs.hash }}"}
+        run: bash ops/ci/build_or_reuse.sh check "$IMAGE_NAME" "$HASH"
+      - name: Build and push (tag for humans, digest for everything else)
+        id: push
+        if: steps.reuse.outputs.reused != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ops/docker/compute-mentat.Dockerfile
+          outputs: type=image,name=${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.tag }},push=true,rewrite-timestamp=true
+          # No layer cache, for the reason release.yml gives: whatever a cache entry holds would ride, unseen, into an image
+          # the laptop then runs with every key and the whole data plane.
+          no-cache: true
+          provenance: false
+          sbom: false
+          build-args: |
+            DEBIAN_BASE=${{ steps.base.outputs.debian }}
+            NODE_IMAGE=${{ steps.base.outputs.node }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.base.outputs.created }}
+            SOURCE_DATE_EPOCH=${{ steps.base.outputs.epoch }}
+      - name: Digest of this image (reused or just built)
+        id: image
+        env:
+          DIGEST: "${{ steps.reuse.outputs.reused == 'true' && steps.reuse.outputs.digest || steps.push.outputs.digest }}"
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+      # Smoke test of the pushed digest, run the way the laptop will run it: no network, read-only root, no capabilities. The
+      # expectations come from the repo (the lock files, images.lock, the Dockerfile's Chromium pin), not from the image.
+      - name: Smoke test inside the pushed image
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          sed -E '/^(#|[[:space:]]*$)/d; s/==.*//' ops/locks/r-packages.txt > pkgs
+          run() { docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges --tmpfs /tmp:rw,exec,size=1g "$@"; }
+
+          [ "$(run "$IMAGE" id -u)" = 10001 ]
+
+          # Python 3.12.10 and exactly the locked wheels
+          run -i -v "$PWD/ops/locks/compute-mentat.linux.txt:/tmp/py.lock:ro" "$IMAGE" python - <<'PY'
+          import importlib.metadata as md, re, sqlite3, ssl, sys, zlib
+          assert sys.version_info[:3] == (3, 12, 10), sys.version
+          n = 0
+          for line in open("/tmp/py.lock"):
+              m = re.match(r"([A-Za-z0-9_.-]+)==(\S+)", line)
+              if m:
+                  assert md.version(m[1]) == m[2], (m[1], md.version(m[1]), m[2])
+                  n += 1
+          assert n > 0
+          import openpyxl, jinja2, numpy, pandas, pyarrow, geopandas, shapely, pyproj, pyogrio, psutil, geopy, dateutil, certifi
+          print("python ok:", n, "pins | sqlite", sqlite3.sqlite_version, "| zlib", zlib.ZLIB_VERSION, "|", ssl.OPENSSL_VERSION)
+          PY
+
+          # R 4.6.0: every package of the lock loads, and the count that differs from the lock is the accepted one (0: exact pins)
+          run -i -e ACCEPTED="$R_LOCK_MISMATCHES_ACCEPTED" -v "$PWD/pkgs:/tmp/pkgs:ro" -v "$PWD/ops/locks/r-packages.txt:/tmp/r-packages.txt:ro" "$IMAGE" Rscript - <<'R'
+          stopifnot(R.version$major == "4", R.version$minor == "6.0")
+          # loadNamespace, not library(): attaching all 214 in one session fails on R.utils 2.13.0 after httr and others are attached
+          # ('verbose' is not an exported object), on the Windows machine's own R 4.6.0 library as well; a namespace load is the claim here
+          for (p in readLines("/tmp/pkgs")) loadNamespace(p)
+          lock <- trimws(readLines("/tmp/r-packages.txt"))
+          lock <- lock[nzchar(lock) & !startsWith(lock, "#")]
+          pkgs <- sub("==.*$", "", lock)
+          want <- sub("^.*==", "", lock)
+          have <- installed.packages()[pkgs, "Version"]
+          off <- which(have != want)
+          cat(sprintf("R lock: %d of %d packages differ\n", length(off), length(pkgs)))
+          cat(sprintf("  %s: lock %s, image %s\n", pkgs[off], want[off], have[off]), sep = "")
+          if (length(off) != as.integer(Sys.getenv("ACCEPTED"))) stop("expected ", Sys.getenv("ACCEPTED"), " packages to differ from the lock")
+          print(extSoftVersion()[c("BLAS", "ICU", "PCRE")])
+          R
+          # the reference BLAS and LAPACK (as Windows R), not the OpenBLAS that float and rsparse pull in
+          case "$(run "$IMAGE" readlink -f /usr/lib/x86_64-linux-gnu/libblas.so.3)" in */blas/libblas.so.3*) ;; *) echo "::error::BLAS is not the reference library"; exit 1;; esac
+          case "$(run "$IMAGE" readlink -f /usr/lib/x86_64-linux-gnu/liblapack.so.3)" in */lapack/liblapack.so.3*) ;; *) echo "::error::LAPACK is not the reference library"; exit 1;; esac
+          locale=$(run "$IMAGE" locale -a)
+          grep -qix en_US.utf8 <<<"$locale"
+
+          # Node 22 (the images.lock patch level) and the pinned Chromium
+          [ "$(run "$IMAGE" node --version)" = "v$(jq -r .node.resolved_version ops/images.lock)" ]
+          want=$(sed -n 's/^ARG CHROMIUM_VERSION=\([0-9.]*\)-.*/\1/p' ops/docker/compute-mentat.Dockerfile)
+          [ -n "$want" ]
+          chromium=$(run "$IMAGE" chromium --version 2>&1)
+          grep -qF "$want" <<<"$chromium"
+
+          # No Mentat code or data inside: they are mounted at run time
+          run "$IMAGE" sh -c '
+            set -e
+            for d in /app /mentat /melange /data /reports /stage /localappdata /work; do
+              if [ -e "$d" ]; then echo "baked path $d"; exit 1; fi
+            done
+            [ "$(LC_ALL=C ls /opt | tr "\n" " ")" = "R python venv " ]
+            found=$(find / -xdev -type f \( -iname "*.sqlite*" -o -iname "*.db" -o -iname "*.xlsx" -o -iname "*.parquet" -o -iname "*.csv" \) -not -path "/usr/*" -not -path "/opt/*" -not -path "/var/lib/*" -not -path "/etc/*" 2>/dev/null || true)       # as uid 10001 find exits 1 on /var/cache/private and the like; set -e must not take that for a finding
+            if [ -n "$found" ]; then echo "data file in the image: $found"; exit 1; fi'
+          echo "smoke ok"
+      # Only after the smoke test: an image that failed it never becomes the one the next release reuses.
+      - name: Tag the new image with its inputs, so the next release can reuse it
+        if: steps.reuse.outputs.reused != 'true'
+        env: {HASH: "${{ steps.inputs.outputs.hash }}", DIGEST: "${{ steps.image.outputs.digest }}"}
+        run: bash ops/ci/build_or_reuse.sh tag "$IMAGE_NAME" "$HASH" "$DIGEST"
+
+  sbom:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom-compute-mentat.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-compute-mentat
+          path: sbom-compute-mentat.spdx.json
+
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install trivy
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          set -euo pipefail
+          curl -fsSL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          sudo tar -xzf trivy.tgz -C /usr/local/bin trivy
+      # The images stage always runs compose_policy, and the compute compose file (task C1, ops/compute/compose.yaml) does not
+      # exist yet. Until it does, the compose JSON is this stand-in: the hardening the laptop wrapper and the smoke test above
+      # run the image with, and the user baked into the image itself. TODO(C1): replace it with
+      # `docker compose -f ops/compute/compose.yaml --profile mentat config --format json`.
+      - name: Images gate (D-181 unfixed reported, D-182 licences)
+        env:
+          IMAGE: ${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull -q "$IMAGE"
+          jq -n --arg user "$(docker image inspect --format '{{.Config.User}}' "$IMAGE")" \
+            '{services: {"compute-mentat": {read_only: true, cap_drop: ["ALL"], security_opt: ["no-new-privileges:true"], user: $user, network_mode: "none"}}}' > compose.config.json
+          python ops/security_gate.py images --ci --compose-json compose.config.json --image "$IMAGE" --report security-images.json
+
+  digests:
+    needs: [build, sbom, scan]
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - name: Write digests.json (same shape as the release kit's)
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ github.sha }}
+          IMAGE: ${{ env.IMAGE_NAME }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          jq -n --arg tag "$TAG" --arg sha "$SHA" --arg mentat "$IMAGE" '{tag: $tag, commit: $sha, images: {"compute-mentat": $mentat}}' > digests.json
+          cat digests.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compute-images-digests
+          path: digests.json

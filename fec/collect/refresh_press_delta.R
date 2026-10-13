@@ -42,7 +42,9 @@ if (is.na(date_floor)) stop("invalid date floor: ", date_floor_text)
 if (is.na(workers) || workers < 1L) stop("workers must be a positive integer")
 if (is.na(max_delta) || max_delta < 1L) stop("max delta must be a positive integer")
 
-draft_root <- "C:/Users/pgoff/OneDrive/Desktop/Draft Systems"
+# Windows defaults unchanged; the compute container points these at its mounts (MONEYBALL_DRAFT is the same variable fec/paths.py reads).
+env_or <- function(name, default) { value <- Sys.getenv(name); if (nzchar(value)) value else default }
+draft_root <- env_or("MONEYBALL_DRAFT", "C:/Users/pgoff/OneDrive/Desktop/Draft Systems")
 scraper_path <- file.path(draft_root, "cu_press_release_scraper.R")
 old_index_path <- file.path(draft_root, "all_press_release_index.csv")
 if (!file.exists(scraper_path)) stop("scraper not found: ", scraper_path)
@@ -59,7 +61,7 @@ Sys.setenv(
   CU_PR_COSPONSORS = "FALSE"
 )
 
-r_library <- "C:/Users/pgoff/OneDrive/Desktop/Melange Systems/outputs/r-library"
+r_library <- env_or("MELANGE_R_LIBRARY", "C:/Users/pgoff/OneDrive/Desktop/Melange Systems/outputs/r-library")
 dir.create(r_library, recursive = TRUE, showWarnings = FALSE)
 .libPaths(c(r_library, .libPaths()))
 

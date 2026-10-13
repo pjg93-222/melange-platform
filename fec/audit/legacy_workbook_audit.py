@@ -1,6 +1,6 @@
 import json, sys, openpyxl, hashlib
 from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from paths import WORKBOOK, p   # S2-02 audit run-2: honor MONEYBALL_ROOT — never audit a hardcoded tree
+from paths import WORKBOOK, p, to_host   # S2-02 audit run-2: honor MONEYBALL_ROOT — never audit a hardcoded tree
 from moneyball_core import BLOCKCAT, blocks
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 
@@ -13,7 +13,7 @@ def money_totals_match_source(rows, receipt_path):
         return all(abs(sum(r[k] for r in rows)-v)<2000 for k,v in expected.items())
     try:
         receipt=json.loads(receipt_path.read_text(encoding='utf-8'))
-        output=Path(receipt['output']['path'])
+        output=Path(to_host(receipt['output']['path']))
         if receipt['status']!='PASS' or hashlib.sha256(output.read_bytes()).hexdigest()!=receipt['output']['sha256']:
             return False
         source=json.loads(output.read_text(encoding='utf-8'))

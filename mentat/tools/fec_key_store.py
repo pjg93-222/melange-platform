@@ -67,6 +67,8 @@ def key_id(value):
 
 
 def load_keys(path=None, include_disabled=False):
+    secret=os.environ.get('FEC_API_KEYS_FILE')   # container: the per-run file the Windows wrapper wrote (compute_secrets.py); DPAPI needs Windows
+    if secret and not path:return normalize([Path(secret).read_text(encoding='utf-8-sig')])
     path=Path(path) if path else key_path()
     if not path.exists():return []
     data=json.loads(crypt(path.read_bytes(),decrypt=True))

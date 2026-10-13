@@ -5,9 +5,9 @@ sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 SEED=int(os.environ.get('SEED','7')); random.seed(SEED)   # fixed seed -> reproducible; scenarios use SAME seed so deltas aren't MC noise
 BUDGET=2_000_000; CAP=50_000; MC=int(os.environ.get('MC','20')); BSCALE=400000
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
-C={m['member']:m for m in json.load(open(MB_ROOT+r'\data\engine\congestion.json'))}
+C={m['member']:m for m in json.load(open(os.path.join(MB_ROOT, 'data', 'engine', 'congestion.json')))}
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+wb=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 bm=wb['Blended Model']; nrm=wb['Legislative Score - Normalized']
 members=[m['member'] for m in C.values()]
 primacy_tier,primacy_rank,primacy_priority=MBC.primacy_engine_state(members)
@@ -19,7 +19,7 @@ _iv=sorted(v for v in ind.values() if v>0); _imed=_iv[len(_iv)//2] if _iv else 0
 if os.environ.get('COAL_IMPUTE','1')!='0' and os.environ.get('IMPUTE_IND0','1')!='0':
     from engine.money_observation import industry_money_missing
     ind={n:(_imed if industry_money_missing(C[n]) else ind[n]) for n in members}
-_CS_DOC=json.load(open(MB_ROOT+r'\category_stance.json')); CS=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
+_CS_DOC=json.load(open(os.path.join(MB_ROOT, 'category_stance.json'))); CS=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
 # QME 2026-10-01 (fix 1): system-level stance-integrity gate (Paul 2026-09-30 "F1. Yes"), same kernel read per_topic_flip uses. A member whose overall tier
 # is Skeptic/Highly Skeptical/Opponent is not a coalition money target because one topic cell is Neutral. Gates only RECIPIENTS (cand); anti/pressure
 # seeds are untouched. COAL_STANCE_GATE=0 restores the ungated shortlist exactly.
@@ -130,5 +130,5 @@ for sc in blocks:
     summ.append((labels[sc],sum(al.values()),len(top),base,joint,top[:4]))
     print('%-30s base %.0f -> %.0f (+%.1f joint; naive-additive +%.1f) | $%s, %d seeds: %s'%(labels[sc][:30],base,joint,joint-base,sum(pos.values()),f'{sum(al.values()):,}',len(top),', '.join('%s $%dk'%(n.split()[-1],a//1000) for n,a in top[:4])))
 tag='' if (SEED==7 and os.environ.get('MC','20')=='20') else '_seed%d_mc%d'%(SEED,MC)
-MBC.dump_atomic(ALL,MB_ROOT+r'\data\lobbying\per_topic_coalition%s.json'%tag)
+MBC.dump_atomic(ALL,os.path.join(MB_ROOT, 'data', 'lobbying', 'per_topic_coalition%s.json'%tag))
 print('\nwrote per_topic_coalition%s.json (seed %d, MC %d, %d sub-categories)'%(tag,SEED,MC,len(ALL)))

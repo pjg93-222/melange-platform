@@ -656,7 +656,7 @@ def filing_period_to_quarter(value):
 def dump_atomic(obj, path, **kwargs):
     temp_path = path + ".tmp." + str(os.getpid())
     try:
-        with open(temp_path, "w", encoding="utf-8") as handle:
+        with open(temp_path, "w", encoding="utf-8", newline='\r\n') as handle:
             json.dump(obj, handle, **kwargs)
         os.replace(temp_path, path)
     except BaseException:

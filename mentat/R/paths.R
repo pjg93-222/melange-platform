@@ -1,7 +1,10 @@
 # R_LIBS_USER is the supported configuration; this fallback covers stripped environments.
 if (!requireNamespace("data.table", quietly = TRUE)) {
   .libPaths(c(
-    "C:/Users/pgoff/AppData/Local/R/win-library/4.6",
+    local({
+      v <- trimws(Sys.getenv("MENTAT_R_LIBRARY", unset = ""))   # container: the image's library
+      if (nzchar(v)) v else "C:/Users/pgoff/AppData/Local/R/win-library/4.6"
+    }),
     .libPaths()
   ))
 }

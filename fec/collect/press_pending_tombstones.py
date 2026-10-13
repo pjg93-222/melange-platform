@@ -238,7 +238,7 @@ def _write(tombstone_path, document):
     path.parent.mkdir(parents=True, exist_ok=True)
     document["generated_at"] = datetime.now(timezone.utc).isoformat()
     tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    with io.open(tmp, "w", encoding="utf-8") as handle:
+    with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(document, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
     os.replace(str(tmp), str(path))

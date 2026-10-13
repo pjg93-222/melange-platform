@@ -1314,10 +1314,9 @@ class Resolver:
 def _sweep_root(explicit=None):
     if explicit:
         return Path(explicit)
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        raise EntityIdentityError("LOCALAPPDATA is not set")
-    return Path(local_app_data) / "Melange" / "lda_rebuild" / "raw" / "sweeps"
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from paths import LOCAL_MELANGE
+    return Path(LOCAL_MELANGE) / "lda_rebuild" / "raw" / "sweeps"
 
 
 def iter_filing_names(sweep_root, years):

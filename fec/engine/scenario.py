@@ -22,14 +22,14 @@ Usage (any number of moves):
 import json, sys, os, random, importlib.util, argparse
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-spec=importlib.util.spec_from_file_location('mr',B+r'\fec\engine\money_response.py'); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
-_fs=importlib.util.spec_from_file_location('fm',B+r'\fec\engine\flip_model.py'); fm=importlib.util.module_from_spec(_fs); _fs.loader.exec_module(fm)   # Linear-Threshold winnability channel
+spec=importlib.util.spec_from_file_location('mr',os.path.join(B, 'fec', 'engine', 'money_response.py')); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
+_fs=importlib.util.spec_from_file_location('fm',os.path.join(B, 'fec', 'engine', 'flip_model.py')); fm=importlib.util.module_from_spec(_fs); _fs.loader.exec_module(fm)   # Linear-Threshold winnability channel
 SEED=7; MC=int(os.environ.get('MC','40')); BSCALE=400000
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
 CTORD=['Champion','Defender','Ally','Highly Persuadable','Persuadable','Lean Persuadable',
        'True Neutral','Lean Skeptic','Skeptic','Highly Skeptical','Opponent']  # per-category pro->anti
-CSJ=json.load(open(B+r'\category_stance.json')); MAT0=CSJ['matrix']; cats=CSJ['cats']; DEFENSIVE=set(CSJ['defensive'])
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=[m['member'] for m in C.values()]
+CSJ=json.load(open(os.path.join(B, 'category_stance.json'))); MAT0=CSJ['matrix']; cats=CSJ['cats']; DEFENSIVE=set(CSJ['defensive'])
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=[m['member'] for m in C.values()]
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
 bpf=MBC.bpf()
 prt=MBC.party()

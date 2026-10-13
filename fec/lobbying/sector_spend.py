@@ -1346,10 +1346,8 @@ def measure_filings(filings, years=DEFAULT_YEARS, sectors=DEFAULT_SECTORS):
 
 
 def default_sweep_root():
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if not local_app_data:
-        raise SectorSpendError("LOCALAPPDATA is not set")
-    return Path(local_app_data) / "Melange" / "lda_rebuild" / "raw" / "sweeps"
+    from paths import LOCAL_MELANGE
+    return Path(LOCAL_MELANGE) / "lda_rebuild" / "raw" / "sweeps"
 
 
 def iter_corpus_filings(sweep_root, years):

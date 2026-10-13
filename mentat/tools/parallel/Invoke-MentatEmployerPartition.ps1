@@ -7,8 +7,8 @@ param(
   [Parameter(Mandatory = $true)][ValidateSet('P1_employer', 'P2_variant')][string]$Phase,
   [Parameter(Mandatory = $true)][string]$Variants,
   [Parameter(Mandatory = $true)][string]$LogPath,
-  [string]$RScriptPath = 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe',
-  [string]$RLibraryPath = 'C:\Users\pgoff\AppData\Local\R\win-library\4.6'
+  [string]$RScriptPath = $(if ($env:MENTAT_RSCRIPT) { $env:MENTAT_RSCRIPT } else { 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' }),
+  [string]$RLibraryPath = $(if ($env:MENTAT_R_LIBRARY) { $env:MENTAT_R_LIBRARY } else { 'C:\Users\pgoff\AppData\Local\R\win-library\4.6' })
 )
 
 $ErrorActionPreference = 'Stop'

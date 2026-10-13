@@ -10,7 +10,7 @@ Decision log (2026-07-31): only --out is constrained by the MB_ROOT isolation
 boundary; every other CLI path is a read-only input.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, LOCAL_MELANGE, to_host
 
 import argparse
 import csv
@@ -34,7 +34,7 @@ except Exception:
     def dump_atomic(obj, path, **kw):
         temp_path = path + ".tmp." + str(os.getpid())
         try:
-            with open(temp_path, "w", encoding="utf-8") as handle:
+            with open(temp_path, "w", encoding="utf-8", newline='\r\n') as handle:
                 json.dump(obj, handle, **kw)
             os.replace(temp_path, path)
         except BaseException:
@@ -1334,17 +1334,13 @@ def _rankings(members, ranking_values, roster_only):
 
 
 def _build_parser():
-    local_appdata = os.environ.get("LOCALAPPDATA", "%LOCALAPPDATA%")
     default_out = os.environ.get(
         "FEC_SPENDING_OUT",
-        os.path.join(local_appdata, "Melange", "fec_spending", "derived"),
+        os.path.join(LOCAL_MELANGE, "fec_spending", "derived"),
     )
-    default_roster = (
-        r"C:\Users\pgoff\OneDrive\Desktop\Melange Systems\data\engine\congestion.json"
-    )
+    default_roster = to_host(r"C:\Users\pgoff\OneDrive\Desktop\Melange Systems\data\engine\congestion.json")   # identity on Windows; the container's mount there
     default_lobbyview = os.path.join(
-        local_appdata,
-        "Melange",
+        LOCAL_MELANGE,
         "lobbyview",
         "derived",
         "lobbyview_adversary_spend.json",

@@ -193,6 +193,7 @@ _ROOT_FOR_IMPORT = os.path.dirname(_FEC)
 for _p in (_FEC, _ROOT_FOR_IMPORT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
+from paths import LOCAL_MELANGE, to_host  # noqa: E402
 
 try:                                            # package context (kernel suites, chain)
     from . import build_staffer_network_section as network
@@ -260,9 +261,7 @@ LDA_GENERATION = 'generation-20260830T231200Z'
 HON_LEDGER_GENERATION = 'house_personnel_ledger_20260903_v5_primary'
 
 # Off-repo, machine-local store; same derivation as fec/surfaces/staffer_source_catalog.py:17.
-LDA_DATA_ROOT = os.path.join(
-    os.environ.get('LOCALAPPDATA') or os.path.join(os.path.expanduser('~'), 'AppData', 'Local'),
-    'Melange', 'staffer_network', 'normalized', 'lda-source-native')
+LDA_DATA_ROOT = os.path.join(LOCAL_MELANGE, 'staffer_network', 'normalized', 'lda-source-native')
 
 SIDECAR_RECEIPT = 'tiered_corroboration_receipt.json'
 SIDECAR_REGISTRANTS = 'registrant_side_records.ndjson.gz'
@@ -1362,7 +1361,7 @@ def build_offices(root, binding, generation, roster, offices, non_person_ids, no
         raise InputContradiction('the generation receipt binds no hill_person_spine; this '
                                  'section is a directory of people and will not print one '
                                  'without names')
-    original = os.path.normpath(name_spec['path'])
+    original = os.path.normpath(to_host(name_spec['path']))
     name_path = os.path.join(root, 'audits', 'staffer_network',
                              os.path.basename(os.path.dirname(original)),
                              os.path.basename(original))

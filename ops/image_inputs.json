@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "_note": "What each image is built from (ops/release_lib/inputs.py). The Dockerfile and every path its COPY/ADD lines name are inputs automatically; list here only what the Dockerfile cannot show. `common` joins every image (the base images arrive as build args from ops/images.lock). `extra` is for files a wrapper mounts at run time, or the build reads without a COPY (`RUN --mount=type=bind`, or a lock the workflow turns into build args), that should still force a rebuild. The compute images hold no Melange or Mentat code, so the tree they run on is not an input. An image whose Dockerfile is not in the tree yet is skipped, so a compute lane adds its row here when it lands.",
+  "common": ["ops/images.lock"],
+  "images": {
+    "melange-desk": {"dockerfile": "ops/docker/melange-desk.Dockerfile"},
+    "mentat-console": {"dockerfile": "ops/docker/mentat.Dockerfile"},
+    "compute-mentat": {
+      "dockerfile": "ops/docker/compute-mentat.Dockerfile",
+      "extra": ["ops/locks/compute-mentat.linux.txt", "ops/locks/r-packages.txt", "ops/locks/r-package-repos.txt"]
+    },
+    "office-calc": {"dockerfile": "ops/docker/office-calc.Dockerfile"},
+    "compute-melange": {
+      "dockerfile": "ops/docker/compute-melange.Dockerfile",
+      "extra": ["ops/compute/melange-base.lock"]
+    },
+    "compute-collector": {"dockerfile": "ops/docker/compute-collector.Dockerfile"}
+  }
+}

@@ -54,7 +54,7 @@ def collector_source_hashes():
              directory / "press_official_dated_listings.R",
              directory / "press_request_deadlines.R",
              directory / "press_backlog.R",
-             Path(ROOT).parent / "Draft Systems" / "cu_press_release_scraper.R")
+             Path(os.environ.get("MONEYBALL_DRAFT") or Path(ROOT).parent / "Draft Systems") / "cu_press_release_scraper.R")
     return {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
 
 

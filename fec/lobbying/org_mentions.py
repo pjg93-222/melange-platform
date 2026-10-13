@@ -25,7 +25,7 @@ import urllib.parse
 from datetime import date, datetime, timezone
 
 from paths import DRAFT as DRAFT_ROOT
-from paths import ROOT as MB_ROOT
+from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 from lobbying.entity_identity import RESEARCHED_ENTITIES
 from lobbying.fec_lda_bridge3_look import CROSSWALK as PINNED_COMPANIES
 from lobbying.sector_spend import ROSTERS, normalize_name
@@ -152,10 +152,7 @@ class OrgMentionsError(RuntimeError):
 
 
 def _derived_dir():
-    local = os.environ.get("LOCALAPPDATA")
-    if not local:
-        raise OrgMentionsError("LOCALAPPDATA is not set")
-    return os.path.join(local, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _default_paths():

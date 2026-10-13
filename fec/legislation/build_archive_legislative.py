@@ -48,14 +48,14 @@ def sentinel_scoring_mask(frame):
     verified=text_column('Review Status').eq('verified')
     membership=text_column('Record Type').eq('membership')
     return eligible & verified & membership
-A=pd.read_excel(sorted(glob.glob(MB_ROOT+r'\congress_bills_archive_*.xlsx'))[-1],sheet_name='All Bills')
+A=pd.read_excel(sorted(glob.glob(_o.path.join(MB_ROOT, 'congress_bills_archive_*.xlsx')))[-1],sheet_name='All Bills')
 _archive_rows=len(A)   # only the archive rows carry the bill-level Sponsor column;
                        # sentinel and manual evidence arrive with that cell blank.
 # The verified sentinel is persisted to the canonical workbook before this
 # producer runs.  Consume that worksheet, not the transient collector JSONL,
 # so the Excel bill ledger and every downstream label share one source of
 # truth.  Pending rows are visible for review but are never admitted here.
-_sentinel_path=MB_ROOT+r'\Sentinel Bill Ledger.xlsx'
+_sentinel_path=_o.path.join(MB_ROOT, 'Sentinel Bill Ledger.xlsx')
 _sentinel_n=0
 _sentinel_verified=0
 if _o.path.exists(_sentinel_path):
@@ -91,7 +91,7 @@ if _o.path.exists(_sentinel_path):
                 _verified['DecayWeight']=[decay_weight_for(_c,_d) for _c,_d in
                                           zip(_verified['Congress'],_verified['DecayWeight'])]
             A=pd.concat([A,_verified[A.columns]],ignore_index=True)
-_manual_path=MB_ROOT+r'\manual_bill_evidence.csv'
+_manual_path=_o.path.join(MB_ROOT, 'manual_bill_evidence.csv')
 _manual_n=0
 if _o.path.exists(_manual_path):
     _manual=pd.read_csv(_manual_path)
@@ -101,8 +101,8 @@ if _o.path.exists(_manual_path):
         if _col not in _manual.columns: _manual[_col]=''
     _manual_n=len(_manual)
     A=pd.concat([A,_manual[A.columns]],ignore_index=True)
-model=[m['member'] for m in json.load(open(MB_ROOT+r'\data\engine\congestion.json'))]
-_member_bios={m['member']:m.get('bioguide') for m in json.load(open(MB_ROOT+r'\data\engine\congestion.json'))}
+model=[m['member'] for m in json.load(open(_o.path.join(MB_ROOT, 'data', 'engine', 'congestion.json')))]
+_member_bios={m['member']:m.get('bioguide') for m in json.load(open(_o.path.join(MB_ROOT, 'data', 'engine', 'congestion.json')))}
 mset=set(model)
 def seccat(s):
     return BR.canonical_category(s)
@@ -162,7 +162,7 @@ def matchmember(mem): return _resolver.resolve(mem)
 from members.member_identity import billstatus_unverified, load_billstatus
 _billstatus=load_billstatus(MB_ROOT)
 identity_rejected=collections.Counter()
-overrides=BR.load_overrides(MB_ROOT+r'\data\legislation\bill_overrides.csv')
+overrides=BR.load_overrides(_o.path.join(MB_ROOT, 'data', 'legislation', 'bill_overrides.csv'))
 leg=collections.defaultdict(lambda:collections.defaultdict(float)); unmatched=collections.Counter()
 excluded=collections.Counter(); overridden=collections.Counter()
 events={}; routing_rows=[]; duplicate_rows=collections.Counter()
@@ -324,9 +324,9 @@ um=sum(unmatched.values()); print('unmatched archive rows: %d ; top unmatched na
 print('shared false-positive exclusions: %d rows; override rows: %d (excluded %d, neutral %d); deduplicated %d rows'%(
       sum(excluded.values()),overridden['rows'],overridden['excluded'],overridden['neutral'],
       sum(duplicate_rows.values())))
-dump_atomic({m:dict(leg[m]) for m in leg},MB_ROOT+r'\archive_leg.json')
+dump_atomic({m:dict(leg[m]) for m in leg},_o.path.join(MB_ROOT, 'archive_leg.json'))
 dump_atomic({'schema':'legislation-routing-audit-v1',
-             'source':_o.path.basename(sorted(glob.glob(MB_ROOT+r'\congress_bills_archive_*.xlsx'))[-1])+
+             'source':_o.path.basename(sorted(glob.glob(_o.path.join(MB_ROOT, 'congress_bills_archive_*.xlsx')))[-1])+
                       ' + Sentinel Bill Ledger',
              'source_rows':len(A),'selected_events':len(events),
              'sentinel_ledger_rows':_sentinel_n,
@@ -336,6 +336,6 @@ dump_atomic({'schema':'legislation-routing-audit-v1',
                             row.get('effective_category') for row in routing_rows if row.get('effective_category'))),
                         'duplicates':dict(duplicate_rows),'excluded':dict(excluded),
                         'unmatched_members':dict(unmatched.most_common())},
-             'rows':routing_rows},MB_ROOT+r'\legislation_routing_audit.json')
+             'rows':routing_rows},_o.path.join(MB_ROOT, 'legislation_routing_audit.json'))
 print('\nVALIDATION — Durbin per-category (signed role-weighted):')
 for c,v in sorted(leg['Richard Durbin'].items(),key=lambda x:-abs(x[1])): print('   %-26s %+.1f'%(c,v))

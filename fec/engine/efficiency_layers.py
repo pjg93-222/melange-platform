@@ -6,7 +6,7 @@ JSON decision-layer artifact, and moves no rank.  It does not write or alter
 ``ranks_python.json`` and it is not an allocation-engine consumer.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT  # noqa: E501,E702
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, LOCAL_MELANGE  # noqa: E501,E702
 
 import csv
 import json
@@ -21,10 +21,7 @@ from moneyball_core import dump_atomic, pressure_field
 
 SCHEMA = "efficiency-layers-v2"
 OUTPUT_PATH = os.path.join(MB_ROOT, "data", "engine", "efficiency_layers.json")
-DERIVED = os.path.join(
-    os.environ.get("LOCALAPPDATA") or "",
-    "Melange", "lda_rebuild", "derived",
-)
+DERIVED = os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 PANEL_PATH = os.path.join(DERIVED, "member_congress_panel", "panel.csv")
 DYAD_PATH = os.path.join(DERIVED, "stance_priors", "dyad_signs.csv")
 BOARDS_PATH = os.path.join(DERIVED, "champions_v2", "boards.json")
@@ -741,7 +738,7 @@ def _load_signed_opposition(derived, dyad_path):
 
 
 def build_from_files():
-    if not os.environ.get("LOCALAPPDATA"):
+    if not (os.environ.get("MELANGE_LOCAL_ROOT") or os.environ.get("LOCALAPPDATA")):
         raise EfficiencyLayersError("LOCALAPPDATA is not set")
     dashboard_path = os.path.join(MB_ROOT, "dashboard_data.json")
     receptivity_path = os.path.join(MB_ROOT, "member_receptivity.json")

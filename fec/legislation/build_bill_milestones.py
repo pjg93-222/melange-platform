@@ -422,7 +422,7 @@ def build_artifacts(archive_paths: Iterable[str | Path] | str | Path, output_dir
     }
     manifest_path = target / "effectiveness_universe_manifest.json"
     temporary = manifest_path.with_suffix(".json.tmp")
-    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline='\r\n')
     os.replace(temporary, manifest_path)
     return manifest
 

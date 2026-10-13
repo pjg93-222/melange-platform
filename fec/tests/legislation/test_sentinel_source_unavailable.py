@@ -86,13 +86,25 @@ def run(root):
     return code, generation, published.read_bytes() != before
 
 
-UNAVAILABLE = [MAINTENANCE, urllib.error.HTTPError('https://uscode.house.gov/view.xhtml', 500, 'error', {}, None)]
+NOT_FOUND = b'<html><title>Page Not Found - US Code</title><body>Page Not Found The page you requested could not be found.</body></html>'
+# 2026-10-12: every section query on the degraded House Code site returns this page.
+TEMPORARY_FORMAT = NOT_FOUND.replace(b'<body>', b'<body>Notice: The uscode.house.gov website is currently operating in a '
+                                     b'temporary format. Some website features are temporarily unavailable. ')
+UNAVAILABLE = [MAINTENANCE, TEMPORARY_FORMAT,
+               urllib.error.HTTPError('https://uscode.house.gov/view.xhtml', 500, 'error', {}, None)]
 
 
 def test_maintenance_page_is_source_unavailable_not_identity_mismatch():
     with pytest.raises(R.SourceUnavailable):
         R.statute_text(MAINTENANCE, '12', '1757')
     assert not issubclass(R.SourceUnavailable, R.StatuteIdentityMismatch)
+
+
+def test_temporary_format_not_found_is_an_outage_but_a_plain_not_found_is_not():
+    with pytest.raises(R.SourceUnavailable):
+        R.statute_text(TEMPORARY_FORMAT, '12', '1757')
+    with pytest.raises(R.StatuteIdentityMismatch):
+        R.statute_text(NOT_FOUND, '12', '1757')
 
 
 @pytest.mark.parametrize('statute', UNAVAILABLE)

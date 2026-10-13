@@ -1,5 +1,6 @@
 """Fail-closed reader for the display-only descriptive speech artifact."""
 from __future__ import annotations
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import to_host  # noqa: E402
 
 import hashlib
 import json
@@ -173,8 +174,8 @@ def validate(payload, receipt, artifact_path: Path):
             not isinstance(row, dict)
             or row.get("action") != "CANONICAL_RECORD_SUPERSEDED_SOURCE_INTERVAL_OVERLAP"
             or row.get("physical_cleanup_authorized") is not False
-            or not Path(str(row.get("out_wav") or "")).is_absolute()
-            or not Path(str(row.get("source_wav") or "")).is_absolute()
+            or not Path(to_host(str(row.get("out_wav") or ""))).is_absolute()
+            or not Path(to_host(str(row.get("source_wav") or ""))).is_absolute()
             or not isinstance(row.get("source_audio_sha256"), str)
             or len(row["source_audio_sha256"]) != 64
             or not isinstance(superseded_by, list)

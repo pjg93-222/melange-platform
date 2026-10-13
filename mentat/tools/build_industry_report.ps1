@@ -14,7 +14,7 @@ param(
   [string]$OutputDirectory = '',
   [string]$CommitteeMasterDirectory = '',
   [string]$BeneficiaryDirectory = '',
-  [string]$RScriptPath = 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe',
+  [string]$RScriptPath = $(if ($env:MENTAT_RSCRIPT) { $env:MENTAT_RSCRIPT } else { 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' }),
   [string]$NodePath = '',
   [string]$NodeModulesPath = '',
   [string]$PythonPath = '',
@@ -151,22 +151,32 @@ if (-not $NodeModulesPath) {
     $NodeModulesPath = $cachedNodeModules
   }
 }
-if (-not $NodeModulesPath) {
+# MENTAT_XLSX_WRITER (D-178), the same switch crypto_workbook_builder.mjs reads: artifact (the
+# default) saves the Overview with @oai/artifact-tool, openpyxl with xlsx_spec_writer.py. Only the
+# artifact writer needs the Node module, so only it may fail the build for the module's absence.
+$xlsxWriter = "$env:MENTAT_XLSX_WRITER".Trim().ToLowerInvariant()
+if (-not $xlsxWriter) { $xlsxWriter = 'artifact' }
+if ($xlsxWriter -notin @('artifact','openpyxl')) {
+  throw "MENTAT_XLSX_WRITER must be artifact or openpyxl, got $xlsxWriter"
+}
+if (-not $NodeModulesPath -and $xlsxWriter -eq 'artifact') {
   throw (
     'The @oai/artifact-tool Node module was not found. Pass ' +
     '-NodeModulesPath, set MENTAT_NODE_MODULES, or install ' +
     '@oai/artifact-tool in the project node_modules directory.'
   )
 }
-$NodeModulesPath = [IO.Path]::GetFullPath($NodeModulesPath)
-if (-not (Test-Path -LiteralPath (
-  Join-Path $NodeModulesPath '@oai\artifact-tool'
-) -PathType Container)) {
-  throw (
-    "@oai/artifact-tool is missing under '$NodeModulesPath'. Pass " +
-    '-NodeModulesPath, set MENTAT_NODE_MODULES, or install ' +
-    '@oai/artifact-tool in that node_modules directory.'
-  )
+if ($NodeModulesPath) {
+  $NodeModulesPath = [IO.Path]::GetFullPath($NodeModulesPath)
+  if ($xlsxWriter -eq 'artifact' -and -not (Test-Path -LiteralPath (
+    Join-Path $NodeModulesPath '@oai\artifact-tool'
+  ) -PathType Container)) {
+    throw (
+      "@oai/artifact-tool is missing under '$NodeModulesPath'. Pass " +
+      '-NodeModulesPath, set MENTAT_NODE_MODULES, or install ' +
+      '@oai/artifact-tool in that node_modules directory.'
+    )
+  }
 }
 
 $DatabasePath = [IO.Path]::GetFullPath($DatabasePath)
@@ -191,7 +201,7 @@ $beneficiaryFiles = @(foreach ($cycle in $inputCycles) {
   Join-Path $BeneficiaryDirectory "leadership$cycle.csv"
   Join-Path $BeneficiaryDirectory "pas2$suffix\itpas2.txt"
 })
-foreach ($requiredPath in @($DatabasePath,$RScriptPath,$NodePath,$NodeModulesPath,$exporter,$builder,$cycleFilterScript,$finalizer,$beneficiaryModule,$heapPlanner) + $committeeFiles + $beneficiaryFiles) {
+foreach ($requiredPath in @($DatabasePath,$RScriptPath,$NodePath,$exporter,$builder,$cycleFilterScript,$finalizer,$beneficiaryModule,$heapPlanner) + @(if ($NodeModulesPath) { $NodeModulesPath }) + $committeeFiles + $beneficiaryFiles) {
   if (-not (Test-Path -LiteralPath $requiredPath)) { throw "Required report input or runtime is missing: $requiredPath" }
 }
 
@@ -714,18 +724,22 @@ $finalizerDataPath = Join-Path $stageDirectory 'finalizer_data.json'
 $workbookCacheManifestPath = Join-Path $cacheRoot (
   "workbook_manifest_${cacheVariantToken}.json"
 )
-$artifactToolModule = Join-Path $NodeModulesPath (
-  '@oai\artifact-tool\dist\artifact_tool.mjs'
-)
+$artifactToolModule = if ($NodeModulesPath) {
+  Join-Path $NodeModulesPath '@oai\artifact-tool\dist\artifact_tool.mjs'
+}
+# The openpyxl writer's two files are fingerprinted whichever writer runs (and the writer choice is in
+# the salt below), so a workbook cached by one writer is never reused for the other.
 $workbookFingerprintInputs = @(
   $buildDataPath,
   $builder,
+  (Join-Path $scriptRoot 'openpyxl_workbook_shim.mjs'),
+  (Join-Path $scriptRoot 'xlsx_spec_writer.py'),
   $finalizer,
   (Join-Path $projectRoot 'tools\read_report_payload.mjs'),
   (Join-Path $projectRoot 'tools\prepare_workbook_payload.py'),
   $MyInvocation.MyCommand.Path
 )
-if (Test-Path -LiteralPath $artifactToolModule -PathType Leaf) {
+if ($artifactToolModule -and (Test-Path -LiteralPath $artifactToolModule -PathType Leaf)) {
   $workbookFingerprintInputs += $artifactToolModule
 }
 # The tidy writer decides the companion Data workbook's sheets, types and
@@ -738,7 +752,7 @@ if (Test-Path -LiteralPath $tidyWriter -PathType Leaf) {
 $workbookFingerprintSalt = (
   (
     'template={0}|industry={1}|cycle={2}|compact_raw={3}|' +
-    'formula_facts={4}|render_previews={5}|source_db={6}'
+    'formula_facts={4}|render_previews={5}|source_db={6}|xlsx_writer={7}'
   ) -f
       $templateContract,
       $Industry,
@@ -746,7 +760,8 @@ $workbookFingerprintSalt = (
       $compactRawMode,
       $formulaFactsMode,
       [int][bool]$RenderPreviews,
-      $databaseHash
+      $databaseHash,
+      $xlsxWriter
 )
 $workbookFingerprint = Get-CombinedFingerprint `
   -Paths $workbookFingerprintInputs `

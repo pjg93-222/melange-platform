@@ -21,6 +21,7 @@ import wave
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from fec.paths import MELANGE_DATA, to_host
 from fec.speech import source_media_recovery as SMR
 from fec.speech import longform_automated_authority as auto
 
@@ -115,7 +116,7 @@ class Inputs:
 
     def snapshot(self) -> list[dict]:
         for record in self.records.values():
-            self.bind(Path(record["path"]))
+            self.bind(Path(to_host(record["path"])))
         return [{"path": key, "sha256": record["sha256"]}
                 for key, record in sorted(self.records.items())]
 
@@ -323,7 +324,7 @@ def build_artifact(turn_pairs: list[tuple[Path, Path]], source_paths: list[Path]
         if receipt.get("schema") not in RECEIPT_SCHEMAS or receipt.get("status") != "PASS":
             raise FeatureRefusal(f"invalid_turn_receipt:{receipt_path}")
         inputs.bind(turn_path, str(receipt.get("artifact_sha256") or ""))
-        if Path(str(receipt.get("artifact") or "")).resolve() != Path(turn_path).resolve():
+        if Path(to_host(str(receipt.get("artifact") or ""))).resolve() != Path(turn_path).resolve():
             raise FeatureRefusal(f"turn_receipt_path_mismatch:{turn_path}")
         turns = inputs.jsonl(turn_path)
         if (receipt.get("counts") or {}).get("turns") != len(turns):
@@ -350,9 +351,9 @@ def build_artifact(turn_pairs: list[tuple[Path, Path]], source_paths: list[Path]
             intervals[key].append((start, end))
             source = matching_source(sources, turn)
             transcript = matching_source(transcripts, turn, transcript=True)
-            source_wav = inputs.bind(Path(source.get("wav") or source.get("source_wav") or ""), turn["source_audio_sha256"])
-            transcript_path = inputs.bind(Path(transcript["transcript"]), turn["source_transcript_sha256"])
-            turn_wav = inputs.bind(Path(turn["turn_audio_wav"]), turn["turn_audio_sha256"])
+            source_wav = inputs.bind(Path(to_host(source.get("wav") or source.get("source_wav") or "")), turn["source_audio_sha256"])
+            transcript_path = inputs.bind(Path(to_host(transcript["transcript"])), turn["source_transcript_sha256"])
+            turn_wav = inputs.bind(Path(to_host(turn["turn_audio_wav"])), turn["turn_audio_sha256"])
             source_pcm, source_frames = pcm(source_wav, start=start, end=end)
             turn_pcm, turn_frames = pcm(turn_wav)
             if source_frames != turn_frames or source_pcm != turn_pcm:
@@ -431,13 +432,13 @@ def current_measurement(out: Path, receipt_path: Path) -> bool:
         producer = str(Path(__file__).resolve())
         if (receipt.get('schema') != 'member-longform-turn-features-receipt-v1'
                 or receipt.get('status') != 'PASS_MEASUREMENT_ONLY'
-                or Path(receipt.get('artifact') or '').resolve() != out.resolve()
+                or Path(to_host(receipt.get('artifact') or '')).resolve() != out.resolve()
                 or receipt.get('artifact_sha256') != SMR.sha256_file(out)
                 or receipt.get('contract') != CONTRACT
-                or producer not in {item.get('path') for item in inputs}):
+                or producer not in {to_host(item.get('path') or '') for item in inputs}):
             return False
         for item in inputs:
-            source = Path(item['path'])
+            source = Path(to_host(item['path']))
             if not source.is_file() or SMR.sha256_file(source) != item.get('sha256'):
                 return False
         artifact = json.loads(out.read_text(encoding='utf-8'))
@@ -473,7 +474,7 @@ def main() -> int:
     sources = args.source_manifest or [ROOT / "data/speech/member_interview_sources_20260903.jsonl",
                                        ROOT / "data/speech/member_leadership_prerole_acquisition_v1.jsonl"]
     transcripts = args.transcript_manifest or [ROOT / "data/speech/member_interview_asr_20260903.jsonl",
-                                               Path(r"C:\melange-data\member_leadership_prerole_transcripts_v1.jsonl")]
+                                               Path(MELANGE_DATA, "member_leadership_prerole_transcripts_v1.jsonl")]
     chain = dict(args.review_chain or [])
     if set(chain) - {"selection", "candidates", "continuity", "reviews"} or len(chain) != len(args.review_chain or []):
         parser.error("review-chain names must be unique: selection, candidates, continuity, reviews")

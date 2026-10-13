@@ -14,7 +14,7 @@ param(
   [string]$OutputDirectory = '',
   [string]$CommitteeMasterDirectory = '',
   [string]$BeneficiaryDirectory = '',
-  [string]$RScriptPath = 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe',
+  [string]$RScriptPath = $(if ($env:MENTAT_RSCRIPT) { $env:MENTAT_RSCRIPT } else { 'C:\Program Files\R\R-4.6.0\bin\Rscript.exe' }),
   [string]$NodePath = '',
   [string]$NodeModulesPath = '',
   [ValidateRange(0,32768)]

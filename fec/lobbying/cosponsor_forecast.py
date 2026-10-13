@@ -47,7 +47,7 @@ external merges of chunk-sorted scores, not binned approximations, and the
 score CSV is streamed through temporary split spools.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, to_host
 
 import argparse
 import array
@@ -87,7 +87,7 @@ np = prior_harness.np
 DEFAULT_CONGRESSES = (117, 118, 119)
 DEFAULT_TRAIN_THROUGH = 118
 LIVE_CONGRESS = 119
-DEFAULT_SYSTEMS_ROOT = r"C:\Users\pgoff\OneDrive\Desktop\Melange Systems"
+DEFAULT_SYSTEMS_ROOT = to_host(r"C:\Users\pgoff\OneDrive\Desktop\Melange Systems")   # identity on Windows; the container's mount there
 PRIOR_BILL_TYPES = frozenset({"HR", "S"})
 FINANCE_REFERRAL_CODES = frozenset({"HSBA", "SSBK", "HSAG", "SSAF"})
 # A 1-of-1 sponsor history must not be worth 17 SD; at M=10 it is worth ~1.6 SD.

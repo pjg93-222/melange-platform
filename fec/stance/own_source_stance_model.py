@@ -674,7 +674,7 @@ def train_bundle():
 
 def _atomic_json(path, document):
     tmp = path + ".tmp"
-    with io.open(tmp, "w", encoding="utf-8") as handle:
+    with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(document, handle, indent=2, sort_keys=True)
         handle.write("\n")
     os.replace(tmp, path)

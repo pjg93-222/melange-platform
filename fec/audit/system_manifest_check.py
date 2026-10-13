@@ -334,6 +334,16 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
         return tally
     ck('A0 system manifest parses as JSON', True)
 
+    # The manifest was written on the Windows host, so its root and store paths are Windows paths.  paths.to_host maps the
+    # ones that are mounted here (the tree, Draft Systems, the melange-data root, the Melange folder under LOCALAPPDATA) onto their mounts and is
+    # the identity on Windows, so a container run examines the same stores the host run does; a root with no mount stays
+    # absent and its stores SKIP, as on a fresh clone.
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from paths import to_host
+    for _entry in [e for part in (man.get('roots'), man.get('stores')) if isinstance(part, list) for e in part]:
+        if isinstance(_entry, dict) and isinstance(_entry.get('path'), str):
+            _entry['path'] = to_host(_entry['path'])
+
     ck('A0 system manifest declares schema %s' % SCHEMA, man.get('schema') == SCHEMA,
        'manifest: schema=%r / expected %r' % (man.get('schema'), SCHEMA))
 
@@ -397,9 +407,15 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
 
     # --- A6 host topology, observed once -------------------------------------------------------
     host = man.get('host') or {}
-    live_od = _live_onedrive_root()
+    # Volumes, disk ids and the OneDrive replica are properties of the Windows host that wrote the manifest; a process
+    # in a container cannot observe them, so off Windows A6 SKIPS (printed with its reason, never a pass).
+    host_topology = os.name == 'nt'
+    live_od = _live_onedrive_root() if host_topology else None
     man_od = host.get('onedrive_root')
-    if man_od is None and live_od is None:
+    if not host_topology:
+        skip('A6 host topology', 'volumes, disk ids and the OneDrive replica belong to the Windows host that wrote this '
+                                 'manifest; a container cannot observe them')
+    elif man_od is None and live_od is None:
         skip('A6 OneDrive root', 'neither the manifest nor this host establishes a OneDrive root')
     else:
         ck('A6 OneDrive root matches observation',
@@ -458,7 +474,7 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
         # NAME their offenders diagnose it exactly as well as 5-per-store would, without burying
         # every other section of this audit under 400 lines that can only move together.
         live_drive = (os.path.splitdrive(os.path.abspath(path))[0] or '').upper() or None
-        if live_drive != s.get('volume'):
+        if host_topology and live_drive != s.get('volume'):
             topo['volume'].append('%s: manifest=%r / disk=%r' % (sid, s.get('volume'), live_drive))
         if live_map is not None and s.get('disk_id') != live_map.get(live_drive):
             topo['disk_id'].append('%s: manifest=%r for %s / live Get-Partition=%r'
@@ -555,9 +571,10 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
        'every declared store was skipped; the section proved nothing')
 
     # --- A6 rolled-up topology verdicts --------------------------------------------------------
-    ck('A6 every store volume matches observation', not topo['volume'],
-       '%d disagreement(s), manifest vs live splitdrive :: %s'
-       % (len(topo['volume']), topo['volume'][:6]))
+    if host_topology:
+        ck('A6 every store volume matches observation', not topo['volume'],
+           '%d disagreement(s), manifest vs live splitdrive :: %s'
+           % (len(topo['volume']), topo['volume'][:6]))
     if live_map is not None:
         ck('A6 every store disk id matches observation', not topo['disk_id'],
            '%d disagreement(s), manifest vs live Get-Partition :: %s'
@@ -674,10 +691,14 @@ def _packed_object_verified(base, rel):
 
 
 def _git_reachable_commits(git_dir):
-    """Every commit reachable from the repository's refs, or False when git cannot answer."""
+    """Every commit reachable from the repository's refs, or False when git cannot answer.  None when there is no git
+    binary at all on a non-Windows host (the compute image carries none): the caller SKIPS then, as A0 does for the
+    generator commit.  On Windows a missing git stays False, exactly as before."""
     try:
         r = subprocess.run(['git', '--git-dir=' + str(git_dir), 'rev-list', '--all'],
                            capture_output=True, text=True, timeout=300)
+    except FileNotFoundError:
+        return None if os.name != 'nt' else False
     except (OSError, subprocess.SubprocessError):
         return False
     return set(r.stdout.split()) if r.returncode == 0 else False
@@ -709,6 +730,11 @@ def _check_sentinels(store, sid, gen_utc, ck, skip, git_dir=False, note=None):
         if row.get('git_commit'):
             if reachable is None:
                 reachable = _git_reachable_commits(base)
+                if reachable is None:
+                    reachable = 'no-git'
+                    skip('A2b %s git commit pins' % sid, 'no git binary in this environment (a compute container)')
+            if reachable == 'no-git':
+                continue
             if reachable is False:
                 bad.append('%s -> %s: git could not list reachable commits in %s'
                            % (row.get('git_ref'), row['git_commit'][:12], base))

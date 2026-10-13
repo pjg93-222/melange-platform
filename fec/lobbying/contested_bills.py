@@ -14,7 +14,7 @@ loading is strict about bill spelling while ``mode_for`` lookups are
 permissive.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, today as _paths_today
 
 import argparse
 import datetime
@@ -98,7 +98,7 @@ def _iso_date(value, path, label, index=None):
 
 def load_contested_bills(path=None, today=None):
     path = registry_path() if path is None else path
-    today = datetime.date.today() if today is None else today
+    today = _paths_today() if today is None else today
     try:
         with open(path, "r", encoding="utf-8") as handle:
             payload = json.load(handle, object_pairs_hook=_no_duplicate_keys)
@@ -246,7 +246,7 @@ def main(argv=None):
         description="Inspect the per-bill contested/advisory registry."
     )
     parser.add_argument("--path", default=registry_path())
-    parser.add_argument("--today", default=datetime.date.today().isoformat())
+    parser.add_argument("--today", default=_paths_today().isoformat())
     args = parser.parse_args(argv)
     try:
         today = _iso_date(args.today, args.path, "today")

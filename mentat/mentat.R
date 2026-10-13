@@ -29,6 +29,8 @@
 #   MENTAT_SPENDING_TEMPLATE  Optional Spending Report template workbook override.
 #   R_LIBS_USER               R package library; on the target host use
 #                             C:/Users/pgoff/AppData/Local/R/win-library/4.6.
+#   MENTAT_R_LIBRARY          Library R/paths.R adds when data.table is not found (default: that Windows
+#                             library; a container sets its own).
 
 mentat_entry_path <- function() {
   file_argument <- grep("^--file=", commandArgs(trailingOnly = FALSE), value = TRUE)

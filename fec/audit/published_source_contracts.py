@@ -1,5 +1,6 @@
 """Read-only checks of source preservation in current display/feed formats."""
 from __future__ import annotations
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import to_host  # noqa: E402
 
 import hashlib
 import json
@@ -130,7 +131,7 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
     all_names = source_names | {'press_network_retry_receipt.json'}
     roots, bindings = set(), {}
     for run in runs:
-        source = Path(run.get('source_run') or '').resolve()
+        source = Path(to_host(run.get('source_run') or '')).resolve()
         hashes = run.get('source_sha256') or {}
         if str(source) in roots:
             errors.append(f'{source.name}: duplicate accepted source run')
@@ -142,7 +143,7 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
             if not path.is_file() or file_sha256(path) != hashes.get(name):
                 errors.append(f'{source.name}: source bytes differ: {name}')
         intake_binding = run.get('collection_intake') or {}
-        intake_path = Path(intake_binding.get('path') or '')
+        intake_path = Path(to_host(intake_binding.get('path') or ''))
         if not intake_path.is_file() or file_sha256(intake_path) != intake_binding.get('sha256'):
             errors.append(f'{source.name}: acceptance receipt bytes differ')
             continue
@@ -157,13 +158,13 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
                     'press_source_sha256': {name: hashes.get(name) for name in source_names}}
         if (intake.get('schema') != 'collection-intake-receipt-v1'
                 or intake.get('status') != 'ACCEPTED'
-                or Path(inputs.get('press_delta_root') or '').resolve() != source
+                or Path(to_host(inputs.get('press_delta_root') or '')).resolve() != source
                 or inputs.get('press_retry_receipt_sha256') != expected['press_retry_receipt_sha256']
                 or inputs.get('press_source_sha256') != expected['press_source_sha256']):
             errors.append(f'{source.name}: acceptance/source bindings differ')
         bindings[str(source)] = expected
     current = current_intake.get('inputs') or {}
-    current_root = str(Path(current.get('press_delta_root') or '').resolve())
+    current_root = str(Path(to_host(current.get('press_delta_root') or '')).resolve())
     expected = bindings.get(current_root)
     if (current_intake.get('schema') != 'collection-intake-receipt-v1'
             or current_intake.get('status') != 'ACCEPTED' or not expected
@@ -172,7 +173,7 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
     for path in (root / 'data/engine/press_collection_receipts').glob('press_refresh_*.json'):
         try:
             document = json.loads(path.read_text(encoding='utf-8-sig'))
-            archived_root = str(Path(document['inputs']['press_delta_root']).resolve())
+            archived_root = str(Path(to_host(document['inputs']['press_delta_root'])).resolve())
             if document.get('status') != 'ACCEPTED' or archived_root not in roots:
                 errors.append(f'{path.name}: archived accepted run omitted')
         except (ValueError, KeyError, OSError, TypeError):

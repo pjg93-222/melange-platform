@@ -18,10 +18,14 @@ from pathlib import Path
 import re
 import unicodedata
 import wave
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from paths import MELANGE_DATA, to_host  # noqa: E402
 
 
-DEFAULT_ROOT = Path(r"C:\melange-data\houselive")
-DEFAULT_OUT = Path(r"C:\melange-data\member_clips\houselive")
+DEFAULT_ROOT = Path(MELANGE_DATA, "houselive")
+DEFAULT_OUT = Path(MELANGE_DATA, "member_clips", "houselive")
 HONORIFIC = re.compile(r"^(?:MR|MRS|MS|MISS|REP|REPRESENTATIVE|CONGRESSMAN|CONGRESSWOMAN)[.]?\s+(.+)$", re.I)
 
 
@@ -183,7 +187,7 @@ def main(argv=None) -> int:
         source_row = house_manifest.get(date)
         if source_row is None:
             raise RuntimeError("date has no verified HouseLive manifest row: %s" % date)
-        src = Path(source_row["wav_path"])
+        src = Path(to_host(source_row["wav_path"]))
         transcript = root / "transcripts" / (date + ".json")
         rows = json.loads(transcript.read_text(encoding="utf-8"))
         with source_contract(src) as source:

@@ -350,7 +350,7 @@ def run(workbook_path, write=False, receipt_path=None, backup_path=None, stream=
                 for row in stale],
         }
         os.makedirs(os.path.dirname(receipt_path) or '.', exist_ok=True)
-        with open(receipt_path, 'w', encoding='utf-8') as handle:
+        with open(receipt_path, 'w', encoding='utf-8', newline='\r\n') as handle:
             json.dump(receipt, handle, indent=2)
         print('receipt  : %s' % receipt_path, file=stream)
 

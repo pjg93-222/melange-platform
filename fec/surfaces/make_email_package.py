@@ -63,7 +63,7 @@ def sha256_file(path):
 def atomic_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    with open(temporary, "w", encoding="utf-8") as handle:
+    with open(temporary, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
     os.replace(temporary, path)

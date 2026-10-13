@@ -5,10 +5,10 @@ from members.member_identity import Resolver
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
 LELEV=float(os.environ.get('LELEV','0.8'))   # electoral-leverage strength (competitive seats are cheaper to move)
-members=[m['member'] for m in json.load(open(B+r'\data\engine\congestion.json'))]
+members=[m['member'] for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))]
 _resolver=Resolver(members)
 def match(nm): return _resolver.resolve(nm)
-_bpc=glob.glob(B+r'\Ballotpedia_119th_CU_Influence_*.xlsx')+glob.glob(B+r'\archive\Ballotpedia_119th_CU_Influence_*.xlsx')
+_bpc=glob.glob(os.path.join(B, 'Ballotpedia_119th_CU_Influence_*.xlsx'))+glob.glob(os.path.join(B, 'archive', 'Ballotpedia_119th_CU_Influence_*.xlsx'))
 bp=sorted(_bpc,key=os.path.basename)[-1]   # newest by filename timestamp (file may live in archive/ after cleanup)
 ws=openpyxl.load_workbook(bp,data_only=True,read_only=True)['Members']
 hdr={ws.cell(1,c).value:c for c in range(1,ws.max_column+1)}
@@ -29,7 +29,7 @@ for m in members:
         sec=pct(elavg[m]); lev=round(1+LELEV*(1-sec),3); elec[m]={'elavg':round(elavg[m],1),'security':round(sec,3),'leverage':lev}
     else:
         elec[m]={'elavg':None,'security':0.5,'leverage':round(1+LELEV*0.5,3)}   # unmatched -> neutral
-dump_atomic(elec,B+r'\data\money\electoral.json')
+dump_atomic(elec,os.path.join(B, 'data', 'money', 'electoral.json'))
 matched=sum(1 for m in members if elec[m]['elavg'] is not None)
 print('electoral.json: %d/533 matched, LELEV=%.2f'%(matched,LELEV))
 hi=sorted([m for m in members if elec[m]['elavg'] is not None],key=lambda m:-elec[m]['leverage'])[:6]

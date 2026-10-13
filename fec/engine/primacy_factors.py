@@ -616,7 +616,7 @@ def main(root='.'):
         dump_atomic(document, output_path)
     except ImportError:
         with open(
-            output_path, 'w', encoding='utf-8'
+            output_path, 'w', encoding='utf-8', newline='\r\n'
         ) as handle:
             json.dump(document, handle, indent=1, ensure_ascii=False)
     print(

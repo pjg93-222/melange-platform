@@ -62,9 +62,15 @@ rf_rlib_dir <- function() normalizePath(rf_env_path("RF_RLIB", file.path(rf_runt
 rf_runs_dir <- function() file.path(normalizePath(rf_env_path("REFIT_OUT", rf_runtime()), winslash = "/", mustWork = FALSE), "runs")
 
 rf_glassbox_dir <- function() {
-  default <- if (nzchar(trimws(Sys.getenv("LOCALAPPDATA", unset = "")))) "C:/Users/pgoff/.claude/glassbox/events"
+  default <- if (.Platform$OS.type == "windows") "C:/Users/pgoff/.claude/glassbox/events"      # not LOCALAPPDATA: a container sets that too
              else file.path(Sys.getenv("HOME"), ".claude", "glassbox", "events")
   rf_env_path("RF_GLASSBOX_DIR", default)
+}
+
+# %LOCALAPPDATA%\Mentat, as rf_runtime_default() reads it; the Windows value when LOCALAPPDATA is empty.
+rf_localappdata_mentat <- function() {
+  lad <- trimws(Sys.getenv("LOCALAPPDATA", unset = ""))
+  if (nzchar(lad)) file.path(normalizePath(lad, winslash = "/", mustWork = FALSE), "Mentat") else "C:/Users/pgoff/AppData/Local/Mentat"
 }
 
 rf_roots <- function() {
@@ -76,8 +82,8 @@ rf_roots <- function() {
     SGSA = "C:/Users/pgoff/Mentat/sector_growth_study/archive/session_d613b40c_scratchpad",
     ZIPC = "C:/Users/pgoff/Downloads/House_Senate_Control_Forecasts_CSV.zip",
     RLIBX = file.path(loo, "work/lobbying_followup/Rlib"),
-    INGEST = "C:/Users/pgoff/AppData/Local/Mentat/forecast/ingest/runs",        # OpenSecrets page captures of the feeds ingest (F09 for property and casualty)
-    RFDATA = "C:/Users/pgoff/AppData/Local/Mentat/forecast/refit/data"          # derived raw inputs of this pipeline (tools/make_pc_ibis_current.R)
+    INGEST = file.path(rf_localappdata_mentat(), "forecast/ingest/runs"),        # OpenSecrets page captures of the feeds ingest (F09 for property and casualty)
+    RFDATA = file.path(rf_localappdata_mentat(), "forecast/refit/data")          # derived raw inputs of this pipeline (tools/make_pc_ibis_current.R)
   )
   umbrella <- trimws(Sys.getenv("RF_INPUT_ROOT", unset = ""))
   if (nzchar(umbrella)) {

@@ -24,14 +24,19 @@ IMAGE_RE = re.compile(r"^[a-z0-9][a-z0-9./_-]*@sha256:[0-9a-f]{64}$")   # IMAGE_
 COMMIT_RE =re.compile(r"^[0-9a-f]{40}$")
 SERVICES = {"melange": ["melange-desk"], "mentat": ["mentat-console"], "terrier": ["terrier-co05", "terrier-or05", "terrier-ct01"]}
 IMAGE_NAMES = {"melange": "melange-desk", "mentat": "mentat-console", "terrier": "terrier-web"}
+KINDS = ("full", "data-only", "code-only")       # code-only: new images and platform commit on the previous release's data snapshot
+IMAGE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 ENVELOPE = re.compile(rb'var D=\{s:"([A-Za-z0-9+/=]+)",i:"([A-Za-z0-9+/=]+)",c:"([A-Za-z0-9+/=]+)",n:(\d+)\}')
 FALLBACK_KEYGEN = r"C:\Windows\System32\OpenSSH\ssh-keygen.exe"
 
 
 # ------------------------------------------------------------------ manifest
 def build_manifest(cfg, *, release_id, previous, kind, created_utc, platform_commit, tag, commits, digests,
-                   snapshot, packages, gates) -> dict:
-    """`commits`: {system: sha}; `digests`: {system: 'sha256:<hex>'}; `snapshot`: the data_snapshot object."""
+                   snapshot, packages, gates, extra_images=None, image_commits=None) -> dict:
+    """`commits`: {system: sha}; `digests`: {system: 'sha256:<hex>'}; `snapshot`: the data_snapshot object.
+    `images` is every image of the release by name ({name: repo@sha256:...}): the three app images, which `systems` also
+    names (the VPS updater reads only `systems`), plus `extra_images` (compute and Terrier build images).
+    `image_commits` {name: commit} says which commit each image was built from (a reused image keeps its older one)."""
     sources = {"melange": ("local:melange-systems", cfg.get("melange_ref", "main")),
                "mentat": ("local:melange-systems", cfg["mentat_ref"]),
                "terrier": (cfg["terrier_repo"], cfg["terrier_ref"])}
@@ -40,10 +45,14 @@ def build_manifest(cfg, *, release_id, previous, kind, created_utc, platform_com
         base = cfg["images"][name]
         systems[name] = {"source": {"repo": repo, "ref": ref, "commit": commits[name]},
                          "image": f"{base}@{digests[name]}", "data_subdir": name, "services": SERVICES[name]}
+    images = {IMAGE_NAMES[name]: system["image"] for name, system in systems.items()}
+    images.update(extra_images or {})
     manifest = {"schema": SCHEMA, "release_id": release_id, "previous": previous, "kind": kind, "created_utc": created_utc,
                 "platform_repo": {"repo": cfg["platform_repo"], "commit": platform_commit, "tag": tag},
-                "systems": systems, "data_snapshot": snapshot, "packages": packages, "gates": gates,
-                "signer": cfg["signing"]["principal"]}
+                "systems": systems, "images": dict(sorted(images.items())), "data_snapshot": snapshot, "packages": packages,
+                "gates": gates, "signer": cfg["signing"]["principal"]}
+    if image_commits:
+        manifest["image_commits"] = dict(sorted(image_commits.items()))
     validate(manifest)
     return manifest
 
@@ -57,8 +66,8 @@ def validate(m: dict) -> None:
     new = parse_id(m.get("release_id", ""))
     if m.get("previous") is not None and parse_id(m["previous"]) >= new:
         bad("previous is not older than release_id")
-    if m.get("kind") not in ("full", "data-only"):
-        bad("kind must be full or data-only")
+    if m.get("kind") not in KINDS:
+        bad("kind must be one of " + ", ".join(KINDS))
     repo = m.get("platform_repo") or {}
     if not (COMMIT_RE.fullmatch(repo.get("commit", "")) and re.fullmatch(r"v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+", repo.get("tag", ""))):
         bad("platform_repo commit/tag malformed")
@@ -71,6 +80,19 @@ def validate(m: dict) -> None:
             bad(f"{name} source commit malformed")
         if system.get("services") != SERVICES[name] or system.get("data_subdir") != name:
             bad(f"{name} services/data_subdir wrong")
+    images = m.get("images")                      # absent in manifests signed before automatic propagation
+    if images is not None:
+        if not isinstance(images, dict):
+            bad("images must be a mapping")
+        for name, ref in images.items():
+            if not (IMAGE_NAME_RE.fullmatch(str(name)) and IMAGE_RE.fullmatch(str(ref)) and ref.split("@")[0].rsplit("/", 1)[-1] == name):
+                bad(f"image {name!r} is not <registry>/<same name>@sha256:<digest>")
+        for system, name in IMAGE_NAMES.items():
+            if images.get(name, m["systems"][system]["image"]) != m["systems"][system]["image"]:
+                bad(f"images[{name}] differs from systems.{system}.image")
+        if not isinstance(m.get("image_commits", {}), dict) or any(
+                k not in images or not COMMIT_RE.fullmatch(str(v)) for k, v in m.get("image_commits", {}).items()):
+            bad("image_commits must map image names to commits")
     snap = m.get("data_snapshot") or {}
     if not (snap.get("restic_snapshot_id") and re.fullmatch(r"[0-9a-f]{64}", snap.get("manifest_sha256", ""))
             and isinstance(snap.get("files"), int) and isinstance(snap.get("bytes"), int)):

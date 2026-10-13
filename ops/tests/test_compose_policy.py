@@ -468,16 +468,17 @@ def test_release_workflow_has_the_required_stages():
     assert "gh release create" in last and "--draft" in last
 
 
-def test_deps_workflow_is_linux_only_needs_no_geo_token_and_keeps_the_r_job_switched_off():
+def test_deps_workflow_is_linux_only_needs_no_geo_token_and_builds_the_r_bundle_from_exact_pins():
     """The three failures of the first deps run: a win_amd64 wheelhouse (hashes are Linux-only), a cross-repo token that does not
-    exist, and an R snapshot date nobody has ratified."""
+    exist, and an R snapshot date nobody had ratified (exact per-package pins, decided 2026-10-12, replaced the date)."""
     raw = (WF_DIR / "deps.yml").read_text(encoding="utf-8")
     jobs = WORKFLOWS["github/workflows/deps.yml"]["jobs"]
     assert "win_amd64" not in raw and "GEO_READ_TOKEN" not in raw and "pjg93-222/Geo" not in raw
     assert set(jobs) == {"key", "wheelhouse", "r-bundle", "publish"}
-    assert jobs["r-bundle"]["if"] is False                                                # disabled, not deleted
-    assert "re-enabled by the Mentat compute lane once the PPM snapshot date is ratified" in raw
-    assert jobs["publish"]["needs"] == ["key", "wheelhouse"]                             # a skipped job in needs would skip publish
+    assert jobs["r-bundle"]["if"] == "needs.key.outputs.exists != 'true'"                # on again, same test as the wheelhouse
+    assert "exact per-package pins (decided 2026-10-12)" in raw and "TODO(Paul)" not in raw
+    assert "ops/locks/r-package-repos.txt" in raw
+    assert jobs["publish"]["needs"] == ["key", "wheelhouse", "r-bundle"]                 # both skipped together when the release exists
 
 
 def test_images_lock_has_real_digests_and_every_reference_to_them_matches():

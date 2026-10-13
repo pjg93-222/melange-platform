@@ -115,11 +115,13 @@ test_that("RF_INPUT_ROOT and RF_ROOT_<ALIAS> redirect the pinned input roots (sa
   local_roots <- rf_roots()
   Sys.unsetenv("RF_ROOT_SGSD")             # a caller's override (the staged runs point SGSD at a mirror inside staging) must not outrank the umbrella this test checks; restored on exit
   file.copy(file.path(local_roots$SGSD, c("00_controls.xlsx", "07_actual_industry_growth.xlsx")), file.path(mirror, "SGSD"), overwrite = TRUE)
+  # An RF_ROOT_<ALIAS> outranks the umbrella. A run that sets some (the compute seams, the compose file) must see exactly those values; with none set, the umbrella path.
+  want <- function(alias, under_mirror) { v <- trimws(Sys.getenv(paste0("RF_ROOT_", alias), unset = "")); if (nzchar(v)) v else under_mirror }
   Sys.setenv(RF_INPUT_ROOT = mirror)
   r <- rf_roots()
   expect_identical(r$SGSD, file.path(mirror, "SGSD"))
-  expect_identical(r$LOO, file.path(mirror, "LOO"))
-  expect_identical(r$ZIPC, file.path(mirror, "House_Senate_Control_Forecasts_CSV.zip"))
+  expect_identical(r$LOO, want("LOO", file.path(mirror, "LOO")))
+  expect_identical(r$ZIPC, want("ZIPC", file.path(mirror, "House_Senate_Control_Forecasts_CSV.zip")))
   expect_identical(r$BUNDLE_V1, local_roots$BUNDLE_V1)   # the v1 bundle stays in the checkout
   expect_identical(rf_expand("{SGSD}/00_controls.xlsx"), file.path(mirror, "SGSD", "00_controls.xlsx"))
   # the manifest still pins every file: the mirrored copies verify, an absent one is reported missing
@@ -132,7 +134,7 @@ test_that("RF_INPUT_ROOT and RF_ROOT_<ALIAS> redirect the pinned input roots (sa
   # a single alias override wins over the umbrella
   Sys.setenv(RF_ROOT_SGSD = file.path(tempdir(), "elsewhere"))
   expect_identical(rf_roots()$SGSD, file.path(tempdir(), "elsewhere"))
-  expect_identical(rf_roots()$LOO, file.path(mirror, "LOO"))
+  expect_identical(rf_roots()$LOO, want("LOO", file.path(mirror, "LOO")))
   # a changed byte in the mirror fails the pin
   Sys.setenv(RF_ROOT_SGSD = file.path(mirror, "SGSD"))
   bad <- file.path(mirror, "SGSD", "00_controls.xlsx")

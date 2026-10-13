@@ -316,7 +316,7 @@ REGISTRY = (
     _s('repo.dashboard_data', 'live_tree', 'dashboard_data.json', 'DERIVED',
        'fec/surfaces/build_dashboard_bundle.py:712,717 (DASH_OUT redirects it)',
        ['fec/surfaces/make_dashboard_html.py:70', 'fec/surfaces/make_member_desk.py:143',
-        'fec/engine/efficiency_layers.py:734', 'fec/audit/audit_full.py:193,1727,1878'],
+        'fec/engine/efficiency_layers.py:731', 'fec/audit/audit_full.py:193,1727,1878'],
        'Regenerate with fec/surfaces/build_dashboard_bundle.py after a chain run.',
        'per chain run', 1, 'hash_never', derives_from=['repo.ranks_python']),
     _s('repo.bipartisan', 'live_tree', 'bipartisan.json', 'DERIVED',
@@ -355,7 +355,7 @@ REGISTRY = (
     _s('repo.workbook', 'live_tree', 'Moneyball Main Version - Blended.xlsx', 'DERIVED',
        'MULTIPLE writers, no single producer. In chain: fec/stance/build_media_blend.py:479 '
        'and fec/engine/committee_scores.py:325 (save_workbook_atomic; committee_scores.py '
-       "--write is run_pipeline.py:138 and owns the 'Committee Data' B/C/D cache only, "
+       "--write is run_pipeline.py:146 and owns the 'Committee Data' B/C/D cache only, "
        'immediately before compute_pillars.py --write reads column B), plus '
        'fec/stance/sync_stance_g.py:75, which never saves the book it opened: it collects the '
        'changed cells and calls publish_cells (fec/stance/workbook_cell_sync.py:96), which '
@@ -394,7 +394,7 @@ REGISTRY = (
        'Rebuild and redeploy from the template + bundle.',
        'per deploy', 1, 'hash_never', derives_from=['repo.dashboard_data']),
     _s('repo.desk_html', 'live_tree', 'cu-member-desk.html', 'DERIVED',
-       'fec/surfaces/make_member_desk.py:2321,2357 (write_text_atomic; DESK_OUT dir override)',
+       'fec/surfaces/make_member_desk.py:2322,2358 (write_text_atomic; DESK_OUT dir override)',
        ['Paul / lobbyists (deployed surface)', 'fec/surfaces/make_combined.py:129',
         'fec/audit/audit_full.py:850,1760'],
        'Rebuild and redeploy from the template + desk bundle.',
@@ -408,7 +408,7 @@ REGISTRY = (
        'per deploy', 1, 'hash_never',
        derives_from=['repo.dashboard_html', 'repo.desk_html']),
     _s('repo.desk_bundle', 'live_tree', 'member_desk_bundle.json', 'DERIVED',
-       'fec/surfaces/make_member_desk.py:2317 (same script that writes the desk HTML)',
+       'fec/surfaces/make_member_desk.py:2318 (same script that writes the desk HTML)',
        ['cu-member-desk.html', 'fec/audit/audit_full.py:925'],
        'Rebuild with fec/surfaces/make_member_desk.py.',
        'per deploy', 1, 'hash_never'),
@@ -427,11 +427,11 @@ REGISTRY = (
        # CHAIN-WRITTEN (DE-011). own_source_stance_model.joblib is retrained by load_or_train()
        # (fec/stance/own_source_stance_model.py:702-704 — joblib.dump to a .tmp then os.replace),
        # reached through run_channel from the four stance stacks, which are chain steps at
-       # fec/run_pipeline.py:102 (speech), :103 (hearing), :105 (interview) and :106 (bluesky).
+       # fec/run_pipeline.py:112 (speech), :113 (hearing), :115 (interview) and :116 (bluesky).
        # It reached by_size rank 2 and disagreed on sha256 (15:47 run).
        # 2026-10-11: rank_honors/workbook_publications.json is rewritten by publish()'s
        # _write_bindings (fec/stance/honors_workbook.py:713, path at :601), chain step
-       # honors_workbook.py at fec/run_pipeline.py:177; disagreed on sha256 after the 10-11 chain.
+       # honors_workbook.py at fec/run_pipeline.py:178; disagreed on sha256 after the 10-11 chain.
        sentinel_excl=['own_source_stance_model.joblib', 'workbook_publications.json'], sentinel_newest=False),
     _s('repo.data_legislation', 'live_tree', 'data/legislation', 'DERIVED',
        'fec/legislation/*',
@@ -442,7 +442,7 @@ REGISTRY = (
        # fec/legislation/build_bank_anchor_backfill.py:512 (write_text_atomic onto the RECEIPT
        # constant at :42). That script is not itself a chain entry: it is run as a SUBPROCESS by
        # fec/engine/build_primacy_surfaces.py:31 (its ENGINE_INPUT_STEPS tuple), which the chain
-       # invokes as `build_primacy_surfaces.py --engine-inputs-only` at fec/run_pipeline.py:122.
+       # invokes as `build_primacy_surfaces.py --engine-inputs-only` at fec/run_pipeline.py:162.
        # Official refresh generations and pointers are validated by their source receipts,
        # not by a promise that weekly output bytes never change.
        sentinel_excl=['bank_anchor_reconciliation.json', 'congress_advanced_current/*', 'sentinel_admissions.json',
@@ -454,7 +454,7 @@ REGISTRY = (
        ['industry boards', 'lobby surfaces'],
        'Regenerate with the lobbying lane.',
        'on lobbying refresh', 2, 'sentinel_files',
-       # CHAIN-WRITTEN (DE-011). bill_lobbying_sidecar.json (chain step at fec/run_pipeline.py:223;
+       # CHAIN-WRITTEN (DE-011). bill_lobbying_sidecar.json (chain step at fec/run_pipeline.py:288;
        # written by fec/lobbying/bill_lobbying_sidecar.py:733 via _write_json_atomic, the path
        # default declared at :70-71) holds by_size rank 2 at 6.0 MB — it has not disagreed yet,
        # which is luck, not an invariant. by_time landed on the audit scratch file, relocated out
@@ -467,7 +467,7 @@ REGISTRY = (
        'on network refresh', 1, 'sentinel_files',
        # CHAIN-WRITTEN (DE-011). Not in either red run, flagged on evidence not symptom: by_time
        # is lt_priming.json, written every chain run by fec/engine/lt_priming.py:121 (chain step at
-       # fec/run_pipeline.py:131). Exclude it from size-based selection as well.
+       # fec/run_pipeline.py:182). Exclude it from size-based selection as well.
        sentinel_excl=['lt_priming.json'], sentinel_newest=False),
     _s('repo.data_members', 'live_tree', 'data/members', 'DERIVED',
        'fec/members/*',
@@ -475,9 +475,9 @@ REGISTRY = (
        'Regenerate with the members lane.',
        'on refresh', 1, 'sentinel_files',
        # CHAIN-WRITTEN (DE-011). member_narrative_evidence_v4.json (by_size rank 3, 7.6 MB) is
-       # written by chain step build_member_narrative_ledger.py (fec/run_pipeline.py:147; the write
-       # is fec/members/build_member_narrative_ledger.py:1081 json.dump + :1083 os.replace, the
-       # path default at :34); it disagreed on size at 15:47 and on sha256 at 19:35. by_time was
+       # written by chain step build_member_narrative_ledger.py (fec/run_pipeline.py:199; the write
+       # is fec/members/build_member_narrative_ledger.py:1082 json.dump + :1084 os.replace, the
+       # path default at :35); it disagreed on size at 15:47 and on sha256 at 19:35. by_time was
        # member_narratives_v3_descriptive_receipt.json (fec/members/regenerate_descriptive_
        # profiles.py:247 write_json onto the RECEIPT constant at :27), also a chain step
        # (fec/run_pipeline.py:148).
@@ -494,17 +494,17 @@ REGISTRY = (
        # exclusion has to be near-total or a chain output keeps a by_size slot. Writer, then the
        # chain step that runs it:
        #   Moneyball_email.zip            fec/surfaces/make_email_package.py:116-120 (alias copy +
-       #                                  os.replace)                    run_pipeline.py:228
+       #                                  os.replace)                    run_pipeline.py:295
        #   budget_frontier.json           fec/engine/budget_frontier.py:153 (dump_atomic onto the
-       #                                  :151-152 path)                 run_pipeline.py:132
+       #                                  :151-152 path)                 run_pipeline.py:183
        #   budget_frontier_electoral.json same writer, ELECTORAL branch (:34 reads --electoral or
-       #                                  the ELECTORAL env var)         run_pipeline.py:133
+       #                                  the ELECTORAL env var)         run_pipeline.py:184
        #   electoral.json                 fec/engine/build_electoral.py:32
-       #                                                                 run_pipeline.py:78
+       #                                                                 run_pipeline.py:83
        #   competitiveness_c.json.candidate  fec/engine/build_competitiveness.py (dump_atomic; deterministic,
        #                                  no timestamps)                 run_pipeline.py: the step after build_electoral
        #   electoral_plays.json           fec/engine/build_electoral_plays.py:37
-       #                                                                 run_pipeline.py:128
+       #                                                                 run_pipeline.py:179
        # What SURVIVES as sentinel material: electoral_history.json (208 KB) and affective_n.json
        # (13 KB) — both hashed, both actually stable. Today's four rows include three that churn
        # every run, so the informative evidence RISES 1 -> 2. (The sixth chain-touched file is the
@@ -526,19 +526,19 @@ REGISTRY = (
        # That declaration is NOT reused as the switch, deliberately — widening stable_cadence
        # would make the WHOLE store existence-only and silently drop byte evidence on
        # repair_sublayer_plan.json and congestion.json, which do not change.
-       #   staffer_network_section.json  fec/surfaces/build_staffer_network_section.py:917
-       #                                 (write_atomic)   run_pipeline.py:219  by_size rank 1, sha256 red
+       #   staffer_network_section.json  fec/surfaces/build_staffer_network_section.py:918
+       #                                 (write_atomic)   run_pipeline.py:266  by_size rank 1, sha256 red
        #   responsiveness_layers.json    fec/engine/responsiveness_layers.py:647 (dump_atomic)
-       #                                                  run_pipeline.py:126  by_size rank 3, size red
-       #   efficiency_layers.json        fec/engine/efficiency_layers.py:865 (dump_atomic onto the
-       #                                 :23 OUTPUT_PATH) run_pipeline.py:177  would take rank 3 next
+       #                                                  run_pipeline.py:172  by_size rank 3, size red
+       #   efficiency_layers.json        fec/engine/efficiency_layers.py:862 (dump_atomic onto the
+       #                                 :23 OUTPUT_PATH) run_pipeline.py:228  would take rank 3 next
        # by_time was dashboard_integrity_state.json (fec/audit/dashboard_integrity.py:571
        # MC.dump_atomic onto the state_path built at :554), reached because chain step
-       # make_member_desk.py (run_pipeline.py:226) imports dashboard_integrity at
+       # make_member_desk.py (run_pipeline.py:291) imports dashboard_integrity at
        # fec/surfaces/make_member_desk.py:29.
        #   per_area_grade.json           fec/engine/per_area_grade.py:642 (dump_atomic onto OUT_PATH :76),
        #                                 run as a subprocess by build_primacy_surfaces.py:57 (ENGINE_INPUT_STEPS),
-       #                                 chain step fec/run_pipeline.py:161; size red after the 2026-10-11 chain
+       #                                 chain step fec/run_pipeline.py:162; size red after the 2026-10-11 chain
        sentinel_excl=['per_area_grade.json', 'staffer_network_section.json', 'responsiveness_layers.json',
                       'efficiency_layers.json', 'congestion.json',
                       'staffer_offices_section.json', 'staffer_organisations_section.json',
@@ -573,7 +573,7 @@ REGISTRY = (
        # directories are TIMESTAMPED, so the newest file has a different NAME every run
        # (email_package/EMAIL_PACKAGE_MANIFEST.json at 19:35; a sentinel_bill_ledger_<ts>/ file
        # two hours later). Only the by_time opt-out closes it. email_package/ is named as well
-       # because make_email_package.py is a chain step (fec/run_pipeline.py:228) with a STABLE
+       # because make_email_package.py is a chain step (fec/run_pipeline.py:295) with a STABLE
        # path: fec/surfaces/make_email_package.py:109 defaults out_dir to outputs/email_package,
        # :112-113 write the two zips into it and :152 writes EMAIL_PACKAGE_MANIFEST.json there.
        # NOTE: 38k files puts this store above the checker's WALK_LIMIT, so A2 is skipped and A2b
@@ -604,7 +604,7 @@ REGISTRY = (
        'fec/collect/fetch_hearings_antag.py:185, fec/collect/fetch_hearings_seq.py:262 '
        '(hearing_meta only), fec/collect/collector_supervisor.py:64, '
        'fec/members/{load_cspan,rebuild_cspan_turns}.py',
-       ['fec/members/* B5 lanes', 'fec/lobbying/org_mentions.py:165',
+       ['fec/members/* B5 lanes', 'fec/lobbying/org_mentions.py:162',
         'fec/audit/audit_full.py:244-249,1146-1148'],
        'Re-collect; Quorum history is not fully re-obtainable.',
        'on social refresh', 3, 'hash_never'),
@@ -829,7 +829,7 @@ REGISTRY = (
        'Re-derive from raw sweeps/positions (123 files, 751 MB). Rescued 2026-08-26 as '
        'lda_derived_20260826.zip.',
        'on LDA refresh', 2, 'sentinel_files',
-       # CHAIN-WRITTEN (DE-011): chain step org_mentions.py (fec/run_pipeline.py:183) writes
+       # CHAIN-WRITTEN (DE-011): chain step org_mentions.py (fec/run_pipeline.py:234) writes
        # org_mentions/mentions.{json,csv} into THIS off-repo store — fec/lobbying/org_mentions.py
        # :1659 (json tmp + os.replace) and :1712 (csv tmp + os.replace), onto the paths its
        # argparse defaults declare at :1731-1733 — and mentions.csv was by_time at 15:47. Its
@@ -837,7 +837,7 @@ REGISTRY = (
        # route below this store would keep ZERO byte evidence.
        # 2026-10-11: cosponsor_sc/{cosponsor_scores.csv,cosponsor_forecast_report.json} are rewritten by
        # fec/lobbying/cosponsor_forecast.py:2695-2697 (write_outputs), run as a subprocess by chain step
-       # refresh_cosponsor_forecast.py (fec/run_pipeline.py:242; out-dir at refresh_cosponsor_forecast.py:74-77)
+       # refresh_cosponsor_forecast.py (fec/run_pipeline.py:243; out-dir at refresh_cosponsor_forecast.py:74-76)
        # whenever COSPONSOR_FORECAST_REFRESH=1 (weekly_refresh.py:396 sets it); scores.csv size red 10-11.
        sentinel_excl=['cosponsor_sc/*'], sentinel_newest=False),
     _s('local.billstatus', 'local_melange', 'lda_rebuild/raw', 'SOURCE',
@@ -1266,7 +1266,7 @@ def _by_hashable(by_size, by_time, candidates, cap=SENTINEL_HASH_MAX_BYTES):
 
     A2b's three verdicts are existence, size and bytes.  A store whose every sentinel exceeds
     SENTINEL_HASH_MAX_BYTES gets only the first two — and where the store is also above the
-    checker's WALK_LIMIT its A2 scale check is SKIPPED as well (system_manifest_check.py:502-513),
+    checker's WALK_LIMIT its A2 scale check is SKIPPED as well (system_manifest_check.py:518-529),
     so the store degenerates to A1 existence.  Two stores land exactly there once DE-011's chain
     exclusions apply: repo.outputs (three .f32 blobs of 0.8-1.1 GB) and local.lda_derived (three
     CSV/JSONL of 60-170 MB).  Recording ONE hashable file costs one sha256 of at most 8 MiB and is

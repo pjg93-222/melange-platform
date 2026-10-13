@@ -20,11 +20,23 @@ rf_rlib_hash_tree <- function(pkg_dir) {
 
 RF_PLATFORM <- function() R.version$platform
 
-# The manifest entry of one package on the current platform (NULL when not recorded).
-.rf_man_entry <- function(man, p) man[[p]]$platforms[[RF_PLATFORM()]]
+# The OS token of a DESCRIPTION Built field ("R 4.6.1; ; 2026-09-16 00:22:32 UTC; windows" -> "windows"; a Linux build says "unix").
+.rf_built_os <- function(built) trimws(utils::tail(strsplit(built, ";", fixed = TRUE)[[1]], 1L))
+
+# The manifest entry of one package for the library at hand: the platform the library was BUILT for (`built` = its DESCRIPTION Built field), which is not always the
+# platform R runs on (the container loads the Windows-built vendored library). Several entries of one OS: the one named like R's platform, else the first. NULL when not
+# recorded; without a Built field, R's own platform decides.
+.rf_man_entry <- function(man, p, built = NA_character_) {
+  plats <- man[[p]]$platforms
+  if (is.na(built)) return(plats[[RF_PLATFORM()]])
+  os <- .rf_built_os(built)
+  hit <- Filter(function(e) identical(.rf_built_os(e$built), os), plats)
+  if (!length(hit)) return(NULL)
+  hit[[if (RF_PLATFORM() %in% names(hit)) RF_PLATFORM() else 1L]]
+}
 
 .rf_rlib_record <- function(target, packages, manifest_path, merge_into = NULL) {
-  man <- merge_into %||% list(schema_version = 2L, note = "sha256 of the vendored package files per R platform (R.version$platform); RUNTIME/Rlib is outside git. A platform without an entry is reported as unrecorded (version still checked); record it with tools/record_rlib_manifest.R.", packages = list())
+  man <- merge_into %||% list(schema_version = 2L, note = "sha256 of the vendored package files per platform (the key is R.version$platform of the machine that recorded it; the entry used for a library is the one whose Built OS, windows or unix, is the library's own, so the Windows-built vendored library verifies in the Linux container too); RUNTIME/Rlib is outside git. A library built for an OS without an entry is reported as unrecorded (version still checked); record it with tools/record_rlib_manifest.R.", packages = list())
   for (p in packages) {
     d <- read.dcf(file.path(target, p, "DESCRIPTION"), c("Version", "Built"))
     man$packages[[p]]$version <- unname(d[1, "Version"])
@@ -64,9 +76,11 @@ rf_verify_rlib <- function(target = rf_rlib_dir(), manifest_path = rf_rlib_manif
   man <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)$packages
   rows <- list()
   for (p in names(man)) {
-    ent <- .rf_man_entry(man, p)
-    have <- if (dir.exists(file.path(target, p))) rf_rlib_hash_tree(file.path(target, p)) else character()
-    ver <- if (dir.exists(file.path(target, p))) unname(read.dcf(file.path(target, p, "DESCRIPTION"), "Version")[1, 1]) else NA_character_
+    here <- dir.exists(file.path(target, p))
+    dcf <- if (here) read.dcf(file.path(target, p, "DESCRIPTION"), c("Version", "Built")) else NULL
+    ver <- if (here) unname(dcf[1, "Version"]) else NA_character_
+    ent <- .rf_man_entry(man, p, if (here) unname(dcf[1, "Built"]) else NA_character_)
+    have <- if (here) rf_rlib_hash_tree(file.path(target, p)) else character()
     if (is.null(ent)) {
       rows[[length(rows) + 1L]] <- data.frame(package = p, file = "DESCRIPTION (Version)", expected = man[[p]]$version, actual = ver,
                                               status = "unrecorded_platform", ok = identical(ver, man[[p]]$version), stringsAsFactors = FALSE)

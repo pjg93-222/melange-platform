@@ -36,7 +36,9 @@ def main():
         raise SystemExit('Data markers not found in ' + str(PAGE))
     built = PATTERN.sub(lambda m: m.group(1) + literal + m.group(2), page, count=1)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(built, encoding='utf-8')
+    # CRLF written explicitly: the bytes Windows text mode gives, on every platform (compute parity, D-177).
+    with open(target, 'w', encoding='utf-8', newline='\r\n') as stream:
+        stream.write(built)
     print('inlined {} bytes of data; {} is now {} bytes'.format(
         len(literal), target, target.stat().st_size))
 

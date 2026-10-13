@@ -5,6 +5,7 @@ in a separate, hash-bound generation with explicit machine policy provenance.
 Missing generation is an exact no-op; corrupt or stale evidence fails closed.
 """
 from __future__ import annotations
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import to_host  # noqa: E402
 
 import copy
 import hashlib
@@ -37,7 +38,7 @@ def load(root, *, max_age_days=8):
     if not -300 <= age <= max_age_days * 86400:
         raise ValueError('sentinel admissions are outside their freshness window')
     for record in document['sources']:
-        source = Path(record['path'])
+        source = Path(to_host(record['path']))
         if not source.is_file() or digest(source) != record['sha256']:
             raise ValueError('sentinel admission evidence hash mismatch: ' + str(source))
     seen = set()
@@ -70,9 +71,9 @@ def load(root, *, max_age_days=8):
         texts = {}
         for category in decision['categories']:
             source = evidence[category['source_url']]
-            if source not in document['sources'] or digest(source['path']) != source['sha256']:
+            if source not in document['sources'] or digest(to_host(source['path'])) != source['sha256']:
                 raise ValueError('decision evidence is not bound to the generation')
-            raw=Path(source['path']).read_bytes()
+            raw=Path(to_host(source['path'])).read_bytes()
             texts[source['url']] = (statute_text(raw,source['title'],source['section']) if source.get('kind')=='statute'
                                     else _parse_bill_text(raw,url=source['url'],canonical_key=key))
         validate_decision(decision,key,texts,categories)

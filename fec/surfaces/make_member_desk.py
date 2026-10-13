@@ -44,7 +44,7 @@ from surfaces.make_dashboard_html import efficiency_percentiles
 from surfaces.honors_publication import compact_honor_cell
 import surfaces.desk_press_source as DPS   # DESK_PRESS_SOURCE: the desk's press stream (N1a)
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-WB = MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
+WB = os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx')
 B = MB_ROOT
 def L(p):
     for fp in ([p] if os.path.isabs(p) else [os.path.join(B, p), os.path.join(B, 'fec', p)]):
@@ -313,6 +313,7 @@ def load_verified_membership_history(root, *, now=None, repository_snapshot=None
     from legislation import verify_collector_roster_updates as verifier
     from legislation import official_membership_movements as movements
     from legislation.congress_bill_repository import parse_bill_identity
+    from paths import to_host   # receipts name Windows paths; identity on Windows (compute lane MEL)
 
     root = Path(root)
     history_path = root / 'data/members/sentinel_verified_membership_history.ndjson'
@@ -331,7 +332,7 @@ def load_verified_membership_history(root, *, now=None, repository_snapshot=None
         block = receipt.get('history') or {}
         if (receipt.get('schema') != history.HISTORY_RECEIPT_SCHEMA
                 or receipt.get('status') != 'PASS'
-                or Path(str(block.get('path') or '')).resolve() != history_path.resolve()
+                or Path(to_host(str(block.get('path') or ''))).resolve() != history_path.resolve()
                 or block.get('sha256') != history.sha256(history_path)
                 or block.get('verified_memberships') != 0
                 or block.get('verified_interaction_rows') != 0):
@@ -340,7 +341,7 @@ def load_verified_membership_history(root, *, now=None, repository_snapshot=None
 
     updates = history.load_ndjson(updates_path)
     delta = receipt.get('current_delta') or {}
-    if (Path(str(delta.get('path') or '')).resolve() != updates_path.resolve()
+    if (Path(to_host(str(delta.get('path') or ''))).resolve() != updates_path.resolve()
             or delta.get('sha256') != history.sha256(updates_path)
             or delta.get('verified_memberships') != len(updates)):
         raise RuntimeError('verified history is stale or unbound to the current collector delta')
@@ -367,8 +368,8 @@ def load_verified_membership_history(root, *, now=None, repository_snapshot=None
         raise RuntimeError('official sponsor snapshot differs from the current verified repository')
     current = json.loads(verifier_path.read_text(encoding='utf-8'))
     if (current.get('schema') != verifier.RECEIPT_SCHEMA or current.get('status') != 'PASS'
-            or Path(str((current.get('outputs') or {}).get('updates') or '')).resolve() != updates_path.resolve()
-            or Path(str((current.get('repository') or {}).get('path') or '')).resolve() != repository_path.resolve()
+            or Path(to_host(str((current.get('outputs') or {}).get('updates') or ''))).resolve() != updates_path.resolve()
+            or Path(to_host(str((current.get('repository') or {}).get('path') or ''))).resolve() != repository_path.resolve()
             or (current.get('repository') or {}).get('sha256') != repository_hash):
         raise RuntimeError('verified history requires the current repository-bound collector PASS receipt')
     identity = lambda row, date_key: tuple(str(row.get(key) or '') for key in
@@ -3406,7 +3407,7 @@ if __name__ == '__main__':
     import io
     _dir = os.environ.get('DESK_OUT') or B   # no-clobber redirect (a directory) for preview/test runs; prod = unset -> live tree
     if '--data' not in sys.argv:
-        eff_path = os.environ.get('EFFICIENCY_LAYERS_PATH') or MB_ROOT+r'\data\engine\efficiency_layers.json'
+        eff_path = os.environ.get('EFFICIENCY_LAYERS_PATH') or os.path.join(MB_ROOT, 'data', 'engine', 'efficiency_layers.json')
         with open(eff_path,encoding='utf-8') as fh: efficiency=json.load(fh)
         if efficiency.get('schema')!='efficiency-layers-v2':
             raise RuntimeError('efficiency_layers.json schema is not efficiency-layers-v2')

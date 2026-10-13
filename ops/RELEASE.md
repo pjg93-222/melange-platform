@@ -11,6 +11,9 @@ python ops/release.py run    [--data-only] [--no-netlify] [--skip-kernel] [--gov
 python ops/release.py resume <id> [same flags]
 python ops/release.py images [--id <CalVer>] [--confirm-outward git,geo]    # code only: CI builds the three images, nothing else
 python ops/release.py images --init-remote --confirm-outward repo         # create the private platform repo, set the bare origin
+python ops/release.py auto   [--plan] [--force-retry] [--pause | --unpause]   # the registered task runs this; see "Automatic propagation"
+                             [--confirm-outward git,geo,data,manifest,netlify,undraft]
+python ops/release.py current [--use <id>]                                 # the manifest compute jobs resolve their images through
 python ops/release.py status [<id>]
 python ops/release.py verify <manifest.json> [--allowed-signers P] [--current ID] [--snapshot P]
 python ops/release.py init-signing          # prints the key commands; generates nothing
@@ -156,6 +159,155 @@ configuration says `not configured`. It exits non-zero unless every row is `ok`.
 `ops/vps/allowed_signers`, validates the structure (every image pinned by digest, previous older than the id),
 optionally binds `snapshot_manifest.json` to the signed hash, and refuses a downgrade; an equal id is a no-op.
 
+## Automatic propagation
+
+D-183: any change that is made updates everywhere else, without anyone running a release. `python ops/release.py auto` is one
+idempotent pass over what changed; a Task Scheduler task runs it every 15 minutes and at logon. It reuses the steps above
+(export, security gate, push, CI wait, digests, manifest signing, VPS push, Netlify, status) and adds no new way out of the laptop.
+
+### What a pass does
+
+1. **Pause, lock.** `auto.pause` present: say so and stop. One pass at a time (`auto.lock`); a second one exits quietly.
+2. **Heads.** Melange `melange_ref` (main), Mentat `mentat_ref`, Terrier `terrier_images_ref` (today `deploy/terrier-hosted`).
+   They are compared with the heads last propagated (`auto_state.json`; before the first pass, the commits the newest signed
+   manifest was built from). Nothing differs: no code release (the cost is three `git rev-parse`), and the pass goes on to the data check.
+3. **Decision**, printed as `auto: <action>: <why>`: `idle` (no change), `wait` (the newest changed commit is younger than
+   `auto.quiet_minutes`, default 20: nobody gets a release per commit while work is going on), `capped` (`auto.max_per_day`,
+   default 6 releases in 24 h), `failed` (these exact heads already failed; a new commit or `--force-retry` is needed), `go`.
+4. **Code release** (`go`). Before an id, a tag or a push is spent, the pass checks that the manifest can be signed unattended:
+   the release key must be loaded in the Windows OpenSSH agent (`ssh-add`). If not, it alerts and tries again next pass.
+   Then: export + security gate. If the exported tree equals what was last propagated and Geo did not move, the commits only
+   touched things that are not released: they are marked propagated with no release at all. Otherwise a `code-only` release
+   (the manifest `kind`): push the platform repo (and Geo when its branch moved), wait for CI, collect every image digest, sign,
+   publish. Data is carried from the previous release unchanged (its snapshot, its `snapshot_manifest.json`, its invited-build gate).
+5. **Only images whose inputs changed are built.** `ops/image_inputs.json` + `ops/release_lib/inputs.py` give each image an
+   input hash (its Dockerfile, every path its `COPY`/`ADD` lines name, `ops/images.lock`, and any `extra` paths, by git blob id).
+   CI looks for the tag `inputs-<hash>` in GHCR (`ops/ci/build_or_reuse.sh check`): found = reuse that digest, nothing is rebuilt
+   (tests, SBOM and the security scan still run on it); missing = build, then tag the new digest `inputs-<hash>`
+   (`build_or_reuse.sh tag`). Any registry answer other than "found" or "not found" fails the step. A reused image keeps the
+   commit it was built from in the manifest (`image_commits`), so `status` does not call it stale. Geo unchanged: its images stand as signed.
+6. **One manifest for every image.** `melange-platform-release-v1` gains an `images` map `{name: repo@sha256:...}` (all three app
+   images, plus Terrier's build images and the compute images) and `image_commits`. The `systems` block is unchanged, so the VPS
+   updater, which reads only `systems`, takes a `code-only` manifest as a code-only release (same snapshot, no data copy).
+   Compute images come from workflows other than `release.yml` (see "Compute workflows adopt it" below).
+7. **Publish**, in this order, each step verified before the next: (i) the laptop's `current\` manifest + signature
+   (`%LOCALAPPDATA%\Melange\releases\current\`, written atomically after the signature checks out against `ops/vps/allowed_signers`);
+   (ii) the VPS inbox when `domain`, `hosts.ssh`, `vps.ssh_user` and `credentials.svc_push` are set (else skipped with a note);
+   (iii) the draft GitHub releases are un-drafted. Every step is a Glass Box event (`release.step`, `release.run`, `release.auto`).
+8. **Data.** A weekly refresh that finished `COMPLETE`, or a changed invited build, since the last data release starts the
+   existing `--data-only` path with all its gates (governance ruled, census, kernel tests, locks, disk). A refusal is a note and the
+   next pass looks again. The Netlify desk is part of it only when the invited build changed, governance is ruled and Netlify is
+   configured (D-171); otherwise the pass says why it skipped. The first pass records what exists as the baseline and releases nothing.
+9. **Local consoles.** After a code release that changed Mentat, the pass asks Mentat's own launcher (`Start-MentatApp.ps1
+   -NoBrowser -Port N -DataRoot <the console's>`) to replace an **idle** console that is running older code (D-029): a busy console is
+   left alone and asked again next pass; a read-only preview or a console of another checkout is never touched.
+   `auto.mentat_restart` switches this off. For Melange (8841) and the Terrier local servers it only emits a Glass Box
+   `release.restart_needed` event.
+10. **Failure.** Nothing is propagated beyond what was already verified. The pass records the heads that failed (no retry on them
+    until a new commit or `--force-retry`), emits one Glass Box `release.auto` `failed` event and, when `auto.healthchecks_url` is
+    set, pings `<url>/fail` once per distinct problem. A clean pass pings `<url>`; while a failure is unresolved it does not, so the
+    check goes late and stays red. A pass that lacks something that is not there yet (the signing key in the agent, the VPS settings)
+    is "blocked", not failed: it tries again next time.
+
+`--confirm-outward` is the same list `images` and `run` take (`git,geo,data,manifest,netlify,undraft`); the registered task passes
+all six. A step left out stops the release there (exit 3) and it resumes on the next pass that allows it.
+`auto --plan` prints the decision, whether signing is ready and whether data changed, and writes nothing.
+
+### Paul's controls
+
+* **Look first, then run:** `python ops/release.py auto --plan`, then `python ops/release.py auto --confirm-outward git,geo,data,manifest,netlify,undraft`.
+* **Pause / resume:** `python ops/release.py auto --pause` writes `auto.pause`; `--unpause` removes it. The task keeps running and does nothing.
+* **Register / remove the task:** `ops\auto\Register-AutoRelease.ps1` (`-WhatIf` first; nothing runs it for you) and `ops\auto\Unregister-AutoRelease.ps1`.
+  The task runs as you, run level Limited, one instance at a time, logging to `%LOCALAPPDATA%\Melange\releases\auto.log`.
+* **Config** (`ops/release_config.json`, block `auto`): `quiet_minutes`, `max_per_day`, `mentat_restart`, `mentat_port` (first of ten
+  ports scanned), `healthchecks_url` (null = no pings).
+* **Roll back:** (1) `python ops/release.py auto --pause`, so the next change does not replace what you are about to do;
+  (2) the VPS: release the old code again under a new id, or the manual steps in `ops/RUNBOOK.md` section 3 (the updater also rolls
+  back by itself when a release fails its health check); (3) the laptop: `python ops/release.py current --use <id>` verifies that
+  release's signature and makes its manifest `current` again, so compute jobs take its images. `release.py current` alone prints the
+  current release and its images.
+
+### Compute jobs follow the manifest
+
+`ops/release_lib/current.py` is the only place a compute job should learn which image to run:
+
+```
+python ops/release_lib/current.py image compute-mentat     # prints ghcr.io/pjg93-222/compute-mentat@sha256:... (else exit 1, reason on stderr)
+python ops/release_lib/current.py show                     # release id, kind and every image
+```
+
+It verifies `current\manifest.json` against `ops/vps/allowed_signers` (SSH signature, namespace `melange-release`) and checks the
+name is in the manifest and pinned by digest. Anything else (no manifest, a bad or missing signature, an edited file, an unknown name,
+no trust file) is a non-zero exit and **no output**, so the wrapper must stop. In Python: `current.image_for(name)`.
+A wrapper adopts it by replacing its hand-edited lock with the call (the compute branches own their files; this is what they change):
+
+```powershell
+$image = (& python "$RepoRoot\ops\release_lib\current.py" image compute-mentat).Trim()
+if ($LASTEXITCODE -ne 0 -or -not $image) { throw 'no verified image for compute-mentat: not running' }
+docker run --rm ... $image ...
+```
+
+The wrappers to point at it: Mentat `run_job.ps1` (branch `compute/mentat-jobs`; `compute-mentat`, `office-calc`), the Melange chain
+runner (`compute/melange-chain`; `compute-melange`), the collectors (`compute/collectors`; `compute-collector`) and the Terrier build
+runner (`terrier-build`, `terrier-build-score`; Geo's workflow builds them and they arrive in the same manifest).
+Done on the Melange side: `ops/compute/chain_parity.py command --side container` takes `--image`, then the caller's
+`IMAGE_COMPUTE_MELANGE` (an explicit choice, for a build no release names yet: the first parity runs), and otherwise asks
+`current.py image compute-melange`; with none of the three it prints nothing and exits 2. The collector and office compose files take
+their image from a variable the (not yet written) job wrapper sets: that wrapper resolves it the same way. Mentat's and Terrier's
+wrappers live in their own repos and are not edited from here.
+
+### Compute workflows adopt it
+
+A `compute-*.yml` workflow (exported to `.github/workflows/` of the platform repo) takes part in the release in three small steps:
+
+1. **Trigger** on the same tag push as `release.yml` (`on: push: tags: ["v*"]`). `release.py` waits for every run on the tagged commit
+   and refuses the release if any is red.
+2. **Reuse or build**, per image, in the build job (the same pattern as `release.yml`). When its lane lands, add the image to
+   `ops/image_inputs.json` as `"compute-mentat": {"dockerfile": "ops/docker/compute-mentat.Dockerfile", "extra": [...]}` (done for the
+   four compute images, see "Adopted" below).
+
+   ```yaml
+   - id: inputs
+     run: echo "hash=$(python3 ops/release_lib/inputs.py hash "$NAME")" >> "$GITHUB_OUTPUT"
+   - id: reuse
+     run: bash ops/ci/build_or_reuse.sh check "ghcr.io/pjg93-222/$NAME" "$HASH"
+   - id: push
+     if: steps.reuse.outputs.reused != 'true'
+     uses: docker/build-push-action@...        # as in release.yml
+   - if: steps.reuse.outputs.reused != 'true'
+     run: bash ops/ci/build_or_reuse.sh tag "ghcr.io/pjg93-222/$NAME" "$HASH" "$DIGEST"
+   ```
+
+   The digest to record is `steps.reuse.outputs.digest` when reused, else `steps.push.outputs.digest`.
+3. **Report the digest**: upload a workflow artifact whose name ends in `-digests` holding `digests.json` =
+   `{"tag": "<tag>", "commit": "<sha>", "images": {"<name>": "ghcr.io/pjg93-222/<name>@sha256:<64 hex>"}}`. `release.py` reads only
+   artifacts of successful `push` runs of this tag at this commit, requires the file to name the same commit and tag, and refuses any
+   image outside `ghcr.io/pjg93-222/`, whose name differs from its repository name, or that is not pinned by digest
+   (`DIGESTS_BAD`); two runs naming one image differently are `DIGEST_CONFLICT`. Geo's `digests.json` can name extra Terrier
+   images the same way, in its release asset.
+
+An image whose Dockerfile is not in the tree yet is absent from the hashes and from the manifest until its lane lands.
+
+**Adopted** (integration-2, 2026-10-12): `compute-images.yml` (compute-mentat, artifact `compute-images-digests`), `compute-office.yml`
+(office-calc, `compute-office-digests`), `compute-melange.yml` (compute-melange, `compute-melange-digests`) and `compute-collector.yml`
+(compute-collector, `compute-collector-digests`). All four run on the `v*` tags (the compute-specific tags are gone; `workflow_dispatch`
+stays for a build by hand), build only on an `inputs-<hash>` miss, give a new image that tag after its smoke test, and write
+`digests.json` in a `digests` job that needs the smoke test, SBOM and images gate. A red compute run therefore stops the release, as
+documented above. `ops/tests/test_compute_workflows_adopt.py` holds them to this shape. Two rules for the `ops/image_inputs.json` rows:
+a file the build reads without a `COPY` (`RUN --mount=type=bind,source=...`, or a lock the workflow turns into build args) goes under
+`extra`; the Melange or Mentat tree an image runs on does not, because those images hold no code and any commit would force a rebuild.
+
+### How each platform receives an update
+
+| Platform | What triggers it | How it receives the change |
+|---|---|---|
+| Laptop compute jobs (Mentat jobs, Melange chain, Terrier build, collectors) | any code release | `current\manifest.json` is replaced; the next job start resolves its image through `current.py` |
+| Mentat console (laptop, 8802...) | a release that changed Mentat | the launcher replaces an idle console running older code; busy ones are retried each pass |
+| Melange console (8841), Terrier local servers | a release that changed them | Glass Box `release.restart_needed`; restart when idle (nothing is restarted for you) |
+| VPS (melange-desk, mentat-console, terrier-co05/or05/ct01) | any signed manifest | manifest, signature and `snapshot_manifest.json` reach the inbox; the updater verifies, pulls the digests in `systems`, flips (code-only = same snapshot, no data copy), health-checks and rolls back by itself on failure |
+| GitHub (platform repo + Geo) | any code release | tag pushed, CI builds only changed images, draft releases un-drafted after the manifest is verified |
+| Netlify desk, Mentat Pocket | a data release (desk: only when the invited build changed) | the existing `--data-only` path and its gates; skipped with a note when governance is not ruled or Netlify is not configured |
+
 ## Secrets
 
 Read from Windows Credential Manager (generic credentials) or DPAPI; held in a wrapper whose repr/str hide the
@@ -184,6 +336,10 @@ argv; scrubbed from error text; never written to logs, Glassbox events or files 
 8. Optional Pocket rebuild from a running console: set `pocket.console_port` and `pocket.datasets`.
 9. Review `ops/serve_sets.json` (`census_pending` is true: every set is an upper bound until the audit-hook census)
    and run `python ops/release.py plan`.
+10. Automatic propagation: make sure the Windows "OpenSSH Authentication Agent" service is running and the release key is loaded
+    (`ssh-add %USERPROFILE%\.ssh\melange_release_ed25519`, once per boot; the task cannot answer a passphrase prompt), optionally
+    create a Healthchecks check and put its ping URL in `auto.healthchecks_url`, run `python ops/release.py auto --plan`, and, when it
+    reads right, run `ops\auto\Register-AutoRelease.ps1 -WhatIf` and then without `-WhatIf`.
 
 ## Notes for the VPS side
 

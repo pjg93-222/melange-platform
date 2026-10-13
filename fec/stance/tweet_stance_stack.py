@@ -81,7 +81,7 @@ def base_features(api_target, text, api_stance, api_val, api_align, api_conf, is
     return (onehot(A) + list(Bproba) + onehot((api_align or '').strip().lower()) +
             onehot((api_stance or '').strip().lower()) + [vnum(api_val), conf_num(api_conf), hit, 1.0 if is_rt else 0.0]), A
 
-gold = [r for r in csv.DictReader(open(B + r'\data\stance\tweet_gold_queue.csv', encoding='utf-8-sig'))
+gold = [r for r in csv.DictReader(open(_o.path.join(B, 'data', 'stance', 'tweet_gold_queue.csv'), encoding='utf-8-sig'))
         if (r.get('gold_cu_alignment') or '').strip().lower() in CL and (r.get('text') or '').strip()]
 yg = np.array([(r.get('gold_cu_alignment') or '').strip().lower() for r in gold])
 Xg = [r['text'] for r in gold]
@@ -125,11 +125,11 @@ if '--score' in sys.argv:
     pc = clf(); pc.fit(Xg, yg)
     meta = LogisticRegression(C=1.0, max_iter=3000, class_weight='balanced'); meta.fit(Fg, yg)
     cache = {}
-    for ln in open(B + r'\data\stance\api_tweet_cache_fable.jsonl', encoding='utf-8'):
+    for ln in open(_o.path.join(B, 'data', 'stance', 'api_tweet_cache_fable.jsonl'), encoding='utf-8'):
         try:
             d = json.loads(ln); cache[d['k']] = d['out']
         except Exception: pass
-    tw = list(csv.DictReader(io.open(B + r'\data\stance\quorum_member_tweets.csv', encoding='utf-8-sig', newline='')))
+    tw = list(csv.DictReader(io.open(_o.path.join(B, 'data', 'stance', 'quorum_member_tweets.csv'), encoding='utf-8-sig', newline='')))
     # BUG-A GUARD (2026-07-15): a text_contains override must uniquely identify ONE tweet. The first
     # cut keyed on norm(text)[:45], which for one tweet was the CFPB's spelled-out name -> matched 149
     # tweets and mass-forced 'support'. Overrides now key by quorum_id; any residual non-unique
@@ -180,7 +180,7 @@ if '--score' in sys.argv:
                     'stack_stance': lbl, 'registry_read': A, 'classical_read': clab, 'api_read': alab,
                     'image_read': _fused['image_read'], 'image_confidence': _fused['image_confidence'],
                     'image_disposition': _fused['image_disposition'], 'tier': tier, 'text': t[:200]})
-    tmp = B + r'\data\stance\tweet_stance_final.csv'
+    tmp = _o.path.join(B, 'data', 'stance', 'tweet_stance_final.csv')
     with io.open(tmp + '.tmp', 'w', encoding='utf-8-sig', newline='') as fh:
         w = csv.DictWriter(fh, fieldnames=list(out[0].keys())); w.writeheader(); w.writerows(out)
     import os as _os; _os.replace(tmp + '.tmp', tmp)

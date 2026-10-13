@@ -359,7 +359,7 @@ def _browser_refresh(
         result_path = stage / "result.json"
         seeds_path.write_text(
             json.dumps(seeds, ensure_ascii=False),
-            encoding="utf-8",
+            encoding="utf-8", newline='\r\n',
         )
         command = [
             node,

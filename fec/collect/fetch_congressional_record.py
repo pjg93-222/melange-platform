@@ -32,7 +32,7 @@ import urllib.error
 B=MB_ROOT
 KEY=os.environ.get('GOVINFO_KEY') or (open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'govinfo_key.txt')).read().strip()
      if os.path.exists(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'govinfo_key.txt')) else 'DEMO_KEY')
-DB=B+r'\social_media.db'
+DB=os.path.join(B,'social_media.db')
 UA={'User-Agent':'Mozilla/5.0 (research collector)'}
 def db():
     c=sqlite3.connect(DB,timeout=60); c.execute('PRAGMA journal_mode=WAL')
@@ -105,10 +105,10 @@ def _crec_package_absent(package):
     print('  official package-summary confirms existing package: '+package)
     return False
 # ---------------- roster: SURNAME(+state) -> canonical member ----------------
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
+C={m['member']:m for m in json.load(open(os.path.join(B,'data','engine','congestion.json')))}
 state={}
 try:
-    for r in csv.DictReader(open(MB_DRAFT+r'\cu_press_stance_tone.csv',encoding='utf-8')):
+    for r in csv.DictReader(open(os.path.join(MB_DRAFT,'cu_press_stance_tone.csv'),encoding='utf-8')):
         if r['member'] in C and r.get('state'): state[r['member']]=r['state'].strip()
 except FileNotFoundError: pass
 SFIX={'jr','sr','ii','iii','iv'}
@@ -122,7 +122,7 @@ ROSTER=collections.defaultdict(list)   # (surname_key, chamber) -> [current-rost
 SERVICE=set()                          # (member, Congress, chamber), including prior chamber service
 _bio2member={r.get('bioguide'):m for m,r in C.items() if r.get('bioguide')}
 try:
-    for r in csv.DictReader(open(B+r'\votes\HSall_members.csv',encoding='utf-8-sig')):
+    for r in csv.DictReader(open(os.path.join(B,'votes','HSall_members.csv'),encoding='utf-8-sig')):
         member=_bio2member.get(r.get('bioguide_id')); chamber=(r.get('chamber') or '').lower()
         if not member or chamber not in ('house','senate'): continue
         try: congress=int(float(r.get('congress') or ''))

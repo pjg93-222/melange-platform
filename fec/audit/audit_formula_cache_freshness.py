@@ -37,6 +37,8 @@ DEFAULT_OUT_ROOT = (
 SCHEMA = "isolated-formula-cache-freshness-audit-v1"
 POINTER_SCHEMA = "isolated-formula-cache-freshness-pointer-v1"
 ENGINE_SCHEMA = "isolated-excel-formula-cache-recalculation-v1"
+# D-174: LibreOffice headless as the calculator (ops/compute/office_recalc.py). Opt-in; Excel receipts validate as before.
+LIBREOFFICE_ENGINE_SCHEMA = "isolated-libreoffice-formula-cache-recalculation-v1"
 ERROR_RE = re.compile(
     r"#(?:NULL!|DIV/0!|VALUE!|REF!|NAME\?|NUM!|N/A|GETTING_DATA|SPILL!|CALC!)",
     re.IGNORECASE,
@@ -118,6 +120,17 @@ def validate_engine_receipt(
     temp_root: Path,
 ) -> dict[str, Any]:
     receipt = read_json(receipt_path)
+    if (
+        isinstance(receipt, dict)
+        and receipt.get("schema") == LIBREOFFICE_ENGINE_SCHEMA
+    ):
+        return validate_libreoffice_receipt(
+            receipt=receipt,
+            receipt_path=receipt_path,
+            workbook_path=workbook_path,
+            expected_source_sha256=expected_source_sha256,
+            temp_root=temp_root,
+        )
     require(
         isinstance(receipt, dict)
         and receipt.get("schema") == ENGINE_SCHEMA
@@ -171,6 +184,99 @@ def validate_engine_receipt(
         and engine.get("calculation_state_after") == 0
         and engine.get("ready_after") is True
         and engine.get("calculate_before_save") is False,
+        "Engine isolation or completed-calculation evidence is missing",
+    )
+    require(
+        receipt.get("live_or_production_workbook_opened") is False
+        and receipt.get("live_or_production_workbook_written") is False
+        and receipt.get("macro_execution_allowed") is False
+        and receipt.get("external_link_updates_allowed") is False
+        and receipt.get("external_connections_allowed") is False
+        and receipt.get("sync_or_promotion_performed") is False,
+        "Engine receipt violates the no-live-write safety contract",
+    )
+    return {
+        "receipt": file_item(receipt_path),
+        "workbook": calculated_item,
+        "engine": engine,
+        "safety_preflight": safety,
+    }
+
+
+def _libreoffice_at_least(version: Any, minimum: tuple[int, int]) -> bool:
+    match = re.match(r"(\d+)\.(\d+)", str(version or ""))
+    return bool(match) and (int(match.group(1)), int(match.group(2))) >= minimum
+
+
+def validate_libreoffice_receipt(
+    *,
+    receipt: dict[str, Any],
+    receipt_path: Path,
+    workbook_path: Path,
+    expected_source_sha256: str,
+    temp_root: Path,
+) -> dict[str, Any]:
+    """The LibreOffice counterpart of the Excel checks above (D-174).
+
+    The calculator never saves the workbook it loads: it writes a view copy (original package plus injected cached
+    values) elsewhere, usually inside a container. So the copy is bound by hash and size, not by path, and the input
+    copy and the view copy are two different files.
+    """
+    require(
+        receipt.get("status") == "PASS_TEMP_COPY_RECALCULATED",
+        f"Engine receipt failed or has the wrong status: {receipt_path}",
+    )
+    workbook_path = workbook_path.resolve()
+    require(
+        _is_within(workbook_path, temp_root),
+        f"Calculated workbook escaped the verified temp root: {workbook_path}",
+    )
+    before = receipt.get("temporary_copy_before") or {}
+    after = receipt.get("temporary_copy_after") or {}
+    engine = receipt.get("engine") or {}
+    safety = receipt.get("safety_preflight") or {}
+    require(
+        receipt.get("source_expected_sha256") == expected_source_sha256
+        and before.get("sha256") == expected_source_sha256,
+        "Engine receipt does not bind the source workbook hash",
+    )
+    calculated_item = file_item(workbook_path)
+    require(
+        after.get("sha256") == calculated_item["sha256"]
+        and after.get("bytes") == calculated_item["bytes"],
+        "Calculated workbook drifted after the engine receipt",
+    )
+    require(
+        receipt.get("view_copy") is True
+        and receipt.get("canonical_workbook_written") is False
+        and receipt.get("input_unchanged") is True,
+        "Engine receipt does not describe an untouched input and a view copy",
+    )
+    require(
+        safety.get("safe_for_isolated_calculation") is True
+        and not safety.get("forbidden_package_parts")
+        and not safety.get("unsafe_external_relationships")
+        and not safety.get("unsafe_formula_examples")
+        and not safety.get("external_formula_reference_examples")
+        and not safety.get("defined_name_runtime_risks")
+        and safety.get("array_formula_count") == 0,
+        "Engine safety preflight is incomplete or failed",
+    )
+    require(
+        engine.get("product") == "LibreOffice"
+        and _libreoffice_at_least(engine.get("version"), (24, 8))
+        and engine.get("automation_security")
+        == "MacroExecutionMode.NEVER_EXECUTE"
+        and engine.get("update_links") == 0
+        and engine.get("enable_events") is False
+        and engine.get("display_alerts") is False
+        and engine.get("ask_to_update_links") is False
+        and engine.get("visible") is False
+        and engine.get("read_only") is True
+        and engine.get("calculation_request") == "calculateAll"
+        and engine.get("calculation_completed") is True
+        and engine.get("calculate_before_save") is False
+        and engine.get("document_stored") is False,
         "Engine isolation or completed-calculation evidence is missing",
     )
     require(

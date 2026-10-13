@@ -59,10 +59,15 @@ function resolveArtifactToolEntry() {
   }
 }
 
-const artifactToolEntry = resolveArtifactToolEntry();
-const { SpreadsheetFile, Workbook } = await import(
-  pathToFileURL(artifactToolEntry).href
-);
+// MENTAT_XLSX_WRITER=openpyxl (D-178) saves the workbook with openpyxl instead of @oai/artifact-tool; the builder
+// below is the same either way and the default stays artifact-tool.
+const xlsxWriter = (process.env.MENTAT_XLSX_WRITER ?? "").trim().toLowerCase() || "artifact";
+if (!["artifact", "openpyxl"].includes(xlsxWriter)) {
+  throw new Error(`MENTAT_XLSX_WRITER must be artifact or openpyxl, got ${xlsxWriter}`);
+}
+const { SpreadsheetFile, Workbook } = xlsxWriter === "openpyxl"
+  ? await import("./openpyxl_workbook_shim.mjs")
+  : await import(pathToFileURL(resolveArtifactToolEntry()).href);
 
 const [dataPath, outputDir, sourceSha256 = "not-recorded"] = process.argv.slice(2);
 if (!dataPath || !outputDir) {
@@ -2744,7 +2749,9 @@ try {
 } finally {
   workbook.inspect = originalInspect;
 }
-if (process.env.MENTAT_RENDER_PREVIEWS === "1") {
+if (process.env.MENTAT_RENDER_PREVIEWS === "1" && xlsxWriter !== "artifact") {
+  console.log("MENTAT_RENDER_PREVIEWS is ignored: the openpyxl writer produces no PNG previews.");
+} else if (process.env.MENTAT_RENDER_PREVIEWS === "1") {
   for (const [sheetName, range] of previewRanges) {
     const preview = await workbook.render({
       sheetName,

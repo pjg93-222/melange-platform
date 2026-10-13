@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))
-from paths import ROOT as MB_ROOT   # centralized root (arch review 2026-07-02)
+from paths import ROOT as MB_ROOT, LOCAL_MELANGE   # centralized root (arch review 2026-07-02)
 """COALITION PRICING + THE "IGNORED" DIMENSION  (built 2026-08-03).
 
 WHAT THIS IS
@@ -68,7 +68,7 @@ import moneyball_core as MBC
 from moneyball_core import dump_atomic
 
 B = MB_ROOT
-LA = os.path.expandvars(r'%LOCALAPPDATA%\Melange')
+LA = LOCAL_MELANGE
 LDA = os.path.join(LA, 'lda_rebuild', 'derived')
 SNAPDIR = os.path.join(LA, 'lda_rebuild', 'raw', 'committee_snapshots')
 

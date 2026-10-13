@@ -20,6 +20,7 @@ FEC = Path(__file__).resolve().parents[1]
 if str(FEC) not in sys.path:
     sys.path.insert(0, str(FEC))
 
+from paths import today
 from stance.rank_honors_policy import (LADDER_G, POLICY, SCHEMA, SCHEMA_LADDER_G,
                                        classify_field, ladder_of, literal, number)
 from stance.overall_stance_policy import OVERALL_POLICY, classify_overall
@@ -330,7 +331,7 @@ def main():
     from paths import ROOT
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, default=Path(ROOT))
-    parser.add_argument('--as-of', type=date.fromisoformat, default=date.today())
+    parser.add_argument('--as-of', type=date.fromisoformat, default=today())
     parser.add_argument('--output-dir', type=Path)
     parser.add_argument('--publish', action='store_true')
     args = parser.parse_args()

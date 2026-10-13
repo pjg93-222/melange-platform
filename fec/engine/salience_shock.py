@@ -39,8 +39,8 @@ not hand-set.  Usage:
 import json, sys, os, math, random, collections, argparse, importlib.util
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-spec=importlib.util.spec_from_file_location('mr',B+r'\fec\engine\money_response.py'); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
-_fs=importlib.util.spec_from_file_location('fm',B+r'\fec\engine\flip_model.py'); fm=importlib.util.module_from_spec(_fs); _fs.loader.exec_module(fm)
+spec=importlib.util.spec_from_file_location('mr',os.path.join(B, 'fec', 'engine', 'money_response.py')); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
+_fs=importlib.util.spec_from_file_location('fm',os.path.join(B, 'fec', 'engine', 'flip_model.py')); fm=importlib.util.module_from_spec(_fs); _fs.loader.exec_module(fm)
 SEED=7; MC=int(os.environ.get('MC','20'))   # MC=20 validated vs MC=100 (mc_stability_check: 100% seed overlap)
 BSCALE=400000
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
@@ -48,15 +48,15 @@ CTORD=['Champion','Defender','Ally','Highly Persuadable','Persuadable','Lean Per
        'True Neutral','Lean Skeptic','Skeptic','Highly Skeptical','Opponent']
 TSCORE=MBC.SALIENCE_TSCORE
 MIDBAND={'Highly Persuadable','Persuadable','Lean Persuadable','True Neutral','Lean Skeptic'}
-CSJ=json.load(open(B+r'\category_stance.json')); MAT0=CSJ['matrix']; cats=CSJ['cats']; DEFENSIVE=set(CSJ['defensive'])
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=[m['member'] for m in C.values()]
+CSJ=json.load(open(os.path.join(B, 'category_stance.json'))); MAT0=CSJ['matrix']; cats=CSJ['cats']; DEFENSIVE=set(CSJ['defensive'])
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=[m['member'] for m in C.values()]
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
 bpf=MBC.bpf()
 prt=MBC.party()
 # electoral vulnerability rho (Noble A.4): members on the electoral playbook (defend/contest) have a live
 # race -> larger delta stake -> respond MORE to salience ("gambling for reelection").
 try:   # M3 fix 2026-07-02: read plays from the SOURCE (electoral_plays.json), not the previous cycle's dashboard bundle
-    _ep=json.load(open(B+r'\data\money\electoral_plays.json',encoding='utf-8'))
+    _ep=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json'),encoding='utf-8'))
     vuln={m:(1.35 if _ep.get(m,{}).get('play') in ('defend','contest') else 1.0) for m in members}
 except FileNotFoundError: vuln={}   # S2-03 audit run-2: missing file falls to neutral LOUDLY; a corrupt file now crashes instead of silently neutralizing
 if not vuln: print('  !! electoral_plays.json MISSING — electoral-vulnerability amplifier NEUTRAL for all members. Run build_electoral_plays.py.')
@@ -201,7 +201,7 @@ def _intensity(cat):
     one where every office freelances.  intensity = 0.5 + alignment ∈ [0.5, 1.5]."""
     if a.intensity!='auto': return float(a.intensity)
     try:
-        fa=json.load(open(B+r'\data\stance\frame_alignment.json',encoding='utf-8'))
+        fa=json.load(open(os.path.join(B, 'data', 'stance', 'frame_alignment.json'),encoding='utf-8'))
         al={x['issue']:x['alignment'] for x in fa['alignment']}
         if SHORT2LONG.get(cat) in al: return round(0.5+al[SHORT2LONG[cat]],2)
         best=max((v for k,v in al.items() if cat.split(' &')[0].split()[0].lower() in k.lower()),default=0.2)
@@ -242,7 +242,7 @@ if a.advise:
     MBC.dump_atomic({'advisory':[{'issue':c,'value':round(v,3),'worst_regime_dspread':round(w,2),
                **{k:r[k] for k in ('params','E_dspread','E_dwin','E_dmidband')},
                'defections_prevented':r['defections_prevented']} for v,w,c,r in sorted(rows,key=lambda t:-t[0])],**({'dials':dict(zip(('COMPET_MULT','COMPET_SRC_SHA256'),MBC.compet_record()))} if MBC.compet_on() else {})},   # R7 (Paul ruling 2026-10-07, D-107): recorded ONLY when ON (optimize.py precedent; dial-off file byte-identical)
-              os.environ.get('SAL_OUT') or B+r'\salience_advisory.json',indent=1)   # SAL_OUT: no-clobber redirect for probe/candidate runs (default = the production path)
+              os.environ.get('SAL_OUT') or os.path.join(B, 'salience_advisory.json'),indent=1)   # SAL_OUT: no-clobber redirect for probe/candidate runs (default = the production path)
     print('\nwrote salience_advisory.json')
 elif a.issue:
     if a.issue not in cats: print('unknown issue; choose from:',cats); sys.exit(1)

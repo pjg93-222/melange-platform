@@ -1,5 +1,5 @@
 {
-  "_note": "Base images pinned by multi-arch index digest, resolved 2026-10-12 from the registry HTTP API (registry-1.docker.io, GET manifests/<tag>, Docker-Content-Digest). Debian 13 (trixie) bases per D-181 (2026-10-12): python and node are the -trixie variants, never bookworm. The Dockerfiles' PYTHON_BASE default and compose.env.example's IMAGE_CLOUDFLARED repeat these values and ops/tests/test_compose_policy.py fails if they drift. Terrier's Dockerfile (Geo repo) pins the same python and node digests (server/research/test_hosted.py checks its pin shape there). Refresh: re-resolve the three tags, update every place the test names, and record the patch level in resolved_version (R6: latest 3.12.x).",
+  "_note": "Base images pinned by multi-arch index digest, resolved 2026-10-12 from the registry HTTP API (registry-1.docker.io, GET manifests/<tag>, Docker-Content-Digest). Debian 13 (trixie) bases per D-181 (2026-10-12): python and node are the -trixie variants, never bookworm. The Dockerfiles' PYTHON_BASE default and compose.env.example's IMAGE_CLOUDFLARED repeat these values and ops/tests/test_compose_policy.py fails if they drift. Terrier's Dockerfile (Geo repo) pins the same python and node digests (server/research/test_hosted.py checks its pin shape there). Refresh: re-resolve the three tags, update every place the test names, and record the patch level in resolved_version (R6: latest 3.12.x). debian is the base of the compute images (ops/docker/compute-mentat.Dockerfile, D-173/D-181; ops/docker/office-calc.Dockerfile, D-174, which needs Debian's python3-uno and so cannot sit on the python image), resolved 2026-10-12 the same way: the dated tag trixie-20261005-slim is the index digest, resolved_version is /etc/debian_version inside it; its apt snapshot date is the Dockerfile's DEBIAN_SNAPSHOT.",
   "python": {
     "ref": "python:3.12-slim-trixie",
     "resolved_version": "3.12.15",
@@ -14,5 +14,10 @@
     "ref": "cloudflare/cloudflared:2026.10.0",
     "resolved_version": "2026.10.0",
     "digest": "sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07"
+  },
+  "debian": {
+    "ref": "debian:trixie-20261005-slim",
+    "resolved_version": "13.7",
+    "digest": "sha256:a29215f6a35e51e22adffa17f89e9d2ef06214e64a2bad10d765c46aea49f11f"
   }
 }

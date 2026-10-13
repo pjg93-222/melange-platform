@@ -3,7 +3,7 @@
 No models are rerun and published/offline artifacts are never overwritten.
 """
 from collections import defaultdict
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 import datetime
 import gzip
 import hashlib
@@ -12,6 +12,10 @@ import json
 import re
 import shutil
 import sqlite3
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from paths import to_host  # noqa: E402  (a hard-coded Windows root maps onto the container mount; identity on Windows)
 
 ROOT = Path(__file__).resolve().parents[2]
 SRC = Path(__file__).parent / 'approved/clean'
@@ -21,7 +25,7 @@ OUT = Path(__file__).parent / 'staffer_live/approved'
 def write_json(name, value):
     p = OUT / 'data' / name
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(value, ensure_ascii=True, separators=(',', ':')), encoding='utf-8')
+    p.write_text(json.dumps(value, ensure_ascii=True, separators=(',', ':')), encoding='utf-8', newline='\r\n')
 
 
 def page_data(name):
@@ -101,7 +105,7 @@ def ensure_stubs():
     wanted += [(name, owner, 'shell') for name, owner in SHELL_STUBS]
     for filename, owner, frame in wanted:
         if not (SRC / filename).is_file():
-            (OUT / filename).write_text(f'/* {filename}: overlay stub for the {frame} document; owner: prompt {owner}. */\n', encoding='utf-8')
+            (OUT / filename).write_text(f'/* {filename}: overlay stub for the {frame} document; owner: prompt {owner}. */\n', encoding='utf-8', newline='\r\n')
 
 
 def js_truthy(v):
@@ -402,7 +406,7 @@ def forecast_accuracy_html(name):
 PEOPLE_DAYS_VERSION = 'people-days-v1'
 PEOPLE_DAYS_DIR = 'people-days'
 PEOPLE_DAYS_SHARDS = 64
-LIVE_ROOT = Path(r'C:\Users\pgoff\OneDrive\Desktop\Melange Systems')   # same default as staffer_live_server.DEFAULT_ROOT
+LIVE_ROOT = Path(to_host(r'C:\Users\pgoff\OneDrive\Desktop\Melange Systems'))   # same default as staffer_live_server.DEFAULT_ROOT
 STAFFER_GENERATION = 'staffer_social_network_20260908_v8_math_primary'  # staffer_graph_snapshot.GENERATION
 STAFFER_VERIFICATION = 'staffer_social_network_20260908_v8_math_verification'
 OFFICE_KINDS = ('member_office', 'committee', 'leadership')              # staffer_groups_index.OFFICE_CONTAINER_KINDS
@@ -476,7 +480,7 @@ def people_days_inputs(root):
         'generation_receipt': (receipt_path, next(x['primary_sha256'] for x in verification['twin_byte_identity'] if x['path'] == receipt_path.name)),
         'staffer_trajectories': (audits / STAFFER_GENERATION / files['staffer_trajectories']['path'], files['staffer_trajectories']['sha256']),
         'groups': (audits / STAFFER_GENERATION / files['groups']['path'], files['groups']['sha256']),
-        'hill_person_spine': (audits / Path(spine['path']).parent.name / Path(spine['path']).name, spine['sha256']),
+        'hill_person_spine': (audits / PureWindowsPath(spine['path']).parent.name / PureWindowsPath(spine['path']).name, spine['sha256']),
         'identity_resolution_receipt': (runtime / 'identity_resolution_receipt.json', None),
         'staffer_organisations_section': (engine / 'staffer_organisations_section.json', None),
         'staffer_clients_section': (engine / 'staffer_clients_section.json', None),
@@ -714,16 +718,16 @@ def main():
     network = network.replace('</body>', js_scripts('ui-kit') + '<script src="/staffer-live/approved/network.js" data-mlk></script></body>')
     network = with_boot(network, 'network')
     network = re.sub(r'function fit\(\)\{[^\n]*\}', lambda _: 'function fit(){if(W<=48||H<=72)return;const xs=LX.filter(Number.isFinite),ys=LY.filter(Number.isFinite);if(!xs.length||!ys.length)return;const x0=Math.min(...xs),x1=Math.max(...xs),y0=Math.min(...ys),y1=Math.max(...ys);cam.s=Math.min((W-48)/Math.max(1,x1-x0),(H-72)/Math.max(1,y1-y0));cam.tx=W/2-(x0+x1)*cam.s/2;cam.ty=H/2-(y0+y1)*cam.s/2;}', network, count=1)
-    (OUT/'network.html').write_text(network, encoding='utf-8')
+    (OUT/'network.html').write_text(network, encoding='utf-8', newline='\r\n')
     desk = desk_source.replace('src="cu-member-desk-profiles.js"','src="/cu-member-desk-profiles.js"')
-    (OUT/'advanced-desk.html').write_text(desk, encoding='utf-8')
+    (OUT/'advanced-desk.html').write_text(desk, encoding='utf-8', newline='\r\n')
     restored = light_template(desk).replace('<script src="/cu-member-desk-profiles.js" async></script>', '')
     # ui-kit, then the desk's restyle, then the prompt overlays; overlay scripts run before restored-desk.js so they can wrap legacy functions.
     restored = restored.replace('</head>', css_links('ui-kit') + '<link rel="stylesheet" href="/staffer-live/approved/restored.css">' + css_links(*overlay_names('desk')) + '</head>')
     restored = restored.replace('<body>', '<body class="restored-desk">')
     restored = restored.replace('</body>', '<script src="/staffer-live/approved/restored-links.js" data-mlk></script>' + js_scripts('ui-kit', *overlay_names('desk')) + '<script src="/staffer-live/approved/restored-desk.js" data-mlk></script></body>')
     restored = with_boot(restored, 'desk')
-    (OUT/'original-desk.html').write_text(restored, encoding='utf-8')
+    (OUT/'original-desk.html').write_text(restored, encoding='utf-8', newline='\r\n')
     documents = {'network.html': network, 'original-desk.html': restored}
     for key, source in [('industry','lobby-network.html'),('champions','lobby-champions.html'),
                         ('research-bills','lobby-bills.html'),('interactions','lobby-interactions.html'),
@@ -733,13 +737,13 @@ def main():
         original = with_boot(original, key, head='<head><base href="/">')
         original = original.replace('</head>', css_links('ui-kit') + '<link rel="stylesheet" href="/staffer-live/approved/restored.css">' + css_links(*overlay_names(key)) + '</head>')
         original = original.replace('</body>', '<script src="/staffer-live/approved/restored-links.js" data-mlk></script>' + js_scripts('ui-kit', *overlay_names(key)) + '</body>')
-        (OUT/f'original-{key}.html').write_text(original, encoding='utf-8')
+        (OUT/f'original-{key}.html').write_text(original, encoding='utf-8', newline='\r\n')
         documents[f'original-{key}.html'] = original
     people = (Path(__file__).parent/'staffer_live/index.html').read_text(encoding='utf-8')
     people = people.replace('<head>','<head><base href="/staffer-live/">').replace('</head>', css_links('ui-kit') + '<link rel="stylesheet" href="approved/restored-people.css">' + css_links(*overlay_names('people')) + '</head>')
     people = people.replace('</body>', '<script src="/staffer-live/approved/restored-links.js" data-mlk></script>' + js_scripts('ui-kit', *overlay_names('people')) + '</body>')
     people = with_boot(people, 'people', head='<head><base href="/staffer-live/">')
-    (OUT/'people.html').write_text(people, encoding='utf-8')
+    (OUT/'people.html').write_text(people, encoding='utf-8', newline='\r\n')
     write_json('colors.json', colour_maps(documents))
     people_days()
     for p in SRC.iterdir():
@@ -749,7 +753,7 @@ def main():
     target = ROOT/'Moneyball_Redesign.html'
     backup = ROOT/'outputs/rebuild-review-2026-09-21/rejected-Moneyball_Redesign.html'
     keep_rejected_alias(target, backup)
-    target.write_text(html, encoding='utf-8')
+    target.write_text(html, encoding='utf-8', newline='\r\n')
     print(f'Built clean shell: {target.stat().st_size:,} bytes; {len(catalog)} profiles loaded individually.')
 
 

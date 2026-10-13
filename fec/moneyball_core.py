@@ -326,7 +326,7 @@ def dump_atomic(obj,path,**kw):
     d=os.path.dirname(path) or '.'
     fd,tmp=_t.mkstemp(dir=d,suffix='.tmp')
     try:
-        with os.fdopen(fd,'w',encoding='utf-8') as fh: _j.dump(obj,fh,**kw)
+        with os.fdopen(fd,'w',encoding='utf-8', newline='\r\n') as fh: _j.dump(obj,fh,**kw)
         os.replace(tmp,path)
     except BaseException:
         try: os.remove(tmp)

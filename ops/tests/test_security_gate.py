@@ -15,6 +15,7 @@ import sqlite3
 import sys
 import tarfile
 import tempfile
+import types
 import unittest
 import zipfile
 from pathlib import Path
@@ -59,6 +60,23 @@ SSN = "-".join(["123", "45", "6789"])
 SECRET = "fake-" * 5  # low entropy on purpose; the gate ignores values under 12 chars
 DIGEST = "ghcr.io/example/app@sha256:" + "a" * 64
 NOW = dt.datetime.now(dt.timezone.utc)
+
+
+def frozen_clock(now):
+    """security_gate with its datetime.now() pinned to `now`. The gate reads the live clock for the age of the trivy DB; a stamp
+    built from the import-time NOW then drifted by however long the suite had run, so a 30 h stamp was reported as 31 h."""
+    class Meta(type):
+        def __instancecheck__(cls, obj):                                              # the gate tests toml datetimes with isinstance
+            return isinstance(obj, dt.datetime)
+
+    class Frozen(dt.datetime, metaclass=Meta):
+        @classmethod
+        def now(cls, tz=None):
+            return now if tz is None else now.astimezone(tz)
+
+    clock = types.SimpleNamespace(**{k: getattr(dt, k) for k in dir(dt) if not k.startswith("_")})
+    clock.datetime = Frozen
+    return mock.patch.object(gate, "dt", clock)
 
 
 def compliant_service(**over):
@@ -586,7 +604,8 @@ class GateTest(unittest.TestCase):
         cj = self.tmp / "compose.json"
         cj.write_text(json.dumps(compose), encoding="utf-8")
         env = {"FAKE_TRIVY_DB": NOW.isoformat(), **(env or {})}
-        return self.run_gate("images", "--ci", "--image", DIGEST, "--compose-json", cj, *extra, tools=tools, env=env)
+        with frozen_clock(NOW):                                                       # the DB stamps below are NOW-relative: so is the gate
+            return self.run_gate("images", "--ci", "--image", DIGEST, "--compose-json", cj, *extra, tools=tools, env=env)
 
     def test_images_stage(self):
         good = {"services": {"app": compliant_service()}}

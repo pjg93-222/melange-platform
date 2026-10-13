@@ -21,8 +21,8 @@ Run per_topic_flip.py and per_topic_coalition.py first (they write the inputs), 
 import json, sys, os, collections
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-pta=json.load(open(B+r'\per_topic_alloc.json'))
-ptc=json.load(open(B+r'\data\lobbying\per_topic_coalition.json'))
+pta=json.load(open(os.path.join(B, 'per_topic_alloc.json')))
+ptc=json.load(open(os.path.join(B, 'data', 'lobbying', 'per_topic_coalition.json')))
 flip=collections.Counter(); coal=collections.Counter()
 for t,d in pta.items():
     for n,a in d.items(): flip[n]+=a
@@ -35,7 +35,7 @@ out={'flip':{n:int(v) for n,v in flip.items() if v>0},'coalition':{n:int(v) for 
 PMAX=int(os.environ.get('PMAX','10000'))
 out['basis']='per-topic diagnostic row-sums (each topic is an independent $2M scope); non-additive across topics and NOT a per-member spend -- see members_over_pmax'
 out['members_over_pmax']={'pmax':PMAX,'flip':{n:v for n,v in out['flip'].items() if v>PMAX},'coalition':{n:v for n,v in out['coalition'].items() if v>PMAX}}
-dump_atomic(out,B+r'\im_allocation.json')
+dump_atomic(out,os.path.join(B, 'im_allocation.json'))
 print('build_im_allocation — regenerated im_allocation.json from the LIVE per-topic model')
 print('  FLIP: %d members funded (sum across %d topics)'%(len(out['flip']),len(pta)))
 print('  COALITION: %d members funded (sum across %d topics)'%(len(out['coalition']),len(ptc)))

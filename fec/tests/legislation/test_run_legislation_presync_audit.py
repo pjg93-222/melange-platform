@@ -427,7 +427,7 @@ class PresyncAuditTests(unittest.TestCase):
         self.assertFalse(state["sync_or_promotion_performed"])
         self.assertEqual(
             state["formula_closure"]["formula_count"],
-            98_726,
+            98_269,
         )
         self.assertTrue(
             state["formula_closure"][

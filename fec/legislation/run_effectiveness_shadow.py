@@ -36,14 +36,14 @@ PRODUCTION = ("ranks_python.json", "data/engine/primacy_factors.json", "data/lob
 def write_json(path, value):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)+"\n", encoding="utf-8")
+    temporary.write_text(json.dumps(value, ensure_ascii=False, sort_keys=True, indent=2, allow_nan=False)+"\n", encoding="utf-8", newline='\r\n')
     os.replace(temporary,path)
 
 
 def write_rows(path, rows):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name+".tmp")
-    with temporary.open("w",encoding="utf-8") as handle:
+    with temporary.open("w",encoding="utf-8", newline='\r\n') as handle:
         for row in rows: handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True, allow_nan=False)+"\n")
     os.replace(temporary,path)
 
@@ -76,7 +76,7 @@ def _render_review(comparison, summary, path):
                     +f'<h1>{comparison["congress"]} Congress — shadow comparison</h1><p>{html.escape(comparison["comparison_scope"])}</p><p>As of {comparison["as_of"]}. Impact 1/5/10; baseline SS coverage unavailable. Click a member for bill-stage calculations and institutional context.</p>'
                     +f'<details><summary>Generation and coverage</summary><pre>{html.escape(json.dumps(summary,indent=2))}</pre></details>'
                     +'<p><input id="find" placeholder="Filter member names" aria-label="Filter member names"></p><table><thead><tr><th>Member / explanations</th><th>Chamber</th><th>Legacy rank</th><th>Results rank</th><th>Common delta</th><th>Composite rank</th><th>Common delta</th><th>Tensor net</th><th>Orientation</th></tr></thead><tbody>'+"".join(markup)
-                    +'</tbody></table><script>document.querySelector("#find").oninput=e=>document.querySelectorAll("tbody tr").forEach(r=>r.hidden=!r.querySelector("summary").textContent.toLowerCase().includes(e.target.value.toLowerCase()))</script>',encoding="utf-8")
+                    +'</tbody></table><script>document.querySelector("#find").oninput=e=>document.querySelectorAll("tbody tr").forEach(r=>r.hidden=!r.querySelector("summary").textContent.toLowerCase().includes(e.target.value.toLowerCase()))</script>',encoding="utf-8", newline='\r\n')
 
 
 def run(args):

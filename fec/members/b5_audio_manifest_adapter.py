@@ -21,10 +21,10 @@ import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from audio_rules import MIN_CLIP_TARGET_SEC, MIN_CLIP_TARGET_WORDS
-from paths import ROOT
+from paths import MELANGE_DATA, ROOT, to_host
 
 
-DEFAULT_MANIFEST = Path(r"C:\melange-data\member_clips\clips_manifest.jsonl")
+DEFAULT_MANIFEST = Path(MELANGE_DATA, "member_clips", "clips_manifest.jsonl")
 DEFAULT_AUDIT = Path(ROOT) / "data" / "engine" / "collection_intake_receipt.json"
 DEFAULT_OUT = Path(ROOT) / "data" / "members" / "b5_audio_reviews_v2.json.candidate"
 REQUIRED_BINDING = (
@@ -67,7 +67,7 @@ def read_jsonl(path):
 
 
 def safe_clip_path(value, allowed_root):
-    path = Path(value or "").resolve()
+    path = Path(to_host(value or "")).resolve()
     root = Path(allowed_root).resolve()
     try:
         path.relative_to(root)
@@ -166,7 +166,7 @@ def load_existing(path):
 def atomic_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    with open(tmp, "w", encoding="utf-8") as handle:
+    with open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
     os.replace(tmp, path)
@@ -196,7 +196,7 @@ def build(manifest_path, audit_path, output_path, roster_path, allowed_root,
     for row in rows:
         if row.get("member") not in roster:
             raise RuntimeError("manifest member not in roster: %r" % row.get("member"))
-        out_wav = str(Path(row.get("out_wav") or "").resolve()).lower()
+        out_wav = str(Path(to_host(row.get("out_wav") or "")).resolve()).lower()
         logical = (row.get("outlet"), row.get("turn_id") or row.get("sid"),
                    row.get("seg"), row.get("member"))
         if out_wav in seen_paths or logical in seen_logical:
@@ -256,7 +256,7 @@ def parse_args(argv=None):
     parser.add_argument("--audit-receipt", type=Path, default=DEFAULT_AUDIT)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--roster", type=Path, default=Path(ROOT) / "data/engine/congestion.json")
-    parser.add_argument("--allowed-root", type=Path, default=Path(r"C:\melange-data"))
+    parser.add_argument("--allowed-root", type=Path, default=Path(MELANGE_DATA))
     parser.add_argument("--no-merge-existing", action="store_true")
     parser.add_argument("--no-audio-hash", action="store_true",
                         help="skip per-WAV SHA replay; manifest/audit binding and PCM checks remain")

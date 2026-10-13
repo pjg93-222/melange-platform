@@ -236,7 +236,7 @@ def main():
     reference = load_reference(args.source_dir)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=args.output.parent,
-                                     prefix=args.output.name + ".", suffix=".tmp", delete=False) as handle:
+                                     prefix=args.output.name + ".", suffix=".tmp", delete=False, newline='\r\n') as handle:
         temporary = Path(handle.name)
         try:
             json.dump(reference, handle, ensure_ascii=False, indent=2)

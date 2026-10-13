@@ -98,6 +98,7 @@ from report_directory import report_directory, require_report_path
 from validate_industry_coverage import workbook_roster
 from collection_coverage import inspect as inspect_coverage, cycles_from
 from fec_key_store import load_keys, save_keys, environment_keys, status as key_status
+import mentat_env
 from runtime_inputs import copy_fec_sources
 import access_gate
 
@@ -1557,7 +1558,7 @@ class Console:
         # The pocket publisher reads this console over HTTP, so the console
         # needs the port it was given. main() sets it before serve_forever.
         self.port = 0
-        self.rscript = rscript or "C:/Program Files/R/R-4.6.0/bin/Rscript.exe"
+        self.rscript = rscript or mentat_env.seam("MENTAT_RSCRIPT")
         self.token = secrets.token_urlsafe(32)
         self.lock = threading.Lock()
         self.processes = {}

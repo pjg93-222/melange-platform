@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from paths import ROOT
+from paths import MELANGE_DATA, ROOT, to_host
 
 
 SCHEMA = "speech-descriptive-v1"
@@ -93,8 +93,8 @@ DEFAULT_VERIFIED_MANIFEST = Path(ROOT) / "data" / "speech" / "source_media_verif
 DEFAULT_VERIFIED_RECEIPT = Path(ROOT) / "data" / "speech" / "source_media_verified_v2.receipt.json"
 DEFAULT_IDENTITY_MANIFEST = Path(ROOT) / "data" / "speech" / "source_media_identity_v2.jsonl"
 DEFAULT_IDENTITY_RECEIPT = Path(ROOT) / "data" / "speech" / "source_media_identity_v2.receipt.json"
-DEFAULT_CANDIDATE_MANIFEST = Path(r"C:\melange-data\source_audio\candidate_clips.jsonl")
-DEFAULT_CANDIDATE_RECEIPT = Path(r"C:\melange-data\source_audio\candidate_clips.receipt.json")
+DEFAULT_CANDIDATE_MANIFEST = Path(MELANGE_DATA, "source_audio", "candidate_clips.jsonl")
+DEFAULT_CANDIDATE_RECEIPT = Path(MELANGE_DATA, "source_audio", "candidate_clips.receipt.json")
 DEFAULT_INVENTORY = Path(ROOT) / "data" / "speech" / "source_media_inventory_v1.jsonl"
 DEFAULT_CALIBRATION = Path(ROOT) / "data" / "speech" / "speaker_anchor_calibration_v1.json"
 CANONICAL_LINEAGE_SCHEMA = "speech-canonical-source-lineage-v1"
@@ -112,7 +112,7 @@ class SpeechBuildError(RuntimeError):
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path,
-                        default=Path(r"C:\melange-data\member_clips\clips_manifest.jsonl"))
+                        default=Path(MELANGE_DATA, "member_clips", "clips_manifest.jsonl"))
     parser.add_argument("--audit", type=Path,
                         default=Path(ROOT) / "data" / "engine" / "collection_intake_receipt.json")
     parser.add_argument("--roster", type=Path,
@@ -315,7 +315,7 @@ def load_feature_index(paths, outlet):
 
 
 def load_npr_bindings():
-    path = Path(r"C:\melange-data\npr_audio\fetch_log.jsonl")
+    path = Path(MELANGE_DATA, "npr_audio", "fetch_log.jsonl")
     bindings = {}
     for row in read_jsonl(path):
         if row.get("status") == "OK" and row.get("sid"):
@@ -324,7 +324,7 @@ def load_npr_bindings():
 
 
 def load_sunday_bindings():
-    path = Path(r"C:\melange-data\sunday_audio\targets.json")
+    path = Path(MELANGE_DATA, "sunday_audio", "targets.json")
     bindings = {}
     for row in read_json(path):
         sid = "%s_%s" % (row.get("fam"), row.get("date"))
@@ -355,13 +355,13 @@ def load_local_youtube_bindings():
         for item in inputs.values():
             if not isinstance(item, dict):
                 continue
-            input_path = Path(str(item.get("path") or ""))
+            input_path = Path(to_host(str(item.get("path") or "")))
             if (
                 not input_path.is_file()
                 or sha256_file(input_path) != item.get("sha256")
             ):
                 raise SpeechBuildError("local YouTube verification input receipt is stale")
-        output = Path(str((receipt.get("output") or {}).get("path") or ""))
+        output = Path(to_host(str((receipt.get("output") or {}).get("path") or "")))
         if (
             not output.is_file()
             or sha256_file(output) != (receipt.get("output") or {}).get("sha256")
@@ -380,7 +380,7 @@ def load_local_youtube_bindings():
             ):
                 continue
             key = (
-                str(Path(str(row.get("out_wav") or "")).resolve()),
+                str(Path(to_host(str(row.get("out_wav") or ""))).resolve()),
                 str(row.get("member") or ""),
                 str(row.get("video_id") or ""),
                 round(float(row.get("start_sec")), 6),
@@ -416,7 +416,7 @@ def classify_identity(
     sid = str(row.get("sid") or "")
     member = str(row.get("member") or "")
     local_key = (
-        str(Path(str(row.get("out_wav") or "")).resolve()),
+        str(Path(to_host(str(row.get("out_wav") or ""))).resolve()),
         member,
         sid,
         round(float(row.get("start") or 0), 6),
@@ -484,7 +484,7 @@ def validate_manifest_contract(manifest_path, audit_path, roster_path):
 
 
 def wav_contract(row, verify_hash):
-    path = Path(str(row.get("out_wav") or ""))
+    path = Path(to_host(str(row.get("out_wav") or "")))
     if not path.is_file():
         raise SpeechBuildError("accepted clip missing: %s" % path)
     with wave.open(str(path), "rb") as handle:
@@ -510,7 +510,7 @@ def wav_contract(row, verify_hash):
 
 
 def supplement_wav_contract(row, verify_hash):
-    path = Path(str(row.get("wav") or ""))
+    path = Path(to_host(str(row.get("wav") or "")))
     if not path.is_absolute() or not path.is_file():
         raise SpeechBuildError("supplemental clip missing or path is not absolute: %s" % path)
     with wave.open(str(path), "rb") as handle:
@@ -958,7 +958,7 @@ def validate_canonical_source_lineage(
         or receipt.get("manifest_sha256") != lineage_sha
         or int(receipt.get("canonical_sotu_rows", -1)) != len(sotu_rows)
         or int(receipt.get("canonical_sotu_sources", -1))
-        != len({str(Path(str(row.get("src_wav") or "")).resolve()) for row in sotu_rows})
+        != len({str(Path(to_host(str(row.get("src_wav") or ""))).resolve()) for row in sotu_rows})
         or receipt.get("canonical_sotu_row_ids_sha256")
         != _stable_sha256(sorted(expected_sotu_ids))
         or receipt.get("all_relevant_canonical_rows_bound") is not True
@@ -993,7 +993,7 @@ def validate_canonical_source_lineage(
         canonical_id = row_sha256(canonical)
         kind = _canonical_cnn_lineage_kind(canonical)
         start_frame, frame_count, sample_rate = _canonical_frame_geometry(canonical)
-        source_path = Path(str(canonical.get("src_wav") or ""))
+        source_path = Path(to_host(str(canonical.get("src_wav") or "")))
         if not source_path.is_absolute() or not source_path.is_file():
             raise SpeechBuildError("canonical CNN full-source WAV is missing: %s" % source_path)
         if kind == "cnn-sotu":
@@ -1001,10 +1001,10 @@ def validate_canonical_source_lineage(
             source_sha = _require_hash(
                 lineage.get("source_audio_sha256"), "canonical SOTU source SHA256")
             if (
-                str(Path(str(lineage.get("source_wav") or "")).resolve())
+                str(Path(to_host(str(lineage.get("source_wav") or ""))).resolve())
                 != str(source_path.resolve())
-                or str(Path(str(lineage.get("out_wav") or "")).resolve())
-                != str(Path(str(canonical.get("out_wav") or "")).resolve())
+                or str(Path(to_host(str(lineage.get("out_wav") or ""))).resolve())
+                != str(Path(to_host(str(canonical.get("out_wav") or ""))).resolve())
                 or lineage.get("canonical_clip_audio_sha256") != canonical.get("sha256")
                 or int(lineage.get("source_start_frame", -1)) != start_frame
                 or int(lineage.get("source_frame_count", -1)) != frame_count
@@ -1031,7 +1031,7 @@ def validate_canonical_source_lineage(
             "kind": kind,
             "canonical_row_sha256": canonical_id,
             "canonical_clip_audio_sha256": str(canonical.get("sha256") or ""),
-            "out_wav": str(Path(str(canonical.get("out_wav") or "")).resolve()),
+            "out_wav": str(Path(to_host(str(canonical.get("out_wav") or ""))).resolve()),
             "source_wav": str(source_path.resolve()),
             "source_audio_sha256": source_sha,
             "source_start_frame": start_frame,
@@ -1172,7 +1172,7 @@ def _pcm_sha256(path, start_frame, frame_count):
 
 
 def _require_file_hash(path, expected, label, cache=None):
-    path = Path(str(path or ""))
+    path = Path(to_host(str(path or "")))
     if not path.is_absolute() or not path.is_file():
         raise SpeechBuildError("%s is missing or is not an absolute file: %s" % (label, path))
     cache_key = str(path.resolve())
@@ -1230,7 +1230,7 @@ def _validate_identity_decision_variants(
             ):
                 raise SpeechBuildError("compact unresolved identity row is malformed or promotable")
             continue
-        comparison = Path(str(decision.get("comparison_matrix") or ""))
+        comparison = Path(to_host(str(decision.get("comparison_matrix") or "")))
         if (
             decision.get("status") not in {
                 "UNRESOLVED", "ACCEPTED_100_PERCENT_STRUCTURAL_CONSENSUS",
@@ -1830,7 +1830,7 @@ def validate_verified_final_contract(
             "identity comparison matrix", file_hash_cache,
         )
         if (
-            str(Path(str(row.get("identity_comparison") or "")).resolve())
+            str(Path(to_host(str(row.get("identity_comparison") or ""))).resolve())
             != str(comparison.resolve())
             or row.get("identity_comparison_sha256")
             != decision.get("comparison_matrix_sha256")
@@ -1857,7 +1857,7 @@ def validate_verified_final_contract(
         if (
             source_receipt.get("schema") != "speech-source-media-acquisition-v1"
             or source_receipt.get("wav_sha256") != candidate.get("source_audio_sha256")
-            or Path(str(source_receipt.get("wav") or "")).resolve() != source.resolve()
+            or Path(to_host(str(source_receipt.get("wav") or ""))).resolve() != source.resolve()
             or source_receipt.get("provider") != candidate.get("provider")
             or source_receipt.get("media_id") != candidate.get("media_id")
             or source_receipt_reference != reference_url
@@ -2043,7 +2043,7 @@ def validate_verified_final_contract(
             "clip_id": clip_id,
             "manifest_row_sha256": row["final_row_sha256"],
             "audio_sha256": row["audio_sha256"],
-            "source_wav": str(Path(str(candidate["source_wav"])).resolve()),
+            "source_wav": str(Path(to_host(str(candidate["source_wav"]))).resolve()),
             "source_audio_sha256": row["source_audio_sha256"],
             "member": member,
             "outlet": supplement_outlet(row),
@@ -2634,7 +2634,7 @@ def corpus_summary(records, manifest_rows):
     legacy_root = Path(ROOT) / "audio_pilot"
     legacy_wavs = list(legacy_root.rglob("*.wav")) if legacy_root.is_dir() else []
     legacy_parts = list(legacy_root.rglob("*.part")) if legacy_root.is_dir() else []
-    youtube_root = Path(r"C:\melange-data\youtube_audio")
+    youtube_root = Path(MELANGE_DATA, "youtube_audio")
     youtube_rows = read_jsonl(youtube_root / "youtube_manifest.jsonl", required=False)
     youtube_channels = Counter(str(row.get("channel") or "Unknown") for row in youtube_rows)
     youtube_identities = Counter(str(row.get("identity") or "missing") for row in youtube_rows)

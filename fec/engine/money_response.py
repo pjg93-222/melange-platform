@@ -6,8 +6,8 @@ A donation shifts a member's money lean with diminishing returns, scaled by how 
 import json, sys, os
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
-CS=json.load(open(B+r'\category_stance.json',encoding='utf-8'))
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
+CS=json.load(open(os.path.join(B, 'category_stance.json'),encoding='utf-8'))
 _OVERALL_CAPS=(CS.get('gate') or {}).get('overall_capped') or {}
 MAT=CS.get('matrix') or {}
 _tier,_trank,_tier_priority=MC.primacy_engine_state(list(MAT))

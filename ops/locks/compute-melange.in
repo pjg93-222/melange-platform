@@ -1,0 +1,21 @@
+# Direct pins for the Melange chain's compute image (ops/docker/compute-melange.Dockerfile); input of ops/locks/compute-melange.linux.txt.
+# Every line of requirements.txt and fec/requirements-honors.txt, plus the third-party packages the 78 chain steps reach that those two
+# files do not declare (opensmile, anthropic: installed on the host, declared nowhere). The set is proved by
+# `python ops/compute/chain_imports.py --json` (AST census of fec/run_pipeline.py CHAIN, transitive through project modules).
+# Versions are the Windows host's (CPython 3.12.10): the image has to reproduce the host's numbers, so no pin moves without a parity run.
+cryptography==49.0.0
+joblib==1.5.3
+networkx==3.6.1
+numpy==2.4.6
+openpyxl==3.1.5
+pandas==3.0.3
+pypdf==6.19.0
+pytest==9.1.1
+requests==2.34.2
+scikit-learn==1.9.0
+scipy==1.18.0
+soundfile==0.14.0
+urllib3==2.8.0
+zopfli==0.4.3
+anthropic==0.115.0
+opensmile==2.6.0

@@ -30,7 +30,7 @@ WM,WP=0.35,0.65; CAP=50000; BASE=0.15   # CALIBRATED: money is the minority part
 # eager) and never outranks one. Judgment dial, env-overridable via PERS_NONE (0.45 = pre-F-9).
 from moneyball_core import PERS   # single copy (was drift-prone x5)
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
 members=[m['member'] for m in C.values()]
 HALFF=float(os.environ.get('HALFF','0.10'))   # capacity scale: money == HALFF*receipts -> half the max money-pull (reconciles with money_response)
 if HALFF<=0: raise ValueError('HALFF must be > 0 (got %g): pflip divides by (cu+1)+HALFF*R'%HALFF)   # QME 2026-10-01: fail loud, not ZeroDivision in pflip
@@ -47,10 +47,10 @@ IMPUTE_IND0=os.environ.get('IMPUTE_IND0','1')   # QME 2026-10-01: effective valu
 ind_imputed={n for n in members if industry_money_missing(C[n])} if IMPUTE_IND0!='0' else set()
 ind0={n:(_imed if n in ind_imputed else ind0[n]) for n in members}
 nodata=set(ind_imputed)   # truly-blind members (no FEC record): winnability is imputed, not measured
-wb=openpyxl.load_workbook(B+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+wb=openpyxl.load_workbook(os.path.join(B, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 bm=wb['Blended Model']; nrm=wb['Legislative Score - Normalized']
 primacy_tier,primacy_rank,primacy_priority=MC.primacy_engine_state(members)
-_CS_DOC=json.load(open(B+r'\category_stance.json'))
+_CS_DOC=json.load(open(os.path.join(B, 'category_stance.json')))
 CS0=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
 adj=MC.load_network()
 # (moneyscale removed -- dead since the capacity-aware pflip rewrite; CU pull is now receipts-relative, not /moneyscale)

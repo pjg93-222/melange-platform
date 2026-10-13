@@ -51,8 +51,8 @@ from moneyball_core import dump_atomic   # S3-01 audit run-2: chain artifacts wr
 import moneyball_core as MC   # R1 (Paul ruling 2026-10-07, D-107): reads only the COMPET_MULT position (MC.compet_on); no artifact
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=list(C)
-try: T=json.load(open(B+r'\data\members\big5_traits.json'))['traits']
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=list(C)
+try: T=json.load(open(os.path.join(B, 'data', 'members', 'big5_traits.json')))['traits']
 except FileNotFoundError: T={}
 if not T: print('  !! big5_traits.json MISSING/EMPTY — every member falls to trait-neutral (personality layer OFF). Run big5_traits.py.')
 # ---- BEHAVIORAL BASIS (nomological fix 2026-07-04, user: 'fix it — do whatever it takes') ----
@@ -84,7 +84,7 @@ AN={}
 if RECEPT_N=='affective':
     try:
         import statistics as _st
-        _AN=json.load(open(B+r'\data\money\affective_n.json'))['members']; _v=list(_AN.values())
+        _AN=json.load(open(os.path.join(B, 'data', 'money', 'affective_n.json')))['members']; _v=list(_AN.values())
         _mu=_st.mean(_v); _sd=_st.pstdev(_v) or 1.0
         AN={m:(x-_mu)/_sd for m,x in _AN.items()}
     except FileNotFoundError as exc:
@@ -103,24 +103,24 @@ if RECEPT_N=='affective':
 RECEPT_COOP=os.environ.get('RECEPT_COOP','v2')
 CV2={}
 if RECEPT_COOP!='v1':
-    try: CV2={m:(d or {}).get('cooperation_v2_z') for m,d in json.load(open(B+r'\coop_v2_candidate.json'))['members'].items()}
+    try: CV2={m:(d or {}).get('cooperation_v2_z') for m,d in json.load(open(os.path.join(B, 'coop_v2_candidate.json')))['members'].items()}
     except FileNotFoundError as exc:
         raise FileNotFoundError('required ratified A-slot input coop_v2_candidate.json is missing; run coop_v2_candidate.py') from exc
     if not any(v is not None for v in CV2.values()):
         raise ValueError('required ratified A-slot input coop_v2_candidate.json carries no cooperation_v2_z for any member; rebuild it (an empty/missing bipartisan.json empties the composite) rather than scoring the whole roster at neutral A')
 BD={}
 if BASIS=='behavioral':
-    try: BD=json.load(open(B+r'\behavioral_dispositions.json'))['members']
+    try: BD=json.load(open(os.path.join(B, 'behavioral_dispositions.json')))['members']
     except FileNotFoundError as exc:
         raise FileNotFoundError('required ratified behavioral basis behavioral_dispositions.json is missing') from exc
     if not BD:
         raise ValueError('required ratified behavioral basis has no members')
     else: print('  BEHAVIORAL basis: %d members with measured dispositions (RECEPT_TRAITS=lexical reverts)'%len(BD))
-EL=json.load(open(B+r'\data\money\electoral.json'))
-try: EP=json.load(open(B+r'\data\money\electoral_plays.json'))
+EL=json.load(open(os.path.join(B, 'data', 'money', 'electoral.json')))
+try: EP=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json')))
 except FileNotFoundError: EP={}
 if not EP: print('  !! electoral_plays.json MISSING/EMPTY — prospect-theory loss domain falls back to security<0.45 only. Run build_electoral_plays.py.')
-RETF=B+r'\fec\retiring_members.txt'
+RETF=os.path.join(B, 'fec', 'retiring_members.txt')
 RET=set()
 if os.path.exists(RETF):
     RET={l.strip() for l in open(RETF,encoding='utf-8') if l.strip() and not l.startswith('#')}
@@ -147,7 +147,7 @@ COMPET_ON=MC.compet_on()   # unset/'' -> ON, '0' -> OFF, anything else raises
 PW=float(os.environ.get('PERSONA_W','0.30'))
 PS={}
 try:
-    _ac={m:d for m,d in json.load(open(B+r'\data\members\agency_communion.json'))['members'].items() if d.get('n',0)>=15}
+    _ac={m:d for m,d in json.load(open(os.path.join(B, 'data', 'members', 'agency_communion.json')))['members'].items() if d.get('n',0)>=15}
     if _ac:
         _ag=[d['agency'] for d in _ac.values()]; _co=[d['communion'] for d in _ac.values()]
         _ma=sum(_ag)/len(_ag); _sa=(sum((x-_ma)**2 for x in _ag)/max(1,len(_ag)-1))**.5 or 1.0
@@ -238,7 +238,7 @@ dump_atomic({'members':out,'LOSSFRAME':1.10,'basis':BASIS,'n_slot':(RECEPT_N if 
        +('; A-slot = share-based cooperation_v2 (round-6 promotion 2026-07-10, composition frozen @28914b3; missing coverage -> neutral; RECEPT_COOP=v1 reverts)' if RECEPT_COOP!='v1'
          else '; A-slot = raw-count cooperation_z (RECEPT_COOP=v1 legacy)'))
       if BASIS=='behavioral' else 'LEXICAL basis; graded sqrt(tokens/1500) trait shrinkage toward neutral')},
-  B+r'\member_receptivity.json')
+  os.path.join(B, 'member_receptivity.json'))
 import collections
 d=collections.Counter(out[m]['pt_domain'] for m in out)
 neu=sum(1 for m in out if out[m]['lowconf'])

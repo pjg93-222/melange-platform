@@ -1,0 +1,254 @@
+# Exported to .github/workflows/compute-office.yml in pjg93-222/melange-platform.
+# Builds the office-calc image (LibreOffice headless as a calculator, D-174; ops/docker/office-calc.Dockerfile) and pushes
+# it BY DIGEST to ghcr.io/pjg93-222/office-calc: the laptop only ever runs it by that digest (the digest-office-calc artifact; task C1 folds it into the compute images.lock).
+# CI is the only image builder (D-175). Runs on a v* tag and by hand; release.yml, which builds the serve images on the
+# same tag push, is unchanged. Before an image is recorded it must recalculate a probe workbook (SUM, LET, XLOOKUP,
+# PERCENTRANK, RANK, criteria functions, booleans, strings, errors) to the known values in ops/compute/xl_equivalence.py.
+# Automatic propagation (ops/RELEASE.md): the image is built only when its inputs changed (ops/image_inputs.json, the tag
+# inputs-<hash>); otherwise the digest already in GHCR is reused and the same smoke test, SBOM and gate run on it. The digests job
+# reports it to release.py as the compute-office-digests artifact.
+#
+# Every action is pinned to a full commit SHA (the tag it was resolved from is the trailing comment); the SHAs are the ones
+# release.yml carries, so bump them together (ops/VPS.md, "Pin the actions").
+name: compute-office
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: compute-office-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      # TODO: swap for a hashed ops/locks/ci-test.linux.txt once the lock lane produces one (same note as release.yml).
+      - run: python -m pip install -r requirements.txt pyyaml==6.0.3 cryptography==49.0.0
+      - run: python -m compileall -q ops
+      - run: python -m pytest -q ops/tests/test_office_recalc.py ops/tests/test_office_recalc_uno.py ops/tests/test_xl_equivalence.py
+
+  build:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: write}
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Image tag
+        id: tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$REF_TYPE" = tag ]; then
+            # a ref name may hold commas (buildx splits `outputs:` on them) or other odd characters: nothing runs on one
+            [[ "$REF_NAME" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || { echo "::error::tag does not match v<YYYY>.<MM>.<DD>.<n>"; exit 1; }
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dispatch-${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - name: Base image from ops/images.lock
+        id: base
+        run: |
+          set -euo pipefail
+          ref=$(jq -r '.debian.ref' ops/images.lock)
+          dig=$(jq -r '.debian.digest' ops/images.lock)
+          if ! [[ "$dig" =~ ^sha256:[0-9a-f]{64}$ ]] || [[ "$dig" =~ ^sha256:0{64}$ ]]; then
+            echo "::error::ops/images.lock debian digest is a placeholder; resolve it (ops/VPS.md)"; exit 1
+          fi
+          {
+            echo "debian=${ref}@${dig}"
+            echo "epoch=$(git log -1 --format=%ct)"
+            echo "created=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Input hash of this image
+        id: inputs
+        run: echo "hash=$(python3 ops/release_lib/inputs.py hash office-calc)" >> "$GITHUB_OUTPUT"
+      - name: Reuse the image built from the same inputs, if there is one
+        id: reuse
+        env: {HASH: "${{ steps.inputs.outputs.hash }}"}
+        run: bash ops/ci/build_or_reuse.sh check ghcr.io/pjg93-222/office-calc "$HASH"
+      - name: Build and push (tag for humans, digest for the laptop)
+        id: push
+        if: steps.reuse.outputs.reused != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ops/docker/office-calc.Dockerfile
+          outputs: type=image,name=ghcr.io/pjg93-222/office-calc:${{ steps.tag.outputs.tag }},push=true,rewrite-timestamp=true
+          # No layer cache on a release build: a GitHub Actions cache entry can be written by any other workflow run in
+          # the repo, and whatever it holds would ride, unseen, into an image the laptop runs with real workbooks.
+          no-cache: true
+          provenance: false
+          sbom: false
+          build-args: |
+            DEBIAN_BASE=${{ steps.base.outputs.debian }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.base.outputs.created }}
+            SOURCE_DATE_EPOCH=${{ steps.base.outputs.epoch }}
+      - name: Digest of this image (reused or just built)
+        id: image
+        env:
+          DIGEST: "${{ steps.reuse.outputs.reused == 'true' && steps.reuse.outputs.digest || steps.push.outputs.digest }}"
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+      # Through the compose file, so its mounts, user and tmpfs are what is tested. The probe is generated here (stdlib,
+      # no openpyxl); /out must be writable by uid 10001 because the runner's directory is not.
+      - name: Smoke test in the pushed image (probe workbook, known values)
+        env:
+          IMAGE_OFFICE_CALC: ghcr.io/pjg93-222/office-calc@${{ steps.image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p smoke/in smoke/out && chmod 777 smoke/out
+          export OFFICE_IN_DIR="$PWD/smoke/in" OFFICE_OUT_DIR="$PWD/smoke/out"
+          # "probe" must give every known value (a wrong one fails the build). "probe-extended" adds the cases LibreOffice may
+          # differ on (summation, tie order, approximate equality, criteria text, error codes): its differences are listed in
+          # the artifact as the known function gaps, and even an abort there (an error code with no Excel equivalent) only warns.
+          for kind in probe probe-extended; do
+            flag=""; [ "$kind" = probe-extended ] && flag="--extended"
+            python ops/compute/xl_equivalence.py probe-make smoke/in/$kind.xlsx $flag > smoke/$kind.json
+            sha=$(jq -r .sha256 smoke/$kind.json)
+            if docker compose -f ops/compute/office-calc.compose.yaml --profile office run -T --rm office-calc \
+                 --in /in/$kind.xlsx --expect-sha "$sha" --out /out/$kind.view.xlsx --receipt /out/$kind.receipt.json \
+                 --allow-function _XLFN.XLOOKUP; then
+              python ops/compute/xl_equivalence.py probe-check smoke/out/$kind.view.xlsx | tee smoke/$kind-check.txt
+              jq '{engine: .engine.version_string, formulas: .formula_count, cached: .cached_by_type, errors: .formula_cached_error_count}' smoke/out/$kind.receipt.json
+              if grep -q -e '^KNOWN_DIVERGENCE' -e '^DIVERGENCE' smoke/$kind-check.txt; then
+                echo "::warning::$kind: LibreOffice differs from Excel on some cells (listed in smoke-office-calc; blocking only in the Excel equivalence gate)"
+              fi
+            elif [ "$kind" = probe ]; then
+              echo "::error::the probe workbook did not recalculate"; exit 1
+            else
+              echo "::warning::the extended probe aborted (see the log above)"
+            fi
+          done
+      # Only after the smoke test: an image that failed it never becomes the one the next release reuses.
+      - name: Tag the new image with its inputs, so the next release can reuse it
+        if: steps.reuse.outputs.reused != 'true'
+        env: {HASH: "${{ steps.inputs.outputs.hash }}", DIGEST: "${{ steps.image.outputs.digest }}"}
+        run: bash ops/ci/build_or_reuse.sh tag ghcr.io/pjg93-222/office-calc "$HASH" "$DIGEST"
+      - name: Record digest
+        env: {DIGEST: "${{ steps.image.outputs.digest }}"}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "$DIGEST" > digest-office-calc.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digest-office-calc
+          path: digest-office-calc.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: smoke-office-calc
+          path: |
+            smoke/probe-check.txt
+            smoke/probe-extended-check.txt
+            smoke/out/probe.receipt.json
+            smoke/out/probe-extended.receipt.json
+
+  sbom:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: digest-office-calc}
+      - id: ref
+        run: echo "image=ghcr.io/pjg93-222/office-calc@$(cat digest-office-calc.txt)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.ref.outputs.image }}
+          format: spdx-json
+          output-file: sbom-office-calc.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-office-calc
+          path: sbom-office-calc.spdx.json
+
+  # D-181 / D-182: the same images stage release.yml runs (trivy per image by digest, then compose_policy on the rendered
+  # compose file). Fixable HIGH/CRITICAL and forbidden or unknown language-package licences block; OS-package licences and
+  # unfixed vulnerabilities are reported.
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: digest-office-calc}
+      - name: Install trivy
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          set -euo pipefail
+          curl -fsSL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          sudo tar -xzf trivy.tgz -C /usr/local/bin trivy
+      - name: Render the compose file with the image built here, then scan
+        run: |
+          set -euo pipefail
+          export IMAGE_OFFICE_CALC="ghcr.io/pjg93-222/office-calc@$(cat digest-office-calc.txt)" OFFICE_IN_DIR="$PWD" OFFICE_OUT_DIR="$PWD"
+          docker compose -f ops/compute/office-calc.compose.yaml --profile office config --format json > compose.config.json
+          python ops/security_gate.py images --ci --compose-json compose.config.json \
+            --image "$IMAGE_OFFICE_CALC" --report security-images.json
+
+  # What release.py reads (ops/RELEASE.md, "Compute workflows adopt it"): a workflow artifact named *-digests holding digests.json,
+  # written only after the smoke test (build), the SBOM and the images gate have passed on this digest.
+  digests:
+    needs: [build, sbom, scan]
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - name: Write digests.json (same shape as the release kit's)
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ github.sha }}
+          IMAGE: ghcr.io/pjg93-222/office-calc@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          jq -n --arg tag "$TAG" --arg sha "$SHA" --arg image "$IMAGE" '{tag: $tag, commit: $sha, images: {"office-calc": $image}}' > digests.json
+          cat digests.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compute-office-digests
+          path: digests.json

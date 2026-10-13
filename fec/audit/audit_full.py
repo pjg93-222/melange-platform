@@ -1,4 +1,4 @@
-import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
+import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,LOCAL_MELANGE,today  # centralized root (arch review 2026-07-02)
 """FULL-BODY AUDIT — every module in one report.
 Consolidates the integrity (22) + frontier (15) audits and adds correctness checks for the
 new modules: money-response, electoral plays, co-sponsor routes, LT-priming, stance, determinism."""
@@ -11,7 +11,7 @@ from pipeline_lock import valid_inherited_lease
 from members.validate_descriptive_profiles import validate_descriptive_profiles
 from audit.published_source_contracts import personal_source_errors, press_source_errors, vote_source_errors
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
-B=MB_ROOT; FE=os.path.dirname(os.path.dirname(os.path.abspath(__file__))); ENG=FE+r'\engine'; DATA_FE=B+r'\fec'
+B=MB_ROOT; FE=os.path.dirname(os.path.dirname(os.path.abspath(__file__))); ENG=os.path.join(FE, 'engine'); DATA_FE=os.path.join(B, 'fec')
 def _pid_alive(pid):
     from process_liveness import process_alive
     return process_alive(pid)
@@ -31,7 +31,7 @@ P,F=[],[]
 def ck(name,cond,detail=''):
     (P if cond else F).append(name); print(('  OK   ' if cond else 'FAIL  ')+name+((' :: '+detail) if (detail and not cond) else ''))
 def run(script):
-    return subprocess.run([sys.executable,FE+'\\'+script],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+    return subprocess.run([sys.executable,os.path.join(FE,*script.split('/'))],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout   # step names are slash-separated; join natively
 def _file_sha256(path):
     _h=hashlib.sha256()
     with open(path,'rb') as _handle:
@@ -40,11 +40,11 @@ def _file_sha256(path):
 
 
 print('========== FULL-BODY AUDIT ==========\n[1] Existing audits')
-for s,nm,exp in [(r'audit\legacy_workbook_audit.py','integrity (22)',22),(r'audit\audit_frontier.py','frontier (15)',15)]:   # QME 2026-10-01: frontier floor 11 -> 15 = the EXACT number of ck() calls in a full audit_frontier run (loops counted: 2 clamp-vs-raw + 2 marginals + 2 type + 1 tier + 1 base + 1 party-blind gates + 1 contest mix + 1 defend skew + 2 knee re-derive + 2 stance gate; the party-blind check is the only conditional one, so a skip drops the count below this floor). Keep in sync with fec/tests/audit/test_frontier_audit_floor.py.   # S3-03 audit run-2: assert COUNT too — a silently-skipped check must fail here, not vanish
+for s,nm,exp in [('audit/legacy_workbook_audit.py','integrity (22)',22),('audit/audit_frontier.py','frontier (15)',15)]:   # QME 2026-10-01: frontier floor 11 -> 15 = the EXACT number of ck() calls in a full audit_frontier run (loops counted: 2 clamp-vs-raw + 2 marginals + 2 type + 1 tier + 1 base + 1 party-blind gates + 1 contest mix + 1 defend skew + 2 knee re-derive + 2 stance gate; the party-blind check is the only conditional one, so a skip drops the count below this floor). Keep in sync with fec/tests/audit/test_frontier_audit_floor.py.   # S3-03 audit run-2: assert COUNT too — a silently-skipped check must fail here, not vanish
     out=run(s); m=re.search(r'(\d+) passed, (\d+) FAILED',out)
     ck('%s sub-audit clean'%nm, bool(m) and m.group(2)=='0' and int(m.group(1))>=exp, out.strip().splitlines()[-1] if out else 'no output')
 print('\n[2] Money-response (diminishing returns + capacity)')
-spec=importlib.util.spec_from_file_location('mr',ENG+r'\money_response.py'); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
+spec=importlib.util.spec_from_file_location('mr',os.path.join(FE, 'engine', 'money_response.py')); mr=importlib.util.module_from_spec(spec); spec.loader.exec_module(mr)
 g='Jared Golden'
 s1,s2,s4=mr.shift_lean(g,'cu',100000),mr.shift_lean(g,'cu',200000),mr.shift_lean(g,'cu',400000)
 ck('money curve concave (doubling $ < doubling effect)', s2<2*s1 and s4<2*s2, '%.1f %.1f %.1f'%(s1,s2,s4))
@@ -70,7 +70,7 @@ else: mr.OV[_probe]=_probe_old
 ck('committed Opponents immune to money defection (structural probe)',_opp_immune)
 import moneyball_core as _crown_core
 import tier_util as _crown_tier_util
-_crown_cs=json.load(open(B+r'\category_stance.json',encoding='utf-8'))
+_crown_cs=json.load(open(os.path.join(B, 'category_stance.json'),encoding='utf-8'))
 _crown_matrix=_crown_cs['matrix']; _crown_caps=(_crown_cs.get('gate') or {}).get('overall_capped') or {}
 _crown_tier,_crown_trank=_crown_tier_util.legislative_press_tiers(list(_crown_matrix))
 _crowned=[m for m in _crown_matrix if _crown_tier.get(m,0)==1]
@@ -101,7 +101,7 @@ ck('overall bends are the strict fixed ladder, not roster-population quotas',
    _band_core.overall_tier_from_value(-.01) not in ('Highly Persuadable','Persuadable','Lean Persuadable','Ally'),
    str(_ob))
 print('\n[3] Electoral plays (non-partisan, gated)')
-EP=json.load(open(B+r'\data\money\electoral_plays.json'))
+EP=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json')))
 contest=[m for m,d in EP.items() if d.get('play')=='contest']; defend=[m for m,d in EP.items() if d.get('play')=='defend']
 ck('contest plays gated to Opponents only', all(EP[m]['overall']=='Opponent' for m in contest))
 ck('defend plays gated to allies only', all(EP[m]['overall'] in ('Champion','Defender','Ally') for m in defend))
@@ -111,7 +111,7 @@ ck('contest plays not partisan-skewed (<70%% one party; enforced at n>=12)',
    _contest_n<12 or max(pb['D'],pb['R'])<=0.70*_contest_n,
    'D%d R%d (n=%d)'%(pb['D'],pb['R'],_contest_n))
 print('\n[4] Stance matrix sanity')
-CS=json.load(open(B+r'\category_stance.json')); MAT=CS['matrix']
+CS=json.load(open(os.path.join(B, 'category_stance.json'))); MAT=CS['matrix']
 from engine.pillar_policy import LABEL_EVIDENCE_WEIGHTS as _LABEL_EVIDENCE_WEIGHTS
 ck('press-to-label evidence weight matches the diminished centralized policy',
    ((CS.get('thresholds') or {}).get('evidence_weights') or {})==_LABEL_EVIDENCE_WEIGHTS and
@@ -130,7 +130,7 @@ ck('champion rate disciplined (<2000 of ~9000 cells)', cnt['Champion']<2000, str
 print('\n[5] Co-sponsor route (Pareto + MC reinforcement + determinism)')
 def front(env):
     e=dict(os.environ,TOPIC='Mortgage',**env)
-    out=subprocess.run([sys.executable,ENG+r'\cosponsor_route.py'],capture_output=True,text=True,encoding='utf-8',errors='replace',env=e).stdout
+    out=subprocess.run([sys.executable,os.path.join(ENG, 'cosponsor_route.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=e).stdout
     d={}
     for ln in out.splitlines():
         m=re.search(r'([0-9,]+) +-> +\+([0-9.]+) +co-sponsors +risk +([0-9.]+)',ln)
@@ -142,7 +142,7 @@ ck('route front non-empty', len(tr)>3, '%d pts'%len(tr))
 ck('MC-exact >= tree-reach at shared costs (reinforcement)', all(mc[c]>=tr[c]-0.05 for c in shared) if shared else False)
 ck('MC route deterministic (same seed -> identical)', mc==mc2)
 print('\n[6] LT-priming validity')
-pr=json.load(open(B+r'\data\network\lt_priming.json'))
+pr=json.load(open(os.path.join(B, 'data', 'network', 'lt_priming.json')))
 ck('priming sorted cheapest-first', all(pr[i]['cost']<=pr[i+1]['cost'] for i in range(len(pr)-1)))
 def _lt_closes(p,tol=1e-6):   # QME 2026-10-01: a recipe closes iff its OWN influence budget (network pressure + recruits' added pull + money's lean units) reaches theta; the old test only read cost>0 and gap>0 (tautological)
     u=p.get('units')
@@ -152,7 +152,7 @@ ck('every recipe closes the gap (pressure+recruit pull+money units >= theta)', n
 ck('no committed Opponents/Champions in primeable set', all(p['tier'] not in ('Champion','Defender','Opponent') for p in pr))
 print('\n[7] Scenario runner (end-to-end)')
 def scen():
-    return subprocess.run([sys.executable,ENG+r'\scenario.py','--money','Jared Golden:comp:500000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+    return subprocess.run([sys.executable,os.path.join(ENG, 'scenario.py'),'--money','Jared Golden:comp:500000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
 o1=scen(); o2=scen()
 net=re.search(r'([+-][0-9.]+) co-sponsors\)',o1)   # the coalition/mobilization NET line
 ck('scenario runs end-to-end (reports a net influence change)', bool(net), o1.strip().splitlines()[-1] if o1 else 'no output')
@@ -162,11 +162,11 @@ ck('competitor shock reduces CU influence (sign sane)', bool(net) and float(net.
 flnet=re.search(r'winnability [0-9.]+ -> [0-9.]+  \(([+-][0-9.]+) expected flips\)',o1)
 ck('competitor shock reduces winnability too (flip channel, consistent footing)', bool(flnet) and float(flnet.group(1))<=0, flnet.group(1) if flnet else '?')
 # scenario CU spend now registers via flip channel (regression on the bug we just fixed)
-cu_o=subprocess.run([sys.executable,ENG+r'\scenario.py','--money','Tim Scott:cu:300000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+cu_o=subprocess.run([sys.executable,os.path.join(ENG, 'scenario.py'),'--money','Tim Scott:cu:300000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
 fl=re.search(r'([+-][0-9.]+) expected flips',cu_o)
 ck('CU spend registers gradual flip-value gain (not absorbed)', bool(fl) and float(fl.group(1))>0, fl.group(1) if fl else '?')
 print('\n[8] Joint budget optimizer (fixed-state lazy greedy / modeled replanning)')
-def opt(env): return subprocess.run([sys.executable,ENG+r'\optimize.py'],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,**env)).stdout
+def opt(env): return subprocess.run([sys.executable,os.path.join(ENG, 'optimize.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,**env)).stdout
 # OPT_OUT -> scratch json so the test run doesn't clobber the production optimize_result.json
 # (mirrors FRONTIER_OUT below).  The scratch directory is data\system\audit_scratch, which NO store
 # in fec\audit\build_system_manifest.py's REGISTRY measures.  It used to be data\lobbying, which
@@ -174,17 +174,17 @@ def opt(env): return subprocess.run([sys.executable,ENG+r'\optimize.py'],capture
 # pinned its bytes, so every audit run rewrote its own pin and A2b went red on itself (4134 B
 # 2213f048.. pinned vs 4135 B bd3e5f19.. on disk, 2026-09-06).  A subprocess writes it, so the
 # directory has to exist first.
-_ASCRATCH=B+r'\data\system\audit_scratch'
+_ASCRATCH=os.path.join(B, 'data', 'system', 'audit_scratch')
 os.makedirs(_ASCRATCH,exist_ok=True)
 # INC=5000 (divides PMAX=10000): optimize.py's cap check requires room for a FULL chunk, so INC>PMAX allocates nothing.
-_OE={'BUDGET':'300000','INC':'5000','OPT_OUT':_ASCRATCH+r'\_audit_tmp_optimize.json'}
+_OE={'BUDGET':'300000','INC':'5000','OPT_OUT':os.path.join(_ASCRATCH, '_audit_tmp_optimize.json')}
 oo1=opt(_OE); oo2=opt(_OE)
 gn=re.search(r'\(([+-][0-9.]+) expected flips\)',oo1)
 ck('optimizer runs + reports a winnability frontier', bool(gn), oo1.strip().splitlines()[1] if oo1 else 'no output')
 ck('optimizer improves winnability (monotone, sign sane)', bool(gn) and float(gn.group(1))>0, gn.group(1) if gn else '?')
 ck('optimizer deterministic (same budget -> identical)', oo1==oo2)
 # H1 regression: winning a member (conversion) must be a GAIN -> the spend->winnability path is monotone non-decreasing
-_opt=json.load(open(_ASCRATCH+r'\_audit_tmp_optimize.json')); _pp=[v for _,v in _opt['path']]
+_opt=json.load(open(os.path.join(_ASCRATCH, '_audit_tmp_optimize.json'))); _pp=[v for _,v in _opt['path']]
 _drops=sum(1 for i in range(1,len(_pp)) if _pp[i]<_pp[i-1]-1e-9)
 ck('optimizer path monotone (conversion is a gain, not the old persuadability-loss)', _drops==0, '%d drops; base %.2f final %.2f'%(_drops,_pp[0],_pp[-1]))
 ck('optimizer reports mode, observation status, and guarantee scope honestly',
@@ -206,7 +206,7 @@ ck('optimizer exact fixed-state certificate is internally consistent',
 # Opponent, $7,000). 20 members were gated that day, so an empty set means the tier read broke.
 _gate_set={'Skeptic','Highly Skeptical','Opponent'}
 _gated={m for m in _crown_matrix if _crown_core.overall_tier(_crown_matrix.get(m,{}),m,_crown_caps) in _gate_set}
-_pub_opt_path=B+r'\optimize_result.json'
+_pub_opt_path=os.path.join(B, 'optimize_result.json')
 _pub_opt=json.load(open(_pub_opt_path,encoding='utf-8')) if os.path.exists(_pub_opt_path) else None
 _gate_funded={src:sorted(m for m,v in (doc.get('alloc') or {}).items() if v>0 and m in _gated)
               for src,doc in (('audit run',_opt),('published plan',_pub_opt or {}))}
@@ -219,7 +219,7 @@ ck('optimizer funds no stance-gated member (overall Skeptic/Highly Skeptical/Opp
        len((_opt.get('stance_gate') or {}).get('blocked_members') or [])))
 # F4a/F4d (Paul 2026-09-30, "F4. Proceed"): the desk's gap is the plan's increment (never negative) and a
 # member the optimizer gates shows no ROI. Read from the published desk bundle, a different artifact.
-_desk_path=B+r'\member_desk_bundle.json'
+_desk_path=os.path.join(B, 'member_desk_bundle.json')
 _desk_members=((json.load(open(_desk_path,encoding='utf-8')).get('members') or [])
                if os.path.exists(_desk_path) else [])
 _bad_gap=[m.get('name') for m in _desk_members
@@ -230,7 +230,7 @@ ck('desk gap = the plan increment (never negative) and stance-gated members show
    '%d desk members; gap violations %d %s; gated with ROI %d %s'%(
        len(_desk_members),len(_bad_gap),_bad_gap[:3],len(_bad_roi),_bad_roi[:3]))
 # H3 regression: members with NO FEC data must NOT rank as top flip targets (ind=0 -> pflip~1 was misreading "missing" as "no opposition")
-_s=importlib.util.spec_from_file_location('fmA',ENG+r'\flip_model.py'); _fm=importlib.util.module_from_spec(_s); _s.loader.exec_module(_fm)
+_s=importlib.util.spec_from_file_location('fmA',os.path.join(FE, 'engine', 'flip_model.py')); _fm=importlib.util.module_from_spec(_s); _s.loader.exec_module(_fm)
 _wn=collections.Counter()
 for c in _fm.cats:
     cs,ct,nA,nB,mAt,mBt,tgt=_fm.topic_setup(c,_fm.CS0)
@@ -245,7 +245,7 @@ ck('imputation limited to no-FEC-record members; verified-real ind=0 zeros trust
 # QME 2026-10-01: (1) stance gate on the money allocators' ARTIFACTS: no member whose overall tier is Skeptic/Highly Skeptical/Opponent (re-derived by the same
 # original kernel rule as _gated above) may hold money in per_topic_alloc.json (flip, always gated) or per_topic_coalition.json (gated since COAL_STANCE_GATE
 # landed; dial=0 reverts, then this check is waived because the artifact is knowingly ungated). An empty _gated means the tier read broke.
-_pta=json.load(open(B+r'\per_topic_alloc.json',encoding='utf-8')); _ptc=json.load(open(B+r'\data\lobbying\per_topic_coalition.json',encoding='utf-8'))
+_pta=json.load(open(os.path.join(B, 'per_topic_alloc.json'),encoding='utf-8')); _ptc=json.load(open(os.path.join(B, 'data', 'lobbying', 'per_topic_coalition.json'),encoding='utf-8'))
 _gf=sorted({m for d in _pta.values() for m,v in d.items() if v>0 and m in _gated})
 _gc=sorted({m for d in _ptc.values() for m,v in d.items() if v>0 and m in _gated})
 _coal_gate_on=os.environ.get('COAL_STANCE_GATE','1')!='0'
@@ -259,52 +259,52 @@ def _imputes(path):
     calls=any(isinstance(n,_ast.Call) and getattr(n.func,'id',None)=='industry_money_missing' for n in _ast.walk(t))
     med=any(isinstance(n,_ast.Name) and n.id=='_imed' for n in _ast.walk(t))
     return calls and med
-_imp_bad=[f for f in ('per_topic_coalition.py','budget_frontier.py') if not _imputes(ENG+'\\'+f)]
+_imp_bad=[f for f in ('per_topic_coalition.py','budget_frontier.py') if not _imputes(os.path.join(ENG,f))]
 ck('coalition + frontier engines impute missing industry money like flip_model (industry_money_missing + median fill)',not _imp_bad,'missing in %s'%_imp_bad)
 # HIGH-1 regression: frontier cascade now uses edge-keyed CRN -> a single-topic run is deterministic across repeats
-def bf(): return subprocess.run([sys.executable,ENG+r'\budget_frontier.py'],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,TOPIC='Interchange',FRONTIER_OUT=_ASCRATCH+r'\_audit_tmp_frontier.json')).stdout   # scratch out (see _ASCRATCH above) -> don't clobber the all-topics production json, and don't land inside repo.data_money
+def bf(): return subprocess.run([sys.executable,os.path.join(ENG, 'budget_frontier.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,TOPIC='Interchange',FRONTIER_OUT=os.path.join(_ASCRATCH, '_audit_tmp_frontier.json'))).stdout   # scratch out (see _ASCRATCH above) -> don't clobber the all-topics production json, and don't land inside repo.data_money
 bf1=bf(); bf2=bf()
 ck('budget_frontier deterministic w/ edge-keyed CRN (single topic)', bf1==bf2 and 'Interchange' in bf1)
 
 print('\n[NEW] Salience shock + press SNA layers (Noble-Turner / HCoI / Fink / Zhou-Elejalde / Joo)')
 import json as _j
-if os.path.exists(B+r'\salience_advisory.json'):
-    _adv=_j.load(open(B+r'\salience_advisory.json'))['advisory']
+if os.path.exists(os.path.join(B, 'salience_advisory.json')):
+    _adv=_j.load(open(os.path.join(B, 'salience_advisory.json')))['advisory']
     ck('salience advisory covers all issues', len(_adv)>=18, str(len(_adv)))
     _pr=[a['params'] for a in _adv]
     ck('salience regime probs valid (p+q+b~1, all in [0,1])',
        all(0<=x['p']<=1 and 0<=x['q']<=1 and 0<=x['b']<=1 and 0.94<=x['p']+x['q']+x['b']<=1.01 for x in _pr))
 else: ck('salience advisory present (run salience_shock.py --advise)', False)
-if os.path.exists(B+r'\dashboard_data.json'):
-    _dd=_j.load(open(B+r'\dashboard_data.json',encoding='utf-8'))
+if os.path.exists(os.path.join(B, 'dashboard_data.json')):
+    _dd=_j.load(open(os.path.join(B, 'dashboard_data.json'),encoding='utf-8'))
     _sal=_dd.get('engine',{}).get('sal')
     ck('bundle exports Noble sal params (one per issue layer)', bool(_sal) and len(_sal)==len(_dd['issues']),
        '%s vs %s'%(len(_sal or []),len(_dd['issues'])))
-if os.path.exists(B+r'\data\stance\press_hcoi.json'):
-    _hc=_j.load(open(B+r'\data\stance\press_hcoi.json',encoding='utf-8'))
+if os.path.exists(os.path.join(B, 'data', 'stance', 'press_hcoi.json')):
+    _hc=_j.load(open(os.path.join(B, 'data', 'stance', 'press_hcoi.json'),encoding='utf-8'))
     _allm=[m2 for c in _hc['communities'] for m2 in c['members']]
     ck('HCoI communities non-trivial and disjoint (Louvain partition)',
        len(_hc['communities'])>=3 and len(_allm)==len(set(_allm)), '%d comms'%len(_hc['communities']))
-if os.path.exists(B+r'\data\stance\press_engagement.json'):
-    _pe=_j.load(open(B+r'\data\stance\press_engagement.json',encoding='utf-8'))
+if os.path.exists(os.path.join(B, 'data', 'stance', 'press_engagement.json')):
+    _pe=_j.load(open(os.path.join(B, 'data', 'stance', 'press_engagement.json'),encoding='utf-8'))
     ck('engagement layer: valid probabilities, no self-edges',
        all(0<e['p']<=1 and e['src']!=e['dst'] for e in _pe['directed']), '%d edges'%len(_pe['directed']))
-if os.path.exists(B+r'\data\stance\stance_dynamics.json'):
-    _sd=_j.load(open(B+r'\data\stance\stance_dynamics.json',encoding='utf-8'))
+if os.path.exists(os.path.join(B, 'data', 'stance', 'stance_dynamics.json')):
+    _sd=_j.load(open(os.path.join(B, 'data', 'stance', 'stance_dynamics.json'),encoding='utf-8'))
     ck('stance-dynamics imputation beats coin flip on masked cells (sign agreement > 0.55)',
        _sd['masking_validation']['sign_agreement']>0.55, str(_sd['masking_validation']))
     ck('imputation proposals carry provenance (user adjudicates; matrix untouched)',
-       os.path.exists(B+r'\data\stance\stance_imputation_proposals.csv') and
-       'provenance' in open(B+r'\data\stance\stance_imputation_proposals.csv',encoding='utf-8-sig').readline())
-if os.path.exists(B+r'\data\stance\frame_alignment.json'):
-    _fa=_j.load(open(B+r'\data\stance\frame_alignment.json',encoding='utf-8'))
+       os.path.exists(os.path.join(B, 'data', 'stance', 'stance_imputation_proposals.csv')) and
+       'provenance' in open(os.path.join(B, 'data', 'stance', 'stance_imputation_proposals.csv'),encoding='utf-8-sig').readline())
+if os.path.exists(os.path.join(B, 'data', 'stance', 'frame_alignment.json')):
+    _fa=_j.load(open(os.path.join(B, 'data', 'stance', 'frame_alignment.json'),encoding='utf-8'))
     ck('frame-alignment rates in [0,1] across issues', all(0<=x['alignment']<=1 for x in _fa['alignment']))
 
 
 print('\n[GOLD] Golden labels + domain classifier + collector DB')
-if os.path.exists(B+'\\data\\stance\\cu_golden_labels.csv'):
+if os.path.exists(os.path.join(B, 'data', 'stance', 'cu_golden_labels.csv')):
     import csv as _csv
-    _gl=list(_csv.DictReader(open(B+'\\data\\stance\\cu_golden_labels.csv',encoding='utf-8-sig')))
+    _gl=list(_csv.DictReader(open(os.path.join(B, 'data', 'stance', 'cu_golden_labels.csv'),encoding='utf-8-sig')))
     _cls={'support','oppose','neutral','unrelated'}
     ck('golden label set parses, all labels in vocabulary', len(_gl)>=700 and all(r['label'] in _cls for r in _gl), '%d rows'%len(_gl))
     _sp=collections.Counter(r['split'] for r in _gl)
@@ -318,21 +318,21 @@ if os.path.exists(B+'\\data\\stance\\cu_golden_labels.csv'):
     ck('label conflicts are flagged, not silently resolved',
        all(('->' in r['conflict']) or r['conflict'].startswith('user-resolved:') for r in _cf), '%d flagged (user-resolved carries its trail inline)'%len(_cf))
 else: ck('golden label set present (run build_golden_labels.py)', False)
-if os.path.exists(B+'\\data\\stance\\stance_clf_composed.pkl'):
+if os.path.exists(os.path.join(B, 'data', 'stance', 'stance_clf_composed.pkl')):
     try:
         import pickle as _pk
-        _clf=_pk.load(open(B+'\\data\\stance\\stance_clf_composed.pkl','rb'))
+        _clf=_pk.load(open(os.path.join(B, 'data', 'stance', 'stance_clf_composed.pkl'),'rb'))
         _pr=_clf.predict(['target: Credit Card Mandates. speaker: member. Senator introduces the Credit Card Competition Act to cap interchange.',
                           'target: Credit Unions (direct). speaker: member. Senator celebrates credit union community investment.'])
         ck('domain classifier loads and predicts sane labels', _pr[0]=='oppose' and _pr[1]=='support', str(list(_pr)))
     except Exception as e: ck('domain classifier loads', False, str(e)[:80])
-if os.path.exists(B+'\\social_media.db'):
+if os.path.exists(os.path.join(B, 'social_media.db')):
     import sqlite3 as _sq
-    _c=_sq.connect(B+'\\social_media.db')
+    _c=_sq.connect(os.path.join(B, 'social_media.db'))
     _ok=_c.execute('PRAGMA integrity_check').fetchone()[0]
     _orph=_c.execute("SELECT COUNT(*) FROM posts WHERE platform IS NULL OR post_id IS NULL").fetchone()[0]
     ck('social_media.db integrity + no orphan posts', _ok=='ok' and _orph==0, '%s / %d orphans'%(_ok,_orph))
-_tif=B+r'\data\stance\tweet_stance_final.csv'
+_tif=os.path.join(B, 'data', 'stance', 'tweet_stance_final.csv')
 if os.path.exists(_tif):
     with open(_tif,encoding='utf-8-sig',newline='') as _handle:
         _tir=csv.DictReader(_handle); _tifields=set(_tir.fieldnames or []); _tiout=list(_tir)
@@ -364,7 +364,7 @@ _tibad=sum(1 for row in _tirows if not row.get('quorum_id') or
            not 0<=float(row.get('confidence',-1))<=1)
 ck('approved tweet-image annotations carry exact ID, stance, confidence, and review status',
    _tibad==0,'%d invalid annotations'%_tibad)
-_sgr=B+r'\data\stance\speech_gold_retired.json'
+_sgr=os.path.join(B, 'data', 'stance', 'speech_gold_retired.json')
 if os.path.exists(_sgr):
     _sgdoc=json.load(open(_sgr)); _sgrows=_sgdoc.get('rows') or []
     ck('retired speech gold is limited to explicit neutral precision negatives',
@@ -375,13 +375,13 @@ if os.path.exists(_sgr):
 print('\n========================================')
 
 # RECEPTIVITY LAYER (2026-07-02): coverage + documented caps.
-if os.path.exists(B+r'\member_receptivity.json'):
-    _rj=json.load(open(B+r'\member_receptivity.json'))['members']
+if os.path.exists(os.path.join(B, 'member_receptivity.json')):
+    _rj=json.load(open(os.path.join(B, 'member_receptivity.json')))['members']
     ck('receptivity layer covers all members', len(_rj)==533, str(len(_rj)))
     ck('receptivity multipliers within documented caps',
        all(0.30<=v['seed_prob']<=0.90 and 0.50<=v['pressure_mult']<=1.60 and 0.80<=v['edge_mult']<=1.20 for v in _rj.values()))
     # R1 (Paul ruling 2026-10-07, D-107): with COMPET_MULT on the engines read pressure_mult_compet (F&H competitiveness term neutral).
-    _rdoc=json.load(open(B+r'\member_receptivity.json'))
+    _rdoc=json.load(open(os.path.join(B, 'member_receptivity.json')))
     if _crown_core.compet_on():
         ck('R1: receptivity built with COMPET_MULT on (pressure_mult_compet present for all members)',
            _rdoc.get('compet_mult')=='1' and all(isinstance(v.get('pressure_mult_compet'),(int,float)) for v in _rj.values()))
@@ -392,13 +392,13 @@ if os.path.exists(B+r'\member_receptivity.json'):
     # R7 (Paul ruling 2026-10-07, D-107): every allocation artifact names the c artifact it was computed with.
     if _crown_core.compet_on():
         _csha=_crown_core.compet_record()[1]
-        _pta_p=B+r'\per_topic_alloc.json'; _side_p=B+r'\per_topic_alloc.dials.json'
+        _pta_p=os.path.join(B, 'per_topic_alloc.json'); _side_p=os.path.join(B, 'per_topic_alloc.dials.json')
         _side=json.load(open(_side_p,encoding='utf-8')) if os.path.exists(_side_p) else {}
         _pta_sha=hashlib.sha256(open(_pta_p,'rb').read()).hexdigest() if os.path.exists(_pta_p) else None
-        _adv_d=(json.load(open(B+r'\salience_advisory.json')).get('dials') or {}) if os.path.exists(B+r'\salience_advisory.json') else {}
-        _opt_d=(json.load(open(B+r'\optimize_result.json')).get('dials') or {}) if os.path.exists(B+r'\optimize_result.json') else {}
-        _bfs=[json.load(open(B+r'\data\money\%s.json'%f)) for f in ('budget_frontier','budget_frontier_electoral') if os.path.exists(B+r'\data\money\%s.json'%f)]
-        _dd_c=(((json.load(open(B+r'\dashboard_data.json',encoding='utf-8')).get('engine') or {}).get('const') or {}).get('COMPET') or {}).get('artifact_sha256') if os.path.exists(B+r'\dashboard_data.json') else None
+        _adv_d=(json.load(open(os.path.join(B, 'salience_advisory.json'))).get('dials') or {}) if os.path.exists(os.path.join(B, 'salience_advisory.json')) else {}
+        _opt_d=(json.load(open(os.path.join(B, 'optimize_result.json'))).get('dials') or {}) if os.path.exists(os.path.join(B, 'optimize_result.json')) else {}
+        _bfs=[json.load(open(os.path.join(B, 'data', 'money', '%s.json'%f))) for f in ('budget_frontier','budget_frontier_electoral') if os.path.exists(os.path.join(B, 'data', 'money', '%s.json'%f))]
+        _dd_c=(((json.load(open(os.path.join(B, 'dashboard_data.json'),encoding='utf-8')).get('engine') or {}).get('const') or {}).get('COMPET') or {}).get('artifact_sha256') if os.path.exists(os.path.join(B, 'dashboard_data.json')) else None
         ck('R7: per_topic_alloc.dials.json matches per_topic_alloc.json and the live c artifact',
            _pta_sha is not None and _side.get('artifact_sha256')==_pta_sha and (_side.get('dials') or {}).get('COMPET_MULT')=='1' and (_side.get('dials') or {}).get('COMPET_SRC_SHA256')==_csha)
         ck('R7: salience_advisory / optimize_result / both frontiers / dashboard bundle name the live c artifact',
@@ -408,14 +408,14 @@ if os.path.exists(B+r'\member_receptivity.json'):
 # W1 guard 2026-07-02: the press-pillar SUMPRODUCT weight row once held stray LET-formula remnants that
 # evaluated to 0 on the three TOP-tier categories — every weight must be a positive literal number.
 import openpyxl as _px
-_wb=_px.load_workbook(B+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+_wb=_px.load_workbook(os.path.join(B, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 _w535=[_wb['Press Release - Normalized'].cell(535,c).value for c in range(5,24)]
 ck('press-pillar weight row 535: 19 numeric positive weights (no formula remnants)',
    all(isinstance(v,(int,float)) and v>0 for v in _w535),str(_w535))
 # 2026-07-04 integrity fix guard: the press component must be DYNAMIC (built from the current tone
 # csv), never the frozen 07-02 archive (which silently excluded every post-archive article: 197
 # members frozen forever). Checks the blend's meta artifact is fresh vs the csv and coverage grew.
-_pm_p=B+r'\data\stance\press_component_meta.json'
+_pm_p=os.path.join(B, 'data', 'stance', 'press_component_meta.json')
 if os.path.exists(_pm_p):
     _pm=json.load(open(_pm_p))
     _pm_hashes=_pm.get('inputs_sha256') or {}
@@ -507,13 +507,13 @@ if os.path.exists(_pm_p):
             _ch,len(_src_rows),len(_final_rows),_identity_ok,_values_ok,_fresh))
     ck('own-source channel sidecars preserve source row identity',
        _sidecars_ok,'; '.join(_sidecar_detail))
-    _ixr_p=B+r'\data\stance\interviews_cu.receipt.json'
-    _isr_p=B+r'\data\stance\interview_stance_final.receipt.json'
+    _ixr_p=os.path.join(B, 'data', 'stance', 'interviews_cu.receipt.json')
+    _isr_p=os.path.join(B, 'data', 'stance', 'interview_stance_final.receipt.json')
     _ixr=json.load(open(_ixr_p,encoding='utf-8')) if os.path.exists(_ixr_p) else {}
     _isr=json.load(open(_isr_p,encoding='utf-8')) if os.path.exists(_isr_p) else {}
     _ixdb=_ixr.get('database') or {}; _ixout=_ixr.get('extract') or {}
-    _dbp=B+r'\social_media.db'; _ixcsv=B+r'\data\stance\interviews_cu.csv'
-    _iscsv=B+r'\data\stance\interview_stance_final.csv'
+    _dbp=os.path.join(B, 'social_media.db'); _ixcsv=os.path.join(B, 'data', 'stance', 'interviews_cu.csv')
+    _iscsv=os.path.join(B, 'data', 'stance', 'interview_stance_final.csv')
     _ix_projection=hashlib.sha256(); _ix_rows=0; _ix_max_rowid=0; _ix_max_date=''
     if os.path.exists(_dbp):
         import sqlite3 as _ix_sqlite
@@ -577,7 +577,7 @@ if os.path.exists(_pm_p):
         else:
             ck('transcript-appendix passages stay a negligible share of pillar-feeding gold hearings',
                False,'hearings_cu/hearing_stance_final row counts differ')
-_pra_p=B+r'\data\stance\press_domain_routing_audit.json'
+_pra_p=os.path.join(B, 'data', 'stance', 'press_domain_routing_audit.json')
 if os.path.exists(_pra_p):
     _pra=json.load(open(_pra_p)); _prrows=_pra.get('rows') or []
     from press_stream import load_tone_rows as _load_press_tone_rows
@@ -600,7 +600,7 @@ if os.path.exists(_pra_p):
        str(_barr_press[:2]))
 else:
     ck('press domain routing audit present',False,'press_domain_routing_audit.json missing')
-_lra_p=B+r'\legislation_routing_audit.json'
+_lra_p=os.path.join(B, 'legislation_routing_audit.json')
 if os.path.exists(_lra_p):
     _lra=json.load(open(_lra_p)); _lrrows=_lra.get('rows') or []
     _target={('H.R.7733','117'):'CDFI Fund',('S.869','118'):'CDFI Fund',
@@ -676,7 +676,7 @@ if os.path.exists(_lra_p):
     # entirely, and Clyburn's rows all user-excluded. The floor exists so a name-resolution regression
     # or bad archive refresh cannot silently zero out coverage; a legitimate roster change at the
     # 120th-Congress rollover re-bases this number (see moneyball-congress-rollover-campaign).
-    _lrarch_p=B+r'\archive_leg.json'
+    _lrarch_p=os.path.join(B, 'archive_leg.json')
     if os.path.exists(_lrarch_p):
         with open(_lrarch_p,encoding='utf-8') as _fh: _lrarch=json.load(_fh)
         ck('legislative evidence coverage holds its floor',
@@ -691,8 +691,8 @@ else:
 # means nothing else would notice the ledger silently ageing out. This is that tripwire: a skip is
 # tolerated only while the last-good ledger is recent, and a PASS must still describe the bytes
 # actually installed. Absent receipt = the feature has not run yet, which is not a failure.
-_sbl_receipt_p=B+r'\data\engine\sentinel_bill_workbook_receipt.json'
-_sbl_ledger_p=B+r'\Sentinel Bill Ledger.xlsx'
+_sbl_receipt_p=os.path.join(B, 'data', 'engine', 'sentinel_bill_workbook_receipt.json')
+_sbl_ledger_p=os.path.join(B, 'Sentinel Bill Ledger.xlsx')
 _SBL_MAX_SKIP_DAYS=21
 try:
     if os.path.exists(_sbl_receipt_p):
@@ -742,7 +742,7 @@ ck('sentinel_ledger_freshness',_sbl_ok,_sbl_detail)
 # last-good artifact stays in place. This is the ageing tripwire for that tolerance: a fresh
 # last-good artifact is fine, one older than the window is a failure, a missing artifact or a
 # malformed receipt is a failure. Absent or empty receipt = nothing was tolerated.
-_ctf_receipt_p=B+r'\data\engine\chain_tolerated_failures.json'
+_ctf_receipt_p=os.path.join(B, 'data', 'engine', 'chain_tolerated_failures.json')
 _CTF_MAX_AGE_DAYS=21
 try:
     if os.path.exists(_ctf_receipt_p):
@@ -804,10 +804,10 @@ except Exception as _sbh_exc:
 # 2026-07-04 nomological fix guard: receptivity must run on the BEHAVIORAL basis (the lexical Big5
 # was INDICTED by the pre-registered label-free validation — big5_nomological_prereg.md). A silent
 # fall-back to lexical (missing dispositions artifact) is a regression to an indicted instrument.
-_rc_p=B+r'\member_receptivity.json'
+_rc_p=os.path.join(B, 'member_receptivity.json')
 if os.path.exists(_rc_p):
     _rc=json.load(open(_rc_p))
-    _bd_p=B+r'\behavioral_dispositions.json'
+    _bd_p=os.path.join(B, 'behavioral_dispositions.json')
     _bd_ok=os.path.exists(_bd_p) and len((json.load(open(_bd_p)) or {}).get('members',{}))>=450
     ck('receptivity runs on the behavioral basis (lexical Big5 indicted 2026-07-04)',
        _rc.get('basis')=='behavioral' and _bd_ok,
@@ -831,7 +831,7 @@ if os.path.exists(_rc_p):
     # is a cross-party cosponsorship SHARE; qualified Big-Five A is a package-disjoint low-antagonism
     # interview facet. They must remain separately sourced and must not collapse into one score. The
     # |r|<.30 diagnostic is a contamination alarm (<9% shared variance), not a validity claim.
-    _cvp=B+r'\coop_v2_candidate.json'; _avp=B+r'\data\stance\interview_antagonism.json'
+    _cvp=os.path.join(B, 'coop_v2_candidate.json'); _avp=os.path.join(B, 'data', 'stance', 'interview_antagonism.json')
     if os.path.exists(_cvp) and os.path.exists(_avp):
         import numpy as _np, math as _math, csv as _csv
         _cvm=json.load(open(_cvp,encoding='utf-8')).get('members',{}); _avm=json.load(open(_avp,encoding='utf-8')).get('members',{})
@@ -840,8 +840,8 @@ if os.path.exists(_rc_p):
                      abs(((_rc.get('members',{}).get(m) or {}).get('cooperation_v2_z') or 0)-d['cooperation_v2_z'])>.002))
         ck('cooperation and low-antagonism A remain separately sourced (zero substitutions)',
            _co_bad==0, '%d cooperation_v2 values substituted/mismatched'%_co_bad)
-        _con={d['member']:d for d in json.load(open(B+r'\data\engine\congestion.json',encoding='utf-8'))}
-        _g={d.get('full_name'):d.get('gender') for d in _csv.DictReader(open(DATA_FE+r'\legislators.csv',encoding='utf-8-sig'))}
+        _con={d['member']:d for d in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'),encoding='utf-8'))}
+        _g={d.get('full_name'):d.get('gender') for d in _csv.DictReader(open(os.path.join(DATA_FE, 'legislators.csv'),encoding='utf-8-sig'))}
         _rows=[]
         for _m in set(_cvm)&set(_avm)&set(_con):
             _x=(_cvm.get(_m) or {}).get('cooperation_v2_z')
@@ -868,7 +868,7 @@ else:
 # If a member row is ever added/removed, those readers silently truncate or NUL the tail. Assert on
 # R&A col A — TYPED names, immune to the phase-2 openpyxl-save cache death (Blended col A is
 # formula-backed and legitimately reads empty between Excel opens).
-_roster=len(json.load(open(B+r'\data\engine\congestion.json')))
+_roster=len(json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'))))
 _ra_ws=_wb['Rank & Allocation']; _wbrows=sum(1 for r in range(3,536) if _ra_ws.cell(r,1).value)
 ck('workbook member rows == roster size (no silent row drift)', _wbrows==_roster, 'workbook %d vs roster %d'%(_wbrows,_roster))
 # Roadmap-#9 phase 1 (2026-07-02): the whole raw->normalized->pillar->score->rank chain is reproduced
@@ -888,18 +888,18 @@ ck(*check_pillar_freshness(B, authority_parity='PARITY: CLEAN' in _pp))
 # The own-source channel inputs
 # must not silently freeze while their channels are ON (extractors are not chain-wired yet —
 # collection runs on Paul's 3-week cadence, so the ceiling is cadence+grace = 28 days).
-_dbm=os.path.getmtime(B+r'\social_media.db') if os.path.exists(B+r'\social_media.db') else None
+_dbm=os.path.getmtime(os.path.join(B, 'social_media.db')) if os.path.exists(os.path.join(B, 'social_media.db')) else None
 _chstale=[]
 for _cf in ('speeches_cu.csv','data/stance/hearings_cu.csv','data/stance/interviews_cu.csv','data/stance/bluesky_cu.csv'):
-    _p2=B+'\\'+_cf
+    _p2=os.path.join(B,_cf)
     if _dbm and os.path.exists(_p2) and (_dbm-os.path.getmtime(_p2))>28*86400:
         _chstale.append('%s (%.0fd behind corpus)'%(_cf,(_dbm-os.path.getmtime(_p2))/86400))
 ck('own-source channel inputs within 28 days of the corpus (channels are default-ON)', not _chstale, str(_chstale))
 
-if os.path.exists(B+r'\data\stance\stance_training.jsonl'):
+if os.path.exists(os.path.join(B, 'data', 'stance', 'stance_training.jsonl')):
     import hashlib as _hl, json as _js
     _tr=set(); _te=set()
-    for _l in open(B+r'\data\stance\stance_training.jsonl',encoding='utf-8'):
+    for _l in open(os.path.join(B, 'data', 'stance', 'stance_training.jsonl'),encoding='utf-8'):
         _r=_js.loads(_l)
         _vs=[_r.get('text',''),_r.get('title',''),_r.get('stance_span','')]
         _hs={_hl.md5(v.strip().lower()[:400].encode()).hexdigest() for v in _vs if v and v.strip()}
@@ -910,7 +910,7 @@ if os.path.exists(B+r'\data\stance\stance_training.jsonl'):
        '%d collisions (4 known: same-ACU-article rows 75/214; fix = same-text same-split on next label refresh)'%_ov)
 
 print('\n[IND] District industry')
-_ind_path=B+r'\data\lobbying\district_industry.json'
+_ind_path=os.path.join(B, 'data', 'lobbying', 'district_industry.json')
 if not os.path.exists(_ind_path):
     print('  SKIP  district_industry.json not present (demographics campaign data not deployed)')
 else:
@@ -963,14 +963,14 @@ else:
         ck('ind-generated_at parses ISO and artifact age between -1 and 450 days',
            _ind_age is not None and -1<=_ind_age<=450,
            'ANNUAL REFRESH DUE: rerun fetch_cd_geography/fetch_lodes_wac/build_district_industry (+fetch_cbp_4digit, validate_district_industry)')
-        _ind_bundle_path=B+r'\member_desk_bundle.json'
+        _ind_bundle_path=os.path.join(B, 'member_desk_bundle.json')
         if os.path.exists(_ind_bundle_path):
             _ind_bundle=json.load(open(_ind_bundle_path,encoding='utf-8'))
             _ind_member_count=sum(1 for _member in _ind_bundle.get('members',[])
                                   if _member.get('industry') is not None)
             ck('ind-member desk non-null industry coverage >= 500',
                _ind_member_count>=500, '%d members'%_ind_member_count)
-            _ind4_path=B+r'\data\lobbying\district_industry_4digit.json'
+            _ind4_path=os.path.join(B, 'data', 'lobbying', 'district_industry_4digit.json')
             if os.path.exists(_ind4_path):
                 _ind4=json.load(open(_ind4_path,encoding='utf-8'))
                 ck('ind4-schema district-industry-4digit-v1',
@@ -1078,7 +1078,7 @@ else:
                    '%s | targets scored=%s'%(
                        _structural.get('comparison_with_baseline'),
                        _structural_scored))
-                _community_path=B+r'\data\district\district_community.json'
+                _community_path=os.path.join(B, 'data', 'district', 'district_community.json')
                 _community=(
                     json.load(open(_community_path,encoding='utf-8'))
                     if os.path.exists(_community_path) else {})
@@ -1168,7 +1168,7 @@ else:
                _employer_member_count>=500,'%d members'%_employer_member_count)
             ck('district employer candidate rows are named, valued, and non-aggregate',
                _employer_bad==0,'%d malformed rows'%_employer_bad)
-            _desk_html_path=B+r'\cu-member-desk.html'
+            _desk_html_path=os.path.join(B, 'cu-member-desk.html')
             if os.path.exists(_desk_html_path):
                 _desk_html=open(_desk_html_path,encoding='utf-8').read()
                 ck('desk renders Demographic Potential sticker and filter',
@@ -1227,13 +1227,13 @@ else:
 # run-5b guards (audit 2026-07-06): the psychology/media-layer artifacts had ZERO audit coverage —
 # a truncated big5_llm_opus.json or malformed reference/co-appearance edges would sail through.
 # Schema + sanity floors only (freshness is meaningless mid-collector-crawl); each skips if absent.
-if os.path.exists(B+r'\data\members\big5_llm_opus.json'):
-    _b5=json.load(open(B+r'\data\members\big5_llm_opus.json',encoding='utf-8')).get('traits',{})
+if os.path.exists(os.path.join(B, 'data', 'members', 'big5_llm_opus.json')):
+    _b5=json.load(open(os.path.join(B, 'data', 'members', 'big5_llm_opus.json'),encoding='utf-8')).get('traits',{})
     _bad=sum(1 for d in _b5.values() if not all(k in d for k in ('O','C','E','A','ES')) or not d.get('n_chunks'))
     ck('big5_llm artifact schema (5 traits + n_chunks per member, coverage >=400)',
        len(_b5)>=400 and _bad==0, '%d members, %d malformed'%(len(_b5),_bad))
-if os.path.exists(B+r'\member_references.json'):
-    _re_=json.load(open(B+r'\member_references.json',encoding='utf-8')).get('edges',[])
+if os.path.exists(os.path.join(B, 'member_references.json')):
+    _re_=json.load(open(os.path.join(B, 'member_references.json'),encoding='utf-8')).get('edges',[])
     _bad=sum(1 for e in _re_ if not all(k in e for k in ('a','b','n_raw','n_scored','pos','neg','net')) or e['n_scored']<(e['pos']+e['neg']))
     ck('reference-layer edge schema (keys present, scored>=pos+neg, >=1000 edges)',
        len(_re_)>=1000 and _bad==0, '%d edges, %d malformed'%(len(_re_),_bad))
@@ -1242,8 +1242,8 @@ if os.path.exists(B+r'\member_references.json'):
 # (Crapo influence 1.000 in the authority displayed as 0.222 from a stale workbook column; weights
 # 0.40/0.20/0.35/0.05 vs the then-live 0.25/0.30/0.40/0.05), making the #1 rank look unjustified on the
 # desk. This asserts the DISPLAYED decomposition reconstructs the DISPLAYED score for every member.
-if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_python.json'):
-    _bun=json.load(open(B+r'\member_desk_bundle.json',encoding='utf-8')); _ra=json.load(open(B+r'\ranks_python.json',encoding='utf-8'))
+if os.path.exists(os.path.join(B, 'member_desk_bundle.json')) and os.path.exists(os.path.join(B, 'ranks_python.json')):
+    _bun=json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8')); _ra=json.load(open(os.path.join(B, 'ranks_python.json'),encoding='utf-8'))
     _W=_bun.get('weights',{}); _pcts=_ra.get('pcts',{})
     from engine.pillar_policy import PILLAR_WEIGHTS as _PW, scoring_policy as _scoring_policy
     _expectedW={'leg':_PW[2],'press':_PW[3],'comm':_PW[4],'demo':_PW[5]}
@@ -1280,7 +1280,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
         ck('every member renders a Big-Five panel (gold or labeled estimate; Paul fill 2026-07-17)',
            not _b5empty, str(_b5empty[:6]))
         ck('every estimate slot carries a provenance label', _fb_unlabeled==0, '%d unlabeled'%_fb_unlabeled)
-    _fr=json.load(open(B+r'\data\members\formal_visibility_roles.json',encoding='utf-8'))
+    _fr=json.load(open(os.path.join(B, 'data', 'members', 'formal_visibility_roles.json'),encoding='utf-8'))
     from engine import influence_roles as _ir
     _frm=_fr.get('members') or {}; _rb=_ra.get('formal_role_influence_bonus') or {}
     _rd=_ra.get('formal_role_display_weight') or {}
@@ -1303,7 +1303,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
     _rmeta=_ra.get('formal_role_influence') or {}
     ck('formal office remains titled display context and never changes Influence or rank',
        _fr.get('schema')=='party-elite-influence-roles-v3' and
-       _fr.get('valid_until','')>__import__('datetime').date.today().isoformat() and
+       _fr.get('valid_until','')>today().isoformat() and
        len(_frm)>=20 and 'Chuck Grassley' not in _frm and _rolebad==0 and
         _rb.get('Mike Johnson')==0.0 and _rb.get('Tim Scott')==0.0 and _rb.get('John Barrasso')==0.0 and
         _rd.get('Mike Johnson')==3.0 and _rmeta.get('applied_party_elites')==0 and
@@ -1317,13 +1317,13 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
     _same_n=sum(1 for p in _bp if p['big5_pct'][4]==p['llm_pct'][4])
     ck('desk broad-gold and raw Pink Neuroticism reads do not collapse to one value',
        len(_bp)>=400 and _same_n<len(_bp), '%d paired members, %d identical N percentiles'%(len(_bp),_same_n))
-    _blue=next((_p for _p in (B+r'\data\members\big5_blue_validated.json',B+r'\data\members\big5_blue_emb.json',B+r'\data\members\big5_v2.json') if os.path.exists(_p)),B+r'\data\members\big5_v2.json')
-    _pink=B+r'\data\members\big5_llm_opus.json'
+    _blue=next((_p for _p in (os.path.join(B, 'data', 'members', 'big5_blue_validated.json'),os.path.join(B, 'data', 'members', 'big5_blue_emb.json'),os.path.join(B, 'data', 'members', 'big5_v2.json')) if os.path.exists(_p)),os.path.join(B, 'data', 'members', 'big5_v2.json'))
+    _pink=os.path.join(B, 'data', 'members', 'big5_llm_opus.json')
     if os.path.exists(_blue) and os.path.exists(_pink) and os.path.getmtime(_pink)<os.path.getmtime(_blue):
         _unflag=sum(1 for p in _bp if not ((p.get('big5_vintage') or {}).get('pink_older_days')>0))
         ck('desk preserves mixed Blue/Pink corpus-vintage metadata for archived diagnostics',
            _unflag==0, '%d/%d paired members lack the stale-vintage disclosure metadata'%(_unflag,len(_bp)))
-    _egp=B+r'\data\stance\big5_e_gold_anchored.json'; _evp=B+r'\data\stance\big5_external_gold_validation.json'
+    _egp=os.path.join(B, 'data', 'stance', 'big5_e_gold_anchored.json'); _evp=os.path.join(B, 'data', 'stance', 'big5_external_gold_validation.json')
     if os.path.exists(_egp) and os.path.exists(_evp):
         _eg=json.load(open(_egp,encoding='utf-8')); _ev=json.load(open(_evp,encoding='utf-8'))
         _egm=_eg.get('members') or {}; _epr=_ev.get('panel_results') or {}
@@ -1336,7 +1336,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
                for d in _epr.values()),
            '%d E members, %d malformed; panel r=%s'%(
            len(_egm),_ebad,{k:round(v.get('e_r',0),3) for k,v in _epr.items()}))
-    _mgp=B+r'\data\stance\big5_gold_anchored.json'
+    _mgp=os.path.join(B, 'data', 'stance', 'big5_gold_anchored.json')
     if os.path.exists(_mgp):
         _mg=json.load(open(_mgp,encoding='utf-8')); _mgt=_mg.get('traits') or {}; _mge=_mgt.get('E') or {}
         _mgem=_mge.get('members') or {}; _mgew=_mge.get('selected_weights') or {}
@@ -1364,7 +1364,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
            {k:v.get('status') for k,v in _mgt.items()},
            {k:v.get('association_gates') for k,v in _mgt.items()}))
     # Source-primary Blue is the completed Round-4 promotion, not the pooled lexical v2 draft.
-    _bep=B+r'\data\members\big5_blue_emb.json'
+    _bep=os.path.join(B, 'data', 'members', 'big5_blue_emb.json')
     if os.path.exists(_bep):
         _be=json.load(open(_bep,encoding='utf-8')); _bem=_be.get('traits',{}); _bev=_be.get('validation') or {}
         _bars=_bev.get('bars') or {}; _bad=sum(1 for d in _bem.values() if
@@ -1378,7 +1378,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
            '%d members, %d malformed, verdict=%s, MTMM=%s/%s'%
            (len(_bem),_bad,_bev.get('verdict'),_bev.get('mtmm_same_trait_cross_genre'),
             _bev.get('mtmm_cross_trait_within_genre')))
-    _bvp=B+r'\data\members\big5_blue_validated.json'
+    _bvp=os.path.join(B, 'data', 'members', 'big5_blue_validated.json')
     if os.path.exists(_bvp):
         _bv=json.load(open(_bvp,encoding='utf-8')); _bvm=_bv.get('traits',{}); _vv=_bv.get('validation') or {}; _rr=_bv.get('reliability') or {}
         _diag=_vv.get('diagonal') or {}; _known=_vv.get('known_groups') or {}; _rt=_rr.get('traits') or {}
@@ -1400,7 +1400,7 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
            '%d text-basis members, %d O/C/E gaps, %d N-covered; recorded coverage=%s'%
            (len(_bvm),_ocebad,_ncovered,_coverage))
     # Round-9 qualified A facet remains separate from the cooperation engine role.
-    _avp=B+r'\data\stance\interview_antagonism.json'
+    _avp=os.path.join(B, 'data', 'stance', 'interview_antagonism.json')
     if os.path.exists(_avp):
         _av=json.load(open(_avp,encoding='utf-8')); _avm=_av.get('members',{})
         _mal=sum(1 for d in _avm.values() if not all(k in d for k in
@@ -1428,10 +1428,10 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
         # Every rendered paragraph must be byte-identical to a correctly labelled, basis-bound
         # brief. API-produced prose additionally requires the full-corpus semantic receipt; a
         # descriptive templates instead require their own source-bound deterministic receipt.
-        _narp=B+r'\member_narratives_v2.json'; _narbp=B+r'\data\members\profile_basis_v2.json'
-        _narrp=B+r'\data\members\member_narratives_v2_semantic_receipt.json'
-        _nardrp=B+r'\data\members\member_narratives_v3_descriptive_receipt.json'
-        _narevp=B+r'\data\members\member_narrative_evidence_v4.json'
+        _narp=os.path.join(B, 'member_narratives_v2.json'); _narbp=os.path.join(B, 'data', 'members', 'profile_basis_v2.json')
+        _narrp=os.path.join(B, 'data', 'members', 'member_narratives_v2_semantic_receipt.json')
+        _nardrp=os.path.join(B, 'data', 'members', 'member_narratives_v3_descriptive_receipt.json')
+        _narevp=os.path.join(B, 'data', 'members', 'member_narrative_evidence_v4.json')
         _nardoc=json.load(open(_narp,encoding='utf-8')) if os.path.exists(_narp) else {}
         _narlab=(_nardoc.get('schema'),_nardoc.get('status')) in {
                  ('member-narratives-v2-local','ACTIVE_LOCAL_ZERO_API'),
@@ -1492,10 +1492,10 @@ if os.path.exists(B+r'\member_desk_bundle.json') and os.path.exists(B+r'\ranks_p
 # prose), so the check cannot agree with itself -- the rule DE-012 exists for.  It also holds the
 # two scales apart: a layer may never be a truthy-but-empty object, and the two may never carry the
 # same scale label, which is what would let a surface put z scores and raw means in one column.
-_alp={'census':B+r'\data\speech\congress_audio_profile_census_full_v1.jsonl',
-      'cache':B+r'\data\members\b5_audio_cache.json',
-      'descriptive':B+r'\data\speech\speech_descriptive_v1.json',
-      'evidence':B+r'\data\members\member_narrative_evidence_v4.json'}
+_alp={'census':os.path.join(B, 'data', 'speech', 'congress_audio_profile_census_full_v1.jsonl'),
+      'cache':os.path.join(B, 'data', 'members', 'b5_audio_cache.json'),
+      'descriptive':os.path.join(B, 'data', 'speech', 'speech_descriptive_v1.json'),
+      'evidence':os.path.join(B, 'data', 'members', 'member_narrative_evidence_v4.json')}
 if all(os.path.exists(_p) for _p in _alp.values()):
     _alcache=json.load(open(_alp['cache'],encoding='utf-8'))
     _alfeat=_alcache.get('feature_names') or []
@@ -1559,8 +1559,8 @@ if all(os.path.exists(_p) for _p in _alp.values()):
     # dropped on the way to the desk is the same failure one step later.
     _albun=globals().get('_bun')
     _albun=_albun if isinstance(_albun,dict) and _albun.get('members') else None
-    if _albun is None and os.path.exists(B+r'\member_desk_bundle.json'):
-        _albun=json.load(open(B+r'\member_desk_bundle.json',encoding='utf-8'))
+    if _albun is None and os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
+        _albun=json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8'))
     if isinstance(_albun,dict) and _albun.get('members'):
         _aldropped=[]
         for _dm in _albun.get('members') or []:
@@ -1573,7 +1573,7 @@ if all(os.path.exists(_p) for _p in _alp.values()):
         ck('both audio layers propagate from the evidence ledger into the member desk payload',
            not _aldropped,'%d layers dropped in the desk bundle; %s'%(len(_aldropped),_aldropped[:5]))
     # Published prose may not deny audio a member demonstrably holds.
-    _alnarp=B+r'\member_narratives_v2.json'
+    _alnarp=os.path.join(B, 'member_narratives_v2.json')
     if os.path.exists(_alnarp):
         _alnar=(json.load(open(_alnarp,encoding='utf-8')).get('members') or {})
         _alfalse=[_m for _m,_r in _alnar.items() if _m in _al_expected_any and
@@ -1589,7 +1589,7 @@ else:
 # into the member desk. Coverage must retain explicit evidence for >=90% of candidate-bearing members;
 # this ratio gate rewards precision without forcing false positives merely to hit a roster count.
 # No low-confidence or source-less inference may enter a profile.
-_ptp=B+r'\data\members\member_personal_texture.json'
+_ptp=os.path.join(B, 'data', 'members', 'member_personal_texture.json')
 if os.path.exists(_ptp):
     _pt=json.load(open(_ptp,encoding='utf-8')); _ptm=_pt.get('members',{}); _pp=_pt.get('provenance') or {}
     _bad=0; _ni=0; _local_narrative_leak=0; _bad_display_gate=0
@@ -1615,8 +1615,8 @@ if os.path.exists(_ptp):
         '%d members, %d details, %d malformed, %d local-to-narrative leaks, %d invalid display admissions, candidates=%s classified=%s gate=%s'%
         (len(_ptm),_ni,_bad,_local_narrative_leak,_bad_display_gate,
          _pp.get('candidate_count'),_pp.get('classified_count'),_pp.get('semantic_gate_count')))
-    if os.path.exists(B+r'\member_desk_bundle.json'):
-        _dm={m.get('name'):m.get('personal') for m in json.load(open(B+r'\member_desk_bundle.json',encoding='utf-8')).get('members',[])}
+    if os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
+        _dm={m.get('name'):m.get('personal') for m in json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8')).get('members',[])}
         _personal_errors=personal_source_errors(_ptm,_dm)
         ck('personal-texture layer propagates exactly to member profiles (display-only)',
            not _personal_errors,
@@ -1628,10 +1628,10 @@ else:
 # Wikipedia biographies are revision-bound, extractive display context.  Full-roster accounting is
 # required: a page may be explicitly missing, but it may not silently disappear between the roster,
 # the summary artifact, and the desk payload.
-_wkp=B+r'\data\members\member_wikipedia_summaries.json'
+_wkp=os.path.join(B, 'data', 'members', 'member_wikipedia_summaries.json')
 if os.path.exists(_wkp):
     _wk=json.load(open(_wkp,encoding='utf-8')); _wkm=_wk.get('members') or {}; _wkc=_wk.get('coverage') or {}
-    _wk_roster=json.load(open(B+r'\data\engine\congestion.json',encoding='utf-8'))
+    _wk_roster=json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'),encoding='utf-8'))
     _wk_roster_n=len(_wk_roster)
     _wk_bad=sum(1 for _name,_row in _wkm.items() if (
         _row.get('status') not in ('ok','missing') or not _row.get('bioguide') or
@@ -1643,9 +1643,9 @@ if os.path.exists(_wkp):
        _wkc.get('rows')==_wk_roster_n and not _wkc.get('missing') and _wk_bad==0,
        '%d rows, %d summarized, %d missing, %d malformed'%(
            len(_wkm),_wkc.get('ok',0),len(_wkc.get('missing') or []),_wk_bad))
-    if os.path.exists(B+r'\member_desk_bundle.json'):
+    if os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
         _desk_bio={m.get('name'):(m.get('bio') or {}).get('wikipedia')
-                   for m in json.load(open(B+r'\member_desk_bundle.json',encoding='utf-8')).get('members',[])}
+                   for m in json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8')).get('members',[])}
         _wk_mis=sum(1 for name,row in _wkm.items() if row.get('status')=='ok' and
                     ((_desk_bio.get(name) or {}).get('revision_id')!=row.get('revision_id')))
         ck('Wikipedia summaries propagate revision-identically to member profiles',
@@ -1657,14 +1657,14 @@ else:
 # counts + big5 chunk sampling. The CREC backfill introduced 922 (no pre-insert dedup); collector
 # legs now carry stored-package guards. Assert the corpus stays exact-dup-clean (threshold covers
 # the small user-gated legacy ABC/CNN set, currently 0 post-dedup).
-if os.path.exists(B+r'\social_media.db'):
+if os.path.exists(os.path.join(B, 'social_media.db')):
     import sqlite3 as _sq
-    _c=_sq.connect(B+r'\social_media.db',timeout=60); _c.execute('PRAGMA query_only=1')
+    _c=_sq.connect(os.path.join(B, 'social_media.db'),timeout=60); _c.execute('PRAGMA query_only=1')
     _ex=_c.execute("SELECT COALESCE(SUM(c-1),0) FROM (SELECT COUNT(*) c FROM speeches GROUP BY member,package,text HAVING c>1)").fetchone()[0]
     _c.close()
     ck('speech corpus exact-duplicate free (member+package+text)', _ex<=50, '%d exact-dup surplus rows'%_ex)
-if os.path.exists(B+r'\data\network\co_appearance.json'):
-    _co=json.load(open(B+r'\data\network\co_appearance.json',encoding='utf-8')).get('edges',[])
+if os.path.exists(os.path.join(B, 'data', 'network', 'co_appearance.json')):
+    _co=json.load(open(os.path.join(B, 'data', 'network', 'co_appearance.json'),encoding='utf-8')).get('edges',[])
     _bad=sum(1 for e in _co if not all(k in e for k in ('a','b','n','last','bipartisan')) or e['n']<1)
     ck('co-appearance edge schema (keys present, n>=1, non-empty)', len(_co)>=100 and _bad==0,
        '%d pairs, %d malformed'%(len(_co),_bad))
@@ -1672,9 +1672,9 @@ if os.path.exists(B+r'\data\network\co_appearance.json'):
 # accepted clip must have two distinct, dated, method-identified target-only reviews, and no display
 # producer may fall back to the retired model-only verifier or legacy 88-feature cache.
 from audio_rules import MIN_MEMBER_TARGET_SEC as _MIN_AUDIO_MEMBER_SEC
-_intake_path=B+r'\data\engine\collection_intake_receipt.json'
-_audio_candidate_path=B+r'\data\members\b5_audio_reviews_v2.json.candidate'
-_press_feed_path=B+r'\data\stance\press_refresh_feed_receipt.json'
+_intake_path=os.path.join(B, 'data', 'engine', 'collection_intake_receipt.json')
+_audio_candidate_path=os.path.join(B, 'data', 'members', 'b5_audio_reviews_v2.json.candidate')
+_press_feed_path=os.path.join(B, 'data', 'stance', 'press_refresh_feed_receipt.json')
 _intake=json.load(open(_intake_path,encoding='utf-8')) if os.path.exists(_intake_path) else {}
 _audio_candidate=json.load(open(_audio_candidate_path,encoding='utf-8')) if os.path.exists(_audio_candidate_path) else {}
 _press_feed=json.load(open(_press_feed_path,encoding='utf-8')) if os.path.exists(_press_feed_path) else {}
@@ -1702,8 +1702,8 @@ for _rel,_sha in _press_output_hashes.items():
     if not os.path.isfile(_pp) or _file_sha256(_pp)!=_sha: _press_outputs_ok=False
 _press_source_errors=press_source_errors(_press_feed,Path(B),_intake)
 _press_counts=_press_feed.get('counts') or {}; _press_contract=_press_feed.get('contract') or {}
-_press_tone_path=B+r'\data\stance\press_refresh_tone.csv'
-_press_mentions_path=B+r'\data\press\official_mentions.jsonl'
+_press_tone_path=os.path.join(B, 'data', 'stance', 'press_refresh_tone.csv')
+_press_mentions_path=os.path.join(B, 'data', 'press', 'official_mentions.jsonl')
 with open(_press_tone_path,encoding='utf-8-sig',newline='') as _pfh:
     _press_tone_actual=sum(1 for _row in csv.DictReader(_pfh))
 with open(_press_mentions_path,encoding='utf-8') as _pfh:
@@ -1719,7 +1719,7 @@ ck('press refresh feed is hash-bound and keeps official mentions out of stance/s
    _press_contract.get('official_mentions_enter_speech_turns') is False,
    'tone=%s mentions=%s outputs=%s source_errors=%s'%(_press_counts.get('tone_rows'),
       _press_counts.get('official_mentions'),_press_outputs_ok,_press_source_errors[:4]))
-_email_manifest_path=B+r'\outputs\email_package\EMAIL_PACKAGE_MANIFEST.json'
+_email_manifest_path=os.path.join(B, 'outputs', 'email_package', 'EMAIL_PACKAGE_MANIFEST.json')
 try:
     _email_manifest=json.load(open(_email_manifest_path,encoding='utf-8'))
 except Exception:
@@ -1754,8 +1754,8 @@ ck('Congress.gov bill repository is weekly-current, complete, and hash-bound',
    bool((_bill_live.get('bills') or {})) and not (_bill_live.get('failures') or {}),
    _bill_live_error or 'bills=%d failures=%d'%(
        len(_bill_live.get('bills') or {}),len(_bill_live.get('failures') or {})))
-_ar=json.load(open(B+r'\data\members\b5_audio_reviews_v2.json',encoding='utf-8'))
-_au=json.load(open(B+r'\data\members\b5_audio_descriptors_v2.json',encoding='utf-8'))
+_ar=json.load(open(os.path.join(B, 'data', 'members', 'b5_audio_reviews_v2.json'),encoding='utf-8'))
+_au=json.load(open(os.path.join(B, 'data', 'members', 'b5_audio_descriptors_v2.json'),encoding='utf-8'))
 _abad=0
 for _rel,_clip in (_au.get('members') or {}).items():
     if (_clip.get('target_elapsed_sec',0)<_MIN_AUDIO_MEMBER_SEC or _clip.get('source_n',0)<2 or
@@ -1793,15 +1793,15 @@ ck('audio v2 fail-closed on-air, aligned, program-conditioned contract active',
     _mcon.get('minimum_aligned_target_words_per_clip')==50 and
    _mcon.get('percentile_normalization')=='within outlet+program; never raw cross-speaker pitch/energy' and _abad==0,
    '%d accepted clips, %d verified members, %d contract errors'%(_au.get('accepted_clip_n',0),len(_au.get('members') or {}),_abad))
-_ncode=open(FE+r'\members\b5_narratives.py',encoding='utf-8').read()
-_dcode=open(FE+r'\surfaces\make_member_desk.py',encoding='utf-8').read()
-_wcode=open(FE+r'\weekly_refresh.py',encoding='utf-8').read()
+_ncode=open(os.path.join(FE, 'members', 'b5_narratives.py'),encoding='utf-8').read()
+_dcode=open(os.path.join(FE, 'surfaces', 'make_member_desk.py'),encoding='utf-8').read()
+_wcode=open(os.path.join(FE, 'weekly_refresh.py'),encoding='utf-8').read()
 ck('legacy audio and paid narrative paths retired from unattended/display consumption',
    'b5_audio_cache.json' not in _ncode and 'b5_audio_verify.py' not in _wcode and
    'b5_audio_build.py' not in _wcode and 'b5_narratives.py' not in _wcode and
    '--allow-paid-api' in _ncode and 'member_narratives.json' not in _dcode,
    'weekly/display code must consume guarded v2 artifacts only')
-_ci=json.load(open(B+r'\data\members\corpus_integrity_report.json',encoding='utf-8'))
+_ci=json.load(open(os.path.join(B, 'data', 'members', 'corpus_integrity_report.json'),encoding='utf-8'))
 _cidb=_ci.get('database') or {}; _cic=_ci.get('accepted_model') or {}; _ciq=_ci.get('quarantined_chrg') or {}
 ck('corpus integrity gate protects accepted scores and verifies repaired CHRG attribution',
    _ci.get('schema')=='corpus-integrity-v1' and _ci.get('status')=='PASS' and
@@ -1812,8 +1812,8 @@ ck('corpus integrity gate protects accepted scores and verifies repaired CHRG at
    'status=%s hard=%s cache=%s invalid_chrg=%d'%
    (_ci.get('status'),_ci.get('hard_errors'),_cic.get('cache_exact_match'),
     _ciq.get('service_chamber_mismatch_rows',0)+_ciq.get('no_member_service_rows',0)))
-_bpanel=json.load(open(B+r'\behavior_panel.json',encoding='utf-8'))
-_bdisp=json.load(open(B+r'\behavioral_dispositions.json',encoding='utf-8'))
+_bpanel=json.load(open(os.path.join(B, 'behavior_panel.json'),encoding='utf-8'))
+_bdisp=json.load(open(os.path.join(B, 'behavioral_dispositions.json'),encoding='utf-8'))
 ck('corrupt legacy CHRG hearing counts cannot re-enter behavioral diligence',
    _bdisp.get('schema')=='behavioral-dispositions-v2' and _bdisp.get('status')=='PASS' and
    'chrg_hearings' not in (_bpanel.get('outcomes') or []) and
@@ -1829,18 +1829,18 @@ ck('corrupt legacy CHRG hearing counts cannot re-enter behavioral diligence',
 # Blue/Pink N=-ES on the text radar; no voice-ES schema check remains. Guard against a silent
 # regression to the retired artifact:
 ck('voice-ES retired from display (b5_es_voice not re-wired into the desk)',
-   'b5_es_voice' not in open(FE+r'\surfaces\make_member_desk.py',encoding='utf-8').read().split('RETIRED')[-1],
+   'b5_es_voice' not in open(os.path.join(FE, 'surfaces', 'make_member_desk.py'),encoding='utf-8').read().split('RETIRED')[-1],
    'desk must not consume the gender-confounded voice-ES artifact')
-_desk_tpl=open(FE+r'\surfaces\templates\make_member_desk_00.tpl',encoding='utf-8').read()
+_desk_tpl=open(os.path.join(FE, 'surfaces', 'templates', 'make_member_desk_00.tpl'),encoding='utf-8').read()
 ck('desk presents the accepted five-axis display under canonical Big-Five names',
    "const B5AX=['Sociability','Openness','Diligence','Cooperativeness','Neuroticism'];" in _desk_tpl and
    'Gold-validated: gold-anchored axes use the OOF Senate-gold composites' in _desk_tpl and
    all(len((m.get('psy') or {}).get('big5_pct') or [])==5 for m in _bun.get('members',[])
        if (m.get('psy') or {}).get('big5_pct')),
    'accepted display must carry five canonically named axes and disclose the E scope')
-_comm=json.load(open(B+r'\communication_style.json',encoding='utf-8'))
+_comm=json.load(open(os.path.join(B, 'communication_style.json'),encoding='utf-8'))
 _csrc=_comm.get('members') or {}
-_gdoc=json.load(open(B+r'\data\stance\big5_gold_anchored.json',encoding='utf-8')); _gtraits=_gdoc.get('traits') or {}
+_gdoc=json.load(open(os.path.join(B, 'data', 'stance', 'big5_gold_anchored.json'),encoding='utf-8')); _gtraits=_gdoc.get('traits') or {}
 _egsrc=((_gtraits.get('E') or {}).get('members') or {})
 _gorder=('E','O','C','A','N')
 _cbad=0; _egbad=0; _gbad=0
@@ -1873,13 +1873,13 @@ ck('observable communication facets and role-adjusted exposure propagate as sepa
 _goldn=((_gtraits.get('N') or {}).get('members') or {})
 _golddesk={m.get('name'):((m.get('psy') or {}).get('big5_pct') or [None]*5)[4]
           for m in _bun.get('members',[]) if ((m.get('psy') or {}).get('big5_pct') or [None]*5)[4] is not None}
-_profm=(json.load(open(B+r'\data\members\profile_basis_v2.json',encoding='utf-8')).get('members') or {})
+_profm=(json.load(open(os.path.join(B, 'data', 'members', 'profile_basis_v2.json'),encoding='utf-8')).get('members') or {})
 _narrow_n=sum(1 for d in _profm.values() if ((d.get('personality_facets') or {}).get('Neuroticism_affective_content') or {}).get('z') is not None)
 ck('broad one-panel Neuroticism occupies the canonical slot while affective N remains separate',
    len(_golddesk)==len(_goldn)>=450 and all(_golddesk.get(m)==d.get('percentile') for m,d in _goldn.items()) and
    _narrow_n>=450 and 'Neuroticism' in _desk_tpl,
    '%d broad-N source members, %d desk N values, %d retained affective-N facets'%(len(_goldn),len(_golddesk),_narrow_n))
-_narr2=os.path.exists(B+r'\member_narratives_v2.json')
+_narr2=os.path.exists(os.path.join(B, 'member_narratives_v2.json'))
 _nbad=sum(1 for _row in _bun.get('members',[]) if ((_row.get('psy') or {}).get('narrative') is not None or
           (_row.get('psy') or {}).get('narrative_status')!='withheld_pending_guarded_local_rebuild_and_user_approval')) if not _narr2 else 0
 ck('legacy E/audio narratives fail closed pending guarded local rebuild',
@@ -1892,10 +1892,10 @@ ck('desk suppresses synthetic/default-only dominance values and keeps behavior d
    'Affective N' not in _desk_tpl and
    "const BLAB=['Cross-party cooperation','Follow-through','Conversational dominance','Media appearances','Issue breadth'];" in _desk_tpl and
    "if _r2.get('dominance_v2') is not None:" in
-       open(FE+r'\surfaces\make_member_desk.py',encoding='utf-8').read(),
+       open(os.path.join(FE, 'surfaces', 'make_member_desk.py'),encoding='utf-8').read(),
    'behavior display must expose coverage, plot five behavioral axes, and omit Affective N')
-if os.path.exists(B+r'\data\members\behavioral_roles_v2_candidate.json') and os.path.exists(B+r'\member_desk_bundle.json'):
-    _r2=json.load(open(B+r'\data\members\behavioral_roles_v2_candidate.json',encoding='utf-8')).get('members',{})
+if os.path.exists(os.path.join(B, 'data', 'members', 'behavioral_roles_v2_candidate.json')) and os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
+    _r2=json.load(open(os.path.join(B, 'data', 'members', 'behavioral_roles_v2_candidate.json'),encoding='utf-8')).get('members',{})
     _dpsy={m.get('name'):(m.get('psy') or {}) for m in _bun.get('members',[])}
     _r2bad=0
     for _name,_d in _dpsy.items():
@@ -1907,7 +1907,7 @@ if os.path.exists(B+r'\data\members\behavioral_roles_v2_candidate.json') and os.
             _r2bad += int(_d.get('expressiveness_v2_pct') is None or (_d.get('behav_pct') or [None,None,None])[2] is None)
         else:
             _r2bad += int(any(k in _d for k in ('dominance_v2_z','expressiveness_v2_z','expressiveness_v2_pct')))
-    _producer=open(FE+r'\surfaces\make_member_desk.py',encoding='utf-8').read()
+    _producer=open(os.path.join(FE, 'surfaces', 'make_member_desk.py'),encoding='utf-8').read()
     _engine_refs=[]
     # The locked study producer, audio validator, and OOF-gold display/profile estimator are research
     # provenance, not influence/rank engines. The legislation shadow wrappers
@@ -1932,7 +1932,7 @@ ck('desk preserves missing low-antagonism behavior and its selected-stratum scop
    all(s in _desk_tpl for s in ('Low-antagonism A facet',
                                 'insufficient interview coverage')),
    'low antagonism must remain missing outside the package-qualified stratum, never imputed as A')
-_qproc=open(FE+r'\network\process_quorum.py',encoding='utf-8').read()
+_qproc=open(os.path.join(FE, 'network', 'process_quorum.py'),encoding='utf-8').read()
 ck('Quorum member resolver refuses surname-only identity guesses',
    'Never infer identity from surname alone' in _qproc and 'if len(cands)==1: return cands[0]' not in _qproc,
    'same-surname outsiders must be segregated, not inserted into a legislator corpus')
@@ -1968,7 +1968,7 @@ if _g:
             or not d.get('cap_reasons'))
     ck('overall say-do caps have an auditable fixed-rule reason',_b4==0,
        '%d overall caps, %d incoherent'%(len(_oc),_b4))
-    _leg_ready_path=B+r'\legislation_shadow_readiness.json'
+    _leg_ready_path=os.path.join(B, 'legislation_shadow_readiness.json')
     _leg_ready=(json.load(open(_leg_ready_path,encoding='utf-8'))
                 if os.path.exists(_leg_ready_path) else {})
     _cfpb_routes=_leg_ready.get('cfpb_route_checks') or {}
@@ -2068,7 +2068,7 @@ if _g:
            'provider_call_performed') is False,
        str([name for name,passed in _math_gates.items() if not passed])
        if _math_gates else 'receipt missing')
-    _culling_path=B+r'\data\legislation\legislation_culling_status.json'
+    _culling_path=os.path.join(B, 'data', 'legislation', 'legislation_culling_status.json')
     _culling=(json.load(open(_culling_path,encoding='utf-8'))
               if os.path.exists(_culling_path) else {})
     _cc=_culling.get('counts') or {}
@@ -2090,7 +2090,7 @@ if _g:
        and (_cc.get('integration_state_counts') or {}).get(
            'excluded_false_positive')==2908,
        _cc or 'legislation_culling_status.json missing')
-    _tag_path=B+r'\bill_beneficiary_tags.ndjson'
+    _tag_path=os.path.join(B, 'bill_beneficiary_tags.ndjson')
     _tag_rows=([json.loads(line) for line in
                 open(_tag_path,encoding='utf-8') if line.strip()]
                if os.path.exists(_tag_path) else [])
@@ -2106,7 +2106,7 @@ if _g:
     ck('frozen beneficiary baseline and evidence-backed admissions are classified',
        _tag_count==648 and len(_tag_keys)==len(_effective_tags),
        '%d baseline tags + %d admitted acts'%(_tag_count,len(_tag_keys)-_tag_count))
-    _desk_path=B+r'\member_desk_bundle.json'
+    _desk_path=os.path.join(B, 'member_desk_bundle.json')
     _desk_for_closure=(json.load(open(_desk_path,encoding='utf-8'))
                        if os.path.exists(_desk_path) else {})
     _desk_acts={'%s|%s'%(str(bill.get('bill') or '').strip(),
@@ -2116,7 +2116,7 @@ if _g:
     ck('member desk and beneficiary universe close on the same admitted acts',
        _desk_acts==_tag_keys,
        '%d desk acts vs %d tags'%(len(_desk_acts),len(_tag_keys)))
-    _membership_path=B+r'\data\members\primacy_act_memberships.ndjson'
+    _membership_path=os.path.join(B, 'data', 'members', 'primacy_act_memberships.ndjson')
     _membership_rows=(
         [json.loads(line) for line in
          open(_membership_path,encoding='utf-8') if line.strip()]
@@ -2133,13 +2133,13 @@ if _g:
                for row in _membership_rows),
        '%d rows / %d unique acts'%(
            len(_membership_rows),len(_membership_keys)))
-    _registry_receipt_path=B+r'\data\legislation\registry_anchor_reconciliation.json'
+    _registry_receipt_path=os.path.join(B, 'data', 'legislation', 'registry_anchor_reconciliation.json')
     _registry_receipt=(
         json.load(open(_registry_receipt_path,encoding='utf-8'))
         if os.path.exists(_registry_receipt_path) else {})
     _registry_counts=_registry_receipt.get('counts') or {}
     _registry_gates=_registry_receipt.get('gates') or {}
-    _registry_membership_path=B+r'\data\members\registry_anchor_memberships.ndjson'
+    _registry_membership_path=os.path.join(B, 'data', 'members', 'registry_anchor_memberships.ndjson')
     _registry_memberships=(
         [json.loads(line) for line in
          open(_registry_membership_path,encoding='utf-8') if line.strip()]
@@ -2206,7 +2206,7 @@ if _g:
     # against and the workbook comparison below uses the board form too.
     from stance.honors_views import load_honors as _load_honors
     try:
-        _honors_doc=_load_honors(B) if os.path.exists(B+r'\data\stance\rank_honors\active.json') else None
+        _honors_doc=_load_honors(B) if os.path.exists(os.path.join(B, 'data', 'stance', 'rank_honors', 'active.json')) else None
         _honors_err=''
     except Exception as _he:
         _honors_doc=None; _honors_err='%s: %s'%(type(_he).__name__,_he)
@@ -2311,7 +2311,7 @@ if _g:
     _desk_doc=json.load(open(os.path.join(B,'member_desk_bundle.json'),
                              encoding='utf-8'))
     _champions_boards_path=os.path.join(
-        os.environ['LOCALAPPDATA'],'Melange','lda_rebuild','derived',
+        LOCAL_MELANGE,'lda_rebuild','derived',
         'champions_v2','boards.json')
     _champions_boards_missing=not os.path.exists(_champions_boards_path)
     _champions_boards=({} if _champions_boards_missing else
@@ -2357,8 +2357,8 @@ if _g:
     _amd_missed=sorted(i for i in _amd_ids if not _MK.is_display_amendment(i))
     ck('every amendment-shaped act id is recognized by the measure-weight bridge',
        not _amd_missed,'unrecognized=%s'%_amd_missed[:8])
-    if os.path.exists(B+r'\dashboard_data.json'):
-        _dash=json.load(open(B+r'\dashboard_data.json',encoding='utf-8'))
+    if os.path.exists(os.path.join(B, 'dashboard_data.json')):
+        _dash=json.load(open(os.path.join(B, 'dashboard_data.json'),encoding='utf-8'))
         _tc={'Champion':'C','Defender':'F','Ally':'A','Highly Persuadable':'H','Persuadable':'P',
              'Lean Persuadable':'G','True Neutral':'T','Lean Skeptic':'L','Neutral':'N',
              'Skeptic':'S','Highly Skeptical':'K','Opponent':'O','—':'-'}
@@ -2382,16 +2382,16 @@ if _g:
                len(_dash_engine.get('tierp') or []),
                'sco' in _dash_engine,
                'smax' in _dash_const))
-    if os.path.exists(B+r'\member_desk_bundle.json'):
-        _desk=json.load(open(B+r'\member_desk_bundle.json',encoding='utf-8'))
+    if os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
+        _desk=json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8'))
         _desk_detail={row.get('name'):row.get('tier_detail')
                       for row in _desk.get('members',[])}
         ck('member desk carries aligned grievance and delivery tier evidence',
            _desk_detail.get('Andy Barr')==_barr
            and _desk_detail.get('French Hill')==_hill,
            'tier_detail missing or not member-aligned')
-    _dashboard_html_path=B+r'\Moneyball Dashboard.html'
-    _desk_html_path=B+r'\cu-member-desk.html'
+    _dashboard_html_path=os.path.join(B, 'Moneyball Dashboard.html')
+    _desk_html_path=os.path.join(B, 'cu-member-desk.html')
     _dashboard_html=(open(_dashboard_html_path,encoding='utf-8').read()
                      if os.path.exists(_dashboard_html_path) else '')
     _desk_html=(open(_desk_html_path,encoding='utf-8').read()
@@ -2418,9 +2418,9 @@ else:
 # audit is unaffected until the layer actually produces candidates.
 print('\n[AUDIO-ID] Speaker-identity layer candidates (research-only)')
 import glob as _gid
-_idb=B+r'\b5_audio_enroll_bank.json.candidate'
-_idt=B+r'\b5_audio_identity_thresholds.json.candidate'
-_ida=sorted(_gid.glob(B+r'\b5_audio_attrib_*.json.candidate'))
+_idb=os.path.join(B, 'b5_audio_enroll_bank.json.candidate')
+_idt=os.path.join(B, 'b5_audio_identity_thresholds.json.candidate')
+_ida=sorted(_gid.glob(os.path.join(B, 'b5_audio_attrib_*.json.candidate')))
 # Main per-corpus verdict artifacts = everything that is not a rejects/mismatch ledger (suffix
 # rule, not a corpus whitelist, so a new corpus can never silently escape the pairing check).
 _ida_main=[f for f in _ida if not os.path.basename(f).endswith('_ledger.json.candidate')]
@@ -2485,7 +2485,7 @@ if _ida_main:
        'missing ledger for: %s'%_idmiss)
 else:
     print('  SKIP  no per-corpus attribution candidates (rejects-ledger pairing not applicable)')
-_idsrc=FE+r'\members\b5_audio_attrib.py'
+_idsrc=os.path.join(FE, 'members', 'b5_audio_attrib.py')
 if os.path.exists(_idsrc):
     _badw=[_ln for _ln,_line in enumerate(open(_idsrc,encoding='utf-8',errors='ignore').read().splitlines(),1)
            if ('b5_audio_reviews_v2.json' in _line or 'b5_audio_descriptors_v2.json' in _line)
@@ -2509,7 +2509,7 @@ try:
     try:
         import moneyball_core as _MCA
         _NET = _MCA.NETWORKS
-        _dpath = B + r'\dashboard_data.json'
+        _dpath = os.path.join(B, 'dashboard_data.json')
         _D = json.load(open(_dpath, encoding='utf-8')) if os.path.exists(_dpath) else None
         ck('dashboard_data.json present for config audit', _D is not None, _dpath)
 
@@ -2618,8 +2618,8 @@ try:
                                                 len(_D.get('y_' + _k) or []), len(_D['name'])))
 
             # --- RANK 6: JS tokens equal the registry, in template AND deployed html -------------
-            for _lbl, _f2 in (('template', FE + r'\surfaces\templates\make_dashboard_html_00.tpl'),
-                              ('deployed', B + r'\Moneyball Dashboard.html')):
+            for _lbl, _f2 in (('template', os.path.join(FE, 'surfaces', 'templates', 'make_dashboard_html_00.tpl')),
+                              ('deployed', os.path.join(B, 'Moneyball Dashboard.html'))):
                 if not os.path.exists(_f2): continue
                 _src = open(_f2, encoding='utf-8', errors='replace').read()
                 _btn = set(re.findall(r'data-net=([A-Za-z_]+)', _src))

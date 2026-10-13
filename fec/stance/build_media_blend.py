@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,DRAFT  # centralized roots
+import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,DRAFT,today  # centralized roots
 """MEDIA BLEND (user-directed 2026-07-02): the press pillar becomes MEDIA = 50% press releases +
 50% social media, at the pillar's existing weight.  Insertion point = 'Press Release - Raw' (Table10):
 its LET-normalized sheet and the Rank & Allocation SUMPRODUCT consume whatever sits there, so writing
@@ -23,8 +23,8 @@ import config_overlay as CO
 from moneyball_core import save_workbook_atomic
 from members.member_identity import Resolver
 M=MB_ROOT
-WBP=M+r'\Moneyball Main Version - Blended.xlsx'
-_roster=json.load(open(M+r'\data\engine\congestion.json',encoding='utf-8'))
+WBP=os.path.join(M, 'Moneyball Main Version - Blended.xlsx')
+_roster=json.load(open(os.path.join(M, 'data', 'engine', 'congestion.json'),encoding='utf-8'))
 _resolver=Resolver([x['member'] for x in _roster],{x['member']:x.get('bioguide') for x in _roster})
 HL=float(os.environ.get('SOCIAL_HL_YEARS','0.5')); PRESS_W=0.5; SOCIAL_W=0.5
 # DEEP-AUDIT DIALS — USER-RATIFIED 2026-07-02 (both now ON by default; env-overridable):
@@ -45,7 +45,7 @@ SHRINK=os.environ.get('SOCIAL_SHRINK','1')=='1'; RT_W=float(os.environ.get('RT_W
 # Link-only posts (normalized text empty after URL stripping) carry no scorable text and are skipped
 # under the dial -- the same explicit rule the desk states, not a side effect of an empty key.
 DEDUP=os.environ.get('CROSSPOST_DEDUP','0')=='1'
-TODAY=datetime.date.today()
+TODAY=today()   # paths.today(): MELANGE_TODAY pins the day for parity runs; default is the real date
 # category keyword map -> the raw sheet's own headers (built from quorum_query.txt vocabulary groups)
 CATKW=MR.RAW_PATTERNS
 CATRX={k:re.compile(v,re.I) for k,v in CATKW.items()}
@@ -60,7 +60,7 @@ def _sha256_file(path):
 def p80(vals):
     a=sorted(abs(x) for x in vals if abs(x)>1e-9); return a[int(0.8*len(a))] if a else 1.0
 # ---- social aggregates: sign * intensity(margin) * decay(0.5^(age/HL)), multi-cat split evenly ----
-corp=pd.read_excel(M+r'\Social Master.xlsx',sheet_name='Corpus',dtype=str)
+corp=pd.read_excel(os.path.join(M, 'Social Master.xlsx'),sheet_name='Corpus',dtype=str)
 corp=corp[(corp['stance'].fillna('')!='')&(corp['verified_handle'].astype(str)=='1')]
 # ---- STANCE STACK OVERRIDE (user-ratified 2026-07-04 "lets first wire this in"): per-tweet stance
 # from tweet_stance_stack.py (0.855 acc / 0.819 F1 honest OOF vs the user's golds; old transfer
@@ -69,7 +69,7 @@ corp=corp[(corp['stance'].fillna('')!='')&(corp['verified_handle'].astype(str)==
 # ~900 noise posts stop polluting the blend. Unmatched rows keep their existing label. Absent file
 # -> legacy behavior (neutral fallback discipline).
 STACK={}
-_sf=M+r'\data\stance\tweet_stance_final.csv'
+_sf=os.path.join(M, 'data', 'stance', 'tweet_stance_final.csv')
 if os.path.exists(_sf):
     import csv as _csv,io as _io
     def _nrm(t): return MR.normalized_text(t)
@@ -150,8 +150,8 @@ spc=collections.defaultdict(lambda:collections.defaultdict(float))
 _sn=0; _snm=set(); _speech_loaded=False
 if SPEECH_ON:
     import csv as _csv2,io as _io2
-    _spf=M+r'\speech_stance_final.csv'
-    _stl=_cu_stale(_spf,[M+'\\speeches_cu.csv',M+'\\data\\stance\\speech_gold_queue.csv'])
+    _spf=os.path.join(M, 'speech_stance_final.csv')
+    _stl=_cu_stale(_spf,[os.path.join(M, 'speeches_cu.csv'),os.path.join(M, 'data', 'stance', 'speech_gold_queue.csv')])
     if _stl:
         print('!! CU speech channel: speech_stance_final.csv is OLDER than %s — STALE, channel SKIPPED (re-run speech_stance_stack.py; CU_STALE_OK=1 overrides)'%'+'.join(_stl))
     elif os.path.exists(_spf):
@@ -193,8 +193,8 @@ hrc=collections.defaultdict(lambda:collections.defaultdict(float))
 _hn=0; _hnm=set(); _hreview=0; _hearing_loaded=False
 if HEARING_ON:
     import csv as _csvh,io as _ioh
-    _hf=M+r'\data\stance\hearing_stance_final.csv'
-    _stl=_cu_stale(_hf,[M+'\\data\\stance\\hearings_cu.csv',M+'\\data\\stance\\hearing_gold_queue.csv'])
+    _hf=os.path.join(M, 'data', 'stance', 'hearing_stance_final.csv')
+    _stl=_cu_stale(_hf,[os.path.join(M, 'data', 'stance', 'hearings_cu.csv'),os.path.join(M, 'data', 'stance', 'hearing_gold_queue.csv')])
     if _stl:
         print('!! CU hearing channel: hearing_stance_final.csv is OLDER than %s — STALE, channel SKIPPED (re-run hearing_stance_stack.py; CU_STALE_OK=1 overrides)'%'+'.join(_stl))
     elif os.path.exists(_hf):
@@ -236,8 +236,8 @@ ivc=collections.defaultdict(lambda:collections.defaultdict(float))
 _in=0; _inm=set(); _interview_loaded=False
 if INTERVIEW_ON:
     import csv as _csvi,io as _ioi
-    _if=M+r'\data\stance\interview_stance_final.csv'
-    _stl=_cu_stale(_if,[M+'\\data\\stance\\interviews_cu.csv',M+'\\data\\stance\\interview_gold_queue.csv'])
+    _if=os.path.join(M, 'data', 'stance', 'interview_stance_final.csv')
+    _stl=_cu_stale(_if,[os.path.join(M, 'data', 'stance', 'interviews_cu.csv'),os.path.join(M, 'data', 'stance', 'interview_gold_queue.csv')])
     if _stl:
         print('!! CU interview channel: interview_stance_final.csv is OLDER than %s — STALE, channel SKIPPED (re-run interview_stance_stack.py; CU_STALE_OK=1 overrides)'%'+'.join(_stl))
     elif os.path.exists(_if):
@@ -283,8 +283,8 @@ if BLUESKY_ON:
           '74 posts, 35 scored) and bluesky_cu.csv is a subset of it — injecting bluesky_stance_final.csv '
           'would double-count. De-duplicate Bluesky out of the social corpus before wiring this channel.')
 # ---- workbook surgery ----
-os.makedirs(M+r'\backups',exist_ok=True)
-bak=M+r'\backups\Moneyball Main Version - Blended.BACKUP-%s.xlsx'%datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+os.makedirs(os.path.join(M, 'backups'),exist_ok=True)
+bak=os.path.join(M, 'backups', 'Moneyball Main Version - Blended.BACKUP-%s.xlsx'%datetime.datetime.now().strftime('%Y%m%d-%H%M%S'))
 shutil.copy2(WBP,bak); print('backup:','backups/'+os.path.basename(bak))
 wb=openpyxl.load_workbook(WBP)             # formulas preserved
 rw=wb['Press Release - Raw']
@@ -299,7 +299,7 @@ mrow={rw.cell(r,1).value:r for r in range(2,536) if rw.cell(r,1).value}
 # category-split. R's exact archive units were not reproducible (best r=0.38; hidden steps), and
 # don't need to be: the blend p80-normalizes press and social, so relative structure is what matters.
 # PRESS_DYNAMIC=0 reverts to the frozen archive.
-ORIG=json.load(open(M+r'\data\stance\press_raw_original.json',encoding='utf-8'))
+ORIG=json.load(open(os.path.join(M, 'data', 'stance', 'press_raw_original.json'),encoding='utf-8'))
 if os.environ.get('PRESS_DYNAMIC','1')!='0':
     import csv as _csv,io as _io
     from press_stream import (canonical_url as _canonical_press_url,
@@ -318,7 +318,7 @@ if os.environ.get('PRESS_DYNAMIC','1')!='0':
     _n=0; _nm=set(); _pvs=[]
     _domain_audit=[]
     _api_target={}
-    _api_path=M+r'\data\stance\api_press_stance.csv'
+    _api_path=os.path.join(M, 'data', 'stance', 'api_press_stance.csv')
     if os.path.exists(_api_path):
         for _r in _csv.DictReader(_io.open(_api_path,encoding='utf-8-sig',newline='')):
             _api_target[(_r.get('url') or '').strip().rstrip('/')]=(_r.get('api_target') or '').strip()
@@ -329,7 +329,7 @@ if os.environ.get('PRESS_DYNAMIC','1')!='0':
     # noise, the Warren #103 driver); tier-weighted trust (measured: unan .955 / maj .776 / rev .638).
     # Missing sidecar or unmatched url -> DEBATE fallback (legacy behavior, never silently empty).
     _stk={}
-    _sfp=M+r'\press_stance_final.csv'
+    _sfp=os.path.join(M, 'press_stance_final.csv')
     if os.path.exists(_sfp):
         for _r in _csv.DictReader(_io.open(_sfp,encoding='utf-8-sig',newline='')):
             _sk=(_canonical_press_url(_r.get('url'),keep_fragment=True),
@@ -418,9 +418,9 @@ if os.environ.get('PRESS_DYNAMIC','1')!='0':
     ORIG={c:dict(_dyn.get(c,{})) for c in ORIG}   # same shape/keys as the archive
     from moneyball_core import dump_atomic as _da
     _pvs.sort()
-    _meta_inputs=list(_tone_sources)+[_sfp,M+r'\data\stance\interview_stance_final.csv',
-        M+r'\data\stance\interview_stance_final.receipt.json',
-        M+r'\data\stance\press_refresh_feed_receipt.json']
+    _meta_inputs=list(_tone_sources)+[_sfp,os.path.join(M, 'data', 'stance', 'interview_stance_final.csv'),
+        os.path.join(M, 'data', 'stance', 'interview_stance_final.receipt.json'),
+        os.path.join(M, 'data', 'stance', 'press_refresh_feed_receipt.json')]
     _da({'built_from_csv_mtime':max((os.path.getmtime(_p) for _p in _tone_sources),default=None),
          'tone_sources':_tone_sources,'tone_rows':len(_tone_rows),
          'tone_ingest_dedup':_tone_ingest,
@@ -444,13 +444,13 @@ if os.environ.get('PRESS_DYNAMIC','1')!='0':
                     'basis':dict(collections.Counter(x['routing_basis'] for x in _domain_audit)),
                     'dispositions':dict(collections.Counter(x['scoring_disposition'] for x in _domain_audit))},
          'note':'dynamic press component (PRESS_DYNAMIC); archive fallback with PRESS_DYNAMIC=0'},
-        M+r'\data\stance\press_component_meta.json')
+        os.path.join(M, 'data', 'stance', 'press_component_meta.json'))
     _da({'schema':'press-domain-routing-audit-v1','sources':_tone_sources,'rows':_domain_audit,
          'summary':{'basis':dict(collections.Counter(x['routing_basis'] for x in _domain_audit)),
                     'dispositions':dict(collections.Counter(x['scoring_disposition'] for x in _domain_audit)),
                     'effective_categories':dict(collections.Counter(
                         c for x in _domain_audit for c in x['effective_categories']))}},
-        M+r'\data\stance\press_domain_routing_audit.json')
+        os.path.join(M, 'data', 'stance', 'press_domain_routing_audit.json'))
     print('DYNAMIC press component: %d signed articles -> %d members (stack-signed %d, DEBATE fallback %d, gold overrides %d, unrelated zeroed %d; own-domain %d @1.0, third-party %d @%.2f)'%(_n,len(_nm),_n_stack,_n_fallback,_n_gold,_n_unrel,_n_own,_n_third,_W3))
 changed=0
 for kwcat,hname in HDRMAP.items():

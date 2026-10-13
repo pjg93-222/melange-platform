@@ -23,7 +23,7 @@ import time
 import uuid
 
 EVENTS_DIR = pathlib.Path(
-    os.environ.get("GLASSBOX_EVENTS_DIR", r"C:\Users\pgoff\.claude\glassbox\events")
+    os.environ.get("GLASSBOX_EVENTS_DIR") or os.path.join(os.path.expanduser("~"), ".claude", "glassbox", "events")
 )
 SCHEMA_VERSION = 1
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
+import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,LOCAL_MELANGE  # centralized root (arch review 2026-07-02)
 """DISTRICT INDUSTRY BUILDER — LQ, growth quotient, and shift-share metrics.
 
 Phase C of the Melange demographic expansion.  This is a chain step in run_pipeline.py's
@@ -955,11 +955,7 @@ def _warn_latest_year_exceptions(exceptions, global_latest):
 def main():
     data_root = os.environ.get('DEMO_DATA_ROOT')
     if not data_root:
-        base = (
-            os.environ.get('LOCALAPPDATA') or
-            os.path.expanduser(r'~\AppData\Local')
-        )
-        data_root = os.path.join(base, 'Melange', 'demographics')
+        data_root = os.path.join(LOCAL_MELANGE, 'demographics')
 
     growth_window = _parse_int_dial('GROWTH_WINDOW', 10)
     small_sector_min = _parse_int_dial('SMALL_SECTOR_MIN', 500)

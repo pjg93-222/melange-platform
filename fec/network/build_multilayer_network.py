@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
+import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT,today  # centralized root (arch review 2026-07-02)
 """MULTILAYER NETWORK BUILDER — integrates the press-derived layers into the live cascade network.
 
 Writes `congress_cosponsor_network_AUG<date>.xlsx` in the exact Edges format the NINE existing loaders
@@ -80,17 +80,17 @@ def admit(k,layer,w):
     if w<=w0: return False
     edges[k]=(lay0+'+'+layer if layer not in lay0 else lay0, round(w,4)); return True
 COAP_W=float(os.environ.get('COAP_W','0.05')); COAP_CAP=float(os.environ.get('COAP_CAP','0.12')); COAP_FLOOR=int(os.environ.get('COAP_FLOOR','2'))
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
 name2bio={m:C[m]['bioguide'] for m in C if C[m].get('bioguide')}
 bio2name={v:k for k,v in name2bio.items()}
 # 1) original cosponsor edges (pick the newest NON-augmented file so re-runs don't compound)
 if CFG=='cu':
-    srcs=[p for p in glob.glob(B+r'\congress_cosponsor_network_*.xlsx') if 'AUG' not in os.path.basename(p)]
+    srcs=[p for p in glob.glob(os.path.join(B, 'congress_cosponsor_network_*.xlsx')) if 'AUG' not in os.path.basename(p)]
 elif CFG=='holistic_norm':
-    srcs=glob.glob(B+r'\holistic_network_NBASE_*.xlsx')
+    srcs=glob.glob(os.path.join(B, 'holistic_network_NBASE_*.xlsx'))
     if not srcs: raise SystemExit('NET_CONFIG=holistic_norm: no holistic_network_NBASE_*.xlsx at root (run build_holistic_normalized.py first; fail-closed)')
 else:
-    srcs=glob.glob(B+r'\holistic_network_BASE_*.xlsx')
+    srcs=glob.glob(os.path.join(B, 'holistic_network_BASE_*.xlsx'))
     if not srcs: raise SystemExit('NET_CONFIG=holistic: no holistic_network_BASE_*.xlsx at root (fail-closed; the augmenter never bases on the CU family in holistic mode)')
 src=max(srcs,key=os.path.getmtime)
 ws=openpyxl.load_workbook(src,data_only=True)['Edges']
@@ -114,7 +114,7 @@ print('base: %s (%d edge rows) | cosponsor-isolated members: %d'%(os.path.basena
 # 2) engagement layer (empirical influence probabilities -> kernel-inverse weights)
 neweng=0
 try:
-    pe=json.load(open(B+r'\data\stance\press_engagement.json',encoding='utf-8'))
+    pe=json.load(open(os.path.join(B, 'data', 'stance', 'press_engagement.json'),encoding='utf-8'))
     for e in pe['symmetric']:
         a,b=name2bio.get(e['a']),name2bio.get(e['b'])
         if not a or not b: continue
@@ -128,7 +128,7 @@ except FileNotFoundError:
 # 3) HCoI layer — ONLY edges touching a cosponsor-isolated member (the D4 surgical fix)
 newhc=0; reconnected=set()
 try:
-    hc=json.load(open(B+r'\data\stance\press_hcoi.json',encoding='utf-8'))
+    hc=json.load(open(os.path.join(B, 'data', 'stance', 'press_hcoi.json'),encoding='utf-8'))
     for e in hc['edges']:
         # The ISOLATES-ONLY gate is the second half of the D10 admission rule and it goes fully
         # vacuous on an all-bills base: with 0 cosponsor-isolated members it admitted exactly
@@ -153,7 +153,7 @@ except FileNotFoundError:
 SOC_CAP=float(os.environ.get('SOC_CAP','2.0')); SOC_REINF=float(os.environ.get('SOC_REINF','0.3'))
 newsoc=0; reinf=0
 try:
-    si=json.load(open(B+r'\data\lobbying\social_interactions.json',encoding='utf-8'))
+    si=json.load(open(os.path.join(B, 'data', 'lobbying', 'social_interactions.json'),encoding='utf-8'))
     for e in si['symmetric']:
         a,b=name2bio.get(e['a']),name2bio.get(e['b'])
         if not a or not b: continue
@@ -178,7 +178,7 @@ except FileNotFoundError:
 newcoap=0
 if HOL:
     try:
-        cap=json.load(open(B+r'\data\network\co_appearance.json',encoding='utf-8'))
+        cap=json.load(open(os.path.join(B, 'data', 'network', 'co_appearance.json'),encoding='utf-8'))
     except FileNotFoundError:
         raise SystemExit('PAR-5: co_appearance.json missing — the holistic AUG refuses to silently drop a declared layer')
     for e in cap['edges']:
@@ -192,10 +192,10 @@ if HOL:
         if admit(k,'coappear',w): newcoap+=1
 # 5) write the augmented workbook (Edges sheet = loader contract; Provenance sheet = audit trail)
 if CFG=='cu':
-    out=os.environ.get('AUG_OUT',B+r'\congress_cosponsor_network_AUG%s.xlsx'%datetime.date.today().strftime('%Y%m%d'))
+    out=os.environ.get('AUG_OUT',os.path.join(B, 'congress_cosponsor_network_AUG%s.xlsx'%today().strftime('%Y%m%d')))
 else:
     _pfx='holistic_network_NORM_' if CFG=='holistic_norm' else 'holistic_network_AUG_'
-    out=os.environ.get('AUG_OUT',os.path.join(B,_pfx+datetime.date.today().strftime('%Y%m%d')+'.xlsx'))
+    out=os.environ.get('AUG_OUT',os.path.join(B,_pfx+today().strftime('%Y%m%d')+'.xlsx'))
     if re.match(r'^congress_cosponsor_network',os.path.basename(out),re.I) or not os.path.basename(out).startswith(_pfx):
         raise SystemExit('COR-9: %s output must be named %s*.xlsx, got %s'%(CFG,_pfx,os.path.basename(out)))
 wb=openpyxl.Workbook(); e1=wb.active; e1.title='Edges'
@@ -223,11 +223,11 @@ if HOL:
                        'social':'cu-boolean-vendor','coappear':'all-interviews'},
         'bpf':'cu-scoped (D12: cross-party physics consumes CU-defined bipartisan.json until separately ruled)',
         'admitted':{'engagement':neweng,'hcoi':newhc,'social_new':newsoc,'social_reinforced':reinf,'coappear':newcoap},
-        'layer_inputs_sha256_16':{'press_engagement.json':_sha(B+r'\data\stance\press_engagement.json'),
-                                  'press_hcoi.json':_sha(B+r'\data\stance\press_hcoi.json'),
-                                  'social_interactions.json':_sha(B+r'\data\lobbying\social_interactions.json'),
-                                  'co_appearance.json':_sha(B+r'\data\network\co_appearance.json')}}
-    json.dump(_man,open(out.replace('.xlsx','.manifest.json'),'w',encoding='utf-8'),indent=1)
+        'layer_inputs_sha256_16':{'press_engagement.json':_sha(os.path.join(B, 'data', 'stance', 'press_engagement.json')),
+                                  'press_hcoi.json':_sha(os.path.join(B, 'data', 'stance', 'press_hcoi.json')),
+                                  'social_interactions.json':_sha(os.path.join(B, 'data', 'lobbying', 'social_interactions.json')),
+                                  'co_appearance.json':_sha(os.path.join(B, 'data', 'network', 'co_appearance.json'))}}
+    json.dump(_man,open(out.replace('.xlsx','.manifest.json'),'w',encoding='utf-8', newline='\r\n'),indent=1)
 print('AUGMENTED NETWORK: +%d engagement edges, +%d HCoI edges (isolated-incident only), +%d SOCIAL edges, %d existing ties socially reinforced'%(neweng,newhc,newsoc,reinf)+(', +%d CO-APPEARANCE edges'%newcoap if HOL else ''))
 print('  D4: %d/%d formerly-isolated members are now cascade-reachable: %s%s'%(
     len(reconnected),len(isolated),', '.join(sorted(reconnected)[:8]),'...' if len(reconnected)>8 else ''))

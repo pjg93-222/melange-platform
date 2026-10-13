@@ -49,7 +49,7 @@ def match(nm, bioguide=None):
     return got
 def isnum(x): return isinstance(x,(int,float)) and not isinstance(x,bool)
 
-bp = sorted(glob.glob(B+r"\archive\Ballotpedia_119th_CU_Influence_*.xlsx"), key=os.path.basename)[-1]
+bp = sorted(glob.glob(os.path.join(B, "archive", "Ballotpedia_119th_CU_Influence_*.xlsx")), key=os.path.basename)[-1]
 ws = openpyxl.load_workbook(bp, data_only=True, read_only=True)['Members']
 hd = {ws.cell(1,c).value:c for c in range(1,ws.max_column+1)}
 mstate={}; mcham={}

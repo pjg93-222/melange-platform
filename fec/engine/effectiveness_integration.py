@@ -207,7 +207,7 @@ def write_shadow_comparison(document, path, *, shadow_root):
         raise ValueError("Invalid shadow comparison")
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name + ".tmp")
-    temporary.write_text(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+    temporary.write_text(json.dumps(document, indent=2, sort_keys=True, ensure_ascii=False), encoding="utf-8", newline='\r\n')
     os.replace(temporary, target)
     return target
 
@@ -320,6 +320,6 @@ def reporting_shadow_cli(argv):
     target = require_shadow_path(args.output, args.shadow_root)
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(target.name+".tmp")
-    temporary.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.write_text(json.dumps(output, indent=2, ensure_ascii=False), encoding="utf-8", newline='\r\n')
     os.replace(temporary, target)
     print("Wrote %s (%s; shadow candidate)" % (target, args.mode))

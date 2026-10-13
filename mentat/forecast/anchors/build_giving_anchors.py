@@ -37,6 +37,8 @@ import fec_pas2  # noqa: E402
 import glassbox  # noqa: E402
 import lda as lda_reader  # noqa: E402
 import mentat_sources as ms  # noqa: E402
+sys.path.append(str(HERE.parents[1] / 'app'))          # receipt_path only; appended so no app module shadows the anchors' own
+from receipt_path import receipt_path  # noqa: E402
 
 VERSION = '1'
 SNAPSHOT_NAME = 'giving-anchors-v1.json'
@@ -95,7 +97,7 @@ def report_directory(project_root):
 def fec_root(project_root, override=None):
     if override:
         return Path(override)
-    return Path(read_json(Path(project_root) / 'inputs' / 'active_fec_sources.json')['path'])
+    return receipt_path(read_json(Path(project_root) / 'inputs' / 'active_fec_sources.json')['path'])          # recorded on Windows; a container rebases it onto the mounted project
 
 
 def default_lda_csv():

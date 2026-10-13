@@ -21,7 +21,7 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from collect.press_receipt import ReceiptTimestampError, parse_receipt_timestamp
-from paths import ROOT
+from paths import ROOT, stored_name, to_host
 from press_stream import canonical_url
 
 
@@ -59,7 +59,7 @@ def atomic_csv(path, fields, rows):
 def atomic_json(path, payload):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    with io.open(tmp, "w", encoding="utf-8") as handle:
+    with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
     os.replace(tmp, path)
@@ -68,7 +68,7 @@ def atomic_json(path, payload):
 def atomic_jsonl(path, rows):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
-    with io.open(tmp, "w", encoding="utf-8") as handle:
+    with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
     os.replace(tmp, path)
@@ -385,7 +385,7 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
     retry_path = root / "press_network_retry_receipt.json"
     retry_sha256 = sha256_file(retry_path)
     try:
-        audited_root = Path(intake_inputs["press_delta_root"]).resolve()
+        audited_root = Path(to_host(intake_inputs["press_delta_root"])).resolve()
     except (KeyError, TypeError):
         raise RuntimeError("collection intake receipt lacks the audited press delta root")
     if audited_root != root.resolve():
@@ -514,7 +514,7 @@ def _accepted_intake_receipts(current_receipt, receipt_dir):
                 raise RuntimeError("collection intake receipt is not an accepted gate receipt")
             raise RuntimeError("archived press receipt is not accepted: %s" % path)
         try:
-            root = Path(document["inputs"]["press_delta_root"]).resolve()
+            root = Path(to_host(document["inputs"]["press_delta_root"])).resolve()
         except (KeyError, TypeError) as exc:
             raise RuntimeError("accepted press receipt lacks a source root: %s" % path) from exc
         prior = accepted.get(root)
@@ -671,7 +671,7 @@ def main(argv=None):
             raise RuntimeError("specified source root lacks a valid live-network retry receipt")
         receipt = build(source_root, args.tone_output, args.fulltext_output,
                         args.mentions_output, args.receipt_output, args.intake_receipt)
-        source_label = Path(receipt["source_run"]).name
+        source_label = stored_name(receipt["source_run"])
     else:
         receipt = build_cumulative(
             args.tone_output, args.fulltext_output, args.mentions_output,

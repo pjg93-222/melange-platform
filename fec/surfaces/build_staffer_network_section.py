@@ -64,6 +64,7 @@ _ROOT_FOR_IMPORT = os.path.dirname(_FEC)
 if _ROOT_FOR_IMPORT not in sys.path:
     sys.path.insert(0, _ROOT_FOR_IMPORT)
 
+from paths import to_host, today  # noqa: E402
 from fec.staffer_network import name_standard  # noqa: E402  (after the path bootstrap)
 from fec.staffer_network.closeness_math import ExposureIndex, VERSION as CLOSENESS_VERSION, MEMBER_BETA
 from fec.staffer_network.member_context import load_member_context
@@ -664,6 +665,11 @@ def load_roster(root):
     root = os.path.abspath(root)
     if os.path.abspath(os.environ.get('MONEYBALL_ROOT') or DEFAULT_ROOT) != root:
         os.environ['MONEYBALL_ROOT'] = root
+    if 'moneyball_core' not in sys.modules and 'paths' in sys.modules and os.path.abspath(sys.modules['paths'].ROOT) != root:
+        # the module-level `from paths import to_host, today` (the compute seams) imported paths before --root was known and froze
+        # its ROOT; the kernel below reads paths.ROOT, so re-read it for the root this run targets
+        import importlib
+        importlib.reload(sys.modules['paths'])
     import moneyball_core as MBC
     if os.path.abspath(MBC.ROOT) != root:
         raise InputContradiction(
@@ -917,7 +923,7 @@ def read_trajectories(path, roster, as_of=None):
     the office's size, "distinct people ever attached", and an undated stint is
     still an attachment.
     """
-    as_of = as_of or date.today().isoformat()
+    as_of = as_of or today().isoformat()
     staff = defaultdict(dict)   # roster bioguide -> node_id -> record dict
     stint_rows = 0
     person_rows = 0
@@ -1636,6 +1642,16 @@ def glassbox(enabled, kind, status, summary, metadata=None, detail='', duration_
         return False
     emitter = os.environ.get('GLASSBOX_EMIT') or os.path.join(
         os.path.expanduser('~'), '.claude', 'glassbox', 'emit.ps1')
+    if os.name != 'nt':
+        # No PowerShell here (a compute container): the Python emitter writes the same event stream, so the
+        # producer still emits.  Windows keeps the emit.ps1 path below, unchanged.
+        try:
+            from surfaces.glassbox_emit import emit as _emit
+            return bool(_emit(kind, status, summary, source='staffer-network-section', detail=detail or '',
+                              duration_ms=int(duration_ms), metadata=metadata))
+        except Exception as exc:
+            print('glassbox emit failed (%s): %s' % (type(exc).__name__, exc), file=sys.stderr)
+            return False
     if not os.path.exists(emitter):
         return False
     # emit.ps1 takes named parameters; from a non-PowerShell parent the equivalent
@@ -1764,7 +1780,7 @@ def build(root, generation, out_path, max_bytes, use_glassbox=True, hash_edges=F
         displayed += summary['top_bridge_people']
         name_spec = next((s for s in receipt.get('inputs', []) if s['role'] == 'hill_person_spine'), None)
         if name_spec:
-            original = os.path.normpath(name_spec['path'])
+            original = os.path.normpath(to_host(name_spec['path']))
             name_path = os.path.join(root, 'audits', 'staffer_network', os.path.basename(os.path.dirname(original)), os.path.basename(original))
             if not os.path.isfile(name_path):
                 name_path = original

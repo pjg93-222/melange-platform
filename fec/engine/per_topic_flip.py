@@ -10,9 +10,9 @@ if BUDGET<0 or INC<=0: raise ValueError('BUDGET must be nonnegative and INC must
 # Kept identical to flip_model.py for grain consistency; env-overridable via PERS_NONE.
 from moneyball_core import PERS
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
-C={m['member']:m for m in json.load(open(MB_ROOT+r'\data\engine\congestion.json'))}
+C={m['member']:m for m in json.load(open(os.path.join(MB_ROOT, 'data', 'engine', 'congestion.json')))}
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+wb=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 bm=wb['Blended Model']; ra=wb['Rank & Allocation']; nrm=wb['Legislative Score - Normalized']
 members=[m['member'] for m in C.values()]
 primacy_tier,primacy_rank,primacy_priority=MC.primacy_engine_state(members)
@@ -28,7 +28,7 @@ HALFF=float(os.environ.get('HALFF','0.10'))   # capacity scale: money == HALFF*r
 _rv=sorted((C[n].get('receipts') or 0) for n in members if (C[n].get('receipts') or 0)>0); _RMED=_rv[len(_rv)//2] if _rv else 200000
 Rcap={n:(max((C[n].get('receipts') or 0),200000) if (C[n].get('receipts') or 0)>0 else _RMED) for n in members}   # HIGH-2: receipts=0 = MISSING -> impute median (not floor to $200k, which made no-record members cheapest to convert); matches money_response + flip_model
 # PER-CATEGORY stance matrix (the 3rd dimension) -- drives camp/persuadability/proximity per issue
-_CS_DOC=json.load(open(MB_ROOT+r'\category_stance.json')); CS=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
+_CS_DOC=json.load(open(os.path.join(MB_ROOT, 'category_stance.json'))); CS=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
 OVT=MC.stance_gate_tiers(_CS_DOC,members)
 # Match the ratified stance-integrity gate in lt_priming/dashboard prime: a system-level Skeptic,
 # Highly Skeptical member, or Opponent is not a money target merely because one topic cell is mild.
@@ -93,7 +93,7 @@ def main():   # L3: guarded so importing this module for its functions doesn't r
         nch=sum(1 for n in members if cs[n] in PRO); nop=sum(1 for n in members if cs[n] in ANTI)
         print('%-30s ($%s, %d funded | %d pro/%d anti here): %s'%(labels[sc][:30],f'{sp:,}',len(top),nch,nop,
             ', '.join('%s $%dk'%(n.split()[-1],a//1000) for n,a in top[:4])))
-    outf=os.environ.get('PTF_OUT') or (MB_ROOT+r'\data\lobbying\per_topic_alloc_bridge.json' if DIRECT else MB_ROOT+r'\per_topic_alloc.json')   # PTF_OUT: no-clobber redirect for probe/candidate runs (default = today's paths)
+    outf=os.environ.get('PTF_OUT') or (os.path.join(MB_ROOT, 'data', 'lobbying', 'per_topic_alloc_bridge.json') if DIRECT else os.path.join(MB_ROOT, 'per_topic_alloc.json'))   # PTF_OUT: no-clobber redirect for probe/candidate runs (default = today's paths)
     MC.dump_atomic(ALL,outf)
     MC.write_engine_dials(outf)   # R7 (Paul ruling 2026-10-07, D-107): <stem>.dials.json records COMPET_MULT and the c artifact sha (the alloc map cannot carry metadata)
     print('\nwrote %s  (mode: %s, %d sub-categories)'%(os.path.basename(outf),'BRIDGE-BOOST' if DIRECT else 'baseline',len(ALL)))

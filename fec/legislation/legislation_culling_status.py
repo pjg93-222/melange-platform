@@ -58,7 +58,7 @@ def atomic_json(path: Path, value: Any) -> None:
     temporary.write_text(
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
         + '\n',
-        encoding='utf-8',
+        encoding='utf-8', newline='\r\n',
     )
     os.replace(temporary, path)
 

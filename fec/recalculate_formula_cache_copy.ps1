@@ -26,6 +26,7 @@ $script:AllowedFormulaFunctions = @(
     '_XLFN.LET',
     '_XLFN.MINIFS',
     'ABS',
+    'AVERAGE',
     'AVERAGEIF',
     'COUNTIF',
     'COUNTIFS',
@@ -40,7 +41,8 @@ $script:AllowedFormulaFunctions = @(
     'RANK',
     'SUM',
     'SUMIFS',
-    'SUMPRODUCT'
+    'SUMPRODUCT',
+    'TRUNC'
 )
 $script:ForbiddenPackagePartPatterns = @(
     '^xl/vbaProject\.bin$',

@@ -63,7 +63,7 @@ SOURCE_TOKENS = (
     "legp=_leg_percentiles[m]",
     "infp=E[m]/emax",
     "score[m]=AB[2]*legp+AB[3]*pressp+AB[4]*infp+AB[5]*demp",
-    "B+r'\\ranks_python.json'",
+    "os.path.join(B, 'ranks_python.json')",
 )
 
 

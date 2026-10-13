@@ -177,7 +177,7 @@ _receipt={
 }
 _receipt_path=os.path.splitext(OUT)[0]+'.receipt.json'
 _receipt_tmp=_receipt_path+'.tmp'
-with open(_receipt_tmp,'w',encoding='utf-8') as _handle:
+with open(_receipt_tmp,'w',encoding='utf-8', newline='\r\n') as _handle:
     json.dump(_receipt,_handle,ensure_ascii=False,indent=2,sort_keys=True); _handle.write('\n')
 os.replace(_receipt_tmp,_receipt_path)
 

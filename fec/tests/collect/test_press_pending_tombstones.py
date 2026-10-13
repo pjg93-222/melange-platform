@@ -19,6 +19,8 @@ the walk seals, exactly as test_press_baseline_fold.py builds them.
 """
 from __future__ import annotations
 
+import ast
+import datetime
 import hashlib
 import io
 import json
@@ -26,6 +28,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 import unittest
 
 FEC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -33,7 +36,7 @@ sys.path.insert(0, FEC)
 
 from collect import press_pending_tombstones as tombstones  # noqa: E402
 from collect.build_press_engine_feed import (  # noqa: E402
-    ReceiptRejected, atomic_json, validate_body_completion,
+    ReceiptRejected, atomic_json, discover_run, validate_body_completion,
 )
 from collect.fold_promoted_press_runs import fold_promoted, promoted_roots  # noqa: E402
 from collect.press_pending_tombstones import (  # noqa: E402
@@ -492,6 +495,147 @@ class CompletionGateTests(unittest.TestCase):
         run, receipt = self._target(pairs)
         self.assertEqual(validate_body_completion(run, receipt)
                          ["pending_body_urls_tombstoned"], 1)
+
+    # ---- weekly_refresh._press_partial_excused: the hard step's one excused exit 3 ------------
+    # The helper's REAL source is AST-extracted and exec'd with MB_ROOT = this temp dir;
+    # weekly_refresh.py is never imported (its module level runs the whole refresh).
+
+    def _arm(self):
+        """The helper, plus the step's start time and the logs/emits it writes."""
+        self.started = time.time() - 60
+        self.today = datetime.date.fromtimestamp(self.started)
+        self.logs, self.emits = [], []
+        with io.open(os.path.join(FEC, "weekly_refresh.py"), encoding="utf-8") as handle:
+            source = handle.read()
+        node = next(n for n in ast.parse(source).body
+                    if isinstance(n, ast.FunctionDef) and n.name == "_press_partial_excused")
+        namespace = {
+            "os": os, "datetime": datetime, "MB_ROOT": self.tmp, "log": self.logs.append,
+            "_emit": lambda kind, status, summary, **kwargs: self.emits.append(
+                (kind, status, summary, kwargs)),
+        }
+        exec(ast.get_source_segment(source, node), namespace)
+        return namespace["_press_partial_excused"]
+
+    def _day(self, offset):
+        day = self.today + datetime.timedelta(days=offset)
+        return "press_refresh_" + day.strftime("%Y%m%d"), day
+
+    def _seal(self, offset, pairs, status="PARTIAL", completed=None, mode="live_network_retry"):
+        """A run sealed the way the walk seals it: every required file plus a matching receipt.
+
+        offset 0 is the step's own run, completed just now (after the step began); older runs
+        complete at noon UTC of their own day so discover_run orders them as it would live.
+        """
+        name, day = self._day(offset)
+        run = os.path.join(self.outputs, name)
+        pending = _write_pending(run, pairs, seal=None)
+        for artifact in ("press_delta_fulltext.csv", "press_delta_fulltext.rds",
+                         "press_delta_host_articles.csv", "press_delta_article_mentions.csv",
+                         "press_delta_scored.csv"):
+            with io.open(os.path.join(run, artifact), "w", encoding="utf-8") as handle:
+                handle.write("url\n")
+        if completed is None:
+            completed = (time.time() if offset == 0 else datetime.datetime(
+                day.year, day.month, day.day, 12, tzinfo=datetime.timezone.utc).timestamp())
+        atomic_json(os.path.join(run, "press_network_retry_receipt.json"), {
+            "mode": mode, "status": status, "pending_body_urls": len(pairs),
+            "pending_body_urls_sha256": _sha256(pending),
+            "completed_at": datetime.datetime.fromtimestamp(
+                completed, datetime.timezone.utc).replace(microsecond=0).isoformat(),
+            "fulltext_csv_sha256": _sha256(os.path.join(run, "press_delta_fulltext.csv")),
+            "fulltext_rds_sha256": _sha256(os.path.join(run, "press_delta_fulltext.rds")),
+        })
+        return run
+
+    def _history_and_today(self, pairs, **today):
+        for offset in (-2, -1):
+            self._seal(offset, pairs)
+        return self._seal(0, pairs, **today)
+
+    def _assert_refused(self, excused, fragment):
+        self.assertIs(False, excused(3, self.started), self.logs)
+        self.assertIn("press PARTIAL not excused", self.logs[-1])
+        self.assertIn(fragment, self.logs[-1])
+        self.assertEqual([], self.emits, "a refusal emits nothing")
+
+    def test_weekly_excusal_accepts_a_run_whose_every_row_is_excused_by_url(self):
+        excused = self._arm()
+        self._history_and_today([("H001068", URL_A), ("T000472", URL_B)])
+        self.assertIs(True, excused(3, self.started), self.logs)
+        self.assertIn("press PARTIAL excused", self.logs[-1])
+        self.assertIn("all 2 pending body URL(s)", self.logs[-1])
+        self.assertEqual(("refresh.step", "partial"), self.emits[0][:2])
+        self.assertEqual(2, self.emits[0][3]["metadata"]["pending_body_urls"])
+        self.assertEqual(os.path.join(self.outputs, self._day(0)[0]),
+                         self.emits[0][3]["metadata"]["run_root"])
+
+    def test_weekly_excusal_accepts_a_run_whose_stuck_member_is_excused_by_member(self):
+        excused = self._arm()
+        for index, offset in enumerate((-2, -1)):
+            self._seal(offset, [("H001068", "%s-%d" % (URL_A, index))])
+        self._seal(0, [("H001068", URL_A + "-fresh")])
+        self.assertIs(True, excused(3, self.started), self.logs)
+        self.assertEqual(("refresh.step", "partial"), self.emits[0][:2])
+
+    def test_weekly_excusal_refuses_a_run_with_one_unexcused_row(self):
+        excused = self._arm()
+        for offset in (-2, -1):
+            self._seal(offset, [("H001068", URL_A)])
+        self._seal(0, [("H001068", URL_A), ("M000312", URL_B)])
+        self._assert_refused(excused, "PENDING_BODY_ATTEMPTS")
+
+    def test_weekly_excusal_refuses_a_receipt_older_than_the_step(self):
+        excused = self._arm()
+        self._history_and_today([("H001068", URL_A)], completed=self.started - 3600)
+        self._assert_refused(excused, "not a PARTIAL run sealed by this step")
+
+    def test_weekly_excusal_ignores_every_exit_code_but_3(self):
+        excused = self._arm()
+        self._history_and_today([("H001068", URL_A)])      # would be excused on exit 3
+        for returncode in (0, 1, 2, 124):
+            self.assertIs(False, excused(returncode, self.started))
+        self.assertEqual([], self.logs)
+        self.assertEqual([], self.emits)
+        self.assertFalse(os.path.exists(self.ledger), "not even the ledger is touched")
+
+    def test_weekly_excusal_refuses_a_pass_receipt_even_on_exit_3(self):
+        excused = self._arm()
+        self._seal(0, [], status="PASS")
+        self._assert_refused(excused, "not a PARTIAL run sealed by this step")
+
+    def test_weekly_excusal_refuses_a_run_the_intake_would_skip_as_not_live(self):
+        excused = self._arm()
+        self._history_and_today([("H001068", URL_A)], mode="historical_body_recovery")
+        self._assert_refused(excused, "MODE_NOT_LIVE_NETWORK_RETRY")
+
+    def test_weekly_excusal_refuses_a_fulltext_hash_mismatch(self):
+        excused = self._arm()
+        run = self._history_and_today([("H001068", URL_A)])
+        with io.open(os.path.join(run, "press_delta_fulltext.csv"), "a",
+                     encoding="utf-8") as handle:
+            handle.write("tampered\n")
+        self._assert_refused(excused, "FULLTEXT_CSV_SHA_MISMATCH")
+
+    def test_weekly_excusal_refuses_when_todays_run_root_is_missing(self):
+        excused = self._arm()
+        for offset in (-3, -2, -1):                    # older runs, all fully excused
+            self._seal(offset, [("H001068", URL_A)])
+        self._assert_refused(excused, "MISSING_RUN_FILES")
+
+    def test_weekly_excusal_refuses_though_discover_run_would_audit_last_weeks_run(self):
+        # M000312 is pending 14 and 7 days ago and again today, but today also carries a brand
+        # new member at streak 1.  Today's run is invalid; the ledger replay then makes LAST
+        # WEEK's run (M000312 only) valid retroactively, and discover_run -- what the press
+        # intake audit uses -- hands the intake that older run.  The helper must not excuse
+        # the exit 3: the audit would not be auditing this step's run.
+        excused = self._arm()
+        self._seal(-14, [("M000312", URL_A + "-w1")])
+        self._seal(-7, [("M000312", URL_A + "-w2")])
+        self._seal(0, [("M000312", URL_A + "-w3"), ("M001176", URL_B)])
+        picked, _ = discover_run(self.outputs)
+        self.assertEqual(self._day(-7)[0], os.path.basename(str(picked)))
+        self._assert_refused(excused, "PENDING_BODY_ATTEMPTS")
 
 
 class FoldSkipTests(unittest.TestCase):

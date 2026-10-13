@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "note": "sha256 of the vendored package files per R platform (R.version$platform); RUNTIME/Rlib is outside git. A platform without an entry is reported as unrecorded (version still checked); record it with tools/record_rlib_manifest.R.",
+  "note": "sha256 of the vendored package files per platform (the key is R.version$platform of the machine that recorded it; the entry used for a library is the one whose Built OS, windows or unix, is the library's own, so the Windows-built vendored library verifies in the Linux container too); RUNTIME/Rlib is outside git. A library built for an OS without an entry is reported as unrecorded (version still checked); record it with tools/record_rlib_manifest.R.",
   "packages": {
     "clubSandwich": {
       "version": "0.7.0",

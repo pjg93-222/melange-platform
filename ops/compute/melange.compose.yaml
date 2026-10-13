@@ -1,0 +1,56 @@
+# Melange chain on the laptop (compute lane MEL, D-173/D-175): fec/run_pipeline.py inside the compute-melange image.
+#
+#   IMAGE_COMPUTE_MELANGE=ghcr.io/pjg93-222/compute-melange@sha256:... MELANGE_TREE_DIR=... \
+#     docker compose -f ops/compute/melange.compose.yaml --profile chain run --rm chain
+#
+# The image carries no code and no data: the tree, Draft Systems, the data root, the Melange local-app-data and the glassbox
+# stream are bind mounts (ops/compute/README.md). Rules this file keeps (ops/tests/test_compute_melange.py enforces them):
+#   - network_mode none: the chain is network-free (CONSTRAINTS), so the container has no interface but loopback;
+#   - the serve stack's hardening (ops/compose.yaml x-hardened): read-only root, uid 10001, cap_drop ALL, no-new-privileges,
+#     tmpfs /tmp noexec, a pids limit, no ports, not privileged, no secrets, no env_file, no Docker socket;
+#   - the profile keeps a bare `docker compose up` from starting the chain; restart is "no" (quoted: a bare no is YAML false).
+# Never run the Windows chain and this one on the same tree: the pipeline lock cannot see Windows PIDs from here (design F9).
+name: melange-compute
+
+x-hardened: &hardened
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  # numpy/pandas scratch, zip staging and the pyc prefix; RAM-backed, so it counts against mem_limit. A first-run guess: measure it.
+  tmpfs: ["/tmp:size=1g,mode=1777,noexec,nosuid"]
+  pids_limit: 512
+  restart: "no"
+  # Docker Desktop's default driver is json-file with no rotation.
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  chain:
+    <<: *hardened
+    profiles: [chain]
+    image: ${IMAGE_COMPUTE_MELANGE:?set IMAGE_COMPUTE_MELANGE to ghcr.io/pjg93-222/compute-melange@sha256:<digest> (digest refs only)}
+    network_mode: none
+    init: true                  # reaps the steps' children and forwards SIGTERM to the pipeline
+    mem_limit: 12g
+    cpus: "8"                   # the host has 8 logical CPUs; matching it keeps OpenBLAS at the same thread count
+    command: ["python", "/melange/fec/run_pipeline.py"]
+    environment:
+      MONEYBALL_ROOT: /melange
+      MONEYBALL_DRAFT: /draft
+      MELANGE_DATA_ROOT: /melange-data
+      MELANGE_LOCAL_ROOT: /localappdata/Melange
+      LOCALAPPDATA: /localappdata
+      GLASSBOX_EVENTS_DIR: /glassbox/events
+      MELANGE_TODAY: ${MELANGE_TODAY:-}       # optional ISO date for parity runs; empty means unset
+      TZ: America/Chicago
+      LANG: en_US.CP1252
+      LC_ALL: en_US.CP1252
+    volumes:
+      # create_host_path false: a typo in a host path fails the run instead of creating an empty tree there.
+      - {type: bind, source: "${MELANGE_TREE_DIR:?set MELANGE_TREE_DIR to the Melange tree}", target: /melange, read_only: false, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_DRAFT_DIR:?set MELANGE_DRAFT_DIR to Draft Systems}", target: /draft, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_DATA_DIR:?set MELANGE_DATA_DIR to the melange-data root}", target: /melange-data, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_LOCAL_DIR:?set MELANGE_LOCAL_DIR to the Melange folder under LOCALAPPDATA}", target: /localappdata/Melange, read_only: false, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_GLASSBOX_DIR:?set MELANGE_GLASSBOX_DIR to the glassbox events folder}", target: /glassbox/events, read_only: false, bind: {create_host_path: false}}

@@ -6,6 +6,8 @@
     python ops/release.py resume <id> [same flags]
     python ops/release.py images [--confirm-outward git,geo] [--id <CalVer>]    # code only: build the app images, no data/VPS/Netlify
     python ops/release.py images --init-remote --confirm-outward repo         # create the private platform repo, set the bare origin
+    python ops/release.py auto   [--plan] [--force-retry] [--pause | --unpause] [--confirm-outward git,geo,data,manifest,netlify,undraft]
+    python ops/release.py current [--use <id>]                                  # the manifest compute jobs resolve their images through
     python ops/release.py status [<id>]
     python ops/release.py verify <manifest.json> [--allowed-signers P] [--current ID] [--snapshot P]
     python ops/release.py init-signing | store-netlify-token
@@ -27,12 +29,13 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ops.release_lib import core, data, export, gates, manifest, web    # noqa: E402
+from ops.release_lib import auto, core, current, data, export, gates, inputs, manifest, web    # noqa: E402
 from ops.release_lib.core import NotConfigured, Pending, ReleaseError, State   # noqa: E402
 
 SERVE_SETS = core.OPS / "serve_sets.json"
 CONFIRM_STEPS = ("git", "data", "manifest", "netlify", "undraft")           # the outward steps --confirm-outward can name
 IMAGE_STEPS = ("git", "geo", "repo")                                           # what `images --confirm-outward` can name
+AUTO_STEPS = ("git", "geo", "data", "manifest", "netlify", "undraft")         # what `auto --confirm-outward` can name
 CI_TIMEOUT = 45 * 60                                                          # one `gh run watch`; the run itself is bounded by GitHub
 REPO_DESCRIPTION = "Melange platform (source-only release exports)"
 CODE_ONLY = {"gates_evaluated": ["tag_collision", "security_gate"],
@@ -44,8 +47,10 @@ EXIT = {"ok": 0, "failed": 1, "usage": 2, "pending": 3, "not_configured": 4}
 
 
 class Ctx:
-    def __init__(self, cfg, *, confirm=frozenset(), emit=None, cred=core.read_credential, sleep=time.sleep, say=print):
-        self.cfg, self.confirm, self.cred, self.sleep, self.say = cfg, confirm, cred, sleep, say
+    def __init__(self, cfg, *, confirm=frozenset(), emit=None, cred=core.read_credential, sleep=time.sleep, say=print,
+                 now=time.time, hooks=None):
+        self.cfg, self.confirm, self.cred, self.sleep, self.say, self.now = cfg, confirm, cred, sleep, say, now
+        self.hooks = hooks or auto.Hooks()
         self.emit = emit or core.Emitter(cfg)
         self.root = core.releases_root(cfg)
 
@@ -278,9 +283,11 @@ def step_ci(ctx, st, rid):
     cfg, tag = ctx.cfg, f"v{rid}"
     work = ctx.dir(rid) / "ci"
     work.mkdir(parents=True, exist_ok=True)
-    digests, packages, releases, run_urls = {}, {}, {}, {}
+    digests, packages, releases, run_urls, extras = {}, {}, {}, {}, {}
     for label, repo, commit in (("platform", cfg["platform_repo"], st["platform_commit"]),
                                 ("geo", cfg["terrier_repo"], st["terrier_commit"])):
+        if label == "geo" and st.get("geo_reused"):
+            continue
         runs = wait_for(ctx, lambda: run_json("gh", "run", "list", "--repo", repo, "--commit", commit,
                                               "--json", "databaseId,status,conclusion", "-L", "20"), f"a {label} workflow run")
         for run in runs:
@@ -304,12 +311,17 @@ def step_ci(ctx, st, rid):
         found = json.loads(digest_file.read_text(encoding="utf-8"))
         verify_provenance(repo, commit, tag, release, found)
         digests.update(parse_digests(cfg, found))
+        merge_images(extras, extra_images(cfg, found))
+        if label == "platform":
+            merge_images(extras, run_artifact_images(cfg, repo, commit, tag, work))
         packages.update({(name if label == "platform" else f"{label}-{name}"): {"sha256": a["sha256"], "bytes": a["bytes"]}
                          for name, a in table.items()})
         releases[label] = {"repo": repo, "id": release["id"], "draft": bool(release.get("draft"))}
+    digests.update(st.get("carried_digests", {}))
+    merge_images(extras, st.get("carried_images", {}))
     if set(digests) != set(manifest.IMAGE_NAMES):
         raise ReleaseError("DIGESTS_MISSING", f"images missing from digests.json: {sorted(set(manifest.IMAGE_NAMES) - set(digests))}")
-    st.update(digests=digests, packages=packages, releases=releases, runs=run_urls)
+    st.update(digests=digests, extra_images=extras, packages=packages, releases=releases, runs=run_urls)
 
 
 BOT = "github-actions[bot]"
@@ -360,6 +372,52 @@ def parse_digests(cfg, doc) -> dict:
     return out
 
 
+def merge_images(into: dict, new: dict) -> None:
+    for name, ref in new.items():
+        if into.setdefault(name, ref) != ref:
+            raise ReleaseError("DIGEST_CONFLICT", f"two builds of {name} disagree: {into[name]} and {ref}")
+
+
+def extra_images(cfg, doc) -> dict:
+    """Images a digests.json names beyond the three app images ({name: repo@sha256:...}), compute and Terrier build images among
+    them. Each must sit in our own registry namespace and be named like its repository; anything else is refused."""
+    prefix = cfg["images"]["melange"].rsplit("/", 1)[0] + "/"
+    known = {*manifest.IMAGE_NAMES.values(), *manifest.IMAGE_NAMES, *cfg["images"].values()}
+    named = doc.get("images") if isinstance(doc, dict) else None
+    out = {}
+    for name, value in (named.items() if isinstance(named, dict) else ()):
+        if name in known:
+            continue
+        ref = value.get("digest", "") if isinstance(value, dict) else value
+        if not (isinstance(ref, str) and manifest.IMAGE_RE.fullmatch(ref) and ref.startswith(prefix)
+                and manifest.IMAGE_NAME_RE.fullmatch(name) and ref.split("@")[0].rsplit("/", 1)[-1] == name):
+            raise ReleaseError("DIGESTS_BAD", f"digests.json names {name!r} as {str(ref)[:90]!r}: not {prefix}{name}@sha256:<digest>")
+        out[name] = ref
+    return out
+
+
+def run_artifact_images(cfg, repo, commit, tag, work: Path) -> dict:
+    """Images that workflows other than release.yml build for this tag (the compute-*.yml workflows): each such run uploads a
+    workflow artifact named *-digests holding digests.json. Only runs verify_provenance would accept (push of this tag at this
+    commit, success) are read, and the file must name this commit and tag."""
+    listing = run_json("gh", "api", f"repos/{repo}/actions/runs?head_sha={commit}")
+    found = {}
+    for item in listing.get("workflow_runs", []) if isinstance(listing, dict) else []:
+        if not (item.get("head_sha") == commit and item.get("head_branch") == tag and item.get("event") == "push"
+                and item.get("conclusion") == "success"):
+            continue
+        arts = run_json("gh", "api", f"repos/{repo}/actions/runs/{item['id']}/artifacts")
+        for art in arts.get("artifacts", []) if isinstance(arts, dict) else []:
+            if str(art.get("name", "")).endswith("-digests") and not art.get("expired"):
+                folder = work / f"artifact-{item['id']}-{art['name']}"
+                core.run(["gh", "run", "download", str(item["id"]), "--repo", repo, "--name", art["name"], "--dir", str(folder)])
+                doc = json.loads((folder / "digests.json").read_text(encoding="utf-8"))
+                if not isinstance(doc, dict) or doc.get("commit") != commit or doc.get("tag") != tag:
+                    raise ReleaseError("PROVENANCE", f"{repo} {tag}: {art['name']} does not name this commit and tag")
+                merge_images(found, extra_images(cfg, doc))
+    return found
+
+
 def release_with_digests(repo, tag):
     release = gh_release(repo, tag)
     return release if release and any(a["name"] == "digests.json" for a in release.get("assets", [])) else None
@@ -407,35 +465,69 @@ def step_data_push(ctx, st, rid, files, stage: Path):
     st["snapshot"]["restic_path"] = snap["restic_path"]
 
 
+def image_commits(images: dict, base, platform_commit: str, terrier_commit: str) -> dict:
+    """{image: the commit it was built from}. A digest the previous manifest already had keeps that manifest's commit: CI reused it."""
+    before = current.images_of(base) if base else {}
+    out = {}
+    for name, ref in images.items():
+        geo = name.startswith(auto.GEO_PREFIX)
+        out[name] = terrier_commit if geo else platform_commit
+        if before.get(name) == ref:
+            out[name] = (base.get("image_commits") or {}).get(name) or (base["systems"]["terrier"]["source"]["commit"] if geo else base["platform_repo"]["commit"])
+    return out
+
+
 def sign_and_stage_manifest(ctx, st, rid) -> dict:
+    """full: everything is this release's own. data-only: images and platform commit are the previous release's. code-only: the
+    images and platform commit are this release's, the data snapshot (and its snapshot_manifest.json) the previous release's."""
     cfg, d = ctx.cfg, ctx.dir(rid)
     allowed = Path(cfg["signing"].get("allowed_signers") or "")
     allowed = allowed if allowed.is_absolute() else core.OPS.parent / allowed
     if not allowed.is_file():             # the signature is checked against the VPS trust file before it is sent; no file, no manifest
         raise NotConfigured(f"signing.allowed_signers {cfg['signing'].get('allowed_signers')!r} is not a file; the manifest is "
                             "self-checked against the VPS trust file before it is signed and pushed (ops/vps/allowed_signers)")
-    full = st["kind"] == "full"
+    kind = st["kind"]
+    fresh = kind in ("full", "code-only")                                       # this release built the images
     earlier = completed(ctx, rid)
     previous = earlier[-1] if earlier else None
     base = load_manifest(ctx, previous) if previous else None
-    if not full and not base:
-        raise ReleaseError("NO_BASE_RELEASE", "a data-only release needs a completed earlier release to carry its images")
+    if kind != "full" and not base:
+        raise ReleaseError("NO_BASE_RELEASE", f"a {kind} release needs a completed earlier release to carry its {'data' if kind == 'code-only' else 'images'}")
     st.setdefault("manifest_created_utc", core.utc_now())
-    commits = {k: (st["heads"][k] if full else base["systems"][k]["source"]["commit"]) for k in ("melange", "mentat")}
-    commits["terrier"] = st["terrier_commit"] if full else base["systems"]["terrier"]["source"]["commit"]
-    digests = st["digests"] if full else {k: v["image"].split("@")[1] for k, v in base["systems"].items()}
-    platform = ({"commit": st["platform_commit"], "tag": f"v{rid}"} if full else base["platform_repo"])
-    snapshot = {"restic_snapshot_id": st["snapshot"]["restic_snapshot_id"], "restic_path": st["snapshot"]["restic_path"],
-                "manifest_sha256": st["snapshot"]["manifest_sha256"], "files": st["snapshot"]["files"], "bytes": st["snapshot"]["bytes"]}
-    doc = manifest.build_manifest(cfg, release_id=rid, previous=previous, kind=st["kind"], created_utc=st["manifest_created_utc"],
+    commits = {k: (st["heads"][k] if fresh else base["systems"][k]["source"]["commit"]) for k in ("melange", "mentat")}
+    commits["terrier"] = st["terrier_commit"] if fresh else base["systems"]["terrier"]["source"]["commit"]
+    digests = st["digests"] if fresh else {k: v["image"].split("@")[1] for k, v in base["systems"].items()}
+    platform = ({"commit": st["platform_commit"], "tag": f"v{rid}"} if fresh else base["platform_repo"])
+    gates_doc = st["gates"]
+    if kind == "code-only":
+        snapshot = dict(base["data_snapshot"])
+        shutil.copyfile(ctx.dir(previous) / "snapshot_manifest.json", d / "snapshot_manifest.json")
+        if core.sha256_file(d / "snapshot_manifest.json") != snapshot["manifest_sha256"]:
+            raise ReleaseError("SNAPSHOT_MISMATCH", f"{previous}/snapshot_manifest.json does not match the data snapshot its manifest signed")
+        carried = base["gates"].get("invited_build")                          # the VPS reads governance from it; the snapshot is unchanged
+        gates_doc = {**({"invited_build": {**carried, "carried_from": previous}} if carried else {}), **gates_doc,
+                     "code_only": {"ok": True, "detail": CODE_ONLY["why"], "not_evaluated": CODE_ONLY["gates_not_evaluated"]}}
+    else:
+        snapshot = {"restic_snapshot_id": st["snapshot"]["restic_snapshot_id"], "restic_path": st["snapshot"]["restic_path"],
+                    "manifest_sha256": st["snapshot"]["manifest_sha256"], "files": st["snapshot"]["files"], "bytes": st["snapshot"]["bytes"]}
+    extra = st.get("extra_images", {}) if fresh else {n: r for n, r in (base.get("images") or {}).items() if n not in manifest.IMAGE_NAMES.values()}
+    images = {**{manifest.IMAGE_NAMES[k]: f"{cfg['images'][k]}@{v}" for k, v in digests.items()}, **extra}
+    labels = dict(cfg, terrier_ref=cfg["terrier_images_ref"]) if kind == "code-only" else cfg      # Geo's image branch is what built terrier-web
+    doc = manifest.build_manifest(labels, release_id=rid, previous=previous, kind=kind, created_utc=st["manifest_created_utc"],
                                   platform_commit=platform["commit"], tag=platform["tag"], commits=commits, digests=digests,
-                                  snapshot=snapshot, packages=st.get("packages", base["packages"] if base else {}), gates=st["gates"])
+                                  snapshot=snapshot, packages=st.get("packages", base["packages"] if base else {}), gates=gates_doc,
+                                  extra_images=extra, image_commits=image_commits(images, base, platform["commit"], commits["terrier"]))
     path = d / "manifest.json"
     core.atomic_write(path, core.canonical_json(doc))
     manifest.sign_manifest(cfg, path)
     manifest.verify_manifest(path, allowed, principal=cfg["signing"]["principal"], namespace=cfg["signing"]["namespace"],
                              snapshot_path=d / "snapshot_manifest.json")
     return doc
+
+
+def step_current(ctx, rid):
+    """The verified manifest becomes this laptop's current one (what compute jobs resolve their images through)."""
+    current.publish(ctx.cfg, ctx.dir(rid))
 
 
 def step_inbox(ctx, rid):
@@ -569,6 +661,7 @@ def do_run(ctx, args, resume=None) -> int:
             core.step(ctx.emit, "ci", step_ci, ctx, st, rid)
             st.save()
         doc = core.step(ctx.emit, "manifest", sign_and_stage_manifest, ctx, st, rid)
+        core.step(ctx.emit, "current", step_current, ctx, rid)
         core.step(ctx.emit, "inbox", step_inbox, ctx, rid)
         if not args.no_netlify:
             core.step(ctx.emit, "netlify", step_netlify, ctx, st, rid)
@@ -583,6 +676,7 @@ def do_run(ctx, args, resume=None) -> int:
     except RuntimeError as error:
         if "already running" not in str(error):                               # the pipeline lease refused us
             raise
+        st["last_error"] = {"code": "PIPELINE_BUSY", "message": str(error)[:300]}
         st.save()
         ctx.emit("release.run", "failed", f"{rid}: PIPELINE_BUSY")
         say(f"FAILED PIPELINE_BUSY: {error}")
@@ -599,6 +693,7 @@ def do_run(ctx, args, resume=None) -> int:
         say(f"not configured: {stop.message}")
         return EXIT["not_configured"]
     except ReleaseError as error:
+        st["last_error"] = {"code": error.code, "message": error.message[:300]}
         st.save()
         ctx.emit("release.run", "failed", f"{rid}: {error.code}", detail=error.message)
         say(f"FAILED {error.code}: {error.message}")
@@ -626,8 +721,27 @@ def step_images_push(ctx, st, rid):
         raise ReleaseError("GEO_REF", f"terrier_images_ref is the full release's branch ({ctx.cfg['terrier_ref']}); the image build has its own")
     ctx.outward("git", "git push", "platform_repo")
     push_platform(ctx, st, rid)
+    if st.get("geo_reused"):                                                        # auto: Geo's branch has not moved, its images stand
+        return
     ctx.outward("geo", "geo push", "terrier_repo", "terrier_images_ref")
     push_geo(ctx, st, rid, ctx.cfg["terrier_images_ref"])
+
+
+def code_steps(ctx, st, rid):
+    """export + security gate, push, CI digests: what `images` and the automatic code release both do. State and events as ever."""
+    try:
+        for name, fn in (("export", step_export), ("git push", step_images_push), ("ci", step_ci)):
+            core.step(ctx.emit, name, fn, ctx, st, rid)
+            st.save()
+    except Pending as stop:
+        st.save()
+        ctx.emit("release.run", "blocked", f"{rid}: pending confirmation of {stop.step}")
+        raise
+    except ReleaseError as error:
+        st["last_error"] = {"code": error.code, "message": error.message[:300]}
+        st.save()
+        ctx.emit("release.run", "failed", f"{rid}: {error.code}", detail=error.message)
+        raise
 
 
 def build_images(ctx, args) -> int:
@@ -642,18 +756,7 @@ def build_images(ctx, args) -> int:
     ctx.emit.run_id = rid
     ctx.emit("release.run", "started", f"images {rid}")
     say(f"images {rid}: {CODE_ONLY['why']}")
-    try:
-        for name, fn in (("export", step_export), ("git push", step_images_push), ("ci", step_ci)):
-            core.step(ctx.emit, name, fn, ctx, st, rid)
-            st.save()
-    except Pending as stop:
-        st.save()
-        ctx.emit("release.run", "blocked", f"{rid}: pending confirmation of {stop.step}")
-        raise
-    except ReleaseError as error:
-        st.save()
-        ctx.emit("release.run", "failed", f"{rid}: {error.code}", detail=error.message)
-        raise
+    code_steps(ctx, st, rid)
     for system in manifest.IMAGE_NAMES:
         say(f"  {cfg['images'][system]}@{st['digests'][system]}")
     for label, urls in st["runs"].items():
@@ -674,13 +777,343 @@ def cmd_images(ctx, args) -> int:
         return EXIT["pending"]
 
 
+# ------------------------------------------------------------------ auto (automatic propagation)
+def last_completed(ctx):
+    done = completed(ctx)
+    return (done[-1], load_manifest(ctx, done[-1])) if done else (None, None)
+
+
+def baseline(ctx, st):
+    """(heads, platform commit) last propagated: auto_state.json, else what the newest signed manifest was built from."""
+    if st.get("propagated"):
+        return st["propagated"], st.get("platform_commit")
+    _rid, doc = last_completed(ctx)
+    if not doc:
+        return {}, None
+    return {k: doc["systems"][k]["source"]["commit"] for k in ("melange", "mentat", "terrier")}, doc["platform_repo"]["commit"]
+
+
+def alert(ctx, st, key, message):
+    """Say it, put it on the Glass Box and ping Healthchecks /fail, once per distinct problem (every 15 minutes would be noise)."""
+    ctx.say(f"ALERT {key}: {message}")
+    mark = f"{key}: {message}"[:300]
+    if st.get("last_alert") != mark:
+        ctx.emit("release.auto", "failed", mark)
+        url = auto.settings(ctx.cfg)["healthchecks_url"]
+        if url:
+            ctx.hooks.ping(url.rstrip("/") + "/fail")
+        st["last_alert"] = mark
+    st.save()
+
+
+def blob_reader(ctx, plan):
+    """Text of an exported file, read from the source repo it came from (no checkout, no eol conversion)."""
+    repos = {"melange": ctx.cfg["melange_live"], "mentat": ctx.cfg["mentat_live"]}
+    return lambda path: core.git_text("cat-file", "blob", plan["entries"][path][1], cwd=repos[plan["source_of"][path]])
+
+
+def image_hashes(ctx, plan) -> dict:
+    """{image: input hash} for the exported tree: what CI will look for as the tag inputs-<hash>. {} before image_inputs.json is exported."""
+    if "ops/image_inputs.json" not in plan["entries"]:
+        return {}
+    read = blob_reader(ctx, plan)
+    try:
+        return inputs.all_hashes(plan["entries"], json.loads(read("ops/image_inputs.json")), read)
+    except (inputs.InputsError, ValueError) as error:       # report-only here: CI hashes on its own and fails its step if it cannot
+        ctx.say(f"image inputs not tracked this pass: {error}")
+        return {}
+
+
+def tree_changed(ctx, plan, platform_commit) -> bool:
+    """Is the exported tree different from the platform commit that was last propagated? Unknown means changed."""
+    bare = Path(ctx.cfg["platform_bare"])
+    if not platform_commit or not (bare / "HEAD").is_file() or not export.rev(bare, platform_commit):
+        return True
+    return export.ls_tree(None, platform_commit, git_dir=bare) != plan["entries"]
+
+
+def vps_configured(cfg) -> bool:
+    return not core.require(cfg, "domain", "hosts.ssh", "vps.ssh_user", "credentials.svc_push")
+
+
+def auto_code(ctx, st, heads, propagated, platform_commit) -> int:
+    """A code release: export + gate, push, CI (images that did not change are reused there), sign, publish. Idempotent per id."""
+    cfg, say, now = ctx.cfg, ctx.say, ctx.now()
+    why = auto.signing_unavailable(cfg, ctx.hooks)                          # before an id, a tag or a push is spent
+    if why:
+        alert(ctx, st, "signing", why)
+        return EXIT["not_configured"]
+    prev_id, base = last_completed(ctx)
+    if not base:
+        alert(ctx, st, "base", "no completed release to carry the data snapshot from: run one full release by hand first (release.py run)")
+        return EXIT["not_configured"]
+    plan = export.plan_export(cfg)
+    resuming = st.get("inflight") if (st.get("inflight") or {}).get("heads") == heads else None
+    geo_changed = heads["terrier"] != propagated.get("terrier")
+    if not (resuming or geo_changed or tree_changed(ctx, plan, platform_commit)):
+        st["propagated"] = {**plan["heads"], "terrier": heads["terrier"]}
+        st.save()
+        say("no exported change (the commits touch nothing that is released): marked propagated")
+        return EXIT["ok"]
+    hashes = image_hashes(ctx, plan)
+    same = sorted(n for n, h in hashes.items() if st.get("image_inputs", {}).get(n) == h)
+    say("images: " + (", ".join(f"{n} {'reuse' if n in same else 'build'}" for n in sorted(hashes)) or "inputs not tracked yet")
+        + ("; terrier unchanged, reused" if not geo_changed else "; terrier changed"))
+    rid = resuming["id"] if resuming else core.next_release_id(known_ids(ctx))
+    if not resuming:
+        auto.record_start(st, now)
+    st["inflight"] = {"id": rid, "heads": heads}
+    st.save()
+    rel = State(ctx.dir(rid) / "state.json")
+    if rel.get("kind") and rel["kind"] != "code-only":
+        raise ReleaseError("KIND_MISMATCH", f"{rid} was started as {rel['kind']}")
+    rel.update(id=rid, kind="code-only", code_only=CODE_ONLY, gates=rel.get("gates", {}))
+    rel.setdefault("commit_unix", int(now))
+    if geo_changed:
+        rel.pop("geo_reused", None)
+    else:                                                                 # Geo's branch has not moved: its images stand as signed before
+        old = base["systems"]["terrier"]
+        rel.update(geo_reused=True, terrier_commit=old["source"]["commit"], carried_digests={"terrier": old["image"].split("@")[1]},
+                   carried_images={n: r for n, r in current.images_of(base).items() if n.startswith(auto.GEO_PREFIX) and n != manifest.IMAGE_NAMES["terrier"]})
+    ctx.emit.run_id = rid
+    ctx.emit("release.run", "started", f"auto code release {rid}")
+    say(f"auto code release {rid}: {CODE_ONLY['why']}")
+    try:
+        code_steps(ctx, rel, rid)
+        why = auto.signing_unavailable(cfg, ctx.hooks)                    # CI took a while: the agent may have gone
+        if why:
+            raise NotConfigured(why)
+        core.step(ctx.emit, "manifest", sign_and_stage_manifest, ctx, rel, rid)
+        core.step(ctx.emit, "current", step_current, ctx, rid)
+        if vps_configured(cfg):
+            core.step(ctx.emit, "inbox", step_inbox, ctx, rid)
+        else:
+            say("  VPS push skipped: not configured (domain, hosts.ssh, vps.ssh_user, credentials.svc_push)")
+        core.step(ctx.emit, "undraft", step_undraft, ctx, rel)
+        rel.save()
+    except Pending as stop:
+        ctx.emit("release.run", "blocked", f"{rid}: pending confirmation of {stop.step}")
+        say(f"pending confirmation: {stop.step}. The registered task passes --confirm-outward {','.join(AUTO_STEPS)}.")
+        return EXIT["pending"]
+    except NotConfigured as stop:                                         # nothing is wrong with the heads: try again next run
+        rel.save()
+        ctx.emit("release.run", "blocked", f"{rid}: not configured")
+        alert(ctx, st, "blocked", stop.message)
+        return EXIT["not_configured"]
+    except (ReleaseError, OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        code, message = (error.code, error.message) if isinstance(error, ReleaseError) else (type(error).__name__, str(error))
+        st["failed"] = {"heads": heads, "code": code, "message": message[:300], "at": core.utc_now(), "id": rid}
+        st.pop("inflight", None)                                          # these heads are not tried again until a new commit
+        alert(ctx, st, code, f"{rid}: {message[:240]}")
+        return EXIT["failed"]
+    st["propagated"] = {"melange": rel["heads"]["melange"], "mentat": rel["heads"]["mentat"],
+                        "terrier": heads["terrier"] if rel.get("geo_reused") else rel["terrier_commit"]}
+    st.update(platform_commit=rel["platform_commit"], image_inputs=hashes or st.get("image_inputs", {}),
+              last_release={"id": rid, "kind": "code-only", "at": now})
+    for key in ("inflight", "failed", "last_alert"):
+        st.pop(key, None)
+    st.save()
+    ctx.emit("release.run", "completed", f"auto code release {rid} published")
+    say(f"auto code release {rid} published")
+    if heads["melange"] != propagated.get("melange"):
+        ctx.emit("release.restart_needed", "blocked", "Melange console (8841) is running older code: restart it when idle")
+    if heads["terrier"] != propagated.get("terrier"):
+        ctx.emit("release.restart_needed", "blocked", "Terrier local servers are running older code: restart them when idle")
+    if heads["mentat"] != propagated.get("mentat"):
+        st["mentat_restart"] = True
+        st.save()
+    return EXIT["ok"]
+
+
+def mentat_restart(ctx, st) -> None:
+    """After a release that changed Mentat, and again every run until it has happened: replace idle stale consoles only."""
+    if not (st.get("mentat_restart") and auto.settings(ctx.cfg)["mentat_restart"]):
+        return
+    done = auto.restart_idle_mentat(ctx.cfg, ctx.hooks, ctx.emit)
+    if not done["deferred"]:
+        st.pop("mentat_restart")
+        st.save()
+
+
+def read_refresh(live):
+    """(outcome, last_update) of the weekly refresh, as weekly_refresh_status.json says."""
+    try:
+        doc = json.loads((Path(live) / "data" / "engine" / "weekly_refresh_status.json").read_text(encoding="utf-8"))
+        return doc.get("last_outcome"), doc.get("last_update")
+    except (OSError, ValueError, AttributeError):
+        return None, None
+
+
+def data_tokens(ctx):
+    """(refresh token, invited-build token, age of the newest of them in seconds or None). Tokens change when a refresh
+    completes or the invited build is rebuilt."""
+    live, now = Path(ctx.cfg["melange_live"]), ctx.now()
+    outcome, updated = read_refresh(live)
+    refresh = updated if outcome in gates.COMPLETE and updated else None
+    invited_file = core.invited_dir(ctx.cfg) / "INVITED_BUILD.json"
+    invited = core.sha256_file(invited_file) if invited_file.is_file() else None
+    stamps = []
+    if refresh:
+        try:
+            stamps.append(time.mktime(time.strptime(str(refresh)[:19], "%Y-%m-%d %H:%M:%S")))
+        except ValueError:
+            stamps.append(now)                                            # unreadable time: treat as just changed, wait
+    if invited:
+        stamps.append(invited_file.stat().st_mtime)
+    return refresh, invited, (now - max(stamps) if stamps else None)
+
+
+def auto_data(ctx, st, args) -> int:
+    """A data-only release when a refresh finished COMPLETE or the invited build changed since the last data release. The gates
+    (governance ruled, census pinned, kernel tests, locks) decide; a refusal is a note and the next run looks again."""
+    cfg, say, now = ctx.cfg, ctx.say, ctx.now()
+    _rid, base = last_completed(ctx)
+    refresh, invited, age = data_tokens(ctx)
+    seen = st.get("data")
+    if seen is None:
+        st["data"] = {"refresh": refresh, "invited": invited}
+        st.save()
+        say("data baseline recorded: the next completed refresh or invited build starts a data release")
+        return EXIT["ok"]
+    if not base or not ((refresh and refresh != seen.get("refresh")) or (invited and invited != seen.get("invited"))):
+        return EXIT["ok"]
+    tokens = {"refresh": refresh, "invited": invited}
+    quiet = auto.settings(cfg)["quiet_minutes"] * 60
+    failed = st.get("data_failed")
+    if failed and failed.get("tokens") == tokens and not args.force_retry:
+        say(f"data release: these inputs already failed ({failed.get('code')}); a new refresh, a new invited build or --force-retry is needed")
+        return EXIT["ok"]
+    if age is not None and age < quiet:
+        say(f"data release: inputs changed {int(age // 60)} min ago; waiting for {quiet // 60} quiet minutes")
+        return EXIT["ok"]
+    if len([t for t in st.get("releases", []) if now - t < auto.DAY]) >= auto.settings(cfg)["max_per_day"]:
+        say("data release: daily release cap reached; not today")
+        return EXIT["ok"]
+    netlify_ready = bool(cfg["netlify"].get("site_id")) and Path(cfg["netlify"]["token_file"]).is_file()
+    want_netlify = netlify_ready and invited is not None and invited != seen.get("invited")
+    if not want_netlify:
+        say("  netlify not in this data release: " + ("configured, but the invited build did not change" if netlify_ready else "not configured"))
+    serve = json.loads(SERVE_SETS.read_text(encoding="utf-8"))
+    need = sum(f["size"] for f in data.resolve_files(cfg, serve) if data.needs_staging(f["src"]))
+    cheap = gates.run_gates(cfg, skip_kernel=True, netlify=want_netlify, need_bytes=need, serve_sets=serve)      # the kernel tests wait for the rest
+    if not gates.all_ok(cheap):
+        say("data release not started: " + "; ".join(f"{k}: {g['detail'][:100]}" for k, g in cheap.items() if not g["ok"]))
+        return EXIT["ok"]
+    resume = (st.get("data_inflight") or {}).get("id") if (st.get("data_inflight") or {}).get("tokens") == tokens else None
+    flags = argparse.Namespace(data_only=True, no_netlify=not want_netlify, skip_kernel=False, governance_override=False, census_override=False)
+    if not resume:
+        auto.record_start(st, now)
+    crash = None
+    try:
+        code = do_run(ctx, flags, resume)
+    except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError) as error:
+        code, crash = EXIT["failed"], {"code": type(error).__name__, "message": str(error)[:300]}
+    rid = resume or max(known_ids(ctx), key=core.parse_id)
+    if code == EXIT["ok"]:
+        for key in ("data_inflight", "data_failed", "last_alert"):
+            st.pop(key, None)
+        st.update(data=tokens, last_release={"id": rid, "kind": "data-only", "at": now})
+    elif code in (EXIT["pending"], EXIT["not_configured"]):
+        st["data_inflight"] = {"id": rid, "tokens": tokens}                # try this id again next run
+    else:
+        error = crash or State(ctx.dir(rid) / "state.json").get("last_error") or {}
+        st["data_failed"] = {"tokens": tokens, "code": error.get("code", "FAILED"), "id": rid, "at": core.utc_now()}
+        st.pop("data_inflight", None)
+        alert(ctx, st, error.get("code", "FAILED"), f"data release {rid}: {error.get('message', '')[:240]}")
+    st.save()
+    return code
+
+
+def cmd_auto(ctx, args) -> int:
+    cfg, say, root = ctx.cfg, ctx.say, ctx.root
+    root.mkdir(parents=True, exist_ok=True)
+    if args.pause or args.unpause:
+        auto.set_pause(root, args.pause, ctx.now())
+        say("auto is paused: `release.py auto --unpause` resumes it" if args.pause else "auto is running again")
+        ctx.emit("release.auto", "completed", "auto " + ("paused" if args.pause else "resumed"))
+        return EXIT["ok"]
+    with auto.single_instance(root / auto.LOCK) as mine:
+        if not mine:
+            say("another auto run is active")
+            return EXIT["ok"]
+        st = State(root / auto.STATE)
+        url = auto.settings(cfg)["healthchecks_url"]
+        flag = auto.paused(root)
+        if flag:
+            say(f"auto is paused ({flag}); `release.py auto --unpause` resumes it")
+            code = EXIT["ok"]
+        else:
+            code = auto_run(ctx, st, args)
+        stuck = st.get("failed") or st.get("data_failed")                       # unresolved failures must not read as healthy
+        if code == EXIT["ok"] and url and not args.plan and not stuck:
+            ctx.hooks.ping(url)
+        return code
+
+
+def auto_run(ctx, st, args) -> int:
+    cfg, say, now = ctx.cfg, ctx.say, ctx.now()
+    ctx.emit.run_id = ""
+    try:
+        heads = auto.head_commits(cfg)
+    except ReleaseError as error:
+        alert(ctx, st, "heads", f"cannot read the three heads: {error.message[:200]}")
+        return EXIT["failed"]
+    propagated, platform_commit = baseline(ctx, st)
+    settings = auto.settings(cfg)
+    newest = auto.newest_change(cfg, heads, propagated) if heads != propagated else None
+    action, why = auto.decide(heads, propagated, st, now=now, newest=newest, quiet_s=settings["quiet_minutes"] * 60,
+                              cap=settings["max_per_day"], force_retry=args.force_retry)
+    say(f"auto: {action}: {why}")
+    if args.plan:
+        problem = auto.signing_unavailable(cfg, ctx.hooks)
+        say("  signing: " + (problem or "ready"))
+        refresh, invited, _age = data_tokens(ctx)
+        seen = st.get("data") or {}
+        say(f"  data: refresh {'new' if refresh and refresh != seen.get('refresh') else 'unchanged'}, "
+            f"invited build {'new' if invited and invited != seen.get('invited') else 'unchanged'}"
+            + ("" if st.get("data") is not None else " (no baseline yet)"))
+        return EXIT["ok"]
+    code = EXIT["ok"]
+    if action == "go":
+        code = auto_code(ctx, st, heads, propagated, platform_commit)
+    if code == EXIT["ok"]:
+        code = auto_data(ctx, st, args)
+    if code == EXIT["ok"]:
+        mentat_restart(ctx, st)
+        st.pop("last_alert", None)
+        st.save()
+    ctx.emit("release.auto", "completed" if code == EXIT["ok"] else "blocked" if code in (EXIT["pending"], EXIT["not_configured"]) else "failed",
+             f"auto {action}, exit {code}")
+    return code
+
+
+def cmd_current(ctx, args) -> int:
+    if args.use:
+        core.parse_id(args.use)
+        if args.use not in completed(ctx):
+            ctx.say(f"{args.use} has no signed manifest here: nothing to point at")
+            return EXIT["failed"]
+        doc = current.publish(ctx.cfg, ctx.dir(args.use))
+        ctx.emit("release.current", "completed", f"current manifest is now {doc['release_id']} ({doc['kind']})")
+        ctx.say(f"current is now {doc['release_id']}. `release.py auto --pause` first if you do not want the next change to replace it.")
+    else:
+        doc = current.load(ctx.cfg)
+        ctx.say(f"current: {doc['release_id']} ({doc['kind']}), platform {doc['platform_repo']['tag']}")
+        for name, ref in sorted(current.images_of(doc).items()):
+            ctx.say(f"  {name}: {ref}")
+    return EXIT["ok"]
+
+
 # ------------------------------------------------------------------ status
 def status_rows(ctx, rid=None) -> list[tuple[str, str, str]]:
     cfg, rows = ctx.cfg, []
     rid = rid or (completed(ctx) or [None])[-1]
     if not rid:
         return [("release", "fail", "no completed release found")]
-    doc, st = load_manifest(ctx, rid), State(ctx.dir(rid) / "state.json")
+    doc, drid = load_manifest(ctx, rid), rid
+    while (load_manifest(ctx, drid) or {}).get("kind") == "code-only" and load_manifest(ctx, drid).get("previous"):
+        drid = load_manifest(ctx, drid)["previous"]             # Netlify and Pocket carry data: the newest release that did
+    st = State(ctx.dir(drid) / "state.json")
 
     def row(name, fn):
         try:
@@ -710,7 +1143,7 @@ def status_rows(ctx, rid=None) -> list[tuple[str, str, str]]:
                 return "fail", f"HTTP {status}"
             version, want = json.loads(body), (doc or {}).get("systems", {}).get(system, {}).get("source", {}).get("commit", "")
             if system != "terrier":         # the melange and mentat images are built from the platform commit (release.yml GIT_SHA)
-                want = (doc or {}).get("platform_repo", {}).get("commit", "")
+                want = ((doc or {}).get("image_commits") or {}).get(manifest.IMAGE_NAMES[system]) or (doc or {}).get("platform_repo", {}).get("commit", "")
             if want and version.get("git_sha") and not want.startswith(str(version["git_sha"])[:12]):
                 return "stale", f"serving {str(version['git_sha'])[:9]}, release has {want[:9]}"
             return "ok", f"git {str(version.get('git_sha', '?'))[:9]}"
@@ -722,8 +1155,8 @@ def status_rows(ctx, rid=None) -> list[tuple[str, str, str]]:
         code, body = web.http_get(site + "/version.json")
         if code != 200:
             return "fail", f"/version.json HTTP {code}"
-        if web.served_release_id(body) != rid:
-            return "stale", f"serving {web.served_release_id(body)}"
+        if web.served_release_id(body) != drid:
+            return "stale", f"serving {web.served_release_id(body)}, want {drid}"
         want = (st.get("netlify") or {}).get("index_sha256")
         return ("ok", "version and served hash match") if want and web.sha256_url(site + "/") == want else ("fail", "served hash differs or unknown")
 
@@ -843,18 +1276,28 @@ def build_parser():
     p.add_argument("--init-remote", action="store_true", help="create the private platform GitHub repo (if absent) and set the bare repo's origin; needs --confirm-outward repo")
     p.add_argument("--confirm-outward", type=lambda text: confirm_steps(text, IMAGE_STEPS), default=frozenset(), metavar="STEPS",
                    help="allow these steps that leave the laptop: a comma list of " + ",".join(IMAGE_STEPS))
+    p = sub.add_parser("auto", help="propagate whatever changed to every platform (the registered task runs this)")
+    p.add_argument("--plan", action="store_true", help="say what would happen; change nothing")
+    p.add_argument("--force-retry", action="store_true", help="try heads or data inputs that already failed (the cap and the gates still apply)")
+    group = p.add_mutually_exclusive_group()
+    group.add_argument("--pause", action="store_true", help="write the pause flag: auto does nothing until --unpause")
+    group.add_argument("--unpause", action="store_true")
+    p.add_argument("--confirm-outward", type=lambda text: confirm_steps(text, AUTO_STEPS), default=frozenset(), metavar="STEPS",
+                   help="allow these steps that leave the laptop: a comma list of " + ",".join(AUTO_STEPS))
+    p = sub.add_parser("current", help="show the manifest compute jobs resolve their images through, or point it at an earlier release")
+    p.add_argument("--use", metavar="ID", help="make this completed release current (rollback; verifies its signature)")
     sub.add_parser("init-signing")
     sub.add_parser("store-netlify-token")
     return parser
 
 
-def main(argv=None, *, cfg=None, emit=None, cred=core.read_credential, sleep=time.sleep, say=print) -> int:
+def main(argv=None, *, cfg=None, emit=None, cred=core.read_credential, sleep=time.sleep, say=print, now=time.time, hooks=None) -> int:
     for stream in (sys.stdout, sys.stderr):    # a CI log tail can hold characters a cp1252 console cannot encode: never crash on print
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(errors="replace")
     args = build_parser().parse_args(argv)
     cfg = cfg or core.load_config()
-    ctx = Ctx(cfg, confirm=getattr(args, "confirm_outward", frozenset()), emit=emit, cred=cred, sleep=sleep, say=say)
+    ctx = Ctx(cfg, confirm=getattr(args, "confirm_outward", frozenset()), emit=emit, cred=cred, sleep=sleep, say=say, now=now, hooks=hooks)
     try:
         if args.cmd == "plan":
             return cmd_plan(ctx, args)
@@ -866,8 +1309,8 @@ def main(argv=None, *, cfg=None, emit=None, cred=core.read_credential, sleep=tim
                     return EXIT["failed"]
                 args.data_only = json.loads(state.read_text(encoding="utf-8")).get("kind") == "data-only"
             return do_run(ctx, args, getattr(args, "id", None) if args.cmd == "resume" else None)
-        return {"images": cmd_images, "status": cmd_status, "verify": cmd_verify, "init-signing": cmd_init_signing,
-                "store-netlify-token": cmd_store_netlify_token}[args.cmd](ctx, args)
+        return {"images": cmd_images, "auto": cmd_auto, "current": cmd_current, "status": cmd_status, "verify": cmd_verify,
+                "init-signing": cmd_init_signing, "store-netlify-token": cmd_store_netlify_token}[args.cmd](ctx, args)
     except ReleaseError as error:
         say(f"FAILED {error.code}: {error.message}")
         return EXIT["not_configured"] if isinstance(error, NotConfigured) else EXIT["failed"]

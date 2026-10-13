@@ -38,7 +38,7 @@ import sys
 import zipfile
 from datetime import datetime, timezone
 
-from paths import ROOT as MB_ROOT
+from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 import members.historical_member_names as identity
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -87,10 +87,7 @@ class ScreenError(RuntimeError):
 
 
 def _derived_dir():
-    local = os.environ.get("LOCALAPPDATA")
-    if not local:
-        raise ScreenError("LOCALAPPDATA is not set")
-    return os.path.join(local, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _raw_dir():
@@ -371,7 +368,7 @@ def _write_json_atomic(payload, path):
     os.makedirs(parent, exist_ok=True)
     body = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=1) + "\n"
     temporary = f"{path}.tmp.{os.getpid()}"
-    with open(temporary, "w", encoding="utf-8") as handle:
+    with open(temporary, "w", encoding="utf-8", newline='\r\n') as handle:
         handle.write(body)
     os.replace(temporary, path)
     return len(body.encode("utf-8"))

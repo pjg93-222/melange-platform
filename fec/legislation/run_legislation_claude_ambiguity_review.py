@@ -1124,7 +1124,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "adjudication route."
         ),
     )
-    parser.add_argument("--claude-command", default="claude")
+    parser.add_argument("--claude-command", default=os.environ.get("MELANGE_CLASSIFIER_COMMAND") or "claude")
     parser.add_argument("--workers", type=int, default=6)
     parser.add_argument("--max-output-tokens", type=int, default=1800)
     parser.add_argument("--max-prompt-bytes", type=int, default=1_500_000)

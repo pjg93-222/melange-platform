@@ -6,7 +6,8 @@ The Congress/GovInfo repository is the collected fact store.  The verifier is
 the admission gate.  This adapter makes Excel the durable, human-readable bill
 ledger and writes accepted member relationships into the legacy interaction
 tabs used by the dashboard.  Spreadsheet mutation is delegated exclusively to
-``sync_sentinel_bill_ledger_artifact.cjs`` and ``@oai/artifact-tool``.
+``sync_sentinel_bill_ledger_artifact.cjs`` and ``@oai/artifact-tool`` -- or, with
+MELANGE_XLSX_WRITER=openpyxl (D-178), to ``xlsx_openpyxl_authors.author_sentinel``.
 """
 from __future__ import annotations
 
@@ -29,6 +30,7 @@ import bill_rules as BR
 from legislation.verify_collector_roster_updates import gate_repository
 from moneyball_core import dump_atomic, write_text_atomic
 from paths import ROOT as ROOT_TEXT
+from xlsx_openpyxl_authors import author_sentinel, xlsx_writer
 
 
 ROOT = Path(ROOT_TEXT)
@@ -1236,7 +1238,8 @@ def main() -> int:
     # audit_full's sentinel_ledger_freshness check is what stops that skip from
     # becoming permanent silence.  --reuse-pass-output never launches the helper,
     # so it must not be gated on a runtime it does not use.
-    resolved = None if args.reuse_pass_output else runtime()
+    writer = xlsx_writer()
+    resolved = None if args.reuse_pass_output else (runtime() if writer == "artifact" else ("openpyxl", None, None))
     if resolved is None and not args.reuse_pass_output:
         return skip_runtime_absent(args.workbook, history_receipt)
     pending = load_ndjson(PENDING)
@@ -1264,7 +1267,9 @@ def main() -> int:
     runtime_source, node, modules = resolved if resolved else (None, None, None)
     environment = os.environ.copy()
     completed = None
-    if not args.reuse_pass_output:
+    if not args.reuse_pass_output and writer == "openpyxl":
+        author_sentinel(plan_path, report_path)
+    elif not args.reuse_pass_output:
         environment["ARTIFACT_TOOL_NODE_MODULES"] = modules
         completed = subprocess.run([node, "--max-old-space-size=16384", str(HELPER), str(plan_path), str(report_path)],
                                    cwd=ROOT, env=environment, check=False)
@@ -1321,7 +1326,7 @@ def main() -> int:
     receipt = {
         "schema": "sentinel-bill-workbook-receipt-v1", "status": "PASS",
         "completed_at": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z"),
-        "engine": "@oai/artifact-tool", "counts": plan["counts"],
+        "engine": report.get("engine") or "@oai/artifact-tool", "counts": plan["counts"],
         "repository_sha256": plan["repository_sha256"],
         "verified_history": history_receipt["history"],
         "discovery": {"path": str(discovery_path), "sha256": discovery_sha256, "rows": len(discovery)},

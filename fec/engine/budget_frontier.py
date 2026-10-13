@@ -15,9 +15,9 @@ def scoped_output_path(explicit,default,selector):
     stem,ext=os.path.splitext(default)
     return stem+'_topic_'+slug+ext
 PRO={'Champion','Defender','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
-C={m['member']:m for m in json.load(open(os.environ.get('CONGEST',B+r'\data\engine\congestion.json')))}   # scenario can override money state
+C={m['member']:m for m in json.load(open(os.environ.get('CONGEST',os.path.join(B, 'data', 'engine', 'congestion.json'))))}   # scenario can override money state
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+wb=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 bm=wb['Blended Model']; nrm=wb['Legislative Score - Normalized']
 members=[m['member'] for m in C.values()]
 primacy_tier,primacy_rank,primacy_priority=MBC.primacy_engine_state(members)
@@ -28,7 +28,7 @@ _iv=sorted(v for v in ind.values() if v>0); _imed=_iv[len(_iv)//2] if _iv else 0
 from engine.money_observation import industry_money_missing
 if os.environ.get('IMPUTE_IND0','1')!='0':
     ind={n:(_imed if industry_money_missing(C[n]) else ind[n]) for n in members}
-_CS_DOC=json.load(open(os.environ.get('CATSTANCE',B+r'\category_stance.json')))   # scenario can override stance state
+_CS_DOC=json.load(open(os.environ.get('CATSTANCE',os.path.join(B, 'category_stance.json'))))   # scenario can override stance state
 CS=_CS_DOC['matrix']; CS_SCORES=_CS_DOC.get('scores') or {}
 # QME 2026-10-01 (fix 1): stance-integrity gate (Paul 2026-09-30 "F1. Yes"), same kernel read as per_topic_flip. A member whose overall tier is Skeptic/
 # Highly Skeptical/Opponent is not seeded as a CU target (neutral coalition cand, defend pool) merely because one topic cell is Neutral/at-risk-ally.
@@ -57,7 +57,7 @@ def frontier_knee(path,raw=True):
         if 4*gain>=peak: knee=point['b']
     return knee,0<knee<path[-1]['b']
 bpf=MBC.bpf()
-EL=json.load(open(B+r'\data\money\electoral.json')); lev={m:(EL.get(m,{}).get('leverage',1.0) if LEVON else 1.0) for m in members}
+EL=json.load(open(os.path.join(B, 'data', 'money', 'electoral.json'))); lev={m:(EL.get(m,{}).get('leverage',1.0) if LEVON else 1.0) for m in members}
 # COMPET_MULT (Paul 2026-10-05): when ON the Ballotpedia leverage factor is REPLACED by the Cook-PVI competitiveness multiplier c, same position in `fac`
 # (REPFAC*lev / lev below). Dial OFF leaves lev exactly as above; LEV=0 leaves every factor at 1.0 in either position. Bystander activation min(.9,ind/BSCALE) is untouched (Paul ruling 2026-10-07, D-108: bystanders stay unscaled); build_electoral.py is untouched.
 # R6 (Paul ruling 2026-10-07, D-107): LEV=0 forces the leverage factor to 1 in EITHER dial position (lev is already all 1.0 above).
@@ -65,7 +65,7 @@ LEV_SRC=('none' if not LEVON else 'competitiveness_c' if MBC.compet_on() else 'b
 lev=({m:MBC.cmult(m) for m in members} if LEV_SRC=='competitiveness_c' else lev)
 ELECTORAL=os.environ.get('ELECTORAL','0')=='1' or '--electoral' in sys.argv   # toggleable mode: add contest plays to the frontier
 REPFAC=float(os.environ.get('REPFAC','0.6'))                                   # primary-win feasibility discount on contest plays
-EP=json.load(open(B+r'\data\money\electoral_plays.json'))
+EP=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json')))
 prt=MBC.party()
 cpf=MBC.cpf_diffusion
 adj=MBC.load_network()
@@ -182,7 +182,7 @@ out={'mode':'electoral' if ELECTORAL else 'coalition','leverage':LEVON,'topic':O
 # QME 2026-10-01 fix 6: a SEED!=7 or MC!=20 sensitivity run with neither FRONTIER_OUT nor TOPIC used to overwrite the production artifact; it now gets a
 # _seed<S>_mc<M> tag (same convention as per_topic_coalition.py). Zero delta at the default SEED=7/MC=20 or whenever FRONTIER_OUT/TOPIC is set.
 _tag='' if (ONLY or (SEED==7 and MC==20)) else '_seed%d_mc%d'%(SEED,MC)
-_default=B+r'\data\money\budget_frontier%s%s.json'%('_electoral' if ELECTORAL else '',_tag)
+_default=os.path.join(B, 'data', 'money', 'budget_frontier%s%s.json'%('_electoral' if ELECTORAL else '',_tag))
 _outpath=scoped_output_path(os.environ.get('FRONTIER_OUT'),_default,ONLY)
 MBC.dump_atomic(out,_outpath)
 print('\nwrote %s (mode %s, leverage %s, %d topics)'%(os.path.basename(_outpath),'ELECTORAL' if ELECTORAL else 'coalition','%s (%s)'%('ON' if LEVON else 'OFF',LEV_SRC),len(frontier)))

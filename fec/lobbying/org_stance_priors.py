@@ -11,7 +11,7 @@ This module is an artifact lane.  It does not wire the artifacts into a public
 surface.
 """
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT  # noqa: E501,E702
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, LOCAL_MELANGE  # noqa: E501,E702
 
 import argparse
 import collections
@@ -108,10 +108,7 @@ class CCCAValidationError(OrgStancePriorsError):
 
 
 def _derived_dir():
-    local = os.environ.get("LOCALAPPDATA")
-    if not local:
-        raise OrgStancePriorsError("LOCALAPPDATA is not set")
-    return os.path.join(local, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _default_historical_path(derived):

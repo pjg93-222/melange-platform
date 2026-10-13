@@ -24,7 +24,7 @@ import csv, glob, json, math, os, re, sys, collections
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import openpyxl
 B = MB_ROOT
-C = {m['member']: m for m in json.load(open(B + r'\data\engine\congestion.json'))}
+C = {m['member']: m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
 chamber = {m: (C.get(m) or {}).get('chamber') or '?' for m in C}
 import moneyball_core as MC
 P = MC.party()
@@ -53,7 +53,7 @@ def joincorr(d1, d2):
     return rr([(d1[m], d2[m]) for m in d1 if m in d2 and d1[m] is not None and d2[m] is not None])
 
 # ---- parse the bills archive: cosponsor rows (with sponsor party) + bill->sponsor/cosponsor maps ----
-bp = max(glob.glob(B + r'\congress_bills_archive_*.xlsx'), key=os.path.getmtime)
+bp = max(glob.glob(os.path.join(B, 'congress_bills_archive_*.xlsx')), key=os.path.getmtime)
 ws = openpyxl.load_workbook(bp, read_only=True)['All Bills']
 rows = ws.iter_rows(min_row=1, values_only=True)
 hdr = [str(h or '') for h in next(rows)]
@@ -108,7 +108,7 @@ for m, lst in co_rows.items():
         c3_h1[m] = sum(1 for q in hA if q in inp) / len(hA)
         c3_h2[m] = sum(1 for q in hB if q in inp) / len(hB)
 
-_bip = B + r'\bipartisan.json'
+_bip = os.path.join(B, 'bipartisan.json')
 if not os.path.exists(_bip):
     raise FileNotFoundError('required c1 input bipartisan.json is missing; the composite is mean(z(c1),z(c2)) with BOTH required, so a missing c1 must not silently produce an artifact with no cooperation_v2_z')
 c1 = {m: v for m, v in json.load(open(_bip)).items() if m in C}
@@ -126,8 +126,8 @@ if not comp:
     raise ValueError('cooperation_v2 composite is empty (c1 %d members, c2 %d members); refusing to write the ratified A-slot artifact with no cooperation_v2_z' % (len(z1), len(z2)))
 
 # ---- diagnostics (criterion-side only) ----
-BD = json.load(open(B + r'\behavioral_dispositions.json'))['members']
-PANEL = json.load(open(B + r'\behavior_panel.json'))['members']
+BD = json.load(open(os.path.join(B, 'behavioral_dispositions.json')))['members']
+PANEL = json.load(open(os.path.join(B, 'behavior_panel.json')))['members']
 old = {m: d.get('cooperation_z') for m, d in BD.items()}
 bre = {m: d.get('breadth_z') for m, d in BD.items()}
 dil = {m: d.get('diligence_z') for m, d in BD.items()}
@@ -172,5 +172,5 @@ dump_atomic({'members': out,
                        '(@94f09cf, user-ratified): the engine A-slot (receptivity susc .40 + '
                        'seed .10) and desk radar consume cooperation_v2_z; in-chain since the '
                        '2026-07-10 audit (values refresh every run; composition stays frozen).'},
-            B + r'\coop_v2_candidate.json')
+            os.path.join(B, 'coop_v2_candidate.json'))
 print('wrote coop_v2_candidate.json (A-slot criterion values; consumed by receptivity_layer + desk radar)')

@@ -19,7 +19,7 @@ import sys
 import wave
 
 from collect.press_receipt import ReceiptTimestampError, parse_receipt_timestamp
-from paths import ROOT
+from paths import MELANGE_DATA, ROOT, stored_name, to_host, today
 
 # Of the inputs a local-youtube verification receipt declares, these are the ones
 # that decide WHO a voice belongs to.  A change to any of them voids the
@@ -35,11 +35,11 @@ def parse_args(argv=None):
         default="all",
         help="audit every intake domain or only the independently promotable press run",
     )
-    parser.add_argument("--house-root", type=Path, default=Path(r"C:\melange-data\houselive"))
+    parser.add_argument("--house-root", type=Path, default=Path(MELANGE_DATA, "houselive"))
     parser.add_argument(
         "--clip-manifest",
         type=Path,
-        default=Path(r"C:\melange-data\member_clips\clips_manifest.jsonl"),
+        default=Path(MELANGE_DATA, "member_clips", "clips_manifest.jsonl"),
     )
     parser.add_argument("--db", type=Path, default=Path("social_media.db"))
     parser.add_argument("--press", type=Path, default=Path("press_text_cache.jsonl"))
@@ -51,14 +51,14 @@ def parse_args(argv=None):
     )
     parser.add_argument("--press-date-floor", default="2026-06-25")
     parser.add_argument("--roster", type=Path, default=Path("data/engine/congestion.json"))
-    parser.add_argument("--wj-root", type=Path, default=Path(r"C:\melange-data\wj_audio"))
-    parser.add_argument("--axe-root", type=Path, default=Path(r"C:\melange-data\axe_audio"))
+    parser.add_argument("--wj-root", type=Path, default=Path(MELANGE_DATA, "wj_audio"))
+    parser.add_argument("--axe-root", type=Path, default=Path(MELANGE_DATA, "axe_audio"))
     parser.add_argument(
         "--axe-features",
         type=Path,
         default=Path("outputs/axe_pilot_20260827/axe_features.jsonl"),
     )
-    parser.add_argument("--youtube-root", type=Path, default=Path(r"C:\melange-data\youtube_audio"))
+    parser.add_argument("--youtube-root", type=Path, default=Path(MELANGE_DATA, "youtube_audio"))
     parser.add_argument("--audio-pilot", type=Path, default=Path("audio_pilot"))
     parser.add_argument("--output", type=Path, help="atomically write the JSON audit receipt")
     parser.add_argument(
@@ -128,19 +128,19 @@ def verified_local_youtube_rows() -> set[tuple]:
         if not all(isinstance(item, dict) for item in identity_inputs):
             continue
         if any(
-            not Path(str(item.get("path") or "")).is_file()
-            or sha256(Path(str(item.get("path") or ""))) != item.get("sha256")
+            not Path(to_host(str(item.get("path") or ""))).is_file()
+            or sha256(Path(to_host(str(item.get("path") or "")))) != item.get("sha256")
             for item in identity_inputs
         ):
             continue
-        output = Path(str((receipt.get("output") or {}).get("path") or ""))
+        output = Path(to_host(str((receipt.get("output") or {}).get("path") or "")))
         if not output.is_file() or sha256(output) != (receipt.get("output") or {}).get("sha256"):
             continue
         for row in read_jsonl_strict(output):
             if row.get("status") != "PASS_EXACT_WINDOW" or row.get("final_identity_acceptance") is not True:
                 continue
             verified.add((
-                str(Path(str(row.get("out_wav") or "")).resolve()),
+                str(Path(to_host(str(row.get("out_wav") or ""))).resolve()),
                 row.get("member"),
                 str(row.get("video_id")),
                 round(float(row.get("start_sec")), 6),
@@ -217,7 +217,7 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
             "broadcastevents_sha256": root / "broadcastevents" / (date + ".json"),
             "transcript_sha256": root / "transcripts" / (date + ".json"),
             "vtt_sha256": root / "vtt" / (date + ".vtt"),
-            "wav_sha256": Path(row.get("wav_path") or ""),
+            "wav_sha256": Path(to_host(row.get("wav_path") or "")),
         }
         for field, path in paths.items():
             if not path.is_file():
@@ -251,7 +251,7 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
     all_clip_hours = 0.0
     clip_audio_facts = {}
     for row in all_clips:
-        path = Path(row.get("out_wav") or "")
+        path = Path(to_host(row.get("out_wav") or ""))
         if not path.is_file():
             all_errors.append("missing accepted clip: %s" % path)
             continue
@@ -287,7 +287,7 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
     clip_members = set()
     for row in house:
         date = row.get("date")
-        path = Path(row.get("out_wav") or "")
+        path = Path(to_host(row.get("out_wav") or ""))
         if not path.is_file():
             errors.append("missing clip: %s" % path)
             continue
@@ -343,7 +343,7 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
         if row.get("reason") != "zero_rms":
             errors.append("unrecognized House rejection reason: %r" % row.get("reason"))
             continue
-        source_path = Path(row.get("src_wav") or "")
+        source_path = Path(to_host(row.get("src_wav") or ""))
         if not source_path.is_file():
             errors.append("missing House rejection source: %s" % source_path)
             continue
@@ -480,7 +480,7 @@ def audit_db(path: Path, source_receipts_dir: Path | None = None):
         # date says when a roster member actually appeared. They are deliberately
         # separate: a member-free day is not missing collection, and an ended
         # archive (Fox/MS NOW) can be checked today while its content stays old.
-        yesterday = date.today() - timedelta(days=1)
+        yesterday = today() - timedelta(days=1)
         horizon_by_source = {}
         try:
             for key, status in connection.execute(
@@ -576,7 +576,7 @@ def audit_db(path: Path, source_receipts_dir: Path | None = None):
 
 def path_is_within(value: str, root: Path) -> bool:
     try:
-        Path(value).resolve().relative_to(root.resolve())
+        Path(to_host(value)).resolve().relative_to(root.resolve())
         return True
     except (OSError, ValueError):
         return False
@@ -721,7 +721,7 @@ def audit_audio_supply(
     # monotonic feature-to-database-turn join, and all stored hashes.  Full episodes without
     # such a binding remain source audio and are never promoted merely because a clip exists.
     axe_manifest = read_jsonl_strict(axe_root / "axe_manifest.jsonl")
-    axe_sources = {str(Path(row.get("wav") or "").resolve()) for row in axe_manifest}
+    axe_sources = {str(Path(to_host(row.get("wav") or "")).resolve()) for row in axe_manifest}
     axe_by_guid = {}
     for row in axe_manifest:
         guid = row.get("guid")
@@ -741,7 +741,7 @@ def audit_audio_supply(
         row for row in accepted
         if row.get("show") == "CNN The Axe Files" or path_is_within(row.get("src_wav") or "", axe_root)
     ]
-    axe_accepted_sources = {str(Path(row.get("src_wav") or "").resolve()) for row in axe_accepted_rows}
+    axe_accepted_sources = {str(Path(to_host(row.get("src_wav") or "")).resolve()) for row in axe_accepted_rows}
     if not axe_accepted_sources.issubset(axe_sources):
         errors.append("accepted Axe clips reference a source outside axe_manifest")
     verified_axe_sources = set()
@@ -762,8 +762,8 @@ def audit_audio_supply(
             if manifest is None:
                 errors.append("accepted Axe row lacks exact manifest GUID: %s/%s" % (sid, seg))
                 continue
-            source_path = Path(str(manifest.get("wav") or "")).resolve()
-            if source_path != Path(str(row.get("src_wav") or "")).resolve():
+            source_path = Path(to_host(str(manifest.get("wav") or ""))).resolve()
+            if source_path != Path(to_host(str(row.get("src_wav") or ""))).resolve():
                 errors.append("Axe source path/GUID mismatch: %s/%s" % (sid, seg))
                 continue
             package = AXE_PACKAGE_PREFIX + str(guid)
@@ -867,7 +867,7 @@ def audit_audio_supply(
     youtube_verified = [
         row for row in youtube_accepted
         if (
-            str(Path(str(row.get("out_wav") or "")).resolve()),
+            str(Path(to_host(str(row.get("out_wav") or ""))).resolve()),
             row.get("member"),
             str(row.get("sid")),
             round(float(row.get("start")), 6),
@@ -1163,7 +1163,7 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
         errors.append("date partitions do not equal article set")
 
     floor = date.fromisoformat(floor_text)
-    ceiling = date.today()
+    ceiling = today()
     for row in frames["dated"]:
         try:
             value = date.fromisoformat(row.get("date_final", ""))
@@ -1223,7 +1223,7 @@ def archive_accepted_press_receipt(document, receipt_dir):
             or document.get("status") != "ACCEPTED"):
         return None
     try:
-        run_name = Path(document["inputs"]["press_delta_root"]).name
+        run_name = stored_name(document["inputs"]["press_delta_root"])
     except (KeyError, TypeError) as exc:
         raise RuntimeError("accepted collection receipt lacks press_delta_root") from exc
     if not re.fullmatch(r"press_refresh_\d{8}", run_name):

@@ -581,8 +581,8 @@ class CrossEngineContracts(unittest.TestCase):
     def test_full_audit_separates_worktree_code_root_from_live_data_root(self):
         audit = source("audit/audit_full.py")
         self.assertIn("FE=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))", audit.replace(" ", ""))
-        self.assertIn("DATA_FE=B+r'\\fec'", audit.replace(" ", ""))
-        self.assertIn("open(DATA_FE+r'\\legislators.csv'", audit)
+        self.assertIn("DATA_FE=os.path.join(B,'fec')", audit.replace(" ", ""))
+        self.assertIn("open(os.path.join(DATA_FE, 'legislators.csv')", audit)
         self.assertNotIn("B=MB_ROOT; FE=B+r'\\fec'", audit)
 
     def test_full_audit_refuses_a_foreign_live_pipeline_writer(self):

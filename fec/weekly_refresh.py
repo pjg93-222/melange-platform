@@ -18,6 +18,7 @@ X/Truth/Bluesky collectors are NOT run unattended (keys/discovery are interactiv
 tweet_collector.py + process_quorum.py manually when new exports/keys exist, then this script."""
 import sys,os,subprocess,datetime,json,time,atexit,signal,re,ast
 import bounded_subprocess   # shared bounded launcher (fec/ is sys.path[0], set on line 2)
+import compute_engine       # per-phase engine (ops/compute/engines.json): host or compute container; all 'windows' = today's code path
 from pipeline_lock import (
     LOCK_OWNER_PID_ENV, LOCK_TOKEN_ENV, child_lock_environment, pipeline_run_lock,
 )
@@ -82,6 +83,23 @@ def _release_pipeline_lock():
     except BaseException:
         pass
 atexit.register(_release_pipeline_lock)
+# chain=container hands the writer lease to the container for the length of the chain step. The container judges a lease by
+# its own pid space (pipeline_lock.host_identity), so it can neither adopt this process's lease nor take over its file; it takes a
+# fresh one (heartbeat-backed, which a Windows peer honours) once this process has removed its own. The weekly lock above stays
+# held throughout, and failing to take the lease back afterwards is a hard abort: nothing runs between steps without a lease.
+def _lease_handoff_out():
+    os.environ.pop(LOCK_TOKEN_ENV,None)
+    os.environ.pop(LOCK_OWNER_PID_ENV,None)
+    _PIPELINE_LOCK_CONTEXT.__exit__(None,None,None)
+    log('   chain container: writer lease released to the container; this process takes it back when the container exits')
+def _lease_handoff_in():
+    global _PIPELINE_LOCK_CONTEXT,_PIPELINE_LOCK_LEASE
+    try:
+        _PIPELINE_LOCK_CONTEXT=pipeline_run_lock(owner_kind='weekly_refresh')
+        _PIPELINE_LOCK_LEASE=_PIPELINE_LOCK_CONTEXT.__enter__()
+    except RuntimeError as _lock_error:
+        _hard_abort('chain container lease',[],'writer lease not taken back after the container: %s'%_lock_error)
+    os.environ.update(child_lock_environment(_PIPELINE_LOCK_LEASE))
 # Glass Box (house rule: every process emits to the shared stream or it is not acceptable).
 # The weekly refresh was the last unattended producer writing only to a log file, so a Sunday
 # that aborted — or never started — was invisible to the dashboard. Reuse the SHIPPED emitter
@@ -227,6 +245,8 @@ def _console_kill(signum,frame):   # CTRL_CLOSE/logoff/shutdown arrive as SIGBRE
     sys.exit(1)
 if hasattr(signal,'SIGBREAK'): signal.signal(signal.SIGBREAK,_console_kill)
 try:
+    _engines=compute_engine.snapshot()   # engines.json is read once: an unreadable file is a pre-step failure, and no step changes engine mid-run
+    if 'container' in _engines.values(): log('compute engines: %s'%', '.join('%s=%s'%kv for kv in sorted(_engines.items())))
     # Only the scripts step() launches are producers; unrelated helpers may share a basename.
     # From 2026-09-10 two __init__.py under fec/ made this walk a FATAL pre-step failure, so the
     # refresh died in 0.2 s before step 1 (found by the 2026-09-19 sandbox run). Same rule as
@@ -298,18 +318,24 @@ def _hard_abort(name,failures,why):
 # refresh open, kept the lease, and made Task Scheduler skip every later run. PIPEs added a second
 # hold: a detached grandchild that inherited one keeps the reader alive after the child is gone.
 # bounded_subprocess.run_bounded is the fix — REAL temp files, wait(timeout), bounded tree kill.
-def step(name,args,timeout=3600,hard=False,gate=None):
+def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
     t=time.time()
     _write_status(active_step=name,last_heartbeat=datetime.datetime.now().isoformat(),owner_pid=os.getpid())
     try:
         flags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name=='nt' else 0
+        spec=compute_engine.launch(_producer_path(args[0]),args[1:],cwd=FE)   # engine 'windows' (the default): [sys.executable, producer, *args], env None
+        handoff=spec.phase=='chain'
+        if spec.container: log('   %s runs in container %s'%(name,spec.container))
+        if handoff: _lease_handoff_out()
         try:
-            run=bounded_subprocess.run_bounded([sys.executable,_producer_path(args[0])]+args[1:],
-                                               timeout=timeout,cwd=FE,creationflags=flags,
+            run=bounded_subprocess.run_bounded(spec.argv,
+                                               timeout=timeout,env=spec.env,cwd=FE,creationflags=flags,
                                                start_new_session=os.name!='nt',
                                                on_start=_adopt_live_child)
         finally:
             _LIVE_CHILD[0]=None   # released on EVERY path: success, timeout, launch failure
+            compute_engine.reap(spec)   # a container whose client was killed keeps running; --rm removes one that ended
+            if handoff: _lease_handoff_in()
         stdout,stderr=run.stdout,run.stderr
         if run.timed_out:
             log('%-28s TIMEOUT after %ds%s'%(name,timeout,' — aborting' if hard else ' — continuing'))
@@ -321,6 +347,8 @@ def step(name,args,timeout=3600,hard=False,gate=None):
         log('%-28s %s %5.0fs  %s'%(name,'OK' if ok else '!!',time.time()-t,tail[0][:110]))
         if not ok:
             log('   stderr: '+(stderr or '')[-300:].replace('\n',' | '))
+            if hard and partial is not None and partial(run.returncode,t):
+                return True   # a PARTIAL its owner proves excusable; the hard step after it rules
             if hard:
                 tolerate,failures=gate(stdout,stderr) if gate else (False,[])
                 if tolerate and not _chain_tail_is_audit_full():
@@ -345,6 +373,31 @@ def step(name,args,timeout=3600,hard=False,gate=None):
         log('%-28s ERROR %s'%(name,str(e)[:120]))
         if hard: _hard_abort(name,[],'%s: %s'%(type(e).__name__,str(e)[:120]))
         return False
+# ---- press PARTIAL excusal --------------------------------------------------------------------
+# refresh_press_delta.R exits 3 whenever ANY body is still pending (:843, :990), and its pending
+# set (press_backlog.R:260-282) knows nothing of Paul's 2026-09-19 three-run tombstones (kept by
+# D-159), so a run the intake proof accepts still exits 3 and this hard step aborted every Sunday
+# from 2026-09-20 to 10-11 before the intake could rule. Exit 3 is excused ONLY for the run THIS
+# step sealed, and only through build_press_engine_feed.inspect_run -- the test the intake's
+# discover_run applies, whose completion proof is the intake's own -- so 'press intake audit'
+# below audits exactly this run and stays the hard authority. Any doubt falls through to the
+# legacy hard abort: handed a refused day, discover_run audits an OLDER sealed run instead
+# (outputs/press_drain_20261011.log: the 10-11 press intake audited press_refresh_20260904).
+def _press_partial_excused(returncode,started):
+    if returncode!=3: return False
+    root=os.path.join(MB_ROOT,'outputs','press_refresh_'+datetime.date.fromtimestamp(started).strftime('%Y%m%d'))
+    try:
+        from collect.build_press_engine_feed import inspect_run
+        completed,receipt=inspect_run(root)
+        if receipt.get('status')!='PARTIAL' or completed.timestamp()<started-1:   # 1 s: whole-second R stamps
+            raise ValueError('%s is not a PARTIAL run sealed by this step'%os.path.basename(root))
+    except Exception as e:
+        log('   press PARTIAL not excused — %s: %s'%(type(e).__name__,str(e)[:300]))
+        return False
+    log('   press PARTIAL excused: all %s pending body URL(s) tombstoned — press intake audit rules'%receipt.get('pending_body_urls'))
+    _emit('refresh.step','partial','press delta refresh: %s pending body URL(s) excused by the intake proof'%receipt.get('pending_body_urls'),
+          stage='press delta refresh',metadata={'run_root':root,'pending_body_urls':receipt.get('pending_body_urls')})
+    return True
 try:   # user directive 2026-07-06: hold a system wake lock for the refresh's lifetime (the 01:10
     import ctypes   # machine sleep stalled collectors 5h; a mid-refresh sleep would do the same)
     ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001)
@@ -443,7 +496,7 @@ if not step('Wikipedia biographies (full roster)',[
 # producing valid checkpoints at the twelve-hour boundary.  Keep a bounded fail-closed
 # deadline (rather than making the network leg unbounded), with enough headroom for one
 # complete healthy pass instead of repeatedly replaying partially completed groups.
-step('press delta refresh',['refresh_press_stream.py'],timeout=129600,hard=True)
+step('press delta refresh',['refresh_press_stream.py'],timeout=129600,hard=True,partial=_press_partial_excused)
 step('press intake audit',['audit_collection.py','--scope','press','--output','data/engine/press_collection_intake_receipt.json'],timeout=1800,hard=True)
 step('press engine feed',['build_press_engine_feed.py','--intake-receipt','data/engine/press_collection_intake_receipt.json'],timeout=1800,hard=True)
 step('fold promoted press runs',['fold_promoted_press_runs.py'],timeout=1800,hard=True)
@@ -508,6 +561,12 @@ except Exception as _ctf_exc:
     try: log('tolerated-failure receipt unreadable: %s'%str(_ctf_exc)[:120])
     except BaseException: pass
 step('prepare dashboard deployment',['surfaces/publish_dashboard.py'],timeout=1800,hard=True)
+# publish phase, office engine (compute_engine.office_view): a LibreOffice view copy of the workbook, made after the chain and
+# never gating it. Engine 'windows' (the default) skips it and logs nothing: this refresh has never recalculated the workbook.
+_view_status,_view_note=compute_engine.office_view()
+if _view_status!='skipped':
+    log('%-28s %s  %s'%('workbook view (LibreOffice)','OK' if _view_status=='ok' else '!!',_view_note))
+    _emit('refresh.step','completed' if _view_status=='ok' else 'failed','workbook view (LibreOffice): %s'%_view_note,stage='workbook view')
 try:
     new=json.load(open(os.path.join(MB_ROOT,'ranks_python.json')))['rank']
     if prev:

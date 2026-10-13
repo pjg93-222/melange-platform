@@ -67,7 +67,7 @@ def efficiency_percentiles(efficiency):
 
 
 def main():
-    dash_path=os.environ.get('DASHBOARD_DATA_PATH') or MB_ROOT+r'\dashboard_data.json'
+    dash_path=os.environ.get('DASHBOARD_DATA_PATH') or os.path.join(MB_ROOT, 'dashboard_data.json')
     with open(dash_path,encoding='utf-8') as fh: data=json.load(fh)
     from stance.honors_views import load_honors
     from surfaces.dashboard_honors import verify_dashboard_honors, honors_generation_marker
@@ -77,7 +77,7 @@ def main():
     html=inject_navigation(_tpl('make_dashboard_html_00.tpl'))
     if honors is not None:
         html=html.replace('<head>','<head>\n'+honors_generation_marker(honors),1)
-    out=os.environ.get('DASHBOARD_HTML_OUT') or MB_ROOT+r'\Moneyball Dashboard.html'
+    out=os.environ.get('DASHBOARD_HTML_OUT') or os.path.join(MB_ROOT, 'Moneyball Dashboard.html')
     write_text_atomic(html.replace('__DATA__',json_for_script(data,separators=(',',':'))),out)
     print('wrote',out,'(%.0f KB)'%(os.path.getsize(out)/1024))
     return 0

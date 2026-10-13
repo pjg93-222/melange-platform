@@ -246,4 +246,98 @@ if (-not $exportText.Contains('optional = "Conduit"')) {
   throw 'An industry or cycle with no earmark-platform receipts is a real zero: Conduit must be an optional category in the population guard.'
 }
 
+# MENTAT_XLSX_WRITER (D-178): the writer is part of the workbook cache key, and only the artifact
+# writer may fail a build for @oai/artifact-tool's absence.
+#
+# Cache key. Run the script's own salt statement for each writer: the salt must differ, and the
+# fingerprinted inputs must hold the openpyxl writer's two files beside the builder, so a workbook
+# cached by one writer is never reused for the other.
+$assignments = $buildAst.FindAll({ param($node) $node -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true)
+$saltStatement = @($assignments | Where-Object { $_.Left.Extent.Text -eq '$workbookFingerprintSalt' -and $_.Operator -eq 'Equals' })
+$inputsStatement = @($assignments | Where-Object { $_.Left.Extent.Text -eq '$workbookFingerprintInputs' -and $_.Operator -eq 'Equals' })
+if ($saltStatement.Count -ne 1 -or $inputsStatement.Count -ne 1) {
+  throw 'build_industry_report.ps1 must assign $workbookFingerprintSalt and $workbookFingerprintInputs exactly once.'
+}
+$templateContract = 'contract'; $Industry = 'Crypto'; $CycleLabel = ''; $compactRawMode = '0'
+$formulaFactsMode = '0'; $RenderPreviews = $false; $databaseHash = 'db'
+$xlsxWriter = 'artifact'
+Invoke-Expression $saltStatement[0].Extent.Text
+$artifactSalt = $workbookFingerprintSalt
+$xlsxWriter = 'openpyxl'
+Invoke-Expression $saltStatement[0].Extent.Text
+if ($workbookFingerprintSalt -eq $artifactSalt -or -not $workbookFingerprintSalt.EndsWith('xlsx_writer=openpyxl')) {
+  throw "The workbook cache salt must change with MENTAT_XLSX_WRITER: [$artifactSalt] vs [$workbookFingerprintSalt]"
+}
+foreach ($writerFile in @('openpyxl_workbook_shim.mjs', 'xlsx_spec_writer.py')) {
+  if (-not (Test-Path -LiteralPath (Join-Path $projectRoot "tools\$writerFile") -PathType Leaf)) {
+    throw "The openpyxl writer file is missing: tools\$writerFile"
+  }
+  if (-not $inputsStatement[0].Extent.Text.Contains("'$writerFile'")) {
+    throw "The workbook cache fingerprint must include $writerFile."
+  }
+}
+if (-not $inputsStatement[0].Extent.Text.Contains('$builder,')) {
+  throw 'The workbook cache fingerprint must still include the builder.'
+}
+
+# Artifact-tool requirement. Run a copy of the build script, with its three modules, in a throwaway
+# project (no node_modules, USERPROFILE pointed away from the Codex runtime) against a database that
+# does not exist: whatever the writer, the build ends in an error, and the error says which check
+# stopped it.
+$gateRoot = Join-Path ([IO.Path]::GetTempPath()) ('mentat-writer-gate-' + [Guid]::NewGuid().ToString('N'))
+$gateTools = Join-Path $gateRoot 'tools'
+$gateReports = Join-Path $gateRoot 'reports'
+$gateEmptyModules = Join-Path $gateRoot 'empty_modules'
+New-Item -ItemType Directory -Path $gateTools, $gateReports, $gateEmptyModules | Out-Null
+try {
+  foreach ($gateFile in @('build_industry_report.ps1', 'node_heap_plan.psm1', 'mentat_python.psm1', 'report_directory.psm1')) {
+    Copy-Item -LiteralPath (Join-Path $projectRoot "tools\$gateFile") -Destination $gateTools
+  }
+  function Invoke-WriterGateProbe([string]$Writer, [string]$ModulesArgument) {
+    $psi = New-Object Diagnostics.ProcessStartInfo
+    $psi.FileName = (Get-Command powershell.exe).Source
+    $argumentLine = '-NoProfile -ExecutionPolicy Bypass -File "{0}" -DatabasePath "{1}" -OutputDirectory "{2}" -NodePath "{3}" -PythonPath "{3}"' -f `
+      (Join-Path $gateTools 'build_industry_report.ps1'), (Join-Path $gateRoot 'no-such.db'), $gateReports, $probePython
+    if ($ModulesArgument) { $argumentLine += ' -NodeModulesPath "' + $ModulesArgument + '"' }
+    $psi.Arguments = $argumentLine
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.EnvironmentVariables['MENTAT_XLSX_WRITER'] = $Writer
+    $psi.EnvironmentVariables['MENTAT_REPORT_DIRECTORY'] = $gateReports
+    $psi.EnvironmentVariables['USERPROFILE'] = $gateRoot
+    foreach ($ambient in @('NODE_PATH', 'MENTAT_NODE_MODULES', 'MENTAT_NODE_PATH')) {
+      [void]$psi.EnvironmentVariables.Remove($ambient)
+    }
+    $process = [Diagnostics.Process]::Start($psi)
+    $errorText = $process.StandardError.ReadToEndAsync()
+    $outText = $process.StandardOutput.ReadToEnd()
+    $process.WaitForExit()
+    [pscustomobject]@{
+      ExitCode = $process.ExitCode
+      Text = (($outText + ' ' + $errorText.Result) -replace '\s+', ' ')
+    }
+  }
+  $gateCases = @(
+    @{ Writer = 'artifact'; Modules = '';                Must = 'The @oai/artifact-tool Node module was not found' },
+    @{ Writer = 'artifact'; Modules = $gateEmptyModules; Must = '@oai/artifact-tool is missing under' },
+    @{ Writer = 'openpyxl'; Modules = '';                Must = 'Required report input or runtime is missing' },
+    @{ Writer = 'openpyxl'; Modules = $gateEmptyModules; Must = 'Required report input or runtime is missing' },
+    @{ Writer = 'bogus';    Modules = '';                Must = 'MENTAT_XLSX_WRITER must be artifact or openpyxl, got bogus' }
+  )
+  foreach ($case in $gateCases) {
+    $probe = Invoke-WriterGateProbe $case.Writer $case.Modules
+    if ($probe.ExitCode -eq 0 -or -not $probe.Text.Contains($case.Must)) {
+      throw "Writer gate: MENTAT_XLSX_WRITER=$($case.Writer) modules=[$($case.Modules)] expected an error holding '$($case.Must)' (exit $($probe.ExitCode)): $($probe.Text)"
+    }
+    # Past the gate the only failure left is the missing database; a writer other than artifact must
+    # never be stopped by the artifact-tool module.
+    if ($case.Writer -eq 'openpyxl' -and $probe.Text.Contains('artifact-tool')) {
+      throw "The openpyxl writer must not require @oai/artifact-tool: $($probe.Text)"
+    }
+  }
+} finally {
+  Remove-Item -LiteralPath $gateRoot -Recurse -Force
+}
+
 Write-Host 'Test-MentatWorkbookBuilderGuards: PASS'

@@ -130,6 +130,25 @@ test_that("the package manifest detects a tampered vendored file (negative contr
   expect_false(all(v$ok))
 })
 
+test_that("the manifest is checked against the platform the library was built for, which is not always the platform R runs on (the container loads the Windows-built vendored library)", {
+  tmp <- file.path(tempdir(), "rlib_platform"); unlink(tmp, recursive = TRUE); dir.create(tmp)
+  file.copy(file.path(rf_rlib_dir(), "sandwich"), tmp, recursive = TRUE)
+  man <- file.path(tempdir(), "rlib_platform_manifest.json"); unlink(man)
+  rf_record_rlib_platform(target = tmp, packages = "sandwich", manifest_path = man)
+  real <- RF_PLATFORM
+  assign("RF_PLATFORM", function() "some-other-r-platform", envir = globalenv())
+  on.exit(assign("RF_PLATFORM", real, envir = globalenv()), add = TRUE)
+  expect_true(all(rf_verify_rlib(tmp, man)$status == "ok"))        # R "runs" elsewhere; the library's own Built OS picks the recorded hashes
+  # an entry for the other OS only is not this library's: unrecorded, the version still checked
+  m <- jsonlite::fromJSON(man, simplifyVector = FALSE)
+  b <- m$packages$sandwich$platforms[[real()]]$built
+  m$packages$sandwich$platforms[[real()]]$built <- sub("; (windows|unix)$", if (grepl("; windows$", b)) "; unix" else "; windows", b)
+  rf_write_json_atomic(m, man)
+  v <- rf_verify_rlib(tmp, man)
+  expect_identical(unique(v$status), "unrecorded_platform")
+  expect_true(all(v$ok))
+})
+
 test_that("rf_rng.R is the byte copy of the SGS numpy-stream port", {
   expect_identical(rf_sha256(file.path(.RF_HOME, "R", "rf_rng.R")), RF$RNG_SHA256)
   # zlib.crc32(b"abc") == 891568578

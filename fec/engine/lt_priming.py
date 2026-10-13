@@ -19,9 +19,9 @@ PRO={'Champion','Defender','Ally'}
 THETA={'Highly Persuadable':0.6,'Persuadable':0.8,'Lean Persuadable':0.9,
        'True Neutral':1.0,'Neutral':1.0,'Lean Skeptic':1.5,'Skeptic':2.0,
        'Highly Skeptical':2.5,'Opponent':3.0,'Ally':0.0}   # fixed ladder resistance
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=list(C.keys())
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=list(C.keys())
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-CS=json.load(open(B+r'\category_stance.json')); MAT=CS['matrix']; cats=CS['cats']
+CS=json.load(open(os.path.join(B, 'category_stance.json'))); MAT=CS['matrix']; cats=CS['cats']
 def pick_topic(topic,cats):
     # QME 2026-10-01: exact (case-insensitive) match first, then a UNIQUE substring, else ValueError listing the candidates. The old
     # [0] of a substring filter silently took the first hit and IndexError'd on no match.
@@ -40,7 +40,7 @@ def scoped_output_path(explicit,default,selector):
     return stem+'_topic_'+slug+ext
 try: _DEFCAT=pick_topic('Mortgage',cats)
 except ValueError: _DEFCAT=None
-OUTF=scoped_output_path(os.environ.get('LT_OUT'),B+r'\data\network\lt_priming.json',None if cat==_DEFCAT else cat)   # default TOPIC 'Mortgage' resolves uniquely to 'Mortgage & Housing' -> production path, zero delta
+OUTF=scoped_output_path(os.environ.get('LT_OUT'),os.path.join(B, 'data', 'network', 'lt_priming.json'),None if cat==_DEFCAT else cat)   # default TOPIC 'Mortgage' resolves uniquely to 'Mortgage & Housing' -> production path, zero delta
 adj=MBC.load_network()
 # L4: unify the diffusion kernel with the rest of the system (coalition/scenario/frontier use the
 # bridge-amplified P=(w*cpf)/(w*cpf+4); this module previously used the un-amplified P=w/(w+4)). Adopt the

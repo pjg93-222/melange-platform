@@ -38,11 +38,20 @@
   "export": {
     "extra_extensions": [".dockerfile"],
     "extra_names": ["allowed_signers", "dockerfile", ".dockerignore", "no_data_tests.txt", "mentat_tests.txt",
-                    "mentat-console.linux.txt", "r-packages.txt", "compose.env.example", "canaries.txt"]
+                    "mentat-console.linux.txt", "r-packages.txt", "compose.env.example", "canaries.txt",
+                    "compute-mentat.in", "compute-mentat.linux.txt", "r-package-repos.txt",
+                    "compute-melange.in", "compute-melange.linux.txt", "melange-base.lock"]
   },
   "pocket": {"dir": null, "console_port": null, "datasets": []},
   "downloads": {"workbooks": []},
   "dashboard_password_file": null,
   "lane_writer_roots": null,
-  "launchers": {"script": null}
+  "launchers": {"script": null},
+  "auto": {
+    "quiet_minutes": 20,
+    "max_per_day": 6,
+    "mentat_restart": true,
+    "mentat_port": 8802,
+    "healthchecks_url": null
+  }
 }

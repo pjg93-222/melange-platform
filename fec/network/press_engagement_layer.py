@@ -25,7 +25,7 @@ import csv, json, sys, re, collections, glob, os
 from press_stream import load_tone_rows
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-SRC=MB_DRAFT+r'\cu_press_stance_tone.csv'
+SRC=os.path.join(MB_DRAFT, 'cu_press_stance_tone.csv')
 rows=load_tone_rows()
 members=sorted(set(r['member'] for r in rows))
 # surname map: last token, plus two-token surnames (Van Hollen etc.)
@@ -67,9 +67,9 @@ for (i,j),p in prob.items():
 # diagnostics vs the cosponsor layer
 try:
     import openpyxl
-    C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}
+    C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
     bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
-    net=max(glob.glob(B+r'\congress_cosponsor_network_*.xlsx'),key=os.path.getmtime)
+    net=max(glob.glob(os.path.join(B, 'congress_cosponsor_network_*.xlsx')),key=os.path.getmtime)
     ne=openpyxl.load_workbook(net,data_only=True)['Edges']; cadj=collections.defaultdict(set); deg=collections.Counter()
     for r2 in range(2,ne.max_row+1):
         a,b=bio2name.get(ne.cell(r2,1).value),bio2name.get(ne.cell(r2,2).value)
@@ -91,5 +91,5 @@ json.dump({'method':'Fink et al. 2023 normalization over honorific/full-name pre
            'directed':[{'src':i,'dst':j,'p':round(p,4)} for (i,j),p in sorted(prob.items())],
            'symmetric':[{'a':i,'b':j,'w':round(w,4)} for i in sorted(sym) for j,w in sorted(sym[i].items()) if i<j],
            'mentions':[{'author':a,'named':b,'n':n} for (a,b),n in sorted(mention.items())]},
-          open(B+r'\data\stance\press_engagement.json','w'),indent=1)
+          open(os.path.join(B, 'data', 'stance', 'press_engagement.json'),'w', newline='\r\n'),indent=1)
 print('wrote press_engagement.json (%d directed edges) — candidate augmentation layer for the cascade'%len(prob))

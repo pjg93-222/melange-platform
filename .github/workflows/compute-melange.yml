@@ -1,0 +1,270 @@
+# Exported to .github/workflows/compute-melange.yml in pjg93-222/melange-platform.
+# Builds the compute-melange image (ops/docker/compute-melange.Dockerfile) for the Melange chain (compute lane MEL, D-173/D-175).
+# Runs on the same v* tags as release.yml (so release.py waits for it and reads its digest, ops/RELEASE.md "Automatic
+# propagation") and on workflow_dispatch. The laptop runs the result by digest. Nothing in this file has run yet: the first
+# dispatch is the first real build. The image is built only when its inputs changed (ops/image_inputs.json, the tag
+# inputs-<hash>); otherwise the digest already in GHCR is reused and the same smoke test, SBOM and gate run on it.
+#
+# Every action is pinned to a full commit SHA, the same pins as release.yml (the tag it was resolved from is the trailing comment).
+name: compute-melange
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions: {}
+
+concurrency:
+  group: compute-melange-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_REPO: ghcr.io/pjg93-222/compute-melange
+
+jobs:
+  test-lock:
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install pytest==9.1.1 pyyaml==6.0.3
+      - name: Static tests (lock, Dockerfile, compose, workflow, census)
+        run: python -m pytest -q ops/tests/test_compute_melange.py
+      # The census names every third-party package the 78 chain steps reach; installing the lock on the runner (hashes
+      # required, wheels only) and importing them proves the lock is consistent before an image is built. The runner's
+      # Python is 3.12.x, not 3.12.10: the exact interpreter is checked inside the image by `smoke`.
+      - name: Census, then the hashed lock installed and imported on the runner
+        run: |
+          set -euo pipefail
+          python ops/compute/chain_imports.py
+          python -m venv "$RUNNER_TEMP/lockcheck"
+          "$RUNNER_TEMP/lockcheck/bin/python" -m pip install --require-hashes --only-binary=:all: -r ops/locks/compute-melange.linux.txt
+          "$RUNNER_TEMP/lockcheck/bin/python" -m pip check
+          "$RUNNER_TEMP/lockcheck/bin/python" ops/compute/chain_imports.py --import
+          "$RUNNER_TEMP/lockcheck/bin/python" ops/compute/chain_imports.py --compile
+
+  build:
+    needs: test-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions: {contents: read, packages: write}
+    outputs:
+      digest: ${{ steps.image.outputs.digest }}
+      tag: ${{ steps.tag.outputs.tag }}
+    steps:
+      - name: Image tag (v<YYYY>.<MM>.<DD>.<n> on a tag push, dev-<sha> on a manual run)
+        id: tag
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # a ref name may hold commas (buildx splits `outputs:` on them) or other odd characters: nothing runs on one
+          if [[ "$REF_TYPE" == tag ]]; then
+            [[ "$REF_NAME" =~ ^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || { echo "::error::tag does not match v<YYYY>.<MM>.<DD>.<n>"; exit 1; }
+            echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dev-${SHA:0:12}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - name: Pins from ops/compute/melange-base.lock
+        id: pins
+        run: |
+          set -euo pipefail
+          lock=ops/compute/melange-base.lock
+          deb=$(jq -r '.debian.digest' "$lock")
+          pbs=$(jq -r '.cpython.sha256' "$lock")
+          if ! [[ "$deb" =~ ^sha256:[0-9a-f]{64}$ ]] || [[ "$deb" =~ ^sha256:0{64}$ ]] || ! [[ "$pbs" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "::error::$lock holds a placeholder or malformed digest"; exit 1
+          fi
+          {
+            echo "debian=$(jq -r '.debian.ref + "@" + .debian.digest' "$lock")"
+            echo "cpython=$(jq -r '.cpython.version' "$lock")"
+            echo "pbs_release=$(jq -r '.cpython.release' "$lock")"
+            echo "pbs_sha256=$pbs"
+            echo "epoch=$(git log -1 --format=%ct)"
+            echo "created=$(git log -1 --format=%cI)"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Input hash of this image
+        id: inputs
+        run: echo "hash=$(python3 ops/release_lib/inputs.py hash compute-melange)" >> "$GITHUB_OUTPUT"
+      - name: Reuse the image built from the same inputs, if there is one
+        id: reuse
+        env: {HASH: "${{ steps.inputs.outputs.hash }}"}
+        run: bash ops/ci/build_or_reuse.sh check "$IMAGE_REPO" "$HASH"
+      - name: Build and push (tag for humans, digest for the laptop)
+        id: push
+        if: steps.reuse.outputs.reused != 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ops/docker/compute-melange.Dockerfile
+          outputs: type=image,name=ghcr.io/pjg93-222/compute-melange:${{ steps.tag.outputs.tag }},push=true,rewrite-timestamp=true
+          # No layer cache here either: a cache entry written by any other workflow run would ride, unseen, into an image
+          # that runs on the laptop with the whole data plane mounted (design F10).
+          no-cache: true
+          provenance: false
+          sbom: false
+          build-args: |
+            DEBIAN_BASE=${{ steps.pins.outputs.debian }}
+            CPYTHON_VERSION=${{ steps.pins.outputs.cpython }}
+            PBS_RELEASE=${{ steps.pins.outputs.pbs_release }}
+            PBS_SHA256=${{ steps.pins.outputs.pbs_sha256 }}
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.pins.outputs.created }}
+            SOURCE_DATE_EPOCH=${{ steps.pins.outputs.epoch }}
+      - name: Digest of this image (reused or just built)
+        id: image
+        env:
+          DIGEST: "${{ steps.reuse.outputs.reused == 'true' && steps.reuse.outputs.digest || steps.push.outputs.digest }}"
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+      # The smoke test is its own job (it mounts the checked-out tree and needs no write access), so this tag is given before it
+      # runs: an image that fails it fails again for the same inputs, and the release stops there (release.py refuses a red run).
+      - name: Tag the new image with its inputs, so the next release can reuse it
+        if: steps.reuse.outputs.reused != 'true'
+        env: {HASH: "${{ steps.inputs.outputs.hash }}", DIGEST: "${{ steps.image.outputs.digest }}"}
+        run: bash ops/ci/build_or_reuse.sh tag "$IMAGE_REPO" "$HASH" "$DIGEST"
+      - name: Record digest
+        env: {DIGEST: "${{ steps.image.outputs.digest }}"}
+        run: |
+          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          echo "$DIGEST" > digest-compute-melange.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: digest-compute-melange
+          path: digest-compute-melange.txt
+
+  # The image holds no code, so the checked-out repo is mounted read-only at /melange, as the laptop mounts its tree.
+  # --network none because the chain is network-free: an import that needs the network fails here, not on the laptop.
+  smoke:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: digest-compute-melange}
+      - id: ref
+        run: echo "image=$IMAGE_REPO@$(cat digest-compute-melange.txt)" >> "$GITHUB_OUTPUT"
+      - name: Pull by digest
+        env: {IMAGE: "${{ steps.ref.outputs.image }}"}
+        run: docker pull "$IMAGE"
+      - name: Every chain package imports, the interpreter and locale are the host's
+        env: {IMAGE: "${{ steps.ref.outputs.image }}"}
+        run: |
+          set -euo pipefail
+          run() { docker run --rm --network none --read-only --user 10001:10001 --cap-drop ALL --security-opt no-new-privileges:true \
+                    --tmpfs /tmp:size=256m,noexec,nosuid --memory 2g -v "$GITHUB_WORKSPACE:/melange:ro" "$IMAGE" "$@"; }
+          run python /melange/ops/compute/chain_imports.py --import
+          run python /melange/ops/compute/chain_imports.py --compile
+          run python -c "import sys; assert sys.version_info[:3]==(3,12,10), sys.version"
+          run python -c "import locale,os,time; assert locale.getencoding().lower() in ('cp1252','windows-1252'); assert bytes([0x93]).decode(locale.getpreferredencoding(False)) == chr(0x201c); assert os.environ['TZ']=='America/Chicago'; assert time.tzname==('CST','CDT'), time.tzname"
+          run python -c "import os; assert os.getuid()==10001 and 'PYTHONHASHSEED' not in os.environ and os.environ['PYTHONIOENCODING']=='utf-8:surrogateescape'"
+
+  sbom:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: digest-compute-melange}
+      - id: ref
+        run: echo "image=$IMAGE_REPO@$(cat digest-compute-melange.txt)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          image: ${{ steps.ref.outputs.image }}
+          format: spdx-json
+          output-file: sbom-compute-melange.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-compute-melange
+          path: sbom-compute-melange.spdx.json
+
+  # ops/security_gate.py images needs --compose-json (compose_policy is a required check of the stage). Its rules (read-only
+  # root, uid, cap_drop ALL, no-new-privileges, no host network, no published port, /srv/data mounts read-only) are checked here
+  # against ops/compute/melange.compose.yaml rendered with the digest just built; --profile chain because the service sits in it.
+  scan:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions: {contents: read, packages: read}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with: {python-version: "3.12"}
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with: {name: digest-compute-melange}
+      - name: Install trivy
+        env:
+          TRIVY_VERSION: 0.75.0
+          TRIVY_SHA256: c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f
+        run: |
+          set -euo pipefail
+          curl -fsSL -o trivy.tgz "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          echo "${TRIVY_SHA256}  trivy.tgz" | sha256sum -c -
+          sudo tar -xzf trivy.tgz -C /usr/local/bin trivy
+      - name: Render the compose file with the image built here
+        run: |
+          set -euo pipefail
+          export IMAGE_COMPUTE_MELANGE="$IMAGE_REPO@$(cat digest-compute-melange.txt)"
+          mkdir -p "$RUNNER_TEMP/m"/{tree,draft,data,local,glassbox}
+          export MELANGE_TREE_DIR="$RUNNER_TEMP/m/tree" MELANGE_DRAFT_DIR="$RUNNER_TEMP/m/draft" MELANGE_DATA_DIR="$RUNNER_TEMP/m/data" \
+                 MELANGE_LOCAL_DIR="$RUNNER_TEMP/m/local" MELANGE_GLASSBOX_DIR="$RUNNER_TEMP/m/glassbox"
+          docker compose -f ops/compute/melange.compose.yaml --profile chain config --format json > compose.config.json
+          echo "IMAGE_COMPUTE_MELANGE=$IMAGE_COMPUTE_MELANGE" >> "$GITHUB_ENV"
+      - name: Security gate, images stage
+        run: python ops/security_gate.py images --ci --compose-json compose.config.json --image "$IMAGE_COMPUTE_MELANGE" --report security-images-compute-melange.json
+
+  # What release.py reads (ops/RELEASE.md, "Compute workflows adopt it"): a workflow artifact named *-digests holding digests.json,
+  # written only after the smoke test, the SBOM and the images gate have passed on this digest.
+  digests:
+    needs: [build, smoke, sbom, scan]
+    runs-on: ubuntu-24.04
+    permissions: {contents: read}
+    steps:
+      - name: Write digests.json (same shape as the release kit's)
+        env:
+          TAG: ${{ needs.build.outputs.tag }}
+          SHA: ${{ github.sha }}
+          IMAGE: ${{ env.IMAGE_REPO }}@${{ needs.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE" =~ @sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
+          jq -n --arg tag "$TAG" --arg sha "$SHA" --arg image "$IMAGE" '{tag: $tag, commit: $sha, images: {"compute-melange": $image}}' > digests.json
+          cat digests.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: compute-melange-digests
+          path: digests.json

@@ -55,7 +55,7 @@ import sys
 import time
 from pathlib import Path
 
-from paths import ROOT as MB_ROOT
+from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 from lane_file_io import atomic_write_bytes
 
 try:
@@ -73,8 +73,7 @@ _STREAM_CHUNK = 1024 * 1024
 
 def default_out_dir():
     """Production out-dir — what bill_lobbying_sidecar.py reads as {data_root}/cosponsor_sc/."""
-    local = os.environ.get('LOCALAPPDATA') or os.path.expanduser(r'~\AppData\Local')
-    return os.path.join(local, 'Melange', 'lda_rebuild', 'derived', 'cosponsor_sc')
+    return os.path.join(LOCAL_MELANGE, 'lda_rebuild', 'derived', 'cosponsor_sc')
 
 
 def default_forecaster_path():

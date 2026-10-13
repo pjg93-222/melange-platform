@@ -1,0 +1,20 @@
+# Hashed Linux lock for the compute-collector image (ops/docker/compute-collector.Dockerfile); do not edit by hand.
+# Input: the third-party closure of the Melange weekly collectors, found by following local imports from their entry points (53 modules
+# under fec/: collect/fetch_congressional_record, legislation/refresh_{legislation_discovery,sentinel_admissions,vote_sources,billstatus_bulk},
+# legislation/update_bill_repository, collect/refresh_fec_money, members/{fetch_interviews,wikipedia_biographies,member_reference_layer},
+# collect/{refresh_cspan_wj,refresh_press_stream,build_press_engine_feed,fold_promoted_press_runs}, audit_collection, weekly_refresh):
+#   openpyxl  (moneyball_core, lazy)        pypdf  (members/fetch_interviews, lazy)
+# `anthropic` is imported only by member_reference_layer's API transport; the container uses the claude CLI transport (D-179), so the
+# API fallback is deliberately absent from this image. `requests` is not imported by any collector.
+# Versions are the ones pinned in requirements.txt (the Windows host's). All three are pure-Python wheels (py3-none-any), so one hash
+# each covers every platform tag. The hashes are the sha256 values already recorded for the same files in ops/locks/mentat-console.linux.txt
+# (openpyxl, et-xmlfile) and ops/locks/compute-melange.linux.txt (pypdf) from PyPI's JSON API; this lane had no network to re-derive
+# them, so the first CI build is their verification (pip --require-hashes fails closed on a wrong hash).
+# Extension is .lock, not .txt, so the source-only export (ops/release_lib/export.py CODE_EXT) carries it without a release_config.json edit.
+# Install: pip install --require-hashes --only-binary=:all: -r ops/locks/compute-collector.linux.lock
+et-xmlfile==2.0.0 \
+    --hash=sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
+openpyxl==3.1.5 \
+    --hash=sha256:5282c12b107bffeef825f4617dc029afaf41d0ea60823bbb665ef3079dc79de2
+pypdf==6.19.0 \
+    --hash=sha256:7e5d6e730e7dae87d560a2cee218b852f6498c8be61966f3cd02ead971e48d14

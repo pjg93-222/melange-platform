@@ -61,6 +61,11 @@ def _load_module(name, path):
 
 
 BS = _load_module('bounded_subprocess_under_test', _MODULE_PATH)
+sys.path.insert(0, FEC)   # compute_engine imports the flat `paths` module; weekly_refresh's step() calls compute_engine.launch / reap
+try:
+    CE = _load_module('compute_engine_under_test', os.path.join(FEC, 'compute_engine.py'))
+finally:
+    sys.path.remove(FEC)
 
 
 def _read_source(path):
@@ -693,6 +698,7 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
         self.producer = None
         self.ns = {
             'bounded_subprocess': self.observing_module(),
+            'compute_engine': CE,
             'subprocess': subprocess, 'sys': sys, 'os': os, 'time': time, 'datetime': datetime,
             'FE': self.tmp,
             '_LIVE_CHILD': [None],
@@ -882,6 +888,98 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
         self.assertIsNone(self.ns['_LIVE_CHILD'][0], 'the guard must release the slot')
         if sys.platform == 'win32':
             self.assert_heartbeat_stopped(beat)
+
+    # ---- the partial= hook: the press step's one excused exit 3 (letters continue 15h) ------
+
+    def test_15i_a_hard_exit_3_the_hook_excuses_returns_true_and_logs_as_a_failure(self):
+        self.producer = self.write_script(
+            'fake_producer.py',
+            "import sys\nprint('status=PARTIAL')\nsys.stderr.write('pending_body_urls=4\\n')\n"
+            "sys.exit(3)\n")
+        calls = []
+        before = time.time()
+        self.assertIs(True, self.ns['step'](
+            'press delta refresh', ['fake_producer.py'], timeout=60, hard=True,
+            partial=lambda returncode, started: calls.append((returncode, started)) or True))
+        after = time.time()
+        self.assertEqual([], self.aborts)
+        # Exactly the two lines a failing step has always logged; the excusal adds none of its own
+        # here (the real hook logs and emits itself).
+        self.assertEqual(2, len(self.logs), self.logs)
+        self.assertIn(' !! ', self.logs[0])
+        self.assertTrue(self.logs[1].startswith('   stderr: '), repr(self.logs[1]))
+        self.assertEqual(1, len(calls), calls)
+        self.assertEqual(3, calls[0][0])
+        self.assertTrue(before <= calls[0][1] <= after, 'the hook gets the step start time t')
+        self.assertEqual([], self.ns['_tolerated'], 'an excused PARTIAL is not a Paul-gated tolerance')
+        self.assertEqual([], self.emits)
+        self.assertIsNone(self.ns['_LIVE_CHILD'][0])
+
+    def test_15j_a_hook_that_refuses_leaves_the_legacy_hard_abort_untouched(self):
+        self.producer = self.write_script('fake_producer.py', 'import sys\nsys.exit(3)\n')
+        calls = []
+        with self.assertRaises(_HardAbort):
+            self.ns['step']('press delta refresh', ['fake_producer.py'], timeout=60, hard=True,
+                            partial=lambda returncode, started: calls.append(returncode) or False)
+        self.assertEqual([3], calls)
+        self.assertEqual([('press delta refresh', [], 'step exited 3')], self.aborts)
+
+    def test_15k_the_hook_is_consulted_only_by_a_hard_step_that_exited_nonzero(self):
+        calls = []
+
+        def hook(returncode, started):
+            calls.append(returncode)
+            return True
+
+        def run(name, hard=False, timeout=60):
+            return self.ns['step'](name, ['fake_producer.py'], timeout=timeout, hard=hard,
+                                   partial=hook)
+
+        self.producer = self.write_script('fake_producer.py', "print('done')\n")
+        self.assertTrue(run('hard exit 0', hard=True))
+        self.producer = self.write_script('fake_producer.py', 'import sys\nsys.exit(3)\n')
+        self.assertFalse(run('soft exit 3'))
+        self.producer = self.write_script('fake_producer.py', 'import time\ntime.sleep(120)\n')
+        with self.assertRaises(_HardAbort):
+            run('frozen hard step', hard=True, timeout=1)
+        self.producer = None
+        with self.assertRaises(_HardAbort):
+            run('absent hard step', hard=True)
+        self.assertEqual([], calls, 'exit 0, a soft step, a timeout and a launch failure never ask')
+        self.assertEqual('timeout after 1s', self.aborts[0][2])
+
+    def test_15l_an_excused_exit_never_runs_the_gate_or_records_a_tolerance(self):
+        self.producer = self.write_script(
+            'fake_producer.py', "import sys\nsys.stderr.write('ck FAIL culling\\n')\nsys.exit(3)\n")
+        gate_calls = []
+
+        def gate(out, err):
+            gate_calls.append(1)
+            return True, ['culling']
+
+        self.assertTrue(self.ns['step']('gated step', ['fake_producer.py'], timeout=60, hard=True,
+                                        gate=gate, partial=lambda returncode, started: True))
+        self.assertEqual([], gate_calls)
+        self.assertEqual([], self.ns['_tolerated'])
+        self.assertEqual([], self.emits)
+        # And a refusing hook leaves the gate exactly where 15d found it.
+        self.assertTrue(self.ns['step']('gated step', ['fake_producer.py'], timeout=60, hard=True,
+                                        gate=gate, partial=lambda returncode, started: False))
+        self.assertEqual([1], gate_calls)
+        self.assertEqual(['culling'], self.ns['_tolerated'])
+
+    def test_15m_exactly_one_step_call_carries_partial_and_it_is_the_press_delta_row(self):
+        tree = ast.parse(_read_source(_WEEKLY_REFRESH_PATH))
+        hooked = [node for node in ast.walk(tree)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                  and node.func.id == 'step' and any(kw.arg == 'partial' for kw in node.keywords)]
+        self.assertEqual(1, len(hooked), [node.lineno for node in hooked])
+        row = hooked[0]
+        keywords = {kw.arg: kw.value for kw in row.keywords}
+        self.assertEqual('press delta refresh', row.args[0].value)
+        self.assertEqual('refresh_press_stream.py', row.args[1].elts[0].value)
+        self.assertEqual('_press_partial_excused', keywords['partial'].id)
+        self.assertIs(True, keywords['hard'].value, 'the hook only ever acts on a hard step')
 
 
 # --------------------------------------------------- [16-17] the wiring and the untouched bounds

@@ -10,14 +10,14 @@ from stance.honors_views import load_honors
 from surfaces.dashboard_honors import dashboard_honors_payload, overall_stances_from_gen
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 HONORS_DOC=load_honors(MB_ROOT)
-C=json.load(open(MB_ROOT+r'\data\engine\congestion.json'))
+C=json.load(open(os.path.join(MB_ROOT, 'data', 'engine', 'congestion.json')))
 cong={m['member']:m for m in C}
-_CS_PATH=os.environ.get('CATEGORY_STANCE_PATH') or MB_ROOT+r'\category_stance.json'
+_CS_PATH=os.environ.get('CATEGORY_STANCE_PATH') or os.path.join(MB_ROOT, 'category_stance.json')
 CS_DOC=json.load(open(_CS_PATH))
 CULLING_STATUS=load_surface_status(MB_ROOT)
 CS=CS_DOC['matrix']; OVERALL_CAPS=(CS_DOC.get('gate') or {}).get('overall_capped') or {}
-FL=json.load(open(MB_ROOT+r'\per_topic_alloc.json'))
-CO=json.load(open(MB_ROOT+r'\data\lobbying\per_topic_coalition.json'))
+FL=json.load(open(os.path.join(MB_ROOT, 'per_topic_alloc.json')))
+CO=json.load(open(os.path.join(MB_ROOT, 'data', 'lobbying', 'per_topic_coalition.json')))
 # label -> matrix category.  CFPB is exposed once under the ratified pro-CU frame; the former
 # "Reach (-)" duplicate presented the same bytes as an apparent opposite policy axis.
 LBLCAT={'Examination & Supervision':'Examination & Supervision','Credit Union Capital Requirements':'CU Capital Requirements',
@@ -43,7 +43,7 @@ def dashboard_issue_contract(labels):
 
 
 source_issues,issues,issue_cat=dashboard_issue_contract(list(FL.keys()))
-wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
+wb=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
 ra=wb['Rank & Allocation']
 # authoritative rank = Blended Model col20 (was erroneously reading Rank & Allocation col2 = District/State)
 bm=wb['Blended Model']
@@ -99,10 +99,10 @@ _tier,_trank,_tierdetail=_lptiers(members,with_detail=True)
 _top13=set((HONORS_DOC or {}).get('overall_board',{}).get('top13') or ()) or None
 gen={n:overall_display_tier(CS.get(n,{}),_tier.get(n,0),n,OVERALL_CAPS,_top13) for n in members}
 # party from voteview members (party_code 100=D,200=R,else I); prefer most recent congress
-party=build_party_map([(congN,MB_ROOT+r'\votes\HS%d_members.csv'%congN) for congN in (119,118,117)])
+party=build_party_map([(congN,os.path.join(MB_ROOT, 'votes', 'HS%d_members.csv'%congN)) for congN in (119,118,117)])
 bio2name={cong[n]['bioguide']:n for n in members if cong[n].get('bioguide')}
 # network
-net=select_network_file(glob.glob(MB_ROOT+r'\congress_cosponsor_network_*.xlsx'))
+net=select_network_file(glob.glob(os.path.join(MB_ROOT, 'congress_cosponsor_network_*.xlsx')))
 ne=openpyxl.load_workbook(net,data_only=True)['Edges']
 G=nx.Graph(); G.add_nodes_from(members); ew={}
 for r in range(2,ne.max_row+1):
@@ -125,7 +125,7 @@ TC={'Champion':'C','Defender':'F','Ally':'A','Highly Persuadable':'H','Persuadab
 # cpf_diffusion/tgt/coalition boosts via bipartisan.json. BP therefore uses the newest NON-AUG file.
 # BP_SRC=aug restores the augmented definition if the user ever ratifies it.
 if os.environ.get('BP_SRC','cosponsor')=='cosponsor':
-    _n0=max([q for q in glob.glob(MB_ROOT+r'\congress_cosponsor_network_*.xlsx') if 'AUG' not in os.path.basename(q)],key=os.path.getmtime)
+    _n0=max([q for q in glob.glob(os.path.join(MB_ROOT, 'congress_cosponsor_network_*.xlsx')) if 'AUG' not in os.path.basename(q)],key=os.path.getmtime)
     _e0=openpyxl.load_workbook(_n0,data_only=True)['Edges']
     G0=nx.Graph(); G0.add_nodes_from(members); _drop0=cu_dropped_sponsors(_n0)   # CU_IDENTITY_FIX (decision G)
     for a,b,w in cu_edge_rows(_n0,_e0):   # + CU_PLACEHOLDER_BACKFILL (2026-10-11)
@@ -146,9 +146,9 @@ for n in members:
     raw[n]=(same,cross); gs+=same; gc+=cross
 prior=gc/(gs+gc) if (gs+gc)>0 else 0.12; ALPHA=6.0
 bp={n:(raw[n][1]+ALPHA*prior)/(raw[n][0]+raw[n][1]+ALPHA) for n in members}
-cfp=MB_ROOT+r'\data\members\confidence.json'; CONF=json.load(open(cfp)) if os.path.exists(cfp) else {}
+cfp=os.path.join(MB_ROOT, 'data', 'members', 'confidence.json'); CONF=json.load(open(cfp)) if os.path.exists(cfp) else {}
 # receptivity color layer (2026-07-04): pressure_mult per member (behavioral basis) for colorBy=recept
-_rcp=MB_ROOT+r'\member_receptivity.json'
+_rcp=os.path.join(MB_ROOT, 'member_receptivity.json')
 _RC=(json.load(open(_rcp)).get('members',{}) if os.path.exists(_rcp) else {})
 # Hearing conduct is display-only and fail-closed.  The legacy July artifact and
 # V1 database rows are no longer eligible; only a current hash-bound feed using
@@ -231,7 +231,7 @@ ELAY=''.join(_prov.get(frozenset(ab),'c') for ab,w in edges)
 # signed cross-media reference layer (member_references.json: CREC/interview/X mentions, Fable-valenced,
 # dyad-capped at build time). n_scored>=2 keeps one-off mentions out of the drawing.
 REFE=[]
-_rfp=MB_ROOT+r'\member_references.json'
+_rfp=os.path.join(MB_ROOT, 'member_references.json')
 if os.path.exists(_rfp):
     for _e in json.load(open(_rfp,encoding='utf-8'))['edges']:
         if _e['a'] in idx and _e['b'] in idx and _e.get('n_scored',0)>=2:
@@ -239,7 +239,7 @@ if os.path.exists(_rfp):
 # co-appearance layer (data/network/co_appearance.json: substantial joint interview-episode appearances,
 # floors + segment-merge at build time). n>=2 keeps one-off co-bookings out of the drawing.
 COAP=[]
-_cap=MB_ROOT+r'\data\network\co_appearance.json'
+_cap=os.path.join(MB_ROOT, 'data', 'network', 'co_appearance.json')
 if os.path.exists(_cap):
     for _e in json.load(open(_cap,encoding='utf-8'))['edges']:
         if _e['a'] in idx and _e['b'] in idx and _e.get('n',0)>=2:
@@ -578,7 +578,7 @@ for i,lb in enumerate(source_issues):
                   'flip':sum(FL[lb].values()),'coal':sum(CO[lb].values()),'coalN':len(coal[i])})
 B=MB_ROOT
 # --- electoral contest/defend plays (per member) ---
-EP=json.load(open(B+r'\data\money\electoral_plays.json')) if os.path.exists(B+r'\data\money\electoral_plays.json') else {}
+EP=json.load(open(os.path.join(B, 'data', 'money', 'electoral_plays.json'))) if os.path.exists(os.path.join(B, 'data', 'money', 'electoral_plays.json')) else {}
 def _playcode(n):   # c = contest via PRIMARY (same-party), g = contest via GENERAL (cross-party flip), d = defend, n = none
     e=EP.get(n) or {}; pl=e.get('play','none')
     if pl=='contest': return 'g' if e.get('route')=='general' else 'c'
@@ -586,8 +586,8 @@ def _playcode(n):   # c = contest via PRIMARY (same-party), g = contest via GENE
 PLAY=''.join(_playcode(n) for n in members)
 EPVAL=[round((EP.get(n) or {}).get('value',0)) for n in members]
 # --- nested budget frontier per issue (slider does a live lookup of the precomputed path) ---
-if not os.path.exists(B+r'\data\money\budget_frontier.json'): print('  !! budget_frontier.json MISSING — frontier sliders will be EMPTY (run budget_frontier.py)')   # S3-05: silent-empty sections now announce themselves
-BF=json.load(open(B+r'\data\money\budget_frontier.json')) if os.path.exists(B+r'\data\money\budget_frontier.json') else {'topics':{}}
+if not os.path.exists(os.path.join(B, 'data', 'money', 'budget_frontier.json')): print('  !! budget_frontier.json MISSING — frontier sliders will be EMPTY (run budget_frontier.py)')   # S3-05: silent-empty sections now announce themselves
+BF=json.load(open(os.path.join(B, 'data', 'money', 'budget_frontier.json'))) if os.path.exists(os.path.join(B, 'data', 'money', 'budget_frontier.json')) else {'topics':{}}
 def frontier_for(lb):
     t=BF['topics'].get(lb)
     if not t: return None
@@ -595,8 +595,8 @@ def frontier_for(lb):
     return {'base':t['base'],'knee':t.get('knee',0),'knee_found':bool(t.get('knee_found')),'core':t.get('core_seeds',0),'path':pts}
 frontier=[frontier_for(lb) for lb in source_issues]
 # --- joint optimizer (cross-topic CU allocation; explicit fixed-state/replanning guarantee scope) ---
-if not os.path.exists(B+r'\optimize_result.json'): print('  !! optimize_result.json MISSING — optimizer panel will be EMPTY (run optimize.py)')   # S3-05
-OPT=json.load(open(B+r'\optimize_result.json')) if os.path.exists(B+r'\optimize_result.json') else None
+if not os.path.exists(os.path.join(B, 'optimize_result.json')): print('  !! optimize_result.json MISSING — optimizer panel will be EMPTY (run optimize.py)')   # S3-05
+OPT=json.load(open(os.path.join(B, 'optimize_result.json'))) if os.path.exists(os.path.join(B, 'optimize_result.json')) else None
 opt=None
 if OPT:
     # QME 2026-10-01: the old `if n in idx` filters dropped any optimizer name the bundle could not place, silently.
@@ -673,7 +673,7 @@ engine['const']['EXECP']='R'   # executive party for the going-public cue (119th
 # go-public advisory verdicts (salience_shock.py --advise), surfaced in the System-shocks panel
 _advmap={}
 try:
-    _advl=json.load(open(MB_ROOT+r'\salience_advisory.json'))['advisory']
+    _advl=json.load(open(os.path.join(MB_ROOT, 'salience_advisory.json')))['advisory']
     _cut=sorted((a['value'] for a in _advl),reverse=True)[max(0,len(_advl)//4-1)]
     for a in _advl:
         v='GO PUBLIC' if (a['value']>=_cut and a['value']>0) else 'quiet work'
@@ -794,7 +794,7 @@ bundle={'issues':issues,'name':name,'x':X,'y':Y,'party':''.join(PARTY),'gen':''.
         'stance_curves':_stance_curve_meta,
         'influence_policy': influence_policy,   # Legislative+Press tier + interactive-only domain/chair policy
         'posture':POSTURE}   # coalition posture registry (standard/advisory/contested); DISPLAY-ONLY, rank-independent, no engine consumer
-out=MB_ROOT+r'\dashboard_data.json'; _bp=MB_ROOT+r'\bipartisan.json'
+out=os.path.join(MB_ROOT, 'dashboard_data.json'); _bp=os.path.join(MB_ROOT, 'bipartisan.json')
 _dashout=os.environ.get('DASH_OUT')   # no-clobber redirect for preview/test runs (matches FRONTIER_OUT/OPT_OUT); prod = unset -> live tree
 if _dashout:
     out=_dashout; _bp=os.path.join(os.path.dirname(os.path.abspath(_dashout)) or '.','bipartisan.json')

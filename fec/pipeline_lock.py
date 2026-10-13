@@ -10,6 +10,9 @@ from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
+import re
+import socket
+import threading
 import time
 import uuid
 
@@ -21,6 +24,14 @@ LOCK_OWNER_PID_ENV = "MELANGE_PIPELINE_LOCK_OWNER_PID"
 MALFORMED_LOCK_GRACE_SECONDS = 30.0
 # Two readings of the same kernel record differ only in rounding, so the tolerance is tight.
 LOCK_PROC_START_TOLERANCE_SECONDS = 2.0
+# A lease from another host or pid namespace cannot be judged by pid.  Its holder proves it is
+# alive by rewriting its heartbeat file (``.pipeline_run.lock`` -> ``.pipeline_run.heartbeat.lock``)
+# every HEARTBEAT_SECONDS; the lease is recoverable only once that file is older than the timeout
+# (env override; invalid or <= 0 falls back).
+HEARTBEAT_SECONDS = 30.0
+LOCK_STALE_SECONDS_ENV = "MELANGE_LOCK_STALE_SECONDS"
+LOCK_STALE_SECONDS_DEFAULT = 600.0
+_CONTAINER_ID = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])")
 
 
 def _pid_alive(pid) -> bool:
@@ -28,7 +39,135 @@ def _pid_alive(pid) -> bool:
     return process_alive(pid)
 
 
-def _holder_is_live(payload: dict) -> bool:
+def _windows() -> bool:
+    return os.name == "nt"
+
+
+def _proc_text(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+
+
+def host_identity() -> str:
+    """Who can see this process's pid?  Equal identities share one pid space; anything else does not.
+
+    Windows is ``nt:<hostname>``.  POSIX adds the boot id, the pid namespace and the container id,
+    because a container shares its host's hostname only by accident and a restarted container is a
+    new pid namespace whose pids mean nothing to a lease written by its predecessor.
+    """
+    host = socket.gethostname()
+    if _windows():
+        return "nt:" + host
+    try:
+        namespace = os.readlink("/proc/self/ns/pid")
+    except OSError:
+        namespace = ""
+    container = ""
+    for name in ("/proc/self/mountinfo", "/proc/self/cgroup"):
+        found = _CONTAINER_ID.search(_proc_text(name))
+        if found:
+            container = found.group(0)
+            break
+    return "posix:%s:%s:%s:%s" % (host, _proc_text("/proc/sys/kernel/random/boot_id").strip(),
+                                  namespace, container)
+
+
+def _heartbeat_path(path) -> Path:
+    """The lease's sibling heartbeat file: ``<name>.lock`` -> ``<name>.heartbeat.lock`` (any other name gets the suffix)."""
+    path = Path(path)
+    return path.with_name(path.name.removesuffix(".lock") + ".heartbeat.lock")
+
+
+def _stale_seconds() -> float:
+    try:
+        value = float(os.environ.get(LOCK_STALE_SECONDS_ENV, ""))
+    except ValueError:
+        return LOCK_STALE_SECONDS_DEFAULT
+    return value if 0 < value < float("inf") else LOCK_STALE_SECONDS_DEFAULT
+
+
+def _same_pid_space(theirs) -> bool:
+    """May ``theirs`` (a lease's ``host``) be judged by pid here?
+
+    Windows judges every Windows lease -- including a legacy one with no ``host`` -- by pid, even
+    after a rename.  POSIX judges only a lease written from this exact host/boot/namespace/container;
+    a legacy lease was written by the Windows chain, whose pids a container cannot see.
+    """
+    if _windows():
+        return not theirs or str(theirs).startswith("nt:")
+    return bool(theirs) and theirs == host_identity()
+
+
+def _foreign_holder_is_live(payload: dict, path) -> bool:
+    """A lease from another pid space is held unless its OWN heartbeat proves the holder gone.
+
+    Missing, unreadable, malformed or token-mismatched heartbeat => held (a Windows holder never
+    writes one, and a container must not take over its lease).  A heartbeat dated in the future is
+    clock skew (WSL2 drifts), which reads as fresh.
+    """
+    token = payload.get("token")
+    if path is None or not token:
+        return True
+    beat_path = _heartbeat_path(path)
+    try:
+        beat = json.loads(beat_path.read_text(encoding="utf-8"))
+        age = time.time() - beat_path.stat().st_mtime
+    except (OSError, ValueError, TypeError):
+        return True
+    if not isinstance(beat, dict) or beat.get("token") != token:
+        return True
+    return age <= _stale_seconds()
+
+
+def _write_heartbeat(path, token) -> None:
+    """Atomically refresh the heartbeat; a failure only makes peers more conservative."""
+    beat_path = _heartbeat_path(path)
+    temp = beat_path.with_name(beat_path.name + ".tmp")
+    try:
+        temp.write_text(json.dumps({"token": token, "host": host_identity(), "pid": os.getpid(),
+                                    "ts": time.time()}, separators=(",", ":")), encoding="utf-8")
+        os.replace(temp, beat_path)
+    except OSError:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+
+
+def _start_heartbeat(path, token):
+    """Write once synchronously, then keep rewriting on a daemon thread.  None on Windows."""
+    if _windows():
+        return None
+    _write_heartbeat(path, token)
+    stop = threading.Event()
+
+    def beat():
+        while not stop.wait(HEARTBEAT_SECONDS):
+            _write_heartbeat(path, token)
+
+    thread = threading.Thread(target=beat, name="pipeline-lock-heartbeat", daemon=True)
+    thread.start()
+    return stop, thread
+
+
+def _stop_heartbeat(path, token, running) -> None:
+    """Stop the thread, then delete the heartbeat file if (and only if) its token is ours."""
+    if _windows():
+        return
+    if running is not None:
+        running[0].set()
+        running[1].join(timeout=5)
+    beat_path = _heartbeat_path(path)
+    try:
+        if json.loads(beat_path.read_text(encoding="utf-8")).get("token") == token:
+            beat_path.unlink()
+    except (OSError, ValueError, TypeError, AttributeError):
+        pass
+
+
+def _holder_is_live(payload: dict, path=None) -> bool:
     """Is the process named in ``payload`` still the one that took this lease?
 
     Liveness by pid alone is not enough: Windows recycles pids, and a recycled pid made this
@@ -43,7 +182,13 @@ def _holder_is_live(payload: dict) -> bool:
     Every uncertain path -- a lease written before ``proc_start`` existed, an unreadable start
     time, access denied -- returns True, because removing a live peer's lease is how two
     writers end up on the same artifacts.
+
+    A lease from another host or pid namespace (``host``, see :func:`host_identity`) is not judged
+    by pid at all: see :func:`_foreign_holder_is_live`.  ``path`` locates its heartbeat file;
+    without it such a lease is held.
     """
+    if not _same_pid_space(payload.get("host")):
+        return _foreign_holder_is_live(payload, path)
     pid = payload.get("pid")
     if not _pid_alive(pid):
         return False
@@ -79,7 +224,7 @@ def _stale_lock_may_be_removed(path: Path, payload: dict) -> bool:
     "Dead" also covers a RECYCLED pid: see :func:`_holder_is_live`.
     """
     if payload.get("pid") is not None:
-        return not _holder_is_live(payload)
+        return not _holder_is_live(payload, path)
     try:
         return time.time() - path.stat().st_mtime >= MALFORMED_LOCK_GRACE_SECONDS
     except OSError:
@@ -143,6 +288,7 @@ def pipeline_run_lock(path=None, owner_kind="pipeline"):
                     "pid": os.getpid(), "token": token, "started_utc": time.time(),
                     "owner_kind": owner_kind,
                     "proc_start": process_start_time(os.getpid()),
+                    "host": host_identity(),
                 }
                 os.write(fd, json.dumps(payload, separators=(",", ":")).encode("ascii"))
             finally:
@@ -156,14 +302,21 @@ def pipeline_run_lock(path=None, owner_kind="pipeline"):
                 except FileNotFoundError:
                     pass
                 continue
-            raise RuntimeError(
-                "Moneyball pipeline is already running (pid %s, owner %s)"
-                % (prior.get("pid", "unknown"), prior.get("owner_kind", "unknown"))
-            )
+            message = ("Moneyball pipeline is already running (pid %s, owner %s)"
+                       % (prior.get("pid", "unknown"), prior.get("owner_kind", "unknown")))
+            if prior and not _same_pid_space(prior.get("host")):
+                message += (", host %s; a lease from another host or container is recovered only"
+                            " when %s is older than %.0f s (%s), else delete %s once its holder is gone"
+                            % (prior.get("host") or "unknown", _heartbeat_path(path).name,
+                               _stale_seconds(), LOCK_STALE_SECONDS_ENV, path))
+            raise RuntimeError(message)
     lease = {**payload, "adopted": False, "path": str(path)}
+    running = None
     try:
+        running = _start_heartbeat(path, token)
         yield lease
     finally:
+        _stop_heartbeat(path, token, running)
         current = _read_lock(path)
         if current.get("token") == token and int(current.get("pid") or -1) == os.getpid():
             try:

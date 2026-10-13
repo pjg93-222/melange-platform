@@ -47,9 +47,9 @@ AF_STATE = {'REF_PRESS_OWN_DOMAIN': REF_PRESS_OWN_DOMAIN, 'REF_ROSTER_FILTER': R
             'REF_IDENTICAL_ONCE': REF_IDENTICAL_ONCE}
 FILTERED = collections.Counter()   # what each admission filter excluded, reported in the artifact
 MODEL = 'claude-fable-5'
-CACHE = B + r'\data\members\member_reference_cache_fable.jsonl'
+CACHE = os.path.join(B, 'data', 'members', 'member_reference_cache_fable.jsonl')
 
-C = {m['member']: m for m in json.load(open(B + r'\data\engine\congestion.json'))}
+C = {m['member']: m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
 
 def norm(s):
     s = unicodedata.normalize('NFD', s); s = ''.join(c for c in s if not unicodedata.combining(c))
@@ -133,7 +133,7 @@ def resolve_ref(text_l, speaker):
 def extract():
     """All (speaker -> referenced, source, date, window) mentions passing the ritual prefilter."""
     refs = []
-    con = sqlite3.connect(B + r'\social_media.db', timeout=120)
+    con = sqlite3.connect(os.path.join(B, 'social_media.db'), timeout=120)
     for spk, date, src, text in con.execute("SELECT member, date, source, text FROM speeches"):
         if spk not in C or not text: continue
         tl = ' ' + text.lower() + ' '
@@ -166,13 +166,13 @@ def extract():
     # X original-post mentions (framed text; plain RTs counted separately as endorsement events)
     try:
         import openpyxl
-        con2 = sqlite3.connect(B + r'\social_media.db', timeout=120)
+        con2 = sqlite3.connect(os.path.join(B, 'social_media.db'), timeout=120)
         h2m = {}
         bio2name = {C[m]['bioguide']: m for m in C if C[m].get('bioguide')}
         for bio, tw in con2.execute("SELECT bioguide,twitter FROM members WHERE twitter IS NOT NULL AND twitter!=''"):
             if bio in bio2name: h2m[tw.lower().lstrip('@')] = bio2name[bio]
         con2.close()
-        ws = openpyxl.load_workbook(B + r'\Quorum Processed.xlsx', read_only=True)['Members']
+        ws = openpyxl.load_workbook(os.path.join(B, 'Quorum Processed.xlsx'), read_only=True)['Members']
         hdr = [c.value for c in next(ws.iter_rows(min_row=1, max_row=1))]
         im, ic, irt, idt = hdr.index('member'), hdr.index('Content'), hdr.index('is_rt'), hdr.index('dt') if 'dt' in hdr else None
         for row in ws.iter_rows(min_row=2, values_only=True):
@@ -309,7 +309,7 @@ if '--score' in sys.argv or '--rebuild' in sys.argv:
     done = errs = 0
     error_details=[]
     if todo:
-        cf = io.open(CACHE, 'a', encoding='utf-8')
+        cf = io.open(CACHE, 'a', encoding='utf-8', newline='\r\n')
         with ThreadPoolExecutor(max_workers=int(os.environ.get('REF_WORKERS', '2' if _transport=='claude-cli' else '8'))) as ex:
             for f in as_completed([ex.submit(work, r) for r in todo]):
                 r, out, err, provenance = f.result()
@@ -376,15 +376,15 @@ if '--score' in sys.argv or '--rebuild' in sys.argv:
     dump_atomic({'edges': out_edges, 'dyad_cap': DYAD_CAP, 'model': ', '.join(sorted(_cache_models)) or MODEL,
                  'admission_filters': RF.admission_filters_block(AF_STATE, FILTERED),
                  'provenance': 'substantive member references (formality discarded per user 2026-07-04); speeches+press+X; Fable-valenced'},
-                B + r'\member_references.json')
+                os.path.join(B, 'member_references.json'))
     npos = sum(1 for e in out_edges if e['net'] > 0.2); nneg = sum(1 for e in out_edges if e['net'] < -0.2)
     print('member_references.json: %d substantive directed edges | positive %d | negative %d' % (len(out_edges), npos, nneg))
     sys.exit(0)
 
 if '--verify' in sys.argv:
     # the user's eyeball sheet: every edge with its evidence quotes (person-check + valence-check)
-    d = json.load(open(B + r'\member_references.json', encoding='utf-8'))
-    outp = B + r'\data\members\member_reference_verify.csv'
+    d = json.load(open(os.path.join(B, 'member_references.json'), encoding='utf-8'))
+    outp = os.path.join(B, 'data', 'members', 'member_reference_verify.csv')
     with io.open(outp, 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.writer(f)
         w.writerow(['speaker', 'about', 'net', 'pos', 'neg', 'neu', 'n_raw', 'sources',

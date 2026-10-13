@@ -4,7 +4,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import json
 from datetime import datetime,timezone
-from paths import ROOT
+from paths import ROOT, stored_name, to_host
 from moneyball_core import dump_atomic
 from collect.refresh_fec_money import digest
 
@@ -17,11 +17,11 @@ def apply(root):
     age=(datetime.now(timezone.utc)-datetime.fromisoformat(d['checked_at'])).total_seconds()
     if d.get('status')!='PASS' or not -300<=age<=8*86400: raise ValueError('FEC refresh is failed/stale')
     for dependency,wanted in d['dependencies'].items():
-        if Path(dependency).name!='congestion.json' and digest(dependency)!=wanted:
+        if stored_name(dependency)!='congestion.json' and digest(to_host(dependency))!=wanted:
             raise ValueError('FEC policy/identity mapping changed since collection')
     for source in d['sources']:
-        if digest(source['path'])!=source['sha256']: raise ValueError('FEC evidence hash mismatch')
-    output=d['output'];candidate=Path(output['path'])
+        if digest(to_host(source['path']))!=source['sha256']: raise ValueError('FEC evidence hash mismatch')
+    output=d['output'];candidate=Path(to_host(output['path']))
     if digest(candidate)!=output['sha256']: raise ValueError('FEC money projection hash mismatch')
     data=json.loads(candidate.read_text(encoding='utf-8'))
     target=root/'data/engine/congestion.json';old=json.loads(target.read_text(encoding='utf-8'))

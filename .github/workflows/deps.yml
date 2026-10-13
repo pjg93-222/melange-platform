@@ -1,7 +1,7 @@
 # Exported to .github/workflows/deps.yml. Offline dependency bundles, rebuilt only when a lock
 # changes. One draft release per lock state: deps-<hash12>, hash of every lock that feeds it.
 # What is built here: the Linux wheelhouse (compute runs in Linux containers, D-173, so there is no Windows wheelhouse).
-# The npm cache lives in Geo's own workflow (no cross-repo token); the R bundle is switched off (see r-bundle below).
+# The npm cache lives in Geo's own workflow (no cross-repo token). The R bundle (job r-bundle) is the lock's exact versions.
 name: deps
 
 on:
@@ -13,9 +13,11 @@ on:
 permissions: {}
 
 env:
-  # Dated Posit Package Manager snapshot: the R bundle is reproducible from this date alone.
-  # TODO(Paul): ratify the date. R_VERSION is the minor of ops/locks/r-packages.txt (made with R 4.6.0); binaries are per minor.
-  PPM_SNAPSHOT_DATE: "2026-10-01"
+  # Base Posit Package Manager snapshot of the R bundle: exact per-package pins (decided 2026-10-12). It serves 199 of the 214
+  # packages of ops/locks/r-packages.txt at the lock version; ops/locks/r-package-repos.txt names the dated repo for each of the
+  # other 15. The same date and pins as docker/compute-mentat.Dockerfile (a test keeps the date equal). R_VERSION is the minor
+  # of ops/locks/r-packages.txt (made with R 4.6.0); binaries are per minor.
+  PPM_SNAPSHOT_DATE: "2026-06-19"
   R_VERSION: "4.6"
 
 jobs:
@@ -56,20 +58,20 @@ jobs:
           for lock in ops/locks/*.linux.txt; do   # pip locks only: r-packages.txt is not a requirements file
             name=$(basename "$lock" .txt)
             python -m pip download --require-hashes --only-binary=:all: --no-deps \
-              --platform manylinux2014_x86_64 --python-version 3.12 --implementation cp --abi cp312 \
+              --platform manylinux2014_x86_64 --platform manylinux_2_17_x86_64 --platform manylinux_2_28_x86_64 \
+              --platform manylinux_2_34_x86_64 \
+              --python-version 3.12 --implementation cp --abi cp312 \
               -r "$lock" -d "wheelhouse/$name/manylinux2014_x86_64"
           done
           tar --sort=name --owner=0 --group=0 --numeric-owner -cf - wheelhouse | gzip -n -9 > wheelhouse.tar.gz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: {name: wheelhouse, path: wheelhouse.tar.gz}
 
-  # DISABLED: re-enabled by the Mentat compute lane once the PPM snapshot date is ratified.
-  # (The 2026-10-01 placeholder date serves newer package versions than ops/locks/r-packages.txt names, so the job stops by
-  # design. The job is kept whole: to re-enable, set the ratified PPM_SNAPSHOT_DATE above, change `if: false` back to the
-  # exists test below, and add r-bundle to publish's needs.)
+  # The R bundle: Windows binaries of exactly the lock's versions (ops/locks/r-packages.txt). It was switched off until the PPM
+  # date was ratified; exact per-package pins (decided 2026-10-12) replace the single date, so it is on again.
   r-bundle:
     needs: key
-    if: false   # was: needs.key.outputs.exists != 'true'
+    if: needs.key.outputs.exists != 'true'
     runs-on: windows-2022
     permissions: {contents: read}
     steps:
@@ -77,7 +79,7 @@ jobs:
         with: {persist-credentials: false}
       - uses: r-lib/actions/setup-r@f9a764fea8d5c63df6ef9a5c7795bf7deb5d7e05 # v2
         with: {r-version: "${{ env.R_VERSION }}"}
-      - name: Download win.binary packages from the dated snapshot
+      - name: Download win.binary packages, each from the dated repo that carries exactly its lock version
         shell: Rscript {0}
         run: |
           lines <- trimws(readLines("ops/locks/r-packages.txt"))
@@ -85,21 +87,34 @@ jobs:
           stopifnot(length(lines) > 0, all(grepl("^[A-Za-z][A-Za-z0-9.]*==[0-9][0-9.-]*$", lines)))
           pkgs <- sub("==.*$", "", lines)
           want <- sub("^.*==", "", lines)
-          repo <- sprintf("https://packagemanager.posit.co/cran/%s", Sys.getenv("PPM_SNAPSHOT_DATE"))
-          # the lock names exact versions: a snapshot that serves others is a different bundle, not a quiet substitution
-          avail <- available.packages(repos = repo, type = "win.binary")
-          have <- avail[match(pkgs, rownames(avail)), "Version"]
-          off <- paste0(pkgs, "==", want, " (snapshot: ", have, ")")[is.na(have) | have != want]
-          if (length(off)) stop("snapshot ", Sys.getenv("PPM_SNAPSHOT_DATE"), " differs from the lock: ", paste(off, collapse = ", "))
+          # the base snapshot for every package, then the dated repo ops/locks/r-package-repos.txt names for the 15 it does not serve
+          date <- rep(Sys.getenv("PPM_SNAPSHOT_DATE"), length(pkgs))
+          pins <- trimws(readLines("ops/locks/r-package-repos.txt"))
+          pins <- strsplit(pins[nzchar(pins) & !startsWith(pins, "#")], "[[:space:]]+")
+          for (pin in pins) {
+            i <- match(sub("==.*$", "", pin[1]), pkgs)
+            stopifnot(!is.na(i), want[i] == sub("^.*==", "", pin[1]))
+            date[i] <- pin[2]
+          }
+          repo <- function(d) sprintf("https://packagemanager.posit.co/cran/%s", d)
+          # the lock names exact versions: a repo that serves others is a different bundle, not a quiet substitution
+          avail <- lapply(structure(unique(date), names = unique(date)), function(d) available.packages(repos = repo(d), type = "win.binary"))
+          have <- mapply(function(p, d) if (p %in% rownames(avail[[d]])) avail[[d]][p, "Version"] else NA_character_, pkgs, date)
+          off <- paste0(pkgs, "==", want, " (", date, ": ", have, ")")[is.na(have) | have != want]
+          if (length(off)) stop("repos differ from the lock: ", paste(off, collapse = ", "))
           dir.create("r-bundle")
-          got <- download.packages(pkgs, destdir = "r-bundle", repos = repo, type = "win.binary")
-          writeLines(c(sprintf("snapshot %s", Sys.getenv("PPM_SNAPSHOT_DATE")), basename(got[, 2])), "r-bundle/MANIFEST.txt")
+          manifest <- sprintf("base snapshot %s, %d pinned", Sys.getenv("PPM_SNAPSHOT_DATE"), length(pins))
+          for (d in names(avail)) {
+            got <- download.packages(pkgs[date == d], destdir = "r-bundle", available = avail[[d]], repos = repo(d), type = "win.binary")
+            manifest <- c(manifest, sprintf("%s %s", basename(got[, 2]), d))
+          }
+          writeLines(manifest, "r-bundle/MANIFEST.txt")
       - run: tar -czf r-bundle.tgz r-bundle
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with: {name: r-bundle, path: r-bundle.tgz}
 
   publish:
-    needs: [key, wheelhouse]
+    needs: [key, wheelhouse, r-bundle]
     runs-on: ubuntu-24.04
     permissions: {contents: write}
     steps:
@@ -113,4 +128,4 @@ jobs:
           set -euo pipefail
           (cd out && sha256sum * > SHA256SUMS)
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --title "$TAG" \
-            --notes "Offline dependency bundle (Linux wheelhouse). Verify against SHA256SUMS." out/*
+            --notes "Offline dependency bundle (Linux wheelhouse, R win.binary packages). Verify against SHA256SUMS." out/*

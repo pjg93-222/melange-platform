@@ -344,7 +344,7 @@ if __name__ == '__main__':
         write_artifact(rows, cache, len(selected)); sys.exit(0)
     if '--local' in sys.argv:
         todo=[r for r in selected if cache_key(r) not in cache]
-        with io.open(CACHE,'a',encoding='utf-8') as cf:
+        with io.open(CACHE,'a',encoding='utf-8', newline='\r\n') as cf:
             for r in todo:
                 o=local_explicit(r); cache[cache_key(r)]=o
                 cf.write(json.dumps({'k':cache_key(r),'out':o},ensure_ascii=True)+'\n')
@@ -353,7 +353,7 @@ if __name__ == '__main__':
     if '--refresh-local' in sys.argv:
         todo=[r for r in selected if str((cache.get(cache_key(r)) or {}).get('classifier','')).startswith('local_explicit_') and
                (cache.get(cache_key(r)) or {}).get('classifier')!=LOCAL_CLASSIFIER]
-        with io.open(CACHE,'a',encoding='utf-8') as cf:
+        with io.open(CACHE,'a',encoding='utf-8', newline='\r\n') as cf:
             for r in todo:
                 o=local_explicit(r);cache[cache_key(r)]=o
                 cf.write(json.dumps({'k':cache_key(r),'out':o},ensure_ascii=True)+'\n')
@@ -386,7 +386,7 @@ if __name__ == '__main__':
                     if 'rate' not in last.lower() and 'overload' not in last.lower(): break
                     time.sleep(min(30,2**attempt))
             return r,None,last
-        cf=io.open(CACHE,'a',encoding='utf-8')
+        cf=io.open(CACHE,'a',encoding='utf-8', newline='\r\n')
         with ThreadPoolExecutor(max_workers=int(os.environ.get('PERSONAL_WORKERS','12'))) as ex:
             for f in as_completed([ex.submit(work,r) for r in todo]):
                 r,o,e=f.result()

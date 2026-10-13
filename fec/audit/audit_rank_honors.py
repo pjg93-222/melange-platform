@@ -371,5 +371,5 @@ if __name__ == '__main__':
     args = parser.parse_args()
     result = audit(args.root, args.surfaces, args.generation)
     if args.output:
-        Path(args.output).write_text(json.dumps(result, indent=2), encoding='utf-8')
+        Path(args.output).write_text(json.dumps(result, indent=2), encoding='utf-8', newline='\r\n')
     print(json.dumps(result, indent=2))

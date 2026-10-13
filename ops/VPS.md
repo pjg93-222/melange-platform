@@ -234,14 +234,20 @@ CI and the gate (`ops/security_gate.py`, whose CLI the workflow now uses as is):
 - Geo's workflow is its own (`.github/workflows/release.yml` in Geo); `ops/terrier/geo-release.yml` is gone. It passes
   `GIT_SHA`/`BUILD_TIME`, refuses an image holding data files, and writes `digests.json` as
   `{tag, commit, images: {"terrier-web": ref@digest}}`, which `release.py` parses.
-- `deps.yml` builds the Linux wheelhouse only (hash-checked `pip download` of `ops/locks/*.linux.txt`; no Windows wheelhouse,
-  because compute runs in Linux containers, D-173) and needs no secret. The npm cache moved to Geo's own
-  `.github/workflows/deps.yml` (run by hand; it needs no cross-repo token). The `r-bundle` job is switched off (`if: false`)
-  until the Mentat compute lane re-enables it once the `PPM_SNAPSHOT_DATE` is ratified. When it is on, it builds the R bundle
-  from `ops/locks/r-packages.txt` (`name==version`, CRAN only; the export no longer carries `mentat/R-packages.lock.tsv`) and
-  fails when the dated snapshot serves a different version of any package. `R_VERSION` is the minor that lock was made
-  with (4.6). To refresh the lock after Mentat's library changes, regenerate it from `mentat/R-packages.lock.tsv` (drop the
-  paths and the packages that ship inside R) and keep the header comment naming the source and date.
+- `deps.yml` builds the Linux wheelhouse (hash-checked `pip download` of `ops/locks/*.linux.txt`; no Windows wheelhouse,
+  because compute runs in Linux containers, D-173) and the R bundle, and needs no secret. The npm cache moved to Geo's own
+  `.github/workflows/deps.yml` (run by hand; it needs no cross-repo token). The `r-bundle` job builds the R bundle (Windows
+  binaries) from `ops/locks/r-packages.txt` (`name==version`, CRAN only; the export no longer carries
+  `mentat/R-packages.lock.tsv`) with exact per-package pins (decided 2026-10-12): the base `PPM_SNAPSHOT_DATE` (2026-06-19)
+  serves 199 of the 214 packages at the lock version, and `ops/locks/r-package-repos.txt` names the dated repo that carries
+  exactly the lock's version of each of the other 15. The job fails when any repo serves a different version of any package.
+  It was switched off until the date was ratified; the pins replaced the date. `R_VERSION` is the minor that lock was made
+  with (4.6). The `compute-mentat` image takes the same pins (`ops/docker/compute-mentat.Dockerfile` installs the 199 from the
+  base date, then the 15 from their dated repos with `dependencies=FALSE`, then fails the build on any version that is not the
+  lock's; the smoke test accepts 0 differences, `R_LOCK_MISMATCHES_ACCEPTED`). To refresh the lock after Mentat's library
+  changes, regenerate it from `mentat/R-packages.lock.tsv` (drop the paths and the packages that ship inside R), keep the
+  header comment naming the source and date, and re-resolve `ops/locks/r-package-repos.txt` (one dated repo per package the
+  base date does not serve at the lock version; the order of that file is install order).
 
 ## 8. Design calls to veto
 

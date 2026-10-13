@@ -121,8 +121,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # Build only what changed: the image tag inputs-<hash> names the Dockerfile, what it COPYs and ops/images.lock
+      # (ops/release_lib/inputs.py). Found = that image is reused, same digest, nothing rebuilt; the test, security and scan
+      # jobs still run on it. How other workflows adopt this: ops/RELEASE.md, "Automatic propagation".
+      - name: Input hash of this image
+        id: inputs
+        env: {NAME: "${{ matrix.name }}"}
+        run: echo "hash=$(python3 ops/release_lib/inputs.py hash "$NAME")" >> "$GITHUB_OUTPUT"
+      - name: Reuse the image built from the same inputs, if there is one
+        id: reuse
+        env: {NAME: "${{ matrix.name }}", HASH: "${{ steps.inputs.outputs.hash }}"}
+        run: bash ops/ci/build_or_reuse.sh check "ghcr.io/pjg93-222/$NAME" "$HASH"
       - name: Build and push (tag for humans, digest for the manifest)
         id: push
+        if: steps.reuse.outputs.reused != 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -139,12 +151,19 @@ jobs:
             BUILD_TIME=${{ steps.base.outputs.created }}
             SOURCE_DATE_EPOCH=${{ steps.base.outputs.epoch }}
       - name: Smoke-import inside the pushed image
+        if: steps.reuse.outputs.reused != 'true'
         env:
           IMAGE: ghcr.io/pjg93-222/${{ matrix.name }}@${{ steps.push.outputs.digest }}
           SMOKE: ${{ matrix.smoke }}
         run: docker run --rm "$IMAGE" python -c "$SMOKE"
+      - name: Tag the new image with its inputs, so the next release can reuse it
+        if: steps.reuse.outputs.reused != 'true'
+        env: {NAME: "${{ matrix.name }}", HASH: "${{ steps.inputs.outputs.hash }}", DIGEST: "${{ steps.push.outputs.digest }}"}
+        run: bash ops/ci/build_or_reuse.sh tag "ghcr.io/pjg93-222/$NAME" "$HASH" "$DIGEST"
       - name: Record digest
-        env: {DIGEST: "${{ steps.push.outputs.digest }}", NAME: "${{ matrix.name }}"}
+        env:
+          DIGEST: "${{ steps.reuse.outputs.reused == 'true' && steps.reuse.outputs.digest || steps.push.outputs.digest }}"
+          NAME: "${{ matrix.name }}"
         run: |
           [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::no digest from build"; exit 1; }
           echo "$DIGEST" > "digest-$NAME.txt"

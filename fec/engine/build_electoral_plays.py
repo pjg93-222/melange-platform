@@ -3,17 +3,17 @@ from moneyball_core import build_party_map, dump_atomic   # S2-03: crash-safe ar
 import json,sys,csv,os,collections,statistics,openpyxl
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-CS=json.load(open(B+r'\category_stance.json')); SCO=CS['scores']; cats=CS['cats']
-EL=json.load(open(B+r'\data\money\electoral.json'))
-C={m['member']:m for m in json.load(open(B+r'\data\engine\congestion.json'))}; members=list(C.keys())
-party=build_party_map([(congN,B+r'\votes\HS%d_members.csv'%congN) for congN in (119,118,117)])
+CS=json.load(open(os.path.join(B, 'category_stance.json'))); SCO=CS['scores']; cats=CS['cats']
+EL=json.load(open(os.path.join(B, 'data', 'money', 'electoral.json')))
+C={m['member']:m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}; members=list(C.keys())
+party=build_party_map([(congN,os.path.join(B, 'votes', 'HS%d_members.csv'%congN)) for congN in (119,118,117)])
 prt={m:party.get(C[m].get('bioguide',''),'?') for m in members}
 avgP={}
 for c in cats:
     for p in ('D','R'):
         vals=[SCO[m][c] for m in members if prt[m]==p and m in SCO]
         avgP[(p,c)]=statistics.mean(vals) if vals else 0.0
-ra=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)['Rank & Allocation']
+ra=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)['Rank & Allocation']
 OV={ra.cell(r,1).value:ra.cell(r,7).value for r in range(3,536) if ra.cell(r,1).value}
 PROO={'Champion','Defender','Ally'}
 plays={}
@@ -34,7 +34,7 @@ for m in members:
                   'value':round(max(primary,general),3),'comp':comp,'party':p,'overall':ov,'elavg':EL.get(m,{}).get('elavg')}
     else:
         plays[m]={'play':'none','value':0,'comp':comp,'party':p,'overall':ov}
-dump_atomic(plays,B+r'\data\money\electoral_plays.json')
+dump_atomic(plays,os.path.join(B, 'data', 'money', 'electoral_plays.json'))
 def show(kind,key,n=8):
     xs=[(m,plays[m]) for m in members if plays[m]['play']==kind]
     xs=sorted(xs,key=lambda x:-x[1].get(key,x[1]['value']))[:n]

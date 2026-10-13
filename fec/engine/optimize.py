@@ -18,7 +18,7 @@ Usage:  python fec/engine/optimize.py            (default $2.5M, all issues)
 import sys, os, heapq, collections, importlib.util, re
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-def imp(n,f): s=importlib.util.spec_from_file_location(n,B+r'\fec\engine\%s'%f); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
+def imp(n,f): s=importlib.util.spec_from_file_location(n,os.path.join(B, 'fec', 'engine', '%s'%f)); m=importlib.util.module_from_spec(s); s.loader.exec_module(m); return m
 fm=imp('fm','flip_model.py'); mr=imp('mr','money_response.py')
 # Pot = one PAC's budget (Paul 2026-09-30). PMAX $10k = that PAC's per-candidate per-cycle limit ($5k primary +
 # $5k general). Headroom is measured above existing CU money because other CU PACs' gifts do not count against
@@ -37,7 +37,7 @@ def scoped_output_path(explicit,default,selector):
     slug=re.sub(r'[^a-z0-9]+','_',selector.lower()).strip('_') or 'topic'
     stem,ext=os.path.splitext(default)
     return stem+'_topic_'+slug+ext
-OUTF=scoped_output_path(os.environ.get('OPT_OUT'),B+r'\optimize_result.json',ONLY)
+OUTF=scoped_output_path(os.environ.get('OPT_OUT'),os.path.join(B, 'optimize_result.json'),ONLY)
 cats=[c for c in fm.cats if (not ONLY or ONLY.lower() in c.lower())]
 if ONLY and not cats: raise ValueError('TOPIC %r matches no category'%ONLY)   # QME 2026-10-01: a typo used to finish with base 0 and an empty plan under a topic-scoped filename
 members=fm.members

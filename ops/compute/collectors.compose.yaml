@@ -1,0 +1,128 @@
+# Compute-plane collector jobs on the laptop under Docker Desktop (D-173 lane 3b, D-175, D-179, D-180). NOT the VPS serve stack
+# (ops/compose.yaml). Run by digest only: IMAGE_COMPUTE_COLLECTOR is written from the committed digest lock by the job wrapper, never a tag.
+#
+#   collect  live collection, network egress, the API keys as secrets          docker compose -f ops/compute/collectors.compose.yaml --profile collect run --rm collect <cmd>
+#   llm      the claude-CLI steps, network egress, the CLI login as a secret   ... --profile llm run --rm llm <cmd>
+#   replay   proof run: network_mode none, tree read-only, cassette read-only, no secrets   ... --profile replay run --rm replay python /melange/ops/compute/http_replay.py replay /cassettes/<run> -- /melange/fec/... ARGS
+#
+# Profiles keep `docker compose up` from starting any job. Rules this file keeps (ops/tests/test_compute_collector_policy.py):
+#   - every service: read-only root, uid 10001, cap_drop ALL, no-new-privileges, tmpfs /tmp; no ports, no privileged, no Docker socket;
+#   - only `llm` carries the CLI login and only `collect` carries the API keys; `replay` has no network and no secret at all;
+#   - secrets are `file:` sources named by variables (the wrapper decrypts DPAPI-held values per run and deletes them after), mounted
+#     read-only at /run/secrets/<name> by Compose; nothing secret is in an environment block, a build arg or the image;
+#   - least-privilege mounts (decided 2026-10-12): the only part of %LOCALAPPDATA%\Melange any service mounts is lda_rebuild\raw, on
+#     `collect` alone (the BILLSTATUS archives); only `collect` has the Melange tree writable; `llm` has it read-only plus the three
+#     directories it writes; `replay` has it read-only plus a separate output dir.
+# Host paths arrive as variables from the wrapper (ops/compute/run_job.ps1, lane C1); the design's mount table (2.0) says which:
+#   MELANGE_HOST_ROOT            the Melange tree (a frozen snapshot copy for parity runs, the live tree for production runs)
+#   GLASSBOX_HOST_EVENTS         ~\.claude\glassbox\events
+#   LDA_RAW_HOST_DIR             %LOCALAPPDATA%\Melange\lda_rebuild\raw (collect only: the BILLSTATUS archives, nothing else of lda_rebuild)
+#   CASSETTE_HOST_DIR            where http_replay.py recorded on Windows
+#   REPLAY_OUT_HOST_DIR          an existing, writable, per-run directory for a replay's store and outputs (the wrapper seeds it)
+#   GOVINFO_KEY_FILE_HOST, FEC_DATA_GOV_FILE_HOST, CLAUDE_CREDENTIALS_FILE_HOST   (%USERPROFILE%\.claude\.credentials.json)
+# A job that does not use a secret still needs its variable set when Compose parses the file: point it at any existing empty file.
+# social_media.db (507 MB, WAL) is NOT safe on /melange across the VM file share until the wrapper stages it (design 2.4).
+#
+# Mounts, traced from the collector code (the design's table listed %LOCALAPPDATA%\Melange read-write for all three services):
+#   %LOCALAPPDATA%\Melange: mounted only as lda_rebuild\raw, read-write, on `collect` (LDA_RAW_HOST_DIR ->
+#     /localappdata/Melange/lda_rebuild/raw). The collectors these jobs run read and write nothing else there:
+#     - fec/legislation/refresh_billstatus_bulk.py:91-92, whose default --raw-root is <LOCALAPPDATA>\Melange\lda_rebuild\raw; with the
+#       service's LOCALAPPDATA=/localappdata that is exactly the container path above, so the job needs no --raw-root and the archives
+#       (billstatus{congress}\) land on the host in place. lda_rebuild also holds the lobbying API keys (anthropic_key.txt,
+#       lda_api_key.txt): only its raw subfolder is bound, so they are not visible in any container. A listing of the host folder
+#       (names and extensions only; 38,359 files, 2026-10-12) found .json, .log, .zip, .tgz, .jsonl, .csv and .yaml files and no key,
+#       credential or token file;
+#     - fec/paths.py:23-29, constants only (STAFFER_NETWORK_LOCAL), no I/O.
+#     The rest of LOCALAPPDATA=/localappdata names a directory that does not exist, so any other path computed from it fails loudly
+#     instead of landing in /tmp.
+#     Collectors that are manual, not part of these jobs, and would each need their own subfolder mount (every one takes an override for
+#     the location, so a directory in the tree works too): Melange\demographics (DEMO_DATA_ROOT) in fec/collect/fetch_cbp_4digit.py:1578,
+#     fetch_cd_geography.py:342, fetch_district_employers.py:1227, fetch_financial_branches.py:1945, fetch_lodes_wac.py:544;
+#     Melange\fec_spending (FEC_SPENDING_RAW, FEC_SPENDING_OUT) in fec/collect/collect_fec_spending.py:1585-1592; Melange\lobbyview
+#     (LOBBYVIEW_RAW, LOBBYVIEW_OUT) in fec/lobbying/collect_lobbyview.py:1018. dashboard_password.txt belongs to the publish step, not to a collector.
+#   /melange, the Melange tree:
+#     collect  read-write, the whole tree. A bind mount is a directory or one file, and the root directory itself has to be writable:
+#              SQLite keeps social_media.db (WAL) at the root and creates its -wal, -shm and -journal files beside it
+#              (fetch_congressional_record.py:35,38; fetch_interviews.py:48,57; refresh_cspan_wj.py:74), and update_bill_repository.py
+#              writes bill_repository_live.json there through a temp file in the root and os.replace (update_bill_repository.py:237,524,690).
+#              Neither fits a read-only tree with read-write carve-outs. The wrapper stages the DB (design 2.4); until then this stays.
+#     llm      read-only, plus read-write bind mounts of exactly the directories it writes: data/legislation (refresh_sentinel_admissions.py:
+#              473,529; sentinel_admissions.json, the checkpoint and the evidence cache), audits/sentinel_admissions (:517, one directory per run)
+#              and data/members (member_reference_layer.py:50,335; the classification cache and receipt). One output is not covered:
+#              member_reference_layer.py:379 writes member_references.json at the tree root by temp file + os.replace (moneyball_core.dump_atomic),
+#              which no bind mount can allow. Its paths are portable since the melange-chain seams (os.path.join, :50); moving that
+#              file under data/members/ in the code is the fix, and then this mount list already covers it.
+#     replay   read-only. MONEYBALL_ROOT is /replay-out, a separate writable directory (REPLAY_OUT_HOST_DIR), so a replayed collector
+#              writes its store and outputs there and nowhere in the tree (the same split the record/replay tests use: code from the tree,
+#              data under a scratch root). The wrapper seeds /replay-out with whatever the run starts from. No Playwright profile volume.
+name: melange-collectors
+
+x-collector: &collector
+  image: ${IMAGE_COMPUTE_COLLECTOR:?digest reference from the committed images lock}
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=2g,mode=1777,noexec,nosuid"]
+  shm_size: 1gb            # Chromium
+  pids_limit: 512
+  mem_limit: 6g
+  restart: "no"
+  logging:
+    driver: json-file
+    options: {max-size: 10m, max-file: "3"}
+  environment: &collector-env
+    MONEYBALL_ROOT: /melange
+    LOCALAPPDATA: /localappdata      # only lda_rebuild/raw is mounted under it, on collect (see Mounts)
+    GLASSBOX_EVENTS_DIR: /glassbox/events
+
+services:
+  collect:
+    <<: *collector
+    profiles: [collect]
+    networks: [egress]
+    volumes:
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}", target: /melange, bind: {create_host_path: false}}
+      - {type: bind, source: "${LDA_RAW_HOST_DIR:?}", target: /localappdata/Melange/lda_rebuild/raw, bind: {create_host_path: false}}   # BILLSTATUS archives only (see Mounts)
+      - {type: bind, source: "${GLASSBOX_HOST_EVENTS:?}", target: /glassbox/events, bind: {create_host_path: false}}
+      - collector-profile:/profile      # the Playwright persistent Chrome profile (--profile /profile/<name>)
+    secrets: [govinfo_key, fec_data_gov]
+
+  llm:
+    <<: *collector
+    profiles: [llm]
+    networks: [egress]
+    volumes:
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}", target: /melange, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}/data/legislation", target: /melange/data/legislation, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}/data/members", target: /melange/data/members, bind: {create_host_path: false}}
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}/audits/sentinel_admissions", target: /melange/audits/sentinel_admissions, bind: {create_host_path: false}}
+      - {type: bind, source: "${GLASSBOX_HOST_EVENTS:?}", target: /glassbox/events, bind: {create_host_path: false}}
+    secrets: [claude_credentials]
+
+  replay:
+    <<: *collector
+    profiles: [replay]
+    network_mode: none
+    environment:
+      <<: *collector-env
+      MONEYBALL_ROOT: /replay-out
+      # Replay needs no key: http_replay.py redacts secret query parameters and headers before matching, so any value matches.
+      GOVINFO_KEY: replay-placeholder
+      FEC_API_KEY: replay-placeholder
+    volumes:
+      - {type: bind, source: "${MELANGE_HOST_ROOT:?}", target: /melange, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${REPLAY_OUT_HOST_DIR:?}", target: /replay-out, bind: {create_host_path: false}}
+      - {type: bind, source: "${CASSETTE_HOST_DIR:?}", target: /cassettes, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${GLASSBOX_HOST_EVENTS:?}", target: /glassbox/events, bind: {create_host_path: false}}
+
+networks:
+  egress: {}
+
+volumes:
+  collector-profile: {}
+
+secrets:
+  govinfo_key: {file: "${GOVINFO_KEY_FILE_HOST:?}"}
+  fec_data_gov: {file: "${FEC_DATA_GOV_FILE_HOST:?}"}
+  claude_credentials: {file: "${CLAUDE_CREDENTIALS_FILE_HOST:?}"}

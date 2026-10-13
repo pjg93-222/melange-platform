@@ -9,7 +9,7 @@ param(
   [ValidateRange(0,10000)]
   [int]$CrossReferenceMaxRequests = 100,
   [switch]$CrossReferenceOffline,
-  [string]$RLibraryPath = 'C:\Users\pgoff\AppData\Local\R\win-library\4.6'
+  [string]$RLibraryPath = $(if ($env:MENTAT_R_LIBRARY) { $env:MENTAT_R_LIBRARY } else { 'C:\Users\pgoff\AppData\Local\R\win-library\4.6' })
 )
 
 $ErrorActionPreference = 'Stop'

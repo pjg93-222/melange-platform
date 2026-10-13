@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Build the self-contained five-page industry surface family."""
 
-import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT
+import os as _o, sys as _s; _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__)))); from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 
 import argparse
 import csv
@@ -229,10 +229,7 @@ class IngestError(Exception):
 
 
 def _default_data_root():
-    local_appdata = os.environ.get("LOCALAPPDATA")
-    if not local_appdata:
-        raise IngestError("LOCALAPPDATA is not set; pass --data-root")
-    return os.path.join(local_appdata, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _billstatus_archive_paths(data_root):

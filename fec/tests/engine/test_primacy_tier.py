@@ -622,11 +622,11 @@ class IdentityBoundary(unittest.TestCase):
         with open(path, encoding='utf-8') as handle:
             source = handle.read()
         self.assertIn(
-            "open(MB_ROOT+r'\\archive_leg.json',encoding='utf-8')",
+            "open(os.path.join(MB_ROOT, 'archive_leg.json'),encoding='utf-8')",
             source,
         )
         self.assertIn(
-            "open(MB_ROOT+r'\\vote_category_lean.json',encoding='utf-8')",
+            "open(os.path.join(MB_ROOT, 'vote_category_lean.json'),encoding='utf-8')",
             source,
         )
         self.assertIn("unicodedata.normalize('NFC'", source)

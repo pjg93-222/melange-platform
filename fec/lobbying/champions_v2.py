@@ -21,7 +21,7 @@ import re
 import sys
 from datetime import datetime, timezone
 
-from paths import ROOT as MB_ROOT
+from paths import ROOT as MB_ROOT, LOCAL_MELANGE
 import members.historical_member_names as identity
 import members.member_identity as desk_identity
 
@@ -106,10 +106,7 @@ class ChampionsV2Error(RuntimeError):
 
 
 def _derived_dir():
-    local = os.environ.get("LOCALAPPDATA")
-    if not local:
-        raise ChampionsV2Error("LOCALAPPDATA is not set")
-    return os.path.join(local, "Melange", "lda_rebuild", "derived")
+    return os.path.join(LOCAL_MELANGE, "lda_rebuild", "derived")
 
 
 def _default_paths():

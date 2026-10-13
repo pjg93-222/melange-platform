@@ -1889,7 +1889,7 @@ def build_measure_audit(
 def write_json(path: Path, payload: Any) -> None:
     path.write_text(
         json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+        encoding="utf-8", newline='\r\n',
     )
 
 

@@ -1,0 +1,31 @@
+# How the office-calc image runs (D-174, D-175). The same hardening as the serve compose file, and no network: the
+# workbook arrives read-only on /in, the view copy and its receipt leave on /out, everything else is a throwaway tmpfs.
+# ops/security_gate.py images scans this file's rendered form (compose_policy) beside the image scan.
+#   IMAGE_OFFICE_CALC=ghcr.io/pjg93-222/office-calc@sha256:... OFFICE_IN_DIR=... OFFICE_OUT_DIR=... \
+#   docker compose -f ops/compute/office-calc.compose.yaml --profile office run --rm office-calc \
+#     --in /in/book.xlsx --expect-sha <sha256> --out /out/book.view.xlsx --receipt /out/book.view.xlsx.receipt.json
+# Tasks C1 (the full compute compose, run_job.ps1, images.lock) fold this service into ops/compute/compose.yaml.
+name: office-calc
+services:
+  office-calc:
+    image: ${IMAGE_OFFICE_CALC:?set IMAGE_OFFICE_CALC to the office-calc image by digest}
+    profiles: ["office"]
+    user: "10001:10001"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
+    pids_limit: 512
+    mem_limit: ${OFFICE_MEM_LIMIT:-12g}
+    tmpfs:
+      - /tmp:rw,nosuid,size=4g,uid=10001,gid=10001,mode=0700
+    volumes:
+      - type: bind
+        source: ${OFFICE_IN_DIR:?directory holding the workbook copy}
+        target: /in
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${OFFICE_OUT_DIR:?directory that receives the view copy and the receipt}
+        target: /out
+        bind: {create_host_path: false}

@@ -33,6 +33,7 @@ from zipfile import BadZipFile, ZipFile
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from paths import ROOT
 from stance.workbook_cell_sync import sheet_paths
+from xlsx_openpyxl_authors import AUTHOR_MODULE, author_honors_views, xlsx_writer
 
 NS = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main'
 REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
@@ -642,9 +643,14 @@ def publish(workbook, root=ROOT, *, replace_generated=False):
     authored = work / 'recognition_views.xlsx'
     plan.write_text(json.dumps({'generation_id': honors['generation_id'], 'output': str(authored),
                                 'views': workbook_views(honors)}, ensure_ascii=False), encoding='utf-8')
-    runtime = json.loads((root / 'data/engine/artifact_tool_runtime.json').read_text(encoding='utf-8'))
-    helper = Path(__file__).with_suffix('.cjs')
-    env = {**os.environ, 'ARTIFACT_TOOL_NODE_MODULES': runtime['node_modules']}
+    # MELANGE_XLSX_WRITER=openpyxl authors the views in process (D-178); the default runs the Node helper.
+    writer = xlsx_writer()
+    if writer == 'artifact':
+        runtime = json.loads((root / 'data/engine/artifact_tool_runtime.json').read_text(encoding='utf-8'))
+        helper = Path(__file__).with_suffix('.cjs')
+        env = {**os.environ, 'ARTIFACT_TOOL_NODE_MODULES': runtime['node_modules']}
+    else:
+        helper = AUTHOR_MODULE
     # The hash of the bytes about to be modified -- equal to the binding's
     # after_sha256 whenever the legacy scope would have allowed this publication.
     before = observed
@@ -668,10 +674,14 @@ def publish(workbook, root=ROOT, *, replace_generated=False):
     # Exactness is sticky and can only be lost: a reused copy that already predates
     # someone's edits does not become a whole-file restore again at the next cycle.
     original_exact = True if previous is None else (previous.get('original_exact', True) and not scoped)
-    result = subprocess.run([runtime['node'], str(helper), str(plan)], env=env)
+    if writer == 'artifact':
+        author_exit = subprocess.run([runtime['node'], str(helper), str(plan)], env=env).returncode
+    else:
+        author_exit = None
+        author_honors_views(plan)
     proof_path = Path(str(authored) + '.receipt.json')
     if not proof_path.exists():
-        raise RuntimeError('No artifact-authored recognition workbook receipt; exit %s' % result.returncode)
+        raise RuntimeError('No artifact-authored recognition workbook receipt; exit %s' % author_exit)
     proof = json.loads(proof_path.read_text(encoding='utf-8'))
     if (proof.get('status') != 'PASS' or proof.get('plan_sha256') != sha(plan)
             or proof.get('helper_sha256') != sha(helper) or proof.get('output_sha256') != sha(authored)):
@@ -702,7 +712,7 @@ def publish(workbook, root=ROOT, *, replace_generated=False):
     receipt = {'schema': 'honors-workbook-v1', 'status': 'PASS',
                'generation_id': honors['generation_id'], 'before_sha256': before,
                'after_sha256': sha(workbook), 'changed_parts': parts,
-               'author_exit_code': result.returncode, 'verified_members': len(honors['members']),
+               'author_exit_code': author_exit, 'verified_members': len(honors['members']),
                'preservation': 'All existing model cell values, formulas and caches retained; analytical label column hidden.'}
     (work / 'publish_receipt.json').write_text(json.dumps(receipt, indent=2), encoding='utf-8')
     # before_sha256/after_sha256 stay as whole-file provenance; honors_region is

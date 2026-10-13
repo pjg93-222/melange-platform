@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 
 import pandas as pd
-from paths import ROOT
+from paths import ROOT, stored_name
 from moneyball_core import dump_atomic
 from legislation.collect_official_rollcall_events import canonical_category
 
@@ -69,7 +69,7 @@ def build(root, source, archive, historical_exclusions, names_path, output):
     from legislation import sentinel_admissions as SA
     admissions=SA.load(root)
     required = {f'HS{c}_{kind}.csv' for c in (117, 118, 119) for kind in ('members', 'rollcalls', 'votes')}
-    if source_receipt.get('status') != 'PASS' or {Path(v['path']).name for v in source_receipt['files']} != required:
+    if source_receipt.get('status') != 'PASS' or {stored_name(v['path']) for v in source_receipt['files']} != required:
         raise ValueError('Incomplete Voteview source snapshot')
     dependencies = [source / 'receipt.json', archive, Path(historical_exclusions), Path(names_path),
                     root / 'data/legislation/cfpb_bill_directions.csv',
@@ -77,7 +77,7 @@ def build(root, source, archive, historical_exclusions, names_path, output):
                     root / 'fec/legislation/vote_by_category.py', Path(__file__).resolve()]
     if (root/SA.RELATIVE).exists(): dependencies.append(root/SA.RELATIVE)
     for record in source_receipt['files']:
-        path = source / Path(record['path']).name
+        path = source / stored_name(record['path'])
         if sha(path) != record['sha256']:
             raise ValueError(f'Source snapshot bytes changed: {path}')
         dependencies.append(path)

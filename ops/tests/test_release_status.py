@@ -3,6 +3,7 @@ local remotes + fake restic/sftp/gh shims, a data-only release, and status with 
 from __future__ import annotations
 
 import contextlib
+import datetime
 import io
 import json
 import os
@@ -58,7 +59,9 @@ class RunEnv:
         self.remote.mkdir()
         self.gh.mkdir()
         self.env = install_shims(tmp / "bin", ["restic", "sftp", "cloudflared", "gh"], self.log, self.remote, {"FAKE_GH_DIR": str(self.gh)})
+        next_id = core.next_release_id                              # the tests name release ids by date: stop the clock at 2026-10-12 (UTC midnight broke them)
         patches = [mock.patch.dict(os.environ, self.env), mock.patch.object(release, "SERVE_SETS", self.sets),
+                   mock.patch.object(core, "next_release_id", lambda existing, today=None: next_id(existing, today or datetime.date(2026, 10, 12))),
                    mock.patch.object(gates, "security_gate", return_value={"ok": True, "detail": "stub"})]
         for patch in patches:
             started = patch.start()

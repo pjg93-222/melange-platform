@@ -25,7 +25,7 @@ B = MB_ROOT
 CL = ["support", "oppose", "neutral", "unrelated"]
 
 fable = {}
-for ln in open(B + r"\data\stance\api_press_cache_fable.jsonl", encoding="utf-8"):
+for ln in open(os.path.join(B, "data", "stance", "api_press_cache_fable.jsonl"), encoding="utf-8"):
     try:
         d = json.loads(ln); fable[d["k"]] = d["out"]
     except Exception: pass
@@ -92,7 +92,7 @@ def featurize(recs):
     return np.array(FB), inps, fts
 
 # ---- train on ALL golds ----
-gold = [r for r in csv.DictReader(open(B + r"\data\stance\cu_golden_labels.csv", encoding="utf-8-sig"))
+gold = [r for r in csv.DictReader(open(os.path.join(B, "data", "stance", "cu_golden_labels.csv"), encoding="utf-8-sig"))
         if (r.get("label") or "").strip().lower() in CL]
 tone_rows = load_tone_rows()
 tone = {canonical_url(r.get("url"), keep_fragment=True): r for r in tone_rows}
@@ -147,11 +147,11 @@ for i, r in enumerate([t for t in tone_rows if (t.get("url") or "").strip()]):
                 "source":r.get("source") or "HISTORICAL_PRESS"})
 if not out:
     raise RuntimeError("press tone corpus is empty")
-tmp = B + r"\press_stance_final.csv.tmp"
+tmp = os.path.join(B, "press_stance_final.csv.tmp")
 with io.open(tmp, "w", encoding="utf-8-sig", newline="") as f:
     w = csv.DictWriter(f, fieldnames=list(out[0].keys()))
     w.writeheader(); w.writerows(out)
-os.replace(tmp, B + r"\press_stance_final.csv")
+os.replace(tmp, os.path.join(B, "press_stance_final.csv"))
 lab = collections.Counter(o["stack_label"] for o in out)
 chg = sum(1 for o in out if o["stack_label"] != o["debate_stance"])
 print("scored %d articles -> press_stance_final.csv" % len(out))
