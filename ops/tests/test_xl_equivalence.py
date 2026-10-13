@@ -2,6 +2,7 @@
 negative control, the probe's known values. The Excel reference path is exercised on a tiny synthetic workbook only, and
 only where Excel exists and XL_TEST_EXCEL=1 (it starts Excel; ~15-30 s per recalculation). Run it with `-p no:faulthandler`:
 Excel's Quit makes COM raise a handled RPC_E_DISCONNECTED (0x80010108) that pytest's faulthandler prints as 'fatal'."""
+import json
 import math
 import os
 import re
@@ -253,6 +254,218 @@ def test_compare_cli_applies_the_allowance_and_the_flag_turns_it_off(monkeypatch
     assert X.main(["compare", "ref.xlsx", "far.xlsx"]) == 1
     out = capsys.readouterr().out
     assert "within_cell_ulp=1" in out and "tier0_number" in out and "cell_allowance_number" in out
+
+
+# ---------------------------------------------------------------------------------------------------- rank-gated tolerance (D-177 amended 2026-10-13)
+# Paul: "Tiny rounding differences are allowed in number cells only when every rank, percentile and threshold matches exactly in the
+# same run; checked every time." Continuous cells: at most 1024 ULP. Discrete cells and the 533 member ranks: exact, in the same call.
+
+BM = "Blended Model"
+RANKS = {"ranges": [f"{BM}!T3:T7", f"{BM}!Y3:Y7"], "members": 5}
+SCORES = (0.9, 0.7, 0.5, 0.3, 0.1)
+
+
+def blended(blank=()):
+    """'Blended Model' in miniature, rows 3-7: S continuous scores (SUMPRODUCT), T and Y their ranks, I a continuous cell fed by S, P a
+    percentile, F a 0/1 flag, L a label, M a measure with a fallback. Columns in `blank` carry no formula text (an Excel shared-formula child)."""
+    kinds = {"S": ("n", "SUMPRODUCT(A{n}:B{n},C{n}:D{n})"), "T": ("n", "RANK(S{n},$S$3:$S$7)"), "Y": ("n", "RANK(S{n},$S$3:$S$7,0)"),
+             "I": ("n", "S{n}/MAX($S$3:$S$7)"), "P": ("n", "TRUNC(PERCENTRANK($S$3:$S$7,S{n},15),5)"),
+             "F": ("n", "IF(S{n}>0.4,1,0)"), "L": ("str", 'IF(S{n}>0.4,"keep","drop")'), "M": ("n", "IFERROR(S{n}/B{n},0)")}
+    rows = {}
+    for i, score in enumerate(SCORES):
+        n = i + 3
+        values = {"S": score, "T": float(i + 1), "Y": float(i + 1), "I": score / 0.9, "P": (4 - i) / 4, "F": 1.0 if score > 0.4 else 0.0,
+                  "L": "keep" if score > 0.4 else "drop", "M": score * 3}
+        for col, (kind, formula) in kinds.items():
+            rows[f"{col}{n}"] = (kind, values[col], "" if col in blank else formula.format(n=n))
+    return {BM: rows}
+
+
+def shifted(book, **ulp_by_cell):
+    """A copy of `book` with the named 'Blended Model' numbers moved up by that many ULP."""
+    out = {s: dict(rows) for s, rows in book.items()}
+    for cell, n in ulp_by_cell.items():
+        kind, value, formula = out[BM][cell]
+        out[BM][cell] = (kind, ulps(value, n), formula)
+    return out
+
+
+def gated(ref, cand, **kw):
+    return X.compare(ref, cand, X.make_tier0(X.merge_formulas(ref, cand), {}), ranks=RANKS, **kw)
+
+
+def test_sumproduct_noise_passes_up_to_1024_ulp_when_the_ranks_and_discrete_cells_are_exact():
+    ref = blended()
+    cand = shifted(ref, S3=256, S4=1024, I3=1024, M4=700)                       # 256 is what SUMPRODUCT summation order gave on the real workbook
+    r = gated(ref, cand)
+    assert r["equivalent"] and r["problems"] == [], r["problems"]
+    tol, rc = r["tolerance"], r["rank_check"]
+    assert tol["applied"] and tol["continuous_ulp"] == 1024 and tol["max_continuous_ulp_observed"] == 1024
+    assert tol["continuous_cells_within_tolerance"] == 4 == r["totals"]["within_continuous_ulp"] and tol["refused_because"] == []
+    assert tol["discrete_differing"] == 0 and tol["discrete_cells"] == 25 and tol["discrete_differences"] == []   # T, Y, P, F, L: five rows each
+    assert (rc["result"], rc["members"], rc["rank_exact"], rc["second_rank_column"]["exact"]) == ("PASS", 5, 5, 5)   # the report states both
+    # the tolerance is the amendment's: without a rank check in the run, the same candidate fails the old tiers
+    old = X.compare(ref, cand, X.make_tier0(ref, {}))
+    assert not old["equivalent"] and old["tolerance"]["applied"] is False and old["rank_check"] is None
+    assert "no rank check" in old["tolerance"]["refused_because"][0]
+
+
+def test_1025_ulp_fails():
+    ref = blended()
+    r = gated(ref, shifted(ref, S3=1025))
+    assert not r["equivalent"] and r["tolerance"]["applied"] is True                 # the gate held; the cell is simply too far
+    assert r["first_differences"] == [{"sheet": BM, "cell": "S3", "why": "continuous_number", "reference": ("n", 0.9),
+                                       "candidate": ("n", ulps(0.9, 1025)), "formula": "SUMPRODUCT(A3:B3,C3:D3)", "ulp": 1025}]
+    assert gated(ref, shifted(ref, S3=1024))["equivalent"]
+    assert gated(ref, shifted(ref, S3=0))["totals"].get("within_continuous_ulp", 0) == 0
+
+
+@pytest.mark.parametrize("cell,rank_result", [("T3", "FAIL"), ("Y4", "FAIL"),            # the member ranks, both columns
+                                              ("P5", "PASS"), ("T9", "PASS")])          # a percentile; a rank-column cell past the checked range
+def test_any_rank_or_percentile_difference_fails_even_by_one_ulp(cell, rank_result):
+    ref = blended()
+    ref[BM]["T9"] = ("n", 9.0, "RANK(S9,$S$3:$S$7)")
+    cand = shifted(ref, **{cell: 1})
+    r = gated(ref, cand)
+    assert not r["equivalent"] and r["rank_check"]["result"] == rank_result
+    assert r["tolerance"]["applied"] is False and r["tolerance"]["refused_because"]
+    assert [(d["cell"], d["why"], d["ulp"]) for d in r["first_differences"]] == [(cell, "discrete_number", 1)]
+    assert [(d["cell"], d["reference"], d["candidate"]) for d in r["tolerance"]["discrete_differences"]] == [
+        (cell, ref[BM][cell][:2], cand[BM][cell][:2])]                                 # a refused run names what refused it
+    # SUMPRODUCT noise in the same run does not rescue it: with the gate shut the noisy cell is judged by the old (exact) tier
+    noisy = gated(ref, shifted(cand, S3=256))
+    assert {d["cell"]: d["why"] for d in noisy["first_differences"]} == {"S3": "tier0_number", cell: "discrete_number"}
+    assert [d["cell"] for d in noisy["tolerance"]["discrete_differences"]] == [cell]
+    # and the noise alone, with every rank, percentile and flag exact, is what the tolerance is for
+    assert gated(ref, shifted(ref, S3=256))["equivalent"]
+
+
+def test_a_whole_rank_column_is_exact_not_only_its_rank_formulas():
+    ref = blended()
+    ref[BM]["T8"] = ("n", 15.0, "SUM(T3:T7)")                                       # a total under the ranks: continuous by formula, but in a rank column
+    ref[BM]["U8"] = ("n", 15.0, "SUM(U3:U7)")                                       # the same shape in a column with no rank in it
+    r = gated(ref, shifted(ref, T8=1))
+    assert [(d["cell"], d["why"]) for d in r["first_differences"]] == [("T8", "discrete_number")] and not r["equivalent"]
+    assert gated(ref, shifted(ref, U8=1))["equivalent"]
+
+
+def test_percentile_and_rank_columns_are_exact_even_when_the_excel_side_has_no_formula_text():
+    ref = blended(blank=("T", "P", "F"))                                            # Excel's shared-formula children: the text is on the view side
+    cand = shifted(blended(), T4=1)
+    r = gated(ref, cand)
+    assert not r["equivalent"] and r["first_differences"][0]["cell"] == "T4" and r["first_differences"][0]["why"] == "discrete_number"
+    cand = shifted(blended(), P6=1)
+    assert gated(ref, cand)["first_differences"][0] == {
+        "sheet": BM, "cell": "P6", "why": "discrete_number", "reference": ("n", 0.25), "candidate": ("n", ulps(0.25, 1)),
+        "formula": "TRUNC(PERCENTRANK($S$3:$S$7,S6,15),5)", "ulp": 1}
+
+
+def test_a_categorical_if_output_difference_fails_and_a_continuous_one_does_not():
+    ref = blended()
+    label = {s: dict(rows) for s, rows in ref.items()}
+    label[BM]["L5"] = ("str", "drop", 'IF(S5>0.4,"keep","drop")')                  # the label flipped
+    r = gated(ref, label)
+    assert not r["equivalent"] and r["first_differences"][0]["why"] == "str_value" and r["tolerance"]["applied"] is False
+    r = gated(ref, shifted(ref, F4=1))                                              # IF(..,1,0): a 0/1 flag is categorical -> exact
+    assert not r["equivalent"] and r["first_differences"][0]["why"] == "discrete_number"
+    flag = {s: dict(rows) for s, rows in ref.items()}
+    flag[BM]["F4"] = ("n", 0.0, "IF(S4>0.4,1,0)")                                   # the flag itself flipped
+    assert not gated(ref, flag)["equivalent"]
+    r = gated(ref, shifted(ref, M3=1, M4=1024))                                     # IFERROR(S/B,0): the result is computed -> continuous
+    assert r["equivalent"] and r["totals"]["within_continuous_ulp"] == 2
+    boolean = {BM: {"Z1": ("b", True, "S3>0.4")}}
+    assert not X.compare(boolean, {BM: {"Z1": ("b", False, "S3>0.4")}}, lambda s, a: False, ranks=None)["equivalent"]
+
+
+def test_the_tolerance_is_refused_when_the_rank_check_fails():
+    ref = blended()
+    cand = shifted(ref, S4=256)
+    cand[BM]["T3"] = ("n", 2.0, "RANK(S3,$S$3:$S$7)")                               # one member's rank moved
+    r = gated(ref, cand)
+    assert not r["equivalent"] and r["rank_check"]["result"] == "FAIL" and r["rank_check"]["rank_exact"] == 4
+    assert r["rank_check"]["rank_differing"] == ["T3"]
+    assert any("the continuous-cell tolerance is refused: the rank check is FAIL" in p for p in r["problems"])
+    assert r["tolerance"]["applied"] is False and r["totals"].get("within_continuous_ulp", 0) == 0
+    # the noise falls back to the old tier rule (S feeds the ranks: tier 0, exact), so it fails too
+    assert {d["cell"]: d["why"] for d in r["first_differences"]} == {"T3": "discrete_number", "S4": "tier0_number"}
+    # the same noise on its own passes: the rank check, not the noise, is what failed above
+    assert gated(ref, shifted(ref, S4=256))["equivalent"]
+    # a rank check that cannot be made is a failed one: too few cells, a range that is not there, a short second column
+    for ranks in ({"ranges": RANKS["ranges"], "members": 6}, {"ranges": [f"{BM}!T3:T7", "Nope!Y3:Y7"], "members": 5},
+                  {"ranges": [f"{BM}!T3:T9"], "members": 7}):
+        r = X.compare(ref, shifted(ref, S4=256), X.make_tier0(ref, {}), ranks=ranks)
+        assert not r["equivalent"] and r["rank_check"]["result"] == "FAIL" and r["tolerance"]["applied"] is False, ranks
+    second = shifted(ref, Y5=1)
+    r = gated(ref, second)
+    assert r["rank_check"]["result"] == "FAIL" and r["rank_check"]["rank_exact"] == 5 and r["rank_check"]["second_rank_column"]["differing"] == ["Y5"]
+
+
+def test_the_rank_check_reads_the_fields_cutover_needs_and_all_533_members():
+    book = {BM: {f"T{r}": ("n", float(r - 2), f"RANK(S{r},$S$3:$S$535)") for r in range(3, 536)}}
+    rc = X.rank_check(book, book, [f"{BM}!T3:T535"])
+    assert (rc["result"], rc["members"], rc["rank_exact"], rc["members_expected"]) == ("PASS", 533, 533, 533) and X.RANK_MEMBERS == 533
+    short = {BM: {a: v for a, v in book[BM].items() if a != "T9"}}
+    rc = X.rank_check(book, short, [f"{BM}!T3:T535"])
+    assert rc["result"] == "FAIL" and rc["rank_exact"] == 532 and rc["rank_missing"] == ["T9"]
+    text = {BM: {**book[BM], "T9": ("str", "2", "RANK(S9,$S$3:$S$535)")}}
+    assert X.rank_check(text, text, [f"{BM}!T3:T535"])["result"] == "FAIL"           # equal but not a number is not a rank
+    assert X.rank_check(book, book, [])["result"] == "FAIL"
+
+
+@pytest.mark.parametrize("formula,discrete", [
+    ("RANK(A1,A$1:A$9)", True), ("_xlfn.RANK.EQ(A1,A:A)", True), ("TRUNC(PERCENTRANK($D$3:$D$535,D3,15),5)", True), ("PERCENTRANK(A1:A9,B1)", True),
+    ("TRUNC(A1,2)", True), ("ROUND(A1,2)", True), ("ROUNDUP(A1,0)", True), ("A1<B1", True), ("A1<>B1", True), ("AND(A1>0,B1>0)", True),
+    ('IF(A1>0,"hi","lo")', True), ("IF(A1>0,1,0)", True), ('IF(A1>0,IF(B1>0,"a","b"),"c")', True), ('_xlfn.IFS(A1>0,"a",A1<0,"b")', True),
+    ('_xlfn.LET(_xlpm.x,A1,IF(_xlpm.x=0,"zero","nonzero"))', True), ('IFERROR(MATCH("x",A1:A9,0),"none")', False),
+    ("IFERROR(AVERAGEIF(A1:A9,B1,S1:S9),0)", False), ("IF(A1>0,A1*2,0)", False), ("IFERROR(1/0,-1)", False), ("SUM(A1:A3)*2", False),
+    ("C3/MAX($C$3:$C$535)", False), ("'Rank & Allocation'!F3", False), ("$AB$18*I7+$AB$19*L7", False), ("SUMPRODUCT(A1:A9,B1:B9)", False),
+    ('"a>b"&A1', False), ("AVERAGE('Blended Model'!$S$3:$S$535)", False), ("INDEX(A1:A9,MATCH(1,B1:B9,0))", False)])
+def test_what_counts_as_a_discrete_formula(formula, discrete):
+    assert X.discrete_formula(formula) is discrete
+
+
+def test_exact_range_pins_a_continuous_cell_and_c29_allowance_is_redundant_but_kept():
+    ref = blended()
+    r = gated(ref, shifted(ref, I3=1), exact_ranges=[f"{BM}!I3:I4"])
+    assert not r["equivalent"] and r["first_differences"][0]["why"] == "discrete_number"
+    assert gated(ref, shifted(ref, I3=1))["equivalent"]                               # unpinned, the same cell is tolerated
+    book = {**blended(), **coalition()}
+    for n, legacy_ok in ((8, True), (100, False)):                                  # C29 at 100 ULP: past its 16, inside 1024
+        cand = {**blended(), **coalition(ulps(C29_EXCEL, n))}
+        amended = X.compare(book, cand, X.make_tier0(X.merge_formulas(book, cand), {}), ranks=RANKS)
+        assert amended["equivalent"] and amended["totals"]["within_continuous_ulp"] == 1 and amended["cell_ulp"] == {f"{CP}!C29": 16}
+        old = X.compare(book, cand, X.make_tier0(X.merge_formulas(book, cand), {}))
+        assert old["equivalent"] is legacy_ok
+    assert X.CELL_ULP == {(CP, "C29"): 16}                                          # kept
+
+
+def test_compare_cli_rank_gate(monkeypatch, capsys, tmp_path):
+    """--rank-range turns the tolerance on, writes both reports, and the rank-check file has the fields cutover.py reads."""
+    ref = blended()
+    far_rank = shifted(ref, S4=256)
+    far_rank[BM]["T3"] = ("n", 2.0, "RANK(S3,$S$3:$S$7)")
+    books = {"ref.xlsx": ref, "near.xlsx": shifted(ref, S3=256, I4=900), "far.xlsx": shifted(ref, S3=2000), "rank.xlsx": far_rank}
+    monkeypatch.setattr(OR, "read_cached_formula_values", lambda path: books[Path(path).name])
+    monkeypatch.setattr(X, "read_tables", lambda path: {})
+    gate = ["--rank-range", f"{BM}!T3:T7", "--rank-range", f"{BM}!Y3:Y7", "--rank-members", "5"]
+    rep, rank = tmp_path / "eq.json", tmp_path / "rank.json"
+    assert X.main(["compare", "ref.xlsx", "near.xlsx", *gate, "--report", str(rep), "--rank-check-report", str(rank)]) == 0
+    out = capsys.readouterr().out
+    assert "rank check: PASS 5/5 exact" in out and "tolerance: APPLIED, continuous cells within 1024 ULP (max seen 900, 2 cells)" in out
+    doc, rdoc = json.loads(rep.read_text()), json.loads(rank.read_text())
+    assert doc["equivalent"] is True and doc["tolerance"]["applied"] is True and doc["rank_check"] == {
+        k: v for k, v in rdoc.items() if k in doc["rank_check"]}
+    assert (rdoc["result"], rdoc["members"], rdoc["rank_exact"], rdoc["rank_differing"], rdoc["rank_missing"]) == ("PASS", 5, 5, [], [])
+    assert rdoc["schema"] == "office-rank-check-v1" and rdoc["same_run_as_equivalence"] is True
+    assert X.main(["compare", "ref.xlsx", "near.xlsx"]) == 1                          # no --rank-range, no tolerance
+    assert "tolerance: NOT APPLIED: no rank check in this run" in capsys.readouterr().out
+    assert X.main(["compare", "ref.xlsx", "far.xlsx", *gate, "--continuous-ulp", "1999"]) == 1                 # the limit is a flag
+    assert X.main(["compare", "ref.xlsx", "far.xlsx", *gate, "--continuous-ulp", "2000"]) == 0
+    capsys.readouterr()
+    assert X.main(["compare", "ref.xlsx", "rank.xlsx", *gate, "--rank-check-report", str(rank)]) == 1
+    assert json.loads(rank.read_text())["result"] == "FAIL" and "tolerance: NOT APPLIED" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        X.main(["compare", "ref.xlsx", "near.xlsx", "--rank-check-report", str(rank)])      # a rank-check report needs ranges
 
 
 def test_reads_cell():

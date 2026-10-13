@@ -1,5 +1,5 @@
 {
   "chain": "windows",
   "collect": "windows",
-  "office": "windows"
+  "office": "container"
 }

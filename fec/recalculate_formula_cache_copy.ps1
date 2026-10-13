@@ -251,6 +251,57 @@ function Release-ComObject {
     }
 }
 
+function Remove-ForceFullCalc {
+    # forceFullCalc="1" on the calcPr of xl/workbook.xml leaves Excel's CalculationState at 2 for good, so the wait loop below runs into
+    # its timeout (proved 2026-10-13: removing only this attribute ends the hang). Only the temporary copy is edited, and only that
+    # attribute: the rest of the part, and every other part, keep their bytes. Returns whether the attribute was there.
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $utf8 = [System.Text.UTF8Encoding]::new($false)
+    $pattern = '(<calcPr\b[^>]*?)\s+forceFullCalc\s*=\s*["''](?:1|true)["'']'
+
+    $package = [System.IO.Compression.ZipFile]::OpenRead($Path)
+    try {
+        $entry = $package.GetEntry('xl/workbook.xml')
+        if ($null -eq $entry) {
+            throw 'The package has no xl/workbook.xml part.'
+        }
+        $reader = [System.IO.StreamReader]::new($entry.Open(), $utf8, $false)
+        try {
+            $text = $reader.ReadToEnd()
+        }
+        finally {
+            $reader.Dispose()
+        }
+    }
+    finally {
+        $package.Dispose()
+    }
+    if (-not [regex]::IsMatch($text, $pattern)) {
+        return $false
+    }
+    $bytes = $utf8.GetBytes([regex]::Replace($text, $pattern, '$1'))
+
+    $package = [System.IO.Compression.ZipFile]::Open($Path, [System.IO.Compression.ZipArchiveMode]::Update)
+    try {
+        $stream = $package.GetEntry('xl/workbook.xml').Open()
+        try {
+            $stream.SetLength(0)
+            $stream.Position = 0
+            $stream.Write($bytes, 0, $bytes.Length)
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+    finally {
+        $package.Dispose()
+    }
+    return $true
+}
+
 $resolvedWorkbook = (Resolve-Path -LiteralPath $WorkbookPath).Path
 $resolvedReceiptParent = (
     Resolve-Path -LiteralPath (Split-Path -Parent $ReceiptPath)
@@ -307,6 +358,7 @@ $excelType = [Type]::GetTypeFromProgID('Excel.Application')
 if ($null -eq $excelType) {
     throw 'Excel.Application COM registration is unavailable.'
 }
+$forceFullCalcRemoved = Remove-ForceFullCalc -Path $workbookFullPath
 
 $excel = $null
 $workbook = $null
@@ -327,6 +379,7 @@ try {
     $engine.ask_to_update_links = $false
     $engine.visible = $false
     $engine.calculation_request = $CalculationMethod
+    $engine.force_full_calc_removed = [bool]$forceFullCalcRemoved
 
     $excel.Visible = $false
     $excel.DisplayAlerts = $false

@@ -132,10 +132,20 @@ MOVES = {
 
 # ----------------------------------------------------------------------------------------------------------- the config
 
-def test_the_committed_config_is_all_windows():
-    assert json.loads((REPO / "ops" / "compute" / "engines.json").read_text(encoding="utf-8")) == {
-        "chain": "windows", "collect": "windows", "office": "windows"}
-    assert CE.load(REPO) == {"collect": "windows", "chain": "windows", "office": "windows"}
+def host_engines(monkeypatch):
+    """Every phase on the host, whatever ops/compute/engines.json holds (cutover.py moves a phase there, with its evidence)."""
+    for key in ("COLLECT", "CHAIN", "OFFICE"):
+        monkeypatch.setenv(f"MELANGE_ENGINE_{key}", "windows")
+    CE.reset()
+
+
+def test_the_committed_config_is_valid_and_chain_and_collect_are_still_windows():
+    """office moved to container on 2026-10-13 (cutover.py, its parity evidence PASS); a phase flips only by cutover.py, which
+    refuses without evidence, so chain and collect staying on the host is pinned here until theirs exists."""
+    committed = json.loads((REPO / "ops" / "compute" / "engines.json").read_text(encoding="utf-8"))
+    assert set(committed) == set(CE.KEYS) and set(committed.values()) <= set(CE.ENGINES)
+    assert committed["chain"] == "windows" and committed["collect"] == "windows"
+    assert CE.load(REPO) == committed
 
 
 def test_a_missing_file_or_missing_keys_mean_windows(tmp_path):
@@ -173,7 +183,8 @@ def test_the_weekly_table_is_the_pinned_one():
     assert {name: CE.STEP_SERVICE.get(os.path.basename(args[0])) for name, args, _t, _h in rows if CE.STEP_SERVICE.get(os.path.basename(args[0]))} == MOVES
 
 
-def test_default_engines_launch_exactly_todays_argv_for_every_weekly_step():
+def test_default_engines_launch_exactly_todays_argv_for_every_weekly_step(monkeypatch):
+    host_engines(monkeypatch)
     rows = weekly_steps()
     assert CE.snapshot() == {"collect": "windows", "chain": "windows", "office": "windows"}
     for name, args, _timeout, _hard in rows:
@@ -463,7 +474,8 @@ def office_tree(tmp_path):
     return root
 
 
-def test_the_office_view_is_skipped_on_windows_and_touches_nothing(tmp_path):
+def test_the_office_view_is_skipped_on_windows_and_touches_nothing(monkeypatch, tmp_path):
+    host_engines(monkeypatch)
     root = office_tree(tmp_path)
     before = sorted(p.relative_to(root).as_posix() for p in root.rglob("*"))
     assert CE.office_view(root) == ("skipped", "")

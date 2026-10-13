@@ -1,9 +1,9 @@
 """Apply artifact-authored cells while retaining unrelated native XLSX parts.
 
 The artifact exporter does not promise byte preservation of native Excel objects.
-This packaging adapter copies only its authored cell content, retains original
-style IDs, and verifies that every untargeted ZIP entry is byte-for-byte intact.
-It does not create values or formulas; those come from the artifact export.
+This packaging adapter copies only its authored cell content, retains original style IDs, and verifies
+that every untargeted ZIP entry is byte-for-byte intact. It creates no values or formulas (those come from the
+artifact export); the one derived edit is sync_tables: a table's column names follow its header cells.
 """
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -65,7 +65,7 @@ def merge_cells(original,authored,changes,destination):
                     for ch in re.match('[A-Z]+',c.get('r')).group():n=n*26+ord(ch)-64
                     return n
                 row[:]=sorted(row,key=col)
-            data[:]=sorted(data,key=lambda r:int(r.get('r')))
+            filled,tables=sync_tables(src,srcpaths[sheet],data,rows);replacements.update(tables);addresses=addresses|filled;data[:]=sorted(data,key=lambda r:int(r.get('r')))
             replacement=ET.tostring(data,encoding='utf-8')
             replacements[srcpaths[sheet]]=re.sub(rb'<(?:\w+:)?sheetData\b[^>]*>.*?</(?:\w+:)?sheetData>',
                                                   lambda _:replacement,original_xml,count=1,flags=re.S)
@@ -158,4 +158,85 @@ def publish_cells(workbook,changes,root):
         'schema':'workbook-measurement-sync-v1','status':'PASS','cells':len(changes),
         'before_sha256':before,'after_sha256':digest(workbook),'changed_parts':parts,
         'author_process_exit':exit_code,'author_report':str(proof_path),
-        'preservation':'All untargeted ZIP entries retained byte-for-byte; original styles retained, with category colors reassigned to current labels.'},indent=2),encoding='utf-8')
+        'preservation':'All untargeted ZIP entries retained byte-for-byte; table column names follow their header cells; original styles retained, with category colors reassigned to current labels.'},indent=2),encoding='utf-8')
+
+# Table parts. Excel refuses a table (Workbooks.Open fails with 0x800A03EC) whose tableColumn names differ from its header
+# cells, or whose header cell is empty. merge_cells keeps every untargeted part byte-for-byte, so a header edit left the table
+# part stale (a re-ordered category list, retired tier names, a title text) and a clear that emptied a header cell broke it.
+# The cells are the authority; the table follows them. Only the name attributes of changed columns are rewritten.
+
+def cell_ref(address):
+    letters,digits=re.fullmatch(r'([A-Z]+)(\d+)',address).groups();n=0
+    for ch in letters:n=n*26+ord(ch)-64
+    return n,int(digits)
+
+def col_letters(n):
+    letters=''
+    while n:n,rem=divmod(n-1,26);letters=chr(65+rem)+letters
+    return letters
+
+def header_text(cell,shared):
+    """The text of a table header cell; None when the cell is missing or empty. A header can only be text."""
+    if cell is None:return None
+    kind=cell.get('t')
+    if kind=='inlineStr':
+        inline=cell.find(Q+'is');text=''.join(t.text or '' for t in inline.iter(Q+'t')) if inline is not None else ''
+    else:
+        value=cell.find(Q+'v')
+        if value is None or not value.text:return None
+        if kind=='s':text=shared[int(value.text)]
+        elif kind=='str':text=value.text
+        else:raise ValueError('Table header cell %s is not text'%cell.get('r'))
+    return text or None
+
+def attribute(text):
+    for raw,ref in (('&','&amp;'),('<','&lt;'),('>','&gt;'),('"','&quot;'),('\n','&#10;'),('\r','&#13;'),('\t','&#9;')):text=text.replace(raw,ref)
+    return text
+
+def write_header(data,rows,address,text):
+    """Put a text cell at `address` of sheetData `data`, keeping an existing cell's style; the caller re-sorts the rows of `data`."""
+    ri=cell_ref(address)[1];row=rows.get(ri)
+    if row is None:row=ET.Element(Q+'row',r=str(ri));data.append(row);rows[ri]=row
+    new=ET.Element(Q+'c',r=address,t='inlineStr')
+    old=next((c for c in row if c.get('r')==address),None)
+    if old is not None:
+        if old.get('s') is not None:new.set('s',old.get('s'))
+        row.remove(old)
+    cell=ET.SubElement(ET.SubElement(new,Q+'is'),Q+'t');cell.text=text
+    if text!=text.strip():cell.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
+    row.append(new);row[:]=sorted(row,key=lambda c:cell_ref(c.get('r'))[0])
+
+def sync_tables(src,sheet_part,data,rows):
+    """Make every table on a worksheet agree with that sheet's header cells (`data` is its merged sheetData, `rows` its row index).
+
+    A tableColumn takes the text of its header cell (Excel keeps names to 255 characters). A header cell that is missing or empty
+    takes its tableColumn's current name, which is what Excel itself writes into a blank header. Returns (the header cells written,
+    {table part: new bytes}) and lists only the tables that changed; a table that already agrees is not touched."""
+    rels=posixpath.join(posixpath.dirname(sheet_part),'_rels',posixpath.basename(sheet_part)+'.rels')
+    if rels not in src.namelist():return set(),{}
+    shared=[''.join(t.text or '' for t in si.iter(Q+'t')) for si in ET.fromstring(src.read('xl/sharedStrings.xml'))] if 'xl/sharedStrings.xml' in src.namelist() else []
+    filled,tables=set(),{}
+    for rel in ET.fromstring(src.read(rels)):
+        if not rel.get('Type','').endswith('/table'):continue
+        target=rel.get('Target');part=target.lstrip('/') if target.startswith('/') else posixpath.normpath(posixpath.join(posixpath.dirname(sheet_part),target))
+        xml=src.read(part);table=ET.fromstring(xml)
+        if table.get('headerRowCount')=='0':continue
+        first,top=cell_ref(table.get('ref').split(':')[0])
+        cells={c.get('r'):c for c in rows.get(top,())}
+        current,wanted,missing=[],[],{}
+        for offset,column in enumerate(table.find(Q+'tableColumns')):
+            address=col_letters(first+offset)+str(top);text=header_text(cells.get(address),shared)
+            current.append(column.get('name'))
+            if text is None:wanted.append(column.get('name'));missing[address]=column.get('name')
+            else:wanted.append(text[:255])
+        if wanted==current and not missing:continue
+        if len({name.lower() for name in wanted})<len(wanted):raise ValueError('Table %s would get duplicate column names'%table.get('name'))
+        pairs=iter(zip(current,wanted))
+        def rename(match):
+            was,now=next(pairs)
+            return match.group(0) if was==now else re.sub(rb'(?<=\s)name="[^"]*"',lambda _:b'name="'+attribute(now).encode('utf-8')+b'"',match.group(0),count=1)
+        fixed=re.sub(rb'<tableColumn\b[^>]*>',rename,xml)
+        if [c.get('name') for c in ET.fromstring(fixed).find(Q+'tableColumns')]!=wanted:raise ValueError('Table %s: column names were not rewritten'%table.get('name'))
+        for address,name in missing.items():write_header(data,rows,address,name);filled.add(address)
+        tables[part]=fixed
+    return filled,tables

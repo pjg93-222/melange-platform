@@ -2,6 +2,7 @@
 """Excel-vs-LibreOffice equivalence of computed workbook values (D-174 gate, D-177 tolerance).
 
     xl_equivalence.py compare ref.xlsx cand.xlsx [--exact-range 'Sheet!S3:T535'] [--ulp 4] [--expect-formulas N] [--no-cell-allowance]
+                              [--rank-range 'Sheet!T3:T535' ... --rank-members 533 --continuous-ulp 1024] [--report R.json] [--rank-check-report K.json]
     xl_equivalence.py excel-reference --in book.xlsx --out ref.xlsx [--policy melange] [--allow-function NAME]
     xl_equivalence.py negative-control --in book.xlsx --cell 'Sheet!A1' --cand-engine excel|libreoffice
     xl_equivalence.py probe-make probe.xlsx [--extended]   # SUM, LET, XLOOKUP, PERCENTRANK, ... with known values
@@ -16,6 +17,14 @@ ops/compute/office_recalc.py wrote) and tests them cell by cell:
     fed by one, judged per COLUMN (sheet + column, conservative: a miss is only ever a stricter test), plus every
     --exact-range. Tier 1 is what is left: continuous cells that touch no discrete cell;
   * anti-vacuity: both sides must hold the same, non-zero set of formula cells, every one with a cached value.
+Rank-gated tolerance (D-177 as amended by Paul, 2026-10-13: "Tiny rounding differences are allowed in number cells only when every
+rank, percentile and threshold matches exactly in the same run; checked every time."). Given --rank-range (the first range is the 533
+member ranks), the same run (1) checks every rank cell exactly, (2) checks every DISCRETE cell exactly: non-numeric values, formulas
+holding RANK/PERCENTRANK/TRUNC/ROUND, comparisons and IF/IFS/IFERROR/IFNA whose results are categorical, and every column that holds a
+RANK/PERCENTRANK formula, plus --exact-range, and only if both hold (3) lets CONTINUOUS numeric cells (all the others) differ by at most
+--continuous-ulp (default 1024; the observed maximum is 256, SUMPRODUCT summation order). If either fails the tolerance is refused: the
+report says so and the pre-amendment tier rules above judge the rest. Without --rank-range there is no tolerance. The report states both
+checks (`rank_check`, `tolerance`); --rank-check-report writes the rank check alone in the shape cutover.py reads.
 Exit 0 = equivalent, 1 = not. The Excel side runs on Windows through COM on a COPY in a temp dir and never opens the
 workbook it was given; nothing here runs a real workbook unless you point it at one.
 """
@@ -33,6 +42,7 @@ import tempfile
 import time
 import zipfile
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -49,6 +59,13 @@ SHOW = 25
 # if a formula has started to read the cell. Its column also holds IF/IFERROR cells, which makes the column tier 0, hence the
 # explicit entry. Every other cell keeps the tier rules.
 CELL_ULP = {("Coalition Profiles", "C29"): 16}
+# D-177 amended 2026-10-13 (Paul): continuous numeric cells may differ by this many ULP when the same run verifies every discrete cell and
+# the 533 member ranks exactly. C29 (8 ULP observed) is a continuous cell, so the amended rule covers it and its CELL_ULP entry is redundant
+# there; the entry stays for the unamended run.
+CONTINUOUS_ULP = 1024
+RANK_MEMBERS = 533
+RANK_FUNCS = {"RANK", "RANK.EQ", "RANK.AVG", "PERCENTRANK", "PERCENTRANK.INC", "PERCENTRANK.EXC"}
+BOOLEAN_FUNCS = {"AND", "OR", "NOT", "XOR", "ISNUMBER", "ISERROR", "ISERR", "ISBLANK", "ISTEXT", "ISNA", "ISLOGICAL"}
 
 # Functions whose result is a decision or a count, plus criteria-driven aggregates (the criteria compare values).
 DISCRETE_FUNCS = {
@@ -223,14 +240,170 @@ def make_tier0(values, tables, exact_ranges=()):
     return tier0
 
 
+# ------------------------------------------------------------------------------------------ discrete cells (D-177 amended)
+
+_QUOTED_RE = re.compile(r"'(?:[^']|'')*'")
+_NUM_RE = re.compile(r"[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?%?")
+_CALL_RE = re.compile(r"(?i)([A-Z_][A-Z0-9_.]*)\s*\(")
+
+
+def bare(name: str) -> str:
+    return re.sub(r"^_XLFN\.", "", name.upper())
+
+
+def functions(formula: str) -> set:
+    return {bare(f) for f in OR.FUNC_RE.findall(_STR_RE.sub('""', formula))}
+
+
+def _match_end(text: str, i: int) -> int:
+    """Index of the bracket that closes the one opened at text[i], or -1."""
+    depth = 0
+    for j in range(i, len(text)):
+        depth += text[j] in "([{"
+        depth -= text[j] in ")]}"
+        if depth == 0:
+            return j
+    return -1
+
+
+def _top_level(text: str) -> str:
+    """text with everything inside brackets removed."""
+    out, depth = [], 0
+    for ch in text:
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            depth -= 1
+        elif depth == 0:
+            out.append(ch)
+    return "".join(out)
+
+
+def _split_args(body: str) -> list:
+    out, depth, cur = [], 0, []
+    for ch in body:
+        depth += ch in "([{"
+        depth -= ch in ")]}"
+        if ch == "," and depth == 0:
+            out.append("".join(cur))
+            cur = []
+        else:
+            cur.append(ch)
+    return [a.strip() for a in (*out, "".join(cur))]
+
+
+def categorical(expr: str) -> bool:
+    """Does `expr` (strings and quoted sheet names already blanked) yield a flag, a label or a bucket rather than a measure? A literal;
+    a boolean test; a comparison; an IF/IFS/IFERROR/IFNA whose every result is itself categorical; LET of one. A branch that computes
+    (IFERROR(AVERAGEIF(..),0), IF(x>0,x,0)) makes the cell continuous. ponytail: whole-formula shapes only; an IF buried in arithmetic
+    reads as continuous, which only matters for a flag whose two values differ by far more than any ULP limit."""
+    e = expr.strip()
+    while e.startswith("(") and _match_end(e, 0) == len(e) - 1:
+        e = e[1:-1].strip()
+    if not e or _NUM_RE.fullmatch(e) or e == '""' or e.upper() in ("TRUE", "FALSE"):
+        return True
+    m = _CALL_RE.match(e)
+    if m and _match_end(e, m.end() - 1) == len(e) - 1:
+        name, args = bare(m.group(1)), _split_args(e[m.end():-1])
+        if name in BOOLEAN_FUNCS:
+            return True
+        results = {"IF": args[1:], "IFS": args[1::2], "IFERROR": args[:2], "IFNA": args[:2], "LET": args[-1:]}.get(name)
+        return results is not None and all(categorical(a) for a in results)
+    return bool(_CMP_RE.search(_top_level(e)))
+
+
+def discrete_formula(formula: str) -> bool:
+    """A cell that must match exactly because of what its formula is: rank, percentile, truncation, rounding, or a categorical result."""
+    funcs = functions(formula)
+    if funcs & RANK_FUNCS or any(f == "TRUNC" or f.startswith("ROUND") or f == "MROUND" for f in funcs):
+        return True
+    s = _QUOTED_RE.sub("'x'", _STR_RE.sub('""', formula))
+    return bool(funcs & {"IF", "IFS", "IFERROR", "IFNA"} or _CMP_RE.search(s)) and categorical(s)
+
+
+def rank_columns(values: dict) -> set:
+    """(sheet, column index) of every column that holds a RANK or PERCENTRANK formula: the rank and percentile columns."""
+    return {(sheet, col_index(re.match(r"[A-Z]+", addr).group())) for sheet, rows in values.items()
+            for addr, (_k, _v, formula) in rows.items() if formula and functions(formula) & RANK_FUNCS}
+
+
+def in_ranges(ranges, sheet, addr) -> bool:
+    m = re.fullmatch(r"([A-Z]+)([0-9]+)", addr)
+    c, r = col_index(m.group(1)), int(m.group(2))
+    return any(s == sheet and c0 <= c <= c1 and r0 <= r <= r1 for s, c0, c1, r0, r1 in ranges)
+
+
+def rank_check(ref: dict, cand: dict, ranges, members: int = RANK_MEMBERS) -> dict:
+    """D-174's member-rank check, run on the two sides of one comparison. `ranges` are 'Sheet!T3:T535' specs of rank cells; the first is the
+    member ranks. PASS needs every range to hold `members` formula cells, each numeric and exactly equal on both sides. The first range
+    fills members/rank_exact (the fields cutover.py reads); the others are listed under second_rank_column / other_ranges."""
+    rows = []
+    for spec in ranges:
+        parsed = parse_ranges([spec])
+        addrs = sorted({a for side in (ref, cand) for a in side.get(parsed[0][0], {}) if in_ranges(parsed, parsed[0][0], a)}, key=natural)
+        sheet, exact, differing, missing = parsed[0][0], 0, [], []
+        for a in addrs:
+            x, y = ref.get(sheet, {}).get(a), cand.get(sheet, {}).get(a)
+            if x is None or y is None or "missing" in (x[0], y[0]):
+                missing.append(a)
+            elif x[0] == "n" and x[:2] == y[:2]:
+                exact += 1
+            else:
+                differing.append(a)
+        rows.append({"cells": spec, "members": len(addrs), "exact": exact, "differing": differing[:SHOW], "missing": missing[:SHOW]})
+    ok = bool(rows) and all(r["members"] == members and r["exact"] == members for r in rows)
+    first = rows[0] if rows else {"cells": None, "members": 0, "exact": 0, "differing": [], "missing": []}
+    out = {"schema": "office-rank-check-v1", "result": "PASS" if ok else "FAIL", "members": first["members"], "members_expected": members,
+           "rank_cells": first["cells"], "rank_exact": first["exact"], "rank_differing": first["differing"], "rank_missing": first["missing"]}
+    if len(rows) > 1:
+        out["second_rank_column"] = {k: rows[1][k] for k in ("cells", "exact", "differing", "missing")}
+    if len(rows) > 2:
+        out["other_ranges"] = rows[2:]
+    return out
+
+
 # ------------------------------------------------------------------------------------------ comparison
 
-def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None, cell_ulp=None):
+def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None, cell_ulp=None, ranks=None, continuous_ulp=CONTINUOUS_ULP,
+            exact_ranges=()):
     """ref/cand: office_recalc.read_cached_formula_values output. Returns the report dict (report['equivalent']).
     cell_ulp: {(sheet, addr): max ULP} per-cell allowances (default CELL_ULP; {} for none). An allowance replaces the tier
-    rule for that cell's numbers only, and only while no formula on either side reads the cell."""
+    rule for that cell's numbers only, and only while no formula on either side reads the cell.
+    ranks: {'ranges': ['Sheet!T3:T535', ...], 'members': 533} switches on the rank-gated rule (D-177 amended, module docstring): the
+    rank check and every discrete cell are verified exactly in this call, and only if both hold may a continuous numeric cell differ
+    by up to continuous_ulp. Otherwise the tolerance is refused and tier0 / ulp / cell_ulp judge the cells, as without `ranks`.
+    exact_ranges: 'Sheet!A1:B9' specs that are discrete too (the rank-gated rule's counterpart of make_tier0's)."""
     cell_ulp = CELL_ULP if cell_ulp is None else cell_ulp
     sheets, totals, bad, voided, void_notes = {}, Counter(), [], {}, []
+    gate = None
+    if ranks is not None:
+        merged, pinned = merge_formulas(ref, cand), parse_ranges(exact_ranges)
+        rcols = rank_columns(merged)
+        rc = rank_check(ref, cand, ranks["ranges"], ranks.get("members", RANK_MEMBERS))
+
+        def discrete(sheet, addr):
+            a, b = ref.get(sheet, {}).get(addr), cand.get(sheet, {}).get(addr)
+            if (a and a[0] != "n") or (b and b[0] != "n"):
+                return True
+            return ((sheet, col_index(re.match(r"[A-Z]+", addr).group())) in rcols or in_ranges(pinned, sheet, addr)
+                    or discrete_formula(merged[sheet][addr][2]))
+
+        count = differing = 0
+        found = []                                      # the discrete cells that differ: the reason a refused run is refused
+        for sheet in merged:
+            for addr in merged[sheet]:
+                if discrete(sheet, addr):
+                    count += 1
+                    a, b = ref.get(sheet, {}).get(addr), cand.get(sheet, {}).get(addr)
+                    if a is None or b is None or a[0] == "missing" or a[:2] != b[:2]:
+                        differing += 1
+                        if len(found) < SHOW:
+                            found.append({"sheet": sheet, "cell": addr, "reference": a[:2] if a else None,
+                                          "candidate": b[:2] if b else None, "formula": merged[sheet][addr][2][:200]})
+        refused = ([f"the rank check is {rc['result']} ({rc['rank_exact']}/{rc['members']} exact, {rc['members_expected']} expected)"]
+                   if rc["result"] != "PASS" else []) + ([f"{differing} discrete cell(s) differ"] if differing else [])
+        gate = {"rc": rc, "discrete": discrete, "applied": not refused, "refused": refused, "worst": 0,
+                "stats": {"discrete_cells": count, "discrete_differing": differing, "discrete_differences": found}}
 
     def allowance(sheet, addr):
         cap = cell_ulp.get((sheet, addr))
@@ -259,6 +432,15 @@ def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None,
             elif a[0] == "n":
                 if a[1] == b[1]:
                     s["exact"] += 1
+                elif gate and gate["discrete"](sheet, addr):
+                    why = "discrete_number"
+                elif gate and gate["applied"]:
+                    d = ulp_distance(a[1], b[1])
+                    if d <= continuous_ulp:
+                        s["within_continuous_ulp"] += 1
+                        gate["worst"] = max(gate["worst"], d)
+                    else:
+                        why = "continuous_number"
                 else:
                     d = ulp_distance(a[1], b[1])
                     cap = allowance(sheet, addr)
@@ -289,7 +471,8 @@ def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None,
         sheets[sheet] = dict(s)
         totals.update(s)
     mismatches = sum(v for k, v in totals.items() if k not in
-                     ("exact", "within_ulp", "within_cell_ulp", "compared", "formulas_reference", "formulas_candidate"))
+                     ("exact", "within_ulp", "within_cell_ulp", "within_continuous_ulp", "compared", "formulas_reference",
+                      "formulas_candidate"))
     census = totals["formulas_reference"]
     problems = list(void_notes)
     if mismatches:
@@ -300,8 +483,21 @@ def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None,
         problems.append("formula census differs between the two workbooks")
     if expect_formulas is not None and census != expect_formulas:
         problems.append(f"expected {expect_formulas} formulas, found {census}")
-    return {"equivalent": not problems, "problems": problems, "ulp_limit": ulp, "totals": dict(totals), "per_sheet": sheets,
-            "cell_ulp": {f"{s}!{a}": cap for (s, a), cap in cell_ulp.items()}, "first_differences": bad}
+    report = {"equivalent": False, "problems": problems, "ulp_limit": ulp, "totals": dict(totals), "per_sheet": sheets,
+              "cell_ulp": {f"{s}!{a}": cap for (s, a), cap in cell_ulp.items()}, "first_differences": bad}
+    if gate is None:
+        report["rank_check"] = None
+        report["tolerance"] = {"rule": "D-177 tiers", "applied": False, "continuous_ulp": None,
+                               "refused_because": ["no rank check in this run (no --rank-range)"]}
+    else:
+        if gate["refused"]:
+            problems.append("the continuous-cell tolerance is refused: " + "; ".join(gate["refused"]))
+        report["rank_check"] = gate["rc"]
+        report["tolerance"] = {"rule": "D-177 amended 2026-10-13: rank-gated", "applied": gate["applied"], "continuous_ulp": continuous_ulp,
+                               "refused_because": gate["refused"], "max_continuous_ulp_observed": gate["worst"],
+                               "continuous_cells_within_tolerance": totals["within_continuous_ulp"], **gate["stats"]}
+    report["equivalent"] = not problems
+    return report
 
 
 # ------------------------------------------------------------------------------------------ Excel reference (COM)
@@ -535,7 +731,12 @@ def main(argv=None) -> int:
     c.add_argument("--ulp", type=int, default=ULP_DEFAULT)
     c.add_argument("--expect-formulas", type=int)
     c.add_argument("--no-cell-allowance", action="store_true", help="ignore CELL_ULP: Excel against Excel must be identical")
+    c.add_argument("--rank-range", action="append", default=[], metavar="'Sheet!T3:T535'",
+                   help="rank cells to check exactly in this run (the first range is the member ranks); turns the rank-gated tolerance on")
+    c.add_argument("--rank-members", type=int, default=RANK_MEMBERS, help="cells each --rank-range must hold (default %(default)s)")
+    c.add_argument("--continuous-ulp", type=int, default=CONTINUOUS_ULP, help="rank-gated limit for continuous cells (default %(default)s)")
     c.add_argument("--report", type=Path)
+    c.add_argument("--rank-check-report", type=Path, help="write the rank check alone (what cutover.py reads as office_rank_check.json)")
     e = sub.add_parser("excel-reference")
     e.add_argument("--in", dest="src", required=True, type=Path)
     e.add_argument("--out", required=True, type=Path, help="where the Excel-calculated COPY goes")
@@ -587,14 +788,34 @@ def main(argv=None) -> int:
         print(json.dumps({"negative_control": "PASS" if ok else "FAIL", "differences": report["totals"],
                           "first": report["first_differences"][:5]}, indent=2))
         return 0 if ok else 1
+    if a.rank_check_report and not a.rank_range:
+        ap.error("--rank-check-report needs at least one --rank-range")
     ref, cand = OR.read_cached_formula_values(a.reference), OR.read_cached_formula_values(a.candidate)
+    ranks = {"ranges": a.rank_range, "members": a.rank_members} if a.rank_range else None
     report = compare(ref, cand, make_tier0(merge_formulas(ref, cand), read_tables(a.reference), a.exact_range), a.ulp,
-                     a.expect_formulas, {} if a.no_cell_allowance else None)
+                     a.expect_formulas, {} if a.no_cell_allowance else None, ranks, a.continuous_ulp, a.exact_range)
+    inputs = {name: OR.file_item(p) for name, p in (("reference", a.reference), ("candidate", a.candidate)) if p.is_file()}
+    report["inputs"] = inputs
     text = json.dumps(report, indent=2, sort_keys=True)
     if a.report:
         a.report.write_text(text + "\n", encoding="utf-8")
+    if a.rank_check_report:
+        stamp = datetime.now(timezone.utc).astimezone().isoformat()
+        a.rank_check_report.write_text(json.dumps({**report["rank_check"], **inputs, "generated_at": stamp, "same_run_as_equivalence": True},
+                                                  indent=2, sort_keys=True) + "\n", encoding="utf-8")
     for sheet, s in report["per_sheet"].items():
         print(f"{sheet}: " + ", ".join(f"{k}={v}" for k, v in sorted(s.items())))
+    rc, tol = report["rank_check"], report["tolerance"]
+    if rc:
+        print(f"rank check: {rc['result']} {rc['rank_exact']}/{rc['members']} exact on {rc['rank_cells']}"
+              + (f", second column {rc['second_rank_column']['exact']} exact" if "second_rank_column" in rc else ""))
+    if tol["applied"]:
+        print(f"tolerance: APPLIED, continuous cells within {tol['continuous_ulp']} ULP (max seen {tol['max_continuous_ulp_observed']}, "
+              f"{tol['continuous_cells_within_tolerance']} cells); {tol['discrete_cells']} discrete cells exact")
+    else:
+        print("tolerance: NOT APPLIED: " + "; ".join(tol["refused_because"]))
+        for d in tol.get("discrete_differences", [])[:5]:
+            print("  discrete cell differs:", json.dumps(d))
     print("EQUIVALENT" if report["equivalent"] else "NOT EQUIVALENT: " + "; ".join(report["problems"]))
     for d in report["first_differences"][:SHOW]:
         print(" ", json.dumps(d))

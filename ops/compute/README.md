@@ -60,7 +60,13 @@ set MELANGE_ENGINE_CHAIN=windows                      # per-process override of 
 ```
 
 The evidence files default to `audits/compute_parity/` (`chain_parity.json`, `collectors_replay.json`, `office_equivalence.json`, `office_rank_check.json`;
-`MELANGE_PARITY_DIR` moves the directory). No tool writes the collectors replay report or the rank check yet; their shape is defined in `cutover.py`.
+`MELANGE_PARITY_DIR` moves the directory). No tool writes the collectors replay report yet; its shape is defined in `cutover.py`. The office pair is written by one run
+of `xl_equivalence.py compare REF CAND --expect-formulas 98269 --rank-range 'Blended Model!T3:T535' --rank-range 'Blended Model!Y3:Y535' --report office_equivalence.json
+--rank-check-report office_rank_check.json`: the rank-gated rule of D-177 as amended 2026-10-13 (Paul: tiny rounding differences are allowed in number cells only
+when every rank, percentile and threshold matches exactly in the same run). In that run the 533 member ranks and every discrete cell (non-numeric values; formulas
+with RANK, PERCENTRANK, TRUNC or ROUND; comparisons and IF/IFS/IFERROR/IFNA that give a flag or a label; any column holding a RANK or PERCENTRANK formula) are checked
+exactly, and only if all of them match may a continuous number differ, by at most 1024 ULP (`--continuous-ulp`; 256 is the most seen, SUMPRODUCT summation order).
+Otherwise the tolerance is refused, the old tier rules judge the rest, and the report says why. Both reports state the rank check and the tolerance.
 Every switch, and every refusal, is a Glass Box event (`compute.cutover`) carrying the sha256 of the evidence it read. A refresh reads the file once when it
 starts, so a running refresh keeps its engines; a malformed file is a pre-step failure, not a surprise at the first step.
 

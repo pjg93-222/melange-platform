@@ -6,6 +6,7 @@ confirmed on 2026-10-12). The LibreOffice step itself is exercised by the smoke 
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -190,6 +191,68 @@ def test_melange_policy_and_the_excel_era_preflight_list_move_in_lockstep():
     listed = re.findall(r"'([^']+)'", block)
     assert len(listed) == len(set(listed))
     assert set(listed) == set(OR.POLICIES["melange"]) and {"AVERAGE", "TRUNC"} <= set(listed)
+
+
+# ---------------------------------------------------------------------------------------------------- the Excel fallback's forceFullCalc strip
+
+PS1 = ROOT / "fec" / "recalculate_formula_cache_copy.ps1"
+needs_powershell = pytest.mark.skipif(sys.platform != "win32" or not shutil.which("powershell.exe"), reason="Windows PowerShell only")
+
+
+def test_ps1_strips_forcefullcalc_from_the_temporary_copy_before_excel_opens_it():
+    """forceFullCalc="1" leaves Excel's CalculationState at 2, so the wait loop times out (900 s; proved 2026-10-13). The strip runs on the
+    temporary copy, after the hash gate and the safety preflight have seen it as given and before Excel is even started."""
+    ps1 = PS1.read_text(encoding="utf-8")
+    call = ps1.index("Remove-ForceFullCalc -Path $workbookFullPath")
+    assert ps1.index("Temporary copy hash does not match") < ps1.index("Get-WorkbookSafety -Path $workbookFullPath") < call
+    assert call < ps1.index("[Activator]::CreateInstance") < ps1.index("$excel.Workbooks.Open(")
+    assert "$engine.force_full_calc_removed" in ps1                                      # the receipt says whether it was there
+    assert ps1.count("Workbooks.Open(") == 1 and ps1.count("$workbook.Save()") == 1      # the rest of the flow is unchanged
+
+
+def run_strip(tmp_path, workbook):
+    ps1 = PS1.read_text(encoding="utf-8")
+    function = re.search(r"^function Remove-ForceFullCalc \{.*?^\}\n", ps1, re.S | re.M).group(0)
+    script = tmp_path / "strip.ps1"
+    script.write_text(function + f"\n[Console]::Out.Write((Remove-ForceFullCalc -Path '{workbook}'))\n", encoding="utf-8")
+    done = subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script)], capture_output=True, text=True, timeout=120)
+    assert done.returncode == 0, done.stderr
+    return done.stdout.strip()
+
+
+def package(path, calc_pr):
+    parts = {"[Content_Types].xml": b"<Types/>", "xl/workbook.xml": ('<workbook xmlns="x"><sheets/>%s</workbook>' % calc_pr).encode("utf-8"),
+             "xl/worksheets/sheet1.xml": b"<worksheet>" + bytes(range(256)) * 40 + b"</worksheet>", "xl/styles.xml": b"<styleSheet/>"}
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, body in parts.items():
+            z.writestr(name, body)
+    return parts
+
+
+@needs_powershell
+@pytest.mark.parametrize("calc_pr,expected", [
+    ('<calcPr calcId="191029" fullCalcOnLoad="1" forceFullCalc="1" />', '<calcPr calcId="191029" fullCalcOnLoad="1" />'),       # the live workbook's
+    ('<calcPr forceFullCalc="1" calcId="191029"/>', '<calcPr calcId="191029"/>'),
+    ("<calcPr calcId='191029' forceFullCalc='true'/>", "<calcPr calcId='191029'/>")])
+def test_the_strip_removes_that_attribute_and_nothing_else(tmp_path, calc_pr, expected):
+    book = tmp_path / "copy.xlsx"
+    before = package(book, calc_pr)
+    assert run_strip(tmp_path, book) == "True"
+    with zipfile.ZipFile(book) as z:
+        assert z.testzip() is None and z.namelist() == list(before)                       # same parts, same order, a valid package
+        assert z.read("xl/workbook.xml") == before["xl/workbook.xml"].replace(calc_pr.encode(), expected.encode())
+        assert all(z.read(n) == body for n, body in before.items() if n != "xl/workbook.xml")
+    assert run_strip(tmp_path, book) == "False"                                           # nothing left to strip
+
+
+@needs_powershell
+@pytest.mark.parametrize("calc_pr", ['<calcPr calcId="191029" fullCalcOnLoad="1"/>', '<calcPr calcId="191029" forceFullCalc="0"/>', "",
+                                     '<other forceFullCalc="1"/>'])
+def test_a_workbook_without_the_attribute_is_not_rewritten(tmp_path, calc_pr):
+    book = tmp_path / "copy.xlsx"
+    package(book, calc_pr)
+    raw = book.read_bytes()
+    assert run_strip(tmp_path, book) == "False" and book.read_bytes() == raw              # byte for byte, including the zip container
 
 
 # ---------------------------------------------------------------------------------------------------- exit codes

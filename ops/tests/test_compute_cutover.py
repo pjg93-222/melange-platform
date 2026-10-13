@@ -26,10 +26,11 @@ WINDOWS = {"chain": "windows", "collect": "windows", "office": "windows"}
 
 @pytest.fixture
 def repo(tmp_path, monkeypatch):
-    """A tree holding engines.json (all windows) and a copy of the Glass Box emitter; cutover's REPO points at it."""
+    """A tree holding engines.json (all windows, in cutover's own format: not the committed file, which cutover.py moves) and a copy
+    of the Glass Box emitter; cutover's REPO points at it."""
     root = tmp_path / "repo"
     (root / "ops" / "compute").mkdir(parents=True)
-    (root / "ops" / "compute" / "engines.json").write_bytes((REPO / "ops" / "compute" / "engines.json").read_bytes())
+    (root / "ops" / "compute" / "engines.json").write_bytes((json.dumps(WINDOWS, indent=2, sort_keys=True) + "\n").encode("utf-8"))
     (root / "fec" / "surfaces").mkdir(parents=True)
     shutil.copyfile(REPO / "fec" / "surfaces" / "glassbox_emit.py", root / "fec" / "surfaces" / "glassbox_emit.py")
     monkeypatch.setattr(cutover, "REPO", root)
