@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 import wave
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from paths import MELANGE_DATA, ROOT, to_host
+from paths import MELANGE_DATA, ROOT, to_host, to_stored
 
 
 SCHEMA = "speech-descriptive-v1"
@@ -2554,7 +2554,7 @@ def interview_transcript_inventory():
     """Inventory collected text separately from audio that can support tonality."""
     path = Path(ROOT) / "social_media.db"
     if not path.is_file():
-        return {"available": False, "path": str(path), "entered_prepared_audio_corpus": 0}
+        return {"available": False, "path": to_stored(path), "entered_prepared_audio_corpus": 0}
     groups = defaultdict(lambda: {
         "turns": 0, "members": set(), "words": 0, "first_date": None, "last_date": None,
     })
@@ -2585,7 +2585,7 @@ def interview_transcript_inventory():
     facts = path.stat()
     return {
         "available": True,
-        "path": str(path.resolve()),
+        "path": to_stored(path.resolve()),
         "snapshot_size_bytes": facts.st_size,
         "snapshot_mtime_ns": facts.st_mtime_ns,
         "scope": "member-attributed rows where speeches.source = INTERVIEW, grouped by package host",
@@ -2689,7 +2689,7 @@ def corpus_summary(records, manifest_rows):
             "stale_dispositions_requiring_reprobe": int(
                 recovery.get("stale_dispositions_requiring_reprobe") or 0
             ),
-            "inventory_summary": str(recovery_summary_path.resolve()),
+            "inventory_summary": to_stored(recovery_summary_path.resolve()),
             "inventory_summary_sha256": sha256_file(recovery_summary_path),
             "by_source": recovery_sources,
         }

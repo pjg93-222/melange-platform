@@ -729,6 +729,19 @@ class GateTest(unittest.TestCase):
                 rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(self.licences_doc(lang_lics=[lang]))})
                 self.assertEqual(rc, 1, out)
 
+    def test_psf_2_0_is_a_known_permissive_licence_too(self):                          # typing-extensions, the compute-melange scan, 2026-10-13
+        good = {"services": {"app": compliant_service()}}
+        report = self.tmp / "images.json"
+        doc = self.licences_doc(lang_lics=[self.lic("PSF-2.0", "typing_extensions", "UNKNOWN")])
+        rc, out = self.images(good, "--report", report, env={"FAKE_TRIVY_LICENSES": json.dumps(doc)})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("known permissive that trivy cannot categorise, not blocking (D-182): PSF-2.0 typing_extensions", out)
+        self.assertEqual(json.loads(report.read_text(encoding="utf-8"))["known_licenses"], {DIGEST: ["PSF-2.0 typing_extensions"]})
+        for lang in (self.lic("PSF-2.0", "typing_extensions", "HIGH"), self.lic("PSF-3.0", "typing_extensions", "UNKNOWN")):   # the name AND UNKNOWN
+            with self.subTest(lang["Name"] + " " + lang["Severity"]):
+                rc, out = self.images(good, env={"FAKE_TRIVY_LICENSES": json.dumps(self.licences_doc(lang_lics=[lang]))})
+                self.assertEqual(rc, 1, out)
+
     def test_an_unrecognised_licence_result_blocks(self):                             # fail closed: not provably an OS package
         good = {"services": {"app": compliant_service()}}
         for res in ({"Target": "mystery", "Class": "license-file"}, {"Target": "mystery", "Class": "something-new"}):

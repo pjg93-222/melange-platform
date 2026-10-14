@@ -22,7 +22,11 @@ FROM ${NODE_IMAGE} AS node
 
 # One apt configuration for every stage below: the dated snapshot of both archives, never the moving mirror.
 FROM ${DEBIAN_BASE} AS base
-ARG DEBIAN_SNAPSHOT=20261011T000000Z
+# 2026-10-13: 20261011T000000Z -> 20261013T000000Z, with CHROMIUM_VERSION below. The 2026.10.13.2 images gate failed this image on
+# 260 fixable findings, led by chromium 154.0.8037.92-1~deb13u1 (CVE-2026-106195 and CVE-2026-106237 CRITICAL, 20 or more HIGH). Debian
+# fixed them in trixie-security at chromium 155.0.8059.39-1~deb13u1 (amd64 build in the archive since 2026-10-12T15:44Z), which the
+# 20261011 snapshot does not hold. The cure for a fixable finding is the fixed package (D-181), never an exception.
+ARG DEBIAN_SNAPSHOT=20261013T000000Z
 RUN printf '%s\n' \
       'Types: deb' \
       "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/" \
@@ -68,7 +72,7 @@ RUN /opt/venv/bin/pip uninstall -y pip && /opt/python/bin/python3 -m pip uninsta
 
 FROM base
 ARG DEBIAN_FRONTEND=noninteractive
-ARG CHROMIUM_VERSION=154.0.8037.92-1~deb13u1
+ARG CHROMIUM_VERSION=155.0.8059.39-1~deb13u1
 ARG PPM_SNAPSHOT_DATE=2026-06-19
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
@@ -144,6 +148,14 @@ off <- pkgs[have[pkgs, "Version"] != want]
 if (length(off))
   stop("R packages differ from the lock: ", paste(sprintf("%s lock %s, installed %s", off, want[off], have[off, "Version"]), collapse = "; "))
 cat(sprintf("R packages: all %d at the lock version (base snapshot %s, %d pinned)\n", length(pkgs), snap, length(pins)))
+# Files some packages ship that nothing here runs and the images gate reads as findings (D-181: removed, never excepted): example
+# Dockerfiles (sf/docker/*, bslib), a fake GCP service-account key (gargle test fixture) and the example private key in the openssl
+# keys vignette. Removed in this layer, so no layer of the image holds them.
+junk <- c(list.files(.Library, "^Dockerfile$|\\.dockerfile$", recursive = TRUE, full.names = TRUE, all.files = TRUE, ignore.case = TRUE),
+          file.path(.Library, "gargle", "extdata", "fake_service_account.json"), file.path(.Library, "openssl", "doc", "keys.html"))
+junk <- junk[file.exists(junk)]
+unlink(junk)
+cat(sprintf("R packages: removed %d example files the images gate reads as findings\n", length(junk)))
 EOF
 
 COPY --from=pydeps /opt/python /opt/python

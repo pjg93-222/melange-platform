@@ -15,6 +15,8 @@ Subcommands (each returns an int exit code from main(argv)):
   census    list the paths added, removed and changed between two manifests
   command   PRINT the exact run command for a side (executes only with --execute)
   compare   gates G0-G4 over frozen + A1 + A2 + B [+ C]
+Any argument may be `@FILE` (one argument per line, # comments), e.g. `freeze --src <local> --dest D @ops/compute/parity_readset_local_extra.args`.
+`command --side windows` is a relocated, clean-environment run: it refuses without --local-dir and --glassbox-dir, sets MELANGE_REBASE_STORED=1, and inherits only ENV_ALLOW.
 
 Exit codes: 0 pass; 1 a gate failed (or verify/census found a difference); 2 usage or I/O error;
 3 every gate passed but EOL_ONLY / PATH_ONLY / ZIP_CONTENT paths still need Paul's acceptance.
@@ -26,7 +28,7 @@ Glob patterns (--include/--exclude): matched against the POSIX relative path wit
 `/`); a pattern without `/` matches any single path segment (`__pycache__`, `*.pyc`). Run the roots with
 PYTHONDONTWRITEBYTECODE=1 or pass --exclude __pycache__ to compare, or the .pyc files are DIFFERENT paths.
 
-Stdlib only; openpyxl is imported lazily and only by compare_workbooks.
+Stdlib only; openpyxl (via xlsx_content_diff, and compare_workbooks) is imported lazily and only when a workbook is classified.
 """
 from __future__ import annotations
 
@@ -49,11 +51,17 @@ NEEDS_ACCEPTANCE = ("EOL_ONLY", "PATH_ONLY", "ZIP_CONTENT")
 SCORE_TOL = 1e-12
 BLOCK = 1 << 20  # ponytail: whole-file hashing reads each file in 1 MiB blocks, one file at a time
 COMPOSE_FILE = "ops/compute/melange.compose.yaml"
+PARITY_COMPOSE_FILE = "ops/compute/melange.parity.compose.yaml"   # merged over COMPOSE_FILE when --audio-pilot-dir is given
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # container env names passed through from the caller's environment, each overridable by a flag
 PASSTHROUGH = (("MELANGE_DRAFT_DIR", "draft_dir"), ("MELANGE_DATA_DIR", "data_dir"),
                ("MELANGE_LOCAL_DIR", "local_dir"), ("MELANGE_GLASSBOX_DIR", "glassbox_dir"),
-               ("IMAGE_COMPUTE_MELANGE", "image"))
+               ("MELANGE_AUDIO_PILOT_DIR", "audio_pilot_dir"), ("IMAGE_COMPUTE_MELANGE", "image"))
+# The only names the Windows side inherits from the caller; everything else the chain reads (dials, keys, tokens) is absent.
+ENV_ALLOW = ("SystemRoot", "SystemDrive", "windir", "ComSpec", "PATH", "PATHEXT", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "APPDATA",
+             "TEMP", "TMP", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432", "ProgramData", "ALLUSERSPROFILE", "PUBLIC",
+             "PROCESSOR_ARCHITECTURE", "NUMBER_OF_PROCESSORS", "OS", "USERNAME", "USERDOMAIN", "COMPUTERNAME")
+sys.path.insert(0, str(Path(__file__).resolve().parent))   # xlsx_content_diff, imported lazily by classify
 IMAGE_ENV, IMAGE_NAME = "IMAGE_COMPUTE_MELANGE", "compute-melange"
 
 
@@ -84,13 +92,15 @@ def excluded(rel: str, patterns) -> bool:
 
 
 def walk_files(root, exclude=()) -> list[str]:
-    """Sorted POSIX relative paths of every regular file under root (symlinked dirs are not entered)."""
+    """Sorted POSIX relative paths of every regular file under root (symlinked dirs and NTFS junctions are not entered:
+    a run root links the read-only audio_pilot, and hashing 18 GB of the live directory would prove nothing)."""
     root = Path(root)
     out: list[str] = []
     for dirpath, dirnames, filenames in os.walk(root):
         rel_dir = Path(dirpath).relative_to(root).as_posix()
         prefix = "" if rel_dir == "." else rel_dir + "/"
-        dirnames[:] = sorted(d for d in dirnames if not excluded(prefix + d, exclude))
+        dirnames[:] = sorted(d for d in dirnames if not excluded(prefix + d, exclude)
+                             and not os.path.islink(os.path.join(dirpath, d)) and not os.path.isjunction(os.path.join(dirpath, d)))
         out.extend(prefix + f for f in filenames if not excluded(prefix + f, exclude))
     return sorted(out)
 
@@ -487,16 +497,18 @@ def classify(rel: str, ctx, lbl: str) -> tuple[str, str]:
             note = f"JSON differs at {len(bad)} path(s) outside the A1/A2 mask: {_head(pointer(x) or '/' for x in bad)}"
     if rel.lower().endswith((".xlsx", ".xlsm")):
         try:
-            res = compare_workbooks(pa, pb)
+            import xlsx_content_diff as XD  # D-177: content, not bytes; D-178 makes artifact-tool vs openpyxl authors differ in bytes
+            res = XD.compare_files(str(pa), str(pb), examples=3, styles=False)
         except ImportError:
             note = "openpyxl is not installed; workbook content was not compared"
-        except Exception as e:  # noqa: BLE001 - openpyxl raises many types on a corrupt package
+        except Exception as e:  # noqa: BLE001 - the reader raises many types on a corrupt package
             note = f"workbook unreadable: {type(e).__name__}: {e}"
         else:
-            if res["equal"]:
-                return "OOXML_CANONICAL", "workbooks equal (formulas, cached values, structure)"
-            note = (f"workbook differs: {res['cell_diff_count']} cell(s) {_head(c['sheet'] + '!' + c['cell'] for c in res['cell_diffs'])}"
-                    f"{'; ' if res['differences'] else ''}{_head(res['differences'], 3)}")
+            if XD.verdict(res, gate_cached=True) == "IDENTICAL":
+                return "OOXML_CANONICAL", "workbooks equal (content and cached values; styles not gated)"
+            gated = XD.CONTENT_KINDS + XD.CACHED_KINDS
+            note = ("workbook differs: " + ", ".join(f"{k}={n}" for k, n in sorted(res["counts"].items()) if n and k in gated)
+                    + "; e.g. " + _head((x for k in gated for x in res["examples"].get(k, ())), 5))
     za = zip_members(pa)
     if za is not None and za == zip_members(pb):
         return "ZIP_CONTENT", "same member names and decompressed bytes; zip metadata differs"
@@ -613,19 +625,37 @@ def current_image(name: str = IMAGE_NAME) -> str:
 def build_command(side: str, root: str, today: str, flags: dict | None = None):
     """-> (argv, env overrides, cwd) for one side of the parity run. The container image is, in this order: --image, the caller's
     IMAGE_COMPUTE_MELANGE (an explicit choice, for a build no release names yet), else the verified current manifest's."""
-    root = os.path.abspath(root)
+    root, flags = os.path.abspath(root), flags or {}
+    start = ["--from", flags["start"]] if flags.get("start") else []
     if side == "windows":
-        return ([sys.executable, os.path.join(root, "fec", "run_pipeline.py")],
-                {"MONEYBALL_ROOT": root, "MELANGE_TODAY": today}, root)
+        local = flags.get("local_dir")
+        if not local:
+            raise Usage("--local-dir is required for the windows side: without it the chain writes the live machine-local Melange store")
+        local = os.path.abspath(local)
+        # LOCALAPPDATA becomes local's parent, and staffer_contacts / staffer_source_catalog / forecast_ledger / refresh_billstatus_bulk
+        # read LOCALAPPDATA\Melange directly: any other leaf name sends them to a sibling of the copy (the live store, if that is it).
+        live = os.path.join(os.environ.get("LOCALAPPDATA") or "", "Melange")
+        if os.path.basename(local).lower() != "melange" or os.path.normcase(local) == os.path.normcase(os.path.abspath(live)):
+            raise Usage("--local-dir must be a COPY of the local store whose folder is named Melange, not the live %s" % live)
+        if not flags.get("glassbox_dir"):
+            raise Usage("--glassbox-dir is required for the windows side: without it the chain writes events into the live ~/.claude/glassbox/events")
+        env = {"MONEYBALL_ROOT": root, "MELANGE_TODAY": today, "MELANGE_REBASE_STORED": "1", "MELANGE_LOCAL_ROOT": local,
+               "LOCALAPPDATA": os.path.dirname(local), "MELANGE_XLSX_WRITER": "openpyxl", "PYTHONUTF8": "1",
+               "PYTHONIOENCODING": "utf-8:surrogateescape", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}
+        for var, flag in (("MONEYBALL_DRAFT", "draft_dir"), ("MELANGE_DATA_ROOT", "data_dir"), ("GLASSBOX_EVENTS_DIR", "glassbox_dir")):
+            if flags.get(flag):
+                env[var] = os.path.abspath(flags[flag])
+        return [sys.executable, os.path.join(root, "fec", "run_pipeline.py")] + start, env, root
     env = {"MELANGE_TREE_DIR": root, "MELANGE_TODAY": today}
     for name, flag in PASSTHROUGH:
-        value = (flags or {}).get(flag) or os.environ.get(name)
+        value = flags.get(flag) or os.environ.get(name)
         if not value and name == IMAGE_ENV:
             value = current_image()
         if value:
             env[name] = value
-    argv = ["docker", "compose", "-f", COMPOSE_FILE, "--profile", "chain", "run", "--rm", "chain"]
-    return argv, env, str(REPO_ROOT)
+    files = ["-f", COMPOSE_FILE] + (["-f", PARITY_COMPOSE_FILE] if "MELANGE_AUDIO_PILOT_DIR" in env else [])
+    argv = ["docker", "compose", *files, "--profile", "chain", "run", "--rm", "chain"]
+    return argv + (["python", "/melange/fec/run_pipeline.py"] + start if start else []), env, str(REPO_ROOT)
 
 
 def cmd_command(a) -> int:
@@ -642,10 +672,19 @@ def cmd_command(a) -> int:
         print(f"{k}={v}")
     print(f"cwd={cwd}")
     print("run=" + (subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)), flush=True)
+    if a.start:   # DE-045: a resumed chain never runs the steps before STEP, the intake gate audit_collection (step 3) among them
+        print(f"WARNING: --from {a.start} skips every step before it; such a run resumes a failed one but is not a parity or acceptance "
+              "proof (DE-045). Prove parity with a full run.", file=sys.stderr, flush=True)
     if not a.execute:
         return 0
+    if a.side == "windows":   # a clean environment: only ENV_ALLOW is inherited, so no ambient dial or key reaches the chain
+        run_env = {**{k: os.environ[k] for k in ENV_ALLOW if k in os.environ}, **env}
+    else:
+        run_env = {**os.environ, **env}
+        if "MELANGE_AUDIO_PILOT_DIR" in env:   # the mount point of the read-only nested bind
+            os.makedirs(os.path.join(env["MELANGE_TREE_DIR"], "audio_pilot"), exist_ok=True)
     try:
-        return subprocess.run(argv, cwd=cwd, env={**os.environ, **env}, timeout=a.timeout).returncode
+        return subprocess.run(argv, cwd=cwd, env=run_env, timeout=a.timeout).returncode
     except subprocess.TimeoutExpired:
         print(f"error: timed out after {a.timeout} s", file=sys.stderr)  # ponytail: kills the child, not its grandchildren
         return 124
@@ -662,6 +701,9 @@ def cmd_compare(a) -> int:
     ctx = {"frozen": frozen, "roots": roots, "others": [l for l in roots if l not in ("A1", "A2")],
            "maps": parse_maps(a.map or []), "mask_sets": {}, "mask_report": {},
            "snaps": {lbl: snapshot_tree(r, excl) for lbl, r in roots.items()}}
+    if a.store:   # keep each root's snapshot beside the report: the evidence can be audited and `census`ed later without rehashing
+        for lbl, snap in ctx["snaps"].items():
+            write_json(Path(a.store) / f"{lbl}.manifest.json", snap)
     ctx["changed"] = {lbl: changed_paths(frozen, s) for lbl, s in ctx["snaps"].items()}
     gates = [gate0(ctx), gate1(ctx), gate2(ctx), gate3(ctx, a.expect_members), gate4(ctx)]
 
@@ -706,8 +748,15 @@ def cmd_compare(a) -> int:
 
 # ------------------------------------------------------------------------------------------------- cli
 
+class _Parser(argparse.ArgumentParser):
+    def convert_arg_line_to_args(self, arg_line):
+        """@FILE arguments: one argument per line, blank lines and # comments skipped."""
+        line = arg_line.strip()
+        return [line] if line and not line.startswith("#") else []
+
+
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="chain_parity", description="Melange chain parity harness (see module docstring).")
+    p = _Parser(prog="chain_parity", description="Melange chain parity harness (see module docstring).", fromfile_prefix_chars="@")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add(name, fn, help_):
@@ -743,6 +792,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--today", metavar="YYYY-MM-DD", help="MELANGE_TODAY, required, identical on both sides")
     s.add_argument("--execute", action="store_true", help="run the command instead of only printing it")
     s.add_argument("--timeout", type=float, metavar="SECONDS", help="with --execute: kill the run after this long")
+    s.add_argument("--from", dest="start", metavar="STEP", help="resume the chain at this step (run_pipeline.py --from STEP)")
     for name, flag in PASSTHROUGH:
         s.add_argument("--" + flag.replace("_", "-"), dest=flag, metavar="V", help=f"container side: {name} (default: caller's environment)")
 
@@ -755,6 +805,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--map", action="extend", nargs="+", metavar="WIN=CONTAINER", help="root prefix pair for PATH_ONLY, e.g. C:\\melange-data=/melange-data")
     s.add_argument("--expect-members", type=int, default=533, metavar="N")
     s.add_argument("--report", metavar="OUT.json")
+    s.add_argument("--store", metavar="DIR", help="also write each root's snapshot to DIR/<A1|A2|B|C>.manifest.json")
     s.add_argument("--accept", action="extend", nargs="+", metavar="PATH", help="relative paths Paul accepted (EOL_ONLY, PATH_ONLY, ZIP_CONTENT)")
     s.add_argument("--exclude", action="extend", nargs="+", metavar="GLOB", help="leave these paths out of every snapshot")
     return p

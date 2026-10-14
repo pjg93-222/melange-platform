@@ -3,7 +3,8 @@
 # files do not declare (opensmile, anthropic: installed on the host, declared nowhere). The set is proved by
 # `python ops/compute/chain_imports.py --json` (AST census of fec/run_pipeline.py CHAIN, transitive through project modules).
 # Versions are the Windows host's (CPython 3.12.10): the image has to reproduce the host's numbers, so no pin moves without a parity run.
-cryptography==49.0.0
+# not the host's 49.0.0: CVE-2026-69247 (D-181); the chain census never imports cryptography, so no parity run is affected
+cryptography==50.0.0
 joblib==1.5.3
 networkx==3.6.1
 numpy==2.4.6

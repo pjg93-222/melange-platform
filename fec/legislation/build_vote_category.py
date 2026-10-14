@@ -20,7 +20,7 @@ from pathlib import Path
 import re
 
 import pandas as pd
-from paths import ROOT, stored_name
+from paths import ROOT, stored_name, to_host
 from moneyball_core import dump_atomic
 from legislation.collect_official_rollcall_events import canonical_category
 
@@ -255,9 +255,9 @@ def main():
     root = Path(ROOT)
     config_path = root / 'data/legislation/vote_source_snapshot.json'
     config = load(config_path) if config_path.is_file() else {}
-    source = args.source_dir or config.get('source_dir')
-    exclusions = args.historical_exclusions or config.get('historical_exclusions')
-    names = args.names or config.get('names')
+    source = args.source_dir or to_host(config.get('source_dir') or '')
+    exclusions = args.historical_exclusions or to_host(config.get('historical_exclusions') or '')
+    names = args.names or to_host(config.get('names') or '')
     if not all((source, exclusions, names)):
         parser.error('source-dir, historical-exclusions and names are required until a source snapshot is configured')
     archive = args.archive or sorted(root.glob('congress_bills_archive_*.xlsx'))[-1]

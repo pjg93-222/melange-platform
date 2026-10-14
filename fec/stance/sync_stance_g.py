@@ -17,8 +17,8 @@ from stance.workbook_stance_views import (
     stance_view_contract, sync_category_stance_sheet, sync_coalition_profiles_sheet,
 )
 B=MB_ROOT
-WB=B+r'\Moneyball Main Version - Blended.xlsx'
-CS=json.load(open(B+r'\category_stance.json',encoding='utf-8'))
+WB=_o.path.join(B,'Moneyball Main Version - Blended.xlsx')
+CS=json.load(open(_o.path.join(B,'category_stance.json'),encoding='utf-8'))
 M=CS['matrix']; OVERALL_CAPS=(CS.get('gate') or {}).get('overall_capped') or {}
 _tier,_trank=legislative_press_tiers(list(M))
 # ONE CROWN SOURCE (D-030/D-031). Column G is a published surface, so the crown it
@@ -54,7 +54,7 @@ for r in range(3,536):
     s=agg(nm); ws.cell(r,7).value=s; cnt[s]+=1; n+=1
 sync_category_stance_sheet(wb,CS,members,overall)
 sync_coalition_profiles_sheet(wb)
-ranks=json.load(open(B+r'\ranks_python.json',encoding='utf-8'))
+ranks=json.load(open(_o.path.join(B,'ranks_python.json'),encoding='utf-8'))
 live=ranks.get('legislative_pillar')
 if live:
     if set(live['agenda'])!=set(members):raise ValueError('live legislative roster mismatch')

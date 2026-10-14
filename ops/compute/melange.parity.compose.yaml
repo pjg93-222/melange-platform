@@ -1,0 +1,8 @@
+# Parity runs only (ops/compute/chain_parity.py command --side container --audio-pilot-dir DIR): merged over melange.compose.yaml
+# with a second -f. audit_collection hashes audio_pilot (18.5 GB) at the tree root and the chain never writes it, so the live
+# directory is bound read-only at /melange/audio_pilot (nested inside the /melange tree bind) instead of being copied per run.
+# The mount point tree/audio_pilot must exist in the run root; `chain_parity.py command --execute` creates it.
+services:
+  chain:
+    volumes:
+      - {type: bind, source: "${MELANGE_AUDIO_PILOT_DIR:?set MELANGE_AUDIO_PILOT_DIR to the audio_pilot directory}", target: /melange/audio_pilot, read_only: true, bind: {create_host_path: false}}

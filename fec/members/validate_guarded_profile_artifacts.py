@@ -7,7 +7,7 @@ import os
 import sys
 
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from paths import ROOT
+from paths import ROOT, to_host
 from members.validate_communication_style import sha256_file,validate_input_hashes
 
 
@@ -40,7 +40,7 @@ def validate_all():
     else:
         candidate=load('data/members/b5_audio_reviews_v2.json.candidate')
         source=candidate.get('source_manifest') or {}; partition=candidate.get('partition') or {}
-        manifest_path=source.get('path') or ''
+        manifest_path=to_host(source.get('path') or '')
         if (candidate.get('schema')!='b5-audio-review-v2-candidate' or
                 candidate.get('status')!='CANDIDATE_ONLY_CONSUMED_BY_NOTHING_AWAITING_DOUBLE_REVIEW'):
             errors.append('accepted-audio candidate schema/status mismatch')

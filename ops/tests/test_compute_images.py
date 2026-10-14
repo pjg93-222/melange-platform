@@ -17,8 +17,10 @@ import pytest
 OPS = Path(__file__).resolve().parents[1]
 yaml = pytest.importorskip("yaml", reason="PyYAML not installed; compute image policy not checked")
 
-# The source-only export remaps ops/github/ to .github/ (export.remap), so CI finds the workflows at the repo root.
-WF_DIR = OPS / "github" / "workflows" if (OPS / "github" / "workflows").is_dir() else OPS.parent / ".github" / "workflows"
+sys.path.insert(0, str(OPS.parent))
+from ops.tests.layout import src  # noqa: E402
+
+WF_DIR = src("ops/github/workflows")     # the source-only export (CI) remaps ops/github/ to .github/
 
 DOCKERFILE = (OPS / "docker" / "compute-mentat.Dockerfile").read_text(encoding="utf-8")
 WF_TEXT = (WF_DIR / "compute-images.yml").read_text(encoding="utf-8")

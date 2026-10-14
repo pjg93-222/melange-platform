@@ -178,7 +178,7 @@ jobs:
           run python /melange/ops/compute/chain_imports.py --import
           run python /melange/ops/compute/chain_imports.py --compile
           run python -c "import sys; assert sys.version_info[:3]==(3,12,10), sys.version"
-          run python -c "import locale,os,time; assert locale.getencoding().lower() in ('cp1252','windows-1252'); assert bytes([0x93]).decode(locale.getpreferredencoding(False)) == chr(0x201c); assert os.environ['TZ']=='America/Chicago'; assert time.tzname==('CST','CDT'), time.tzname"
+          run python -c "import locale,os,sys,time; assert sys.flags.utf8_mode==1 and locale.getpreferredencoding(False).lower()=='utf-8'; assert bytes([0xe2,0x80,0x9c]).decode(locale.getpreferredencoding(False)) == chr(0x201c); assert os.environ['TZ']=='America/Chicago'; assert time.tzname==('CST','CDT'), time.tzname"
           run python -c "import os; assert os.getuid()==10001 and 'PYTHONHASHSEED' not in os.environ and os.environ['PYTHONIOENCODING']=='utf-8:surrogateescape'"
 
   sbom:

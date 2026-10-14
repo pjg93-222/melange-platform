@@ -19,13 +19,16 @@ import pytest
 
 OPS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(OPS))
+sys.path.insert(0, str(OPS.parent))
 import security_gate  # noqa: E402
+from ops.tests.layout import src  # noqa: E402
 
 yaml = pytest.importorskip("yaml", reason="PyYAML not installed")
 SH = shutil.which("sh")
 DOCKERFILE = (OPS / "docker" / "compute-collector.Dockerfile").read_text(encoding="utf-8")
 COMPOSE = yaml.safe_load((OPS / "compute" / "collectors.compose.yaml").read_text(encoding="utf-8"))
-WORKFLOW_TEXT = (OPS / "github" / "workflows" / "compute-collector.yml").read_text(encoding="utf-8")
+WF_DIR = src("ops/github/workflows")
+WORKFLOW_TEXT = (WF_DIR / "compute-collector.yml").read_text(encoding="utf-8")
 WORKFLOW = yaml.safe_load(WORKFLOW_TEXT)
 LOCK = json.loads((OPS / "images.lock").read_text(encoding="utf-8"))
 SERVICES = COMPOSE["services"]
@@ -317,7 +320,7 @@ def test_workflow_jobs_gate_smoke_scan_and_sbom_and_build_without_cache_or_float
 
 
 def test_workflow_uses_the_same_action_pins_as_release_yml():
-    release = (OPS / "github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    release = (WF_DIR / "release.yml").read_text(encoding="utf-8")
     pins = lambda text: dict(re.findall(r"uses:\s*([\w./-]+)@([0-9a-f]{40})\s+# v\d+", text))
     ours, theirs = pins(WORKFLOW_TEXT), pins(release)
     assert ours and all(theirs.get(action) == sha for action, sha in ours.items()), {a: s for a, s in ours.items() if theirs.get(a) != s}

@@ -256,10 +256,20 @@ ADJUDICATED_RETIRED = {
         "road-interchange false positive killed by the _ROAD_INTERCHANGE clause (391a4a8b5)",
         "ratified by Paul 2026-08-25 via interactive approval",
     ),
+    "x1eaa34cd8927": (
+        "bluesky",
+        "member handle unverified; post excluded from bluesky_cu.csv by the registry-verified extractor (c95a5ecb4)",
+        "Paul ratified 2026-10-13: handle unverified since c95a5ecb4; posts excluded from bluesky_cu.csv",
+    ),
+    "xc40cc6e75c95": (
+        "bluesky",
+        "member handle unverified; post excluded from bluesky_cu.csv by the registry-verified extractor (c95a5ecb4)",
+        "Paul ratified 2026-10-13: handle unverified since c95a5ecb4; posts excluded from bluesky_cu.csv",
+    ),
 }
 """Hand labels Paul has personally ruled retired, keyed by content-hash id.
 
-Each value is ``(channel, reason, ratification)``.  These three rows stopped binding because the
+Each value is ``(channel, reason, ratification)``.  The first three rows stopped binding because the
 2026-07-16 precision-first category router (commit 391a4a8b5) withdrew their categories, so the
 extractors no longer emit the passage into the channel's ``*_cu.csv`` source:
 
@@ -269,6 +279,15 @@ extractors no longer emit the passage into the channel's ``*_cu.csv`` source:
   vetoes without credit-union or big-bank context.  The passage text is byte-identical in source.
 * ``x0ed867384910`` - bluesky, S001200 Darren Soto 2025-07-25, gold_stance=neutral.  A road
   interchange ribbon-cutting, killed by the ``_ROAD_INTERCHANGE`` clause of the same commit.
+
+The last two stopped binding for a different reason: commit c95a5ecb4 (2026-10-11) made
+``extract_cu_bluesky.py`` drop posts from members whose registry handle is still tagged UNVERIFIED.
+
+* ``x1eaa34cd8927`` - bluesky, W000822 Bonnie Watson Coleman 2025-02-10, gold_stance=oppose.
+* ``xc40cc6e75c95`` - bluesky, W000822 Bonnie Watson Coleman 2025-02-14, gold_stance=oppose.
+  Both are CFPB posts.  Paul ratified retiring them on 2026-10-13.  Confirming her handle in the
+  registry restores the posts to ``bluesky_cu.csv``; the stale-ledger notice then prints and the
+  rows train again.
 
 Scope and change control:
 
@@ -557,7 +576,7 @@ def input_fingerprint():
                  if name == "data/stance/cu_valence_registry.json"
                  else [os.path.join(ROOT, name)])
         for path in paths:
-            digest.update(path.encode("utf-8"))
+            digest.update(os.path.relpath(path, ROOT).replace('\\', '/').encode("utf-8"))
             if not os.path.exists(path):
                 digest.update(b"MISSING")
                 continue

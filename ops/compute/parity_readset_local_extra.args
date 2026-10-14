@@ -1,0 +1,5 @@
+# chain_parity.py freeze --src <%LOCALAPPDATA%\Melange> --dest <frozen local> --list <local.txt> @ops/compute/parity_readset_local_extra.args
+# The directories the traced read set missed (parity run 2026-10-13: steps 70 and 10 read them). Globs are relative to the local store.
+--include
+staffer_network/normalized/lda-source-native/generation-20260830T231200Z
+demographics/lodes/*

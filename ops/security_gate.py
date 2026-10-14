@@ -56,9 +56,10 @@ OS_PKG_TYPES = {"debian", "ubuntu", "alpine", "redhat", "centos", "rocky", "alma
                 "photon", "wolfi", "chainguard", "cbl-mariner", "azurelinux"}
 LICENSE_SEVERITIES = ("CRITICAL", "HIGH", "UNKNOWN")  # forbidden, restricted, unknown: trivy's UNKNOWN is the unrecognised licence
 # SPDX-identified permissive licences that trivy's classifier has no category for, so it reports them UNKNOWN (cffi is MIT-0: the first
-# Terrier scan, 2026-10-12). A language-package finding that is UNKNOWN AND named here is reported, not blocking. Add a name only after
-# reading the licence; every other UNKNOWN still blocks.
-KNOWN_PERMISSIVE = {"MIT-0"}
+# Terrier scan, 2026-10-12; typing-extensions is PSF-2.0, the Python Software Foundation License 2.0, OSI-approved and permissive: the
+# compute-melange scan, 2026-10-13). A language-package finding that is UNKNOWN AND named here is reported, not blocking. Add a name
+# only after reading the licence; every other UNKNOWN still blocks.
+KNOWN_PERMISSIVE = {"MIT-0", "PSF-2.0"}
 
 DENY_EXT = {".sqlite", ".sqlite3", ".db", ".parquet", ".csv", ".tsv", ".xlsx", ".xls", ".joblib", ".pkl",
             ".pickle", ".jsonl", ".ndjson", ".wav", ".mp3", ".mp4", ".m4a", ".flac",

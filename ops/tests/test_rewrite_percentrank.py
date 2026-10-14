@@ -237,15 +237,16 @@ def test_apply_refuses_while_the_pipeline_lock_is_live(book, tmp_path):
 
 
 def test_a_dead_owners_lease_is_not_live_but_a_fresh_malformed_one_is(book, tmp_path):
+    import pipeline_lock as PL
     lock = tmp_path / ".pipeline_run.lock"
     dead = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"], capture_output=True, text=True, check=True).stdout.strip()
-    lock.write_text(json.dumps({"pid": int(dead), "token": "t", "started_utc": 1.0, "owner_kind": "test", "proc_start": 1.0}))
-    assert RW.pipeline_lock_is_live(lock) is False
+    lock.write_text(json.dumps({"pid": int(dead), "token": "t", "started_utc": 1.0, "owner_kind": "test", "proc_start": 1.0, "host": PL.host_identity()}))
+    assert RW.pipeline_lock_is_live(lock) is False                            # "host": POSIX judges by pid only a lease written from its own pid space
     lock.write_text("")                                                        # created a moment ago, owner not written yet
     assert RW.pipeline_lock_is_live(lock) is True
     with pytest.raises(OR.Refused, match="is live"):
         run_stamped(book)
-    lock.write_text(json.dumps({"pid": int(dead), "token": "t", "started_utc": 1.0, "owner_kind": "test", "proc_start": 1.0}))
+    lock.write_text(json.dumps({"pid": int(dead), "token": "t", "started_utc": 1.0, "owner_kind": "test", "proc_start": 1.0, "host": PL.host_identity()}))
     assert run_stamped(book)["rewritten_formula_count"] == 3159                # the stale lease does not block (it is not removed)
     assert lock.exists()
 

@@ -105,20 +105,55 @@ def stored_name(path):
     from pathlib import PureWindowsPath
     return PureWindowsPath(os.fspath(path)).name
 
+# Stored Windows roots -> the name in this module that holds this host's spelling of each.
+_STORED = (
+    ('C:/Users/pgoff/OneDrive/Desktop/Melange Systems', 'ROOT'),
+    ('C:/Users/pgoff/OneDrive/Desktop/Draft Systems', 'DRAFT'),
+    ('C:/Users/pgoff/AppData/Local/Melange', 'LOCAL_MELANGE'),
+    ('C:/melange-data', 'MELANGE_DATA'),
+)
+
+def _rebasing():
+    """POSIX always rebases; Windows only when MELANGE_REBASE_STORED=1 (a relocated scratch root).  Opt-in there because
+    shadow tools and kernel temp roots set MONEYBALL_ROOT legitimately and must keep reading the paths they were given."""
+    return not _IS_WINDOWS or os.environ.get('MELANGE_REBASE_STORED') == '1'
+
+def _rebase():
+    """(stored prefix, this host's root) for each stored root that has MOVED.  An unmoved root is skipped, so a path under
+    it comes back as the text it came in as (no separator rewrite on the laptop)."""
+    for prefix, name in _STORED:
+        root = globals()[name]
+        if not isinstance(root, _UnsetLocalRoot):
+            root = os.fspath(root)
+            if root.replace('\\', '/').rstrip('/').lower() != prefix.lower():
+                yield prefix, root
+
+def _under(flat, prefix):
+    low, pre = flat.lower(), prefix.lower()
+    return low == pre or low.startswith(pre + '/')
+
 def to_host(path):
     """A Windows absolute path stored INSIDE data (a clip manifest's out_wav, a receipt) -> this host's path.
-    Identity on Windows and for anything that is not under a known stored Windows root, so a native path is
-    never mangled.  Stored roots: the project tree, Draft Systems, C:\\melange-data, %LOCALAPPDATA%\\Melange."""
+    Identity on Windows (unless MELANGE_REBASE_STORED=1) and for anything that is not under a known stored Windows root,
+    so a native path is never mangled.  Stored roots: the project tree, Draft Systems, C:\\melange-data, %LOCALAPPDATA%\\Melange."""
     text = os.fspath(path)
-    if _IS_WINDOWS or len(text) < 3 or text[1] != ':' or text[2] not in '\\/':
+    if not _rebasing() or len(text) < 3 or text[1] != ':' or text[2] not in '\\/':
         return text
     flat = text.replace('\\', '/')
-    for prefix, root in (
-        ('C:/Users/pgoff/OneDrive/Desktop/Melange Systems', ROOT),
-        ('C:/Users/pgoff/OneDrive/Desktop/Draft Systems', DRAFT),
-        ('C:/Users/pgoff/AppData/Local/Melange', LOCAL_MELANGE),
-        ('C:/melange-data', MELANGE_DATA),
-    ):
-        if flat.lower() == prefix.lower() or flat.lower().startswith(prefix.lower() + '/'):
-            return root + flat[len(prefix):]
+    for prefix, root in _rebase():
+        if _under(flat, prefix):
+            return root + (flat[len(prefix):].replace('/', '\\') if _IS_WINDOWS else flat[len(prefix):])
+    return text
+
+def to_stored(path):
+    """to_host's inverse, for an output that RECORDS a path: a path under this host's moved root -> the Windows spelling the
+    laptop writes, so a relocated run and the laptop store the same bytes.  Identity when not rebasing or not under a moved root."""
+    text = os.fspath(path)
+    if not _rebasing():
+        return text
+    flat = text.replace('\\', '/')
+    for prefix, root in sorted(_rebase(), key=lambda pr: -len(pr[1])):
+        root = root.replace('\\', '/').rstrip('/')
+        if _under(flat, root):
+            return (prefix + flat[len(root):]).replace('/', '\\')
     return text

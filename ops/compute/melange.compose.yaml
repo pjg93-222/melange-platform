@@ -34,7 +34,7 @@ services:
     network_mode: none
     init: true                  # reaps the steps' children and forwards SIGTERM to the pipeline
     mem_limit: 12g
-    cpus: "8"                   # the host has 8 logical CPUs; matching it keeps OpenBLAS at the same thread count
+    # no cpus: the Docker Desktop VM has 6, so a limit of 8 constrained nothing; the thread count is pinned below instead
     command: ["python", "/melange/fec/run_pipeline.py"]
     environment:
       MONEYBALL_ROOT: /melange
@@ -45,8 +45,12 @@ services:
       GLASSBOX_EVENTS_DIR: /glassbox/events
       MELANGE_TODAY: ${MELANGE_TODAY:-}       # optional ISO date for parity runs; empty means unset
       TZ: America/Chicago
-      LANG: en_US.CP1252
-      LC_ALL: en_US.CP1252
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      PYTHONUTF8: "1"                         # the nightly Windows runner is UTF-8 mode too
+      OPENBLAS_NUM_THREADS: "8"               # the Windows host's logical CPU count, so OpenBLAS splits work the same way
+      OMP_NUM_THREADS: "8"
+      MELANGE_XLSX_WRITER: openpyxl
     volumes:
       # create_host_path false: a typo in a host path fails the run instead of creating an empty tree there.
       - {type: bind, source: "${MELANGE_TREE_DIR:?set MELANGE_TREE_DIR to the Melange tree}", target: /melange, read_only: false, bind: {create_host_path: false}}

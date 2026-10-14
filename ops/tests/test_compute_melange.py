@@ -18,8 +18,9 @@ yaml = pytest.importorskip("yaml", reason="PyYAML not installed; compute-melange
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(OPS / "compute"))
 import chain_imports  # noqa: E402
+from ops.tests.layout import src  # noqa: E402
 
-WF_DIR = OPS / "github" / "workflows" if (OPS / "github" / "workflows").is_dir() else REPO / ".github" / "workflows"
+WF_DIR = src("ops/github/workflows")
 DOCKERFILE = (OPS / "docker" / "compute-melange.Dockerfile").read_text(encoding="utf-8")
 BASE = json.loads((OPS / "compute" / "melange-base.lock").read_text(encoding="utf-8"))
 LOCK_TEXT = (OPS / "locks" / "compute-melange.linux.txt").read_text(encoding="utf-8")
@@ -29,6 +30,9 @@ SERVICE = COMPOSE["services"]["chain"]
 WORKFLOW_TEXT = (WF_DIR / "compute-melange.yml").read_text(encoding="utf-8")
 WORKFLOW = yaml.safe_load(WORKFLOW_TEXT)
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
+# Image-only version bumps that cure a fixable vulnerability (D-181) in a package the chain census never imports, so no parity run is
+# affected; the Windows host stays where it is. cryptography 49.0.0 -> 50.0.0: CVE-2026-69247 (2026-10-13).
+IMAGE_AHEAD_OF_HOST = {"cryptography": "50.0.0"}
 
 
 def norm(name: str) -> str:
@@ -109,7 +113,7 @@ def test_nothing_of_the_tree_or_the_data_is_baked_in():
     copies = re.findall(r"(?m)^COPY\s+(?:--\S+\s+)*(\S+)\s+(\S+)", DOCKERFILE)
     assert copies
     for src, _dest in copies:
-        assert src.startswith("/opt/") or src.startswith("/usr/lib/locale/") or src == "ops/locks/compute-melange.linux.txt", src
+        assert src.startswith("/opt/") or src == "ops/locks/compute-melange.linux.txt", src
     code = "\n".join(line for line in DOCKERFILE.splitlines() if not line.lstrip().startswith("#"))
     for forbidden in ("COPY fec", "COPY . ", "ADD ", "melange-data", "API Keys", "keys.json"):
         assert forbidden not in code, forbidden
@@ -123,13 +127,20 @@ def test_runs_as_uid_10001_and_the_default_command_is_the_chain():
 
 def test_the_environment_mirrors_the_windows_job():
     env_block = DOCKERFILE[DOCKERFILE.index("ENV PATH="):DOCKERFILE.index("# Build-time assertions")]
-    for want in ("LANG=en_US.CP1252", "LC_ALL=en_US.CP1252", "TZ=America/Chicago", "PYTHONIOENCODING=utf-8:surrogateescape",
+    for want in ("LANG=C.UTF-8", "LC_ALL=C.UTF-8", "PYTHONUTF8=1", "TZ=America/Chicago", "PYTHONIOENCODING=utf-8:surrogateescape",
                  "PYTHONPYCACHEPREFIX=/tmp/pyc", "HOME=/tmp/home"):
         assert want in env_block, want
-    for never in ("PYTHONHASHSEED", "PYTHONUTF8", "PYTHONUTF-8"):     # the Windows run sets neither: a hash seed here would be a difference
-        assert never not in env_block, never
-    assert "locale.getencoding().lower() in ('cp1252','windows-1252')" in DOCKERFILE      # the build fails if the locale is not CP1252
-    assert "localedef -c -i en_US -f CP1252" in DOCKERFILE
+    assert "PYTHONHASHSEED" not in env_block      # the Windows run sets no hash seed: one here would be a difference
+    # UTF-8 mode like the nightly Windows runner (daily_refresh.py); the generated-locale stage is gone
+    assert "sys.flags.utf8_mode == 1 and locale.getpreferredencoding(False).lower() == 'utf-8'" in DOCKERFILE   # the build fails otherwise
+    assert "localedef" not in DOCKERFILE and "en_US.CP1252" not in DOCKERFILE and "AS locale" not in DOCKERFILE
+
+
+def test_the_compose_env_pins_the_threads_the_writer_and_the_mode():
+    env = SERVICE["environment"]
+    assert env["PYTHONUTF8"] == "1" and env["LANG"] == env["LC_ALL"] == "C.UTF-8"
+    assert env["OPENBLAS_NUM_THREADS"] == env["OMP_NUM_THREADS"] == "8" and env["MELANGE_XLSX_WRITER"] == "openpyxl"
+    assert "cpus" not in SERVICE
 
 
 # ------------------------------------------------------------------------------------------------ the two locks
@@ -155,7 +166,7 @@ def test_the_input_holds_every_line_of_the_two_host_requirement_files_and_the_un
     wanted = pins(IN_TEXT)
     for rel in ("requirements.txt", "fec/requirements-honors.txt"):
         for name, version in pins((REPO / rel).read_text(encoding="utf-8")).items():
-            assert wanted.get(name) == version, (rel, name)
+            assert wanted.get(name) == IMAGE_AHEAD_OF_HOST.get(name, version), (rel, name)
     assert {"zopfli", "opensmile", "anthropic"} <= set(wanted)          # declared nowhere before this lane (design F6)
 
 
@@ -244,7 +255,7 @@ def test_the_image_reference_must_be_a_digest_by_the_job_wrapper_contract():
 
 
 def test_resource_limits_match_the_host_the_parity_numbers_come_from():
-    assert SERVICE["cpus"] == "8" and SERVICE["mem_limit"].endswith("g")
+    assert SERVICE["mem_limit"].endswith("g")
     assert int(SERVICE["mem_limit"][:-1]) >= 8
 
 
@@ -264,7 +275,7 @@ def test_environment_names_are_the_ones_the_code_reads():
     assert env["MONEYBALL_ROOT"] == "/melange" and env["MONEYBALL_DRAFT"] == "/draft"
     assert env["MELANGE_DATA_ROOT"] == "/melange-data" and env["MELANGE_LOCAL_ROOT"] == "/localappdata/Melange"
     assert env["LOCALAPPDATA"] == "/localappdata" and env["GLASSBOX_EVENTS_DIR"] == "/glassbox/events"
-    assert env["TZ"] == "America/Chicago" and env["LANG"] == env["LC_ALL"] == "en_US.CP1252"
+    assert env["TZ"] == "America/Chicago" and env["LANG"] == env["LC_ALL"] == "C.UTF-8"
     assert "MELANGE_TODAY" in env
     source = "\n".join((REPO / rel).read_text(encoding="utf-8") for rel in ("fec/paths.py", "fec/surfaces/glassbox_emit.py"))
     for name in ("MONEYBALL_ROOT", "MONEYBALL_DRAFT", "MELANGE_DATA_ROOT", "MELANGE_LOCAL_ROOT", "GLASSBOX_EVENTS_DIR", "MELANGE_TODAY"):
@@ -340,7 +351,7 @@ def test_smoke_runs_offline_unprivileged_and_imports_every_chain_package():
         assert flag in smoke, flag
     assert "python /melange/ops/compute/chain_imports.py --import" in smoke
     assert "python /melange/ops/compute/chain_imports.py --compile" in smoke
-    assert "(3,12,10)" in smoke and "cp1252" in smoke and "America/Chicago" in smoke and "PYTHONHASHSEED" in smoke
+    assert "(3,12,10)" in smoke and "utf8_mode==1" in smoke and "America/Chicago" in smoke and "PYTHONHASHSEED" in smoke
 
 
 def test_the_lock_job_proves_the_census_the_static_tests_the_install_and_the_imports():
@@ -374,8 +385,8 @@ def test_the_new_files_survive_the_source_only_export():
     wanted = ["ops/compute/README.md", "ops/compute/chain_imports.py", "ops/compute/chain_parity.py", "ops/compute/melange-base.lock",
               "ops/compute/melange.compose.yaml", "ops/docker/compute-melange.Dockerfile", "ops/github/workflows/compute-melange.yml",
               "ops/locks/compute-melange.in", "ops/locks/compute-melange.linux.txt"]
-    dropped = [p for p in wanted if (REPO / p).is_file() and not export.allowed_name(export.remap(p), cfg)]
+    dropped = [p for p in wanted if src(p).is_file() and not export.allowed_name(export.remap(p), cfg)]
     assert not dropped, "the export would drop %s: add the names to release_config.json export.extra_names" % dropped
-    assert sum((REPO / p).is_file() for p in wanted) == len(wanted)
+    assert sum(src(p).is_file() for p in wanted) == len(wanted)
     raw = (OPS / "release_config.json").read_bytes()
     assert raw.count(b"\n") == raw.count(b"\r\n"), "release_config.json must keep one line ending throughout"

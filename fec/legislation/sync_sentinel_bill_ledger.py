@@ -29,7 +29,7 @@ _bootstrap_sys.path.insert(0, _bootstrap_os.path.dirname(_bootstrap_os.path.dirn
 import bill_rules as BR
 from legislation.verify_collector_roster_updates import gate_repository
 from moneyball_core import dump_atomic, write_text_atomic
-from paths import ROOT as ROOT_TEXT
+from paths import ROOT as ROOT_TEXT, to_host
 from xlsx_openpyxl_authors import author_sentinel, xlsx_writer
 
 
@@ -528,7 +528,7 @@ def validate_existing_history(history_path: Path, receipt_path: Path) -> tuple[l
     block = receipt.get("history")
     if not isinstance(block, dict):
         raise RuntimeError("verified history prior receipt has no history block")
-    if Path(str(block.get("path") or "")).resolve() != history_path.resolve():
+    if Path(to_host(str(block.get("path") or ""))).resolve() != history_path.resolve():
         raise RuntimeError("verified history prior receipt path mismatch")
     actual_hash = sha256(history_path)
     if str(block.get("sha256") or "").strip().lower() != actual_hash:

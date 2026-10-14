@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -14,8 +15,10 @@ import pytest
 OPS = Path(__file__).resolve().parents[1]
 yaml = pytest.importorskip("yaml", reason="PyYAML not installed; compose policy not checked")
 
-# The source-only export remaps ops/github/ to .github/ (export.remap), so CI finds the workflows at the repo root.
-WF_DIR = OPS / "github" / "workflows" if (OPS / "github" / "workflows").is_dir() else OPS.parent / ".github" / "workflows"
+sys.path.insert(0, str(OPS.parent))
+from ops.tests.layout import src  # noqa: E402
+
+WF_DIR = src("ops/github/workflows")     # the source-only export (CI) remaps ops/github/ to .github/
 
 DOC = yaml.safe_load((OPS / "compose.yaml").read_text(encoding="utf-8"))
 SERVICES = DOC["services"]

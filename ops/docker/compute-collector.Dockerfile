@@ -85,7 +85,9 @@ RUN find /opt/python/lib/python3.12/site-packages -mindepth 1 -maxdepth 1 \
 FROM ${DEBIAN_BASE}
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
-ARG DEBIAN_SNAPSHOT=20261011T000000Z
+# 2026-10-13: 20261011T000000Z -> 20261013T000000Z, the same bump as ops/docker/compute-mentat.Dockerfile: the 20261011 snapshot holds
+# chromium 154.0.8037.92-1~deb13u1, which has fixable CRITICAL and HIGH findings at the images gate (D-181); 20261013 holds 155.0.8059.39-1~deb13u1.
+ARG DEBIAN_SNAPSHOT=20261013T000000Z
 LABEL org.opencontainers.image.title="compute-collector" \
       org.opencontainers.image.description="Melange collectors: CPython 3.12.10, Node/Playwright, Chromium, claude CLI (no credentials)" \
       org.opencontainers.image.source="https://github.com/pjg93-222/melange-platform" \
@@ -93,17 +95,20 @@ LABEL org.opencontainers.image.title="compute-collector" \
       org.opencontainers.image.created="${BUILD_TIME}"
 
 # Chromium, CA roots, tzdata and a CP1252 locale from the dated archive. The sed is guarded: if the base's sources file ever stops
-# naming deb.debian.org the grep fails the build instead of installing from a moving mirror. `localedef -c` exits 1 on charmap
-# warnings (as locale-gen does); anything else fails the build, and the assertions below fail it if the locale is not CP1252.
+# naming deb.debian.org the grep fails the build instead of installing from a moving mirror. http on purpose, as in the other compute
+# Dockerfiles: the slim base has no ca-certificates until this step installs it, so https fails certificate verification (found by the
+# first build, 2026-10-13), and apt checks the signed Release files either way. `localedef -c` exits 1 on charmap
+# warnings (as locale-gen does); anything else fails the build, and the assertions below fail it if the locale is not CP1252. The
+# output is named by its path: glibc 2.41-12+deb13u4 writes a bare `en_US.CP1252` name to /usr/lib/locale/en_US.cp1252 (codeset lower-cased).
 RUN set -eux; \
-    sed -i -e "s#https\?://deb.debian.org/debian-security#https://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}#" \
-           -e "s#https\?://deb.debian.org/debian#https://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}#" \
+    sed -i -e "s#https\?://deb.debian.org/debian-security#http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}#" \
+           -e "s#https\?://deb.debian.org/debian#http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}#" \
            /etc/apt/sources.list.d/debian.sources; \
     grep -q "snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" /etc/apt/sources.list.d/debian.sources; \
     printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot; \
     apt-get update; \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates tzdata locales chromium fonts-liberation; \
-    localedef -c -i en_US -f CP1252 --no-archive en_US.CP1252 || [ "$?" -eq 1 ]; \
+    localedef -c -i en_US -f CP1252 --no-archive /usr/lib/locale/en_US.CP1252 || [ "$?" -eq 1 ]; \
     test -s /usr/lib/locale/en_US.CP1252/LC_CTYPE; \
     ln -s /usr/bin/chromium /usr/bin/google-chrome; \
     rm -rf /var/lib/apt/lists/*

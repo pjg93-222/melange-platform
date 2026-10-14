@@ -46,23 +46,11 @@ RUN find /opt/python/lib/python3.12/site-packages -mindepth 1 -maxdepth 1 \
       -exec rm -rf {} + \
  && rm -f /opt/python/bin/pip /opt/python/bin/pip3 /opt/python/bin/pip3.12
 
-# --- CP1252 locale. The chain was written on a Windows host whose ANSI code page is Windows-1252, and about 79 text reads use
-# the implicit locale encoding: the container has to decode the same bytes the same way. The `locales` package is NOT
-# hash-pinned (apt, unpinned); it exists only in this throwaway stage and only the generated locale directory is copied out,
-# so the image digest is the pin. `-c` writes the locale despite charmap warnings (exit 1), as locale-gen does; the build
-# assertions below fail the build if the result is not CP1252.
-FROM ${DEBIAN_BASE} AS locale
-RUN apt-get update \
- && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales \
- && rm -rf /var/lib/apt/lists/*
-RUN localedef -c -i en_US -f CP1252 --no-archive en_US.CP1252 || [ "$?" -eq 1 ]
-RUN test -s /usr/lib/locale/en_US.CP1252/LC_CTYPE
-
 FROM ${DEBIAN_BASE}
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
 LABEL org.opencontainers.image.title="compute-melange" \
-      org.opencontainers.image.description="Melange chain compute image: CPython 3.12.10, hashed wheels, CP1252 locale; code and data are mounted" \
+      org.opencontainers.image.description="Melange chain compute image: CPython 3.12.10, hashed wheels, UTF-8 mode; code and data are mounted" \
       org.opencontainers.image.source="https://github.com/pjg93-222/melange-platform" \
       org.opencontainers.image.revision="${GIT_SHA}" \
       org.opencontainers.image.created="${BUILD_TIME}"
@@ -75,20 +63,20 @@ RUN groupadd --gid 10001 app \
 
 COPY --from=engine /opt/python /opt/python
 COPY --from=engine /opt/engine /opt/engine
-COPY --from=locale /usr/lib/locale/en_US.CP1252 /usr/lib/locale/en_US.CP1252
 
-# Parity with the Windows job (STATE: Central Standard Time, ANSI Windows-1252, PYTHONIOENCODING utf-8:surrogateescape, hash
-# seed random, no PYTHONUTF8). HOME and the pycache prefix point into the /tmp tmpfs so a read-only root never blocks them and
+# Parity with the Windows job (STATE: Central Standard Time, PYTHONIOENCODING utf-8:surrogateescape, hash seed random) in UTF-8
+# mode, as the nightly Windows runner is (daily_refresh.py and refresh_congress_pipeline.py set PYTHONUTF8=1). The 191 chain
+# modules' implicit-encoding reads carry no non-ASCII bytes, so the mode changes no bytes, and a CP1252 filesystem split cannot
+# exist on Linux CPython 3.12. HOME and the pycache prefix point into the /tmp tmpfs so a read-only root never blocks them and
 # no .pyc lands in the mounted tree. Do not set a hash seed here: the Windows run does not either.
 ENV PATH=/opt/engine/bin:$PATH \
-    LANG=en_US.CP1252 LC_ALL=en_US.CP1252 TZ=America/Chicago \
+    LANG=C.UTF-8 LC_ALL=C.UTF-8 PYTHONUTF8=1 TZ=America/Chicago \
     PYTHONIOENCODING=utf-8:surrogateescape PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     PYTHONPYCACHEPREFIX=/tmp/pyc HOME=/tmp/home \
     GIT_SHA=${GIT_SHA} BUILD_TIME=${BUILD_TIME}
 
 # Build-time assertions: any of these failing fails the build, so a wrong interpreter, locale or zone never ships.
-RUN python -c "import locale; assert locale.getencoding().lower() in ('cp1252','windows-1252')"
-RUN python -c "import locale, sys; assert sys.flags.utf8_mode == 0 and locale.getpreferredencoding(False).lower() in ('cp1252', 'windows-1252')"
+RUN python -c "import locale, sys; assert sys.flags.utf8_mode == 1 and locale.getpreferredencoding(False).lower() == 'utf-8' and sys.getfilesystemencoding().lower() == 'utf-8'"
 RUN test -e /usr/share/zoneinfo/America/Chicago && python -c "import time; assert time.tzname == ('CST', 'CDT'), time.tzname"
 RUN python -c "import importlib.util, sys; assert sys.version_info[:3] == (3, 12, 10), sys.version; assert importlib.util.find_spec('pip') is None"
 

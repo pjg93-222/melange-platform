@@ -20,6 +20,7 @@ import datetime
 import io
 import json
 import os
+import pathlib
 import re
 import subprocess
 import sys
@@ -36,7 +37,6 @@ BS = chr(92)
 
 # Files the artifact-tool lane (D-178) rewrites; their Windows literals and implicit-EOL writes stay until it lands.
 AT_LANE = {
-    'fec/stance/sync_stance_g.py': 'D-178: openpyxl replaces @oai/artifact-tool behind a switch',
     'fec/stance/honors_workbook.py': 'D-178',
     'fec/stance/workbook_cell_sync.py': 'D-178 (the merge adapter the replacement feeds)',
     'fec/legislation/sync_sentinel_bill_ledger.py': 'D-178',
@@ -70,7 +70,7 @@ CLI_ONLY = {
     'fec/speech/build_member_longform_review_queue.py': 'CLI defaults; bytes bound into the turn-features receipt',
     'fec/speech/verify_member_longform_speaker_continuity.py': 'CLI defaults; bytes bound into the turn-features receipt',
 }
-SEAM_NAMES = {'to_host', 'LOCAL_MELANGE', 'MELANGE_DATA', 'today'}
+SEAM_NAMES = {'to_host', 'to_stored', 'LOCAL_MELANGE', 'MELANGE_DATA', 'today'}
 # Keys of rows and receipts the Windows chain wrote ABSOLUTE Windows paths under (census of data/ and C:\melange-data, 2026-10-12).
 # A path-consuming call that reads one of them has to go through paths.to_host() (identity on Windows) or paths.stored_name().
 STORED_PATH_KEYS = frozenset({'out_wav', 'src_wav', 'source_wav', 'wav', 'wav_path', 'transcript', 'turn_audio_wav', 'press_delta_root',
@@ -476,6 +476,93 @@ class ToHost(unittest.TestCase):
             with mock.patch.object(paths, '_IS_WINDOWS', False), mock.patch.object(paths, 'MELANGE_DATA', tmp):
                 self.assertTrue(audit_collection.path_is_within(stored, __import__('pathlib').Path(tmp, 'wj_audio')))
                 self.assertFalse(audit_collection.path_is_within(stored, __import__('pathlib').Path(tmp, 'other')))   # negative control
+
+
+class RebaseStored(unittest.TestCase):
+    """MELANGE_REBASE_STORED=1: a relocated Windows scratch root rebases stored paths like the container; the laptop never does."""
+    STORED_ROOT = BS.join(['C:', 'Users', 'pgoff', 'OneDrive', 'Desktop', 'Melange Systems'])
+
+    def _windows(self, flag, **roots):
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        if flag:
+            os.environ['MELANGE_REBASE_STORED'] = '1'
+        else:
+            os.environ.pop('MELANGE_REBASE_STORED', None)
+        patchers = [mock.patch.object(paths, '_IS_WINDOWS', True)] + [mock.patch.object(paths, k, v) for k, v in roots.items()]
+        for patcher in patchers:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def test_flag_off_is_the_identity_even_on_a_moved_root(self):
+        self._windows(False, ROOT='D:/scratch/root')
+        stored = self.STORED_ROOT + BS + 'data' + BS + 'x.json'
+        self.assertEqual(paths.to_host(stored), stored)
+        self.assertEqual(paths.to_stored('D:/scratch/root/data/x.json'), 'D:/scratch/root/data/x.json')
+
+    def test_flag_on_rebases_a_moved_root_and_leaves_an_unmoved_root_as_written(self):
+        self._windows(True, ROOT='D:/scratch/root', DRAFT=BS.join(['C:', 'Users', 'pgoff', 'OneDrive', 'Desktop', 'Draft Systems']))
+        self.assertEqual(paths.to_host(self.STORED_ROOT + BS + 'data' + BS + 'x.json'), 'D:/scratch/root' + BS + 'data' + BS + 'x.json')
+        draft = 'c:/users/pgoff/onedrive/desktop/draft systems/cu.csv'                  # DRAFT is unmoved: the text comes back untouched
+        self.assertEqual(paths.to_host(draft), draft)
+        self.assertEqual(paths.to_host('D:\\other\\x'), 'D:\\other\\x')
+
+    def test_to_stored_is_the_inverse_in_the_laptops_spelling(self):
+        for host, roots in ((False, dict(ROOT='/melange', DRAFT='/draft', LOCAL_MELANGE='/localappdata/Melange', MELANGE_DATA='/melange-data')),
+                            (True, dict(ROOT='D:/scratch/root', DRAFT='D:/scratch/draft', LOCAL_MELANGE='D:/scratch/l/Melange', MELANGE_DATA='D:/scratch/d'))):
+            with self.subTest(windows=host):
+                if host:
+                    self._windows(True, **roots)
+                else:
+                    stack = [mock.patch.object(paths, '_IS_WINDOWS', False)] + [mock.patch.object(paths, k, v) for k, v in roots.items()]
+                    for patcher in stack:
+                        patcher.start()
+                        self.addCleanup(patcher.stop)
+                for stored in (self.STORED_ROOT + BS + 'social_media.db', BS.join(['C:', 'melange-data', 'member_clips', 'a.wav']),
+                               BS.join(['C:', 'Users', 'pgoff', 'AppData', 'Local', 'Melange', 'staffer_network', 'x'])):
+                    self.assertEqual(paths.to_stored(paths.to_host(stored)), stored)
+                self.assertEqual(paths.to_stored(roots['ROOT']), self.STORED_ROOT)              # the root itself
+                self.assertEqual(paths.to_stored('/elsewhere/x'), '/elsewhere/x')               # not under a stored root: unchanged
+                self.assertEqual(paths.to_stored(roots['ROOT'] + '-other/x'), roots['ROOT'] + '-other/x')   # a name that merely starts alike
+
+    def test_a_root_nested_in_another_maps_to_the_longest_one(self):
+        self._windows(True, ROOT='D:/s/root', LOCAL_MELANGE='D:/s/root/local/Melange')
+        self.assertEqual(paths.to_stored('D:/s/root/local/Melange/a'), BS.join(['C:', 'Users', 'pgoff', 'AppData', 'Local', 'Melange', 'a']))
+        self.assertEqual(paths.to_stored('D:/s/root/data'), self.STORED_ROOT + BS + 'data')
+
+    def test_an_unset_local_root_does_not_make_the_helpers_raise(self):
+        self._windows(True, ROOT='D:/scratch/root', LOCAL_MELANGE=paths._UnsetLocalRoot())
+        self.assertEqual(paths.to_stored('D:/scratch/root/x'), self.STORED_ROOT + BS + 'x')
+        self.assertEqual(paths.to_host(BS.join(['C:', 'melange-data', 'a'])), BS.join(['C:', 'melange-data', 'a']))
+
+    def test_snapshot_path_rebases_a_stored_windows_path(self):
+        from stance.build_field_action_evidence import Snapshot
+        with tempfile.TemporaryDirectory() as tmp:
+            stack = [mock.patch.object(paths, '_IS_WINDOWS', False), mock.patch.object(paths, 'ROOT', tmp)]
+            for patcher in stack:
+                patcher.start()
+                self.addCleanup(patcher.stop)
+            self.assertEqual(Snapshot(tmp).path(self.STORED_ROOT + BS + 'data' + BS + 'x.json'), pathlib.Path(tmp, 'data', 'x.json').resolve())
+            self.assertEqual(Snapshot(tmp).path('data/x.json'), pathlib.Path(tmp, 'data', 'x.json').resolve())   # relative: unchanged
+
+    def test_the_stance_fingerprint_names_inputs_relative_to_the_root(self):
+        """A relocated root with the same bytes has the same fingerprint (the absolute path no longer enters the hash)."""
+        OSS = __import__('stance.own_source_stance_model', fromlist=['x'])
+        digests = []
+        for _ in range(2):
+            with tempfile.TemporaryDirectory() as tmp:
+                for name in ('data/stance/cu_golden_labels.csv', 'data/stance/tweet_gold_queue.csv'):
+                    os.makedirs(os.path.dirname(os.path.join(tmp, name)), exist_ok=True)
+                    with open(os.path.join(tmp, name), 'wb') as handle:
+                        handle.write(b'a,b\n1,2\n')
+                with mock.patch.object(OSS, 'ROOT', tmp):
+                    digests.append(OSS.input_fingerprint())
+                    with open(os.path.join(tmp, 'data/stance/cu_golden_labels.csv'), 'ab') as handle:
+                        handle.write(b'3,4\n')
+                    digests.append(OSS.input_fingerprint())
+        self.assertEqual(digests[0], digests[2])                                                # same bytes, two roots
+        self.assertNotEqual(digests[0], digests[1])                                             # a changed input still moves it
 
 
 class TextWrites(unittest.TestCase):

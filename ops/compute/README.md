@@ -1,7 +1,7 @@
 # Melange chain in a container (compute lane MEL)
 
 `fec/run_pipeline.py` runs in the `compute-melange` image (CPython 3.12.10, wheels from the hashed
-`ops/locks/compute-melange.linux.txt`, CP1252 locale, `TZ=America/Chicago`). CI builds it
+`ops/locks/compute-melange.linux.txt`, UTF-8 mode, `TZ=America/Chicago`). CI builds it
 (`.github/workflows/compute-melange.yml`, on the `v*` release tags and by hand: built only when its inputs changed, reported to `release.py` as
 `compute-melange-digests`; ops/RELEASE.md "Automatic propagation"); the laptop runs it by digest. The image holds no code and no data.
 
@@ -98,11 +98,20 @@ Docker Desktop, and the secret files above. `fec/refresh_tick.py` is not switche
 ```
 python ops/compute/chain_parity.py freeze --src <tree> --dest <frozen> --list <read-set.txt>     # then copy <frozen> to A1, A2, B
 python ops/compute/chain_parity.py verify --root <A1> --manifest <frozen>.manifest.json           # before every run
-python ops/compute/chain_parity.py command --side windows   --root <A1> --today 2026-10-12 --execute
-python ops/compute/chain_parity.py command --side container --root <B>  --today 2026-10-12 --execute
+python ops/compute/chain_parity.py command --side windows   --root <A1> --today 2026-10-12 --local-dir <A1 local>\Melange --glassbox-dir <A1 events> --execute
+python ops/compute/chain_parity.py command --side container --root <B>  --today 2026-10-12 --audio-pilot-dir <live audio_pilot> --execute
 python ops/compute/chain_parity.py compare --frozen <frozen>.manifest.json --a1 <A1> --a2 <A2> --b <B> \
-    --map C:\melange-data=/melange-data --expect-members 533 --report parity.json
+    --map C:\melange-data=/melange-data --expect-members 533 --report parity.json --store <dir>
 ```
+
+The Windows side is a relocated, clean-environment run: it refuses without `--local-dir` (unset, the chain would write the live
+machine-local store), sets `MELANGE_REBASE_STORED=1` (stored Windows paths rebase onto the run root, as in the container), runs in
+UTF-8 mode with `MELANGE_XLSX_WRITER=openpyxl` like the container, and inherits only `ENV_ALLOW` from the caller. `--data-dir`,
+`--draft-dir` and `--glassbox-dir` redirect the other roots; `--from STEP` resumes the chain (`run_pipeline.py --from`);
+`--audio-pilot-dir` (container) adds `melange.parity.compose.yaml`, a read-only nested bind of the 18 GB `audio_pilot`. Directory
+links and junctions in a run root are never walked. Any argument may be `@FILE` (one per line); `parity_readset_local_extra.args`
+adds the two local-store directories the traced read set missed. Workbooks are judged by `xlsx_content_diff.py` (content and cached
+values gated, styles reported).
 
 Both sides take the same `--today` (it sets `MELANGE_TODAY`: `build_media_blend` decays by age, so two days apart differ for a
 reason that is not the container's). Exit 0 is a pass, 1 a failed gate, 3 a pass that still needs Paul to accept PATH_ONLY,
@@ -131,12 +140,16 @@ python ops/compute/chain_imports.py --compile  # every reached module compiles u
   `MELANGE_DATA_ROOT` (`C:\melange-data`) and `MELANGE_TODAY` (one calendar day for both sides of a parity run). Every default is
   today's Windows value.
 * Absolute Windows paths stored inside data (clip manifests, receipts, press delta roots) are translated where the chain reads them:
-  `paths.to_host()` maps the four known roots onto their mounts and is the identity on Windows; `paths.stored_name()` takes the last
+  `paths.to_host()` maps the four known roots onto their mounts and is the identity on Windows (unless `MELANGE_REBASE_STORED=1`, which
+  a relocated Windows scratch root sets; an unmoved root is always left as written); `paths.to_stored()` is its inverse, for outputs that
+  record a path (`build_descriptive_speech` writes the laptop's spelling, so a relocated run stores the same bytes); `paths.stored_name()` takes the last
   component under either separator. An AST lint (`ops/tests/test_compute_seams.py`) fails if a chain module reads a stored-path
   key without one of them. Outputs a container run writes carry container paths, so `chain_parity.py compare --map` classes those
   files PATH_ONLY (Paul accepts them), never silently equal.
 * Text files the Windows chain writes with CRLF carry an explicit `newline='\r\n'`, so Linux writes the same bytes; text reads without
-  `encoding=` decode as Windows-1252 because the image runs under a generated `en_US.CP1252` locale (the Dockerfile asserts it).
+  `encoding=` decode as UTF-8 because the image runs in UTF-8 mode (`PYTHONUTF8=1`, `LANG=LC_ALL=C.UTF-8`; the Dockerfile asserts it), as the
+  nightly Windows runner does (`daily_refresh.py` and `refresh_congress_pipeline.py` set `PYTHONUTF8=1`). The chain's implicit-encoding reads carry
+  no non-ASCII bytes, so the mode changes none; reconsider only if one gains non-ASCII bytes.
 * `fec/pipeline_lock.py` records a host identity (boot id, pid namespace, container id). A lease from another host or container is
   HELD unless its own heartbeat file (`.pipeline_run.lock` -> `.pipeline_run.heartbeat.lock`, a `.lock` name so the system-manifest walk
   skips it) is older than `MELANGE_LOCK_STALE_SECONDS` (600 s); Windows behaviour is unchanged.

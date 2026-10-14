@@ -10,6 +10,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import zipfile
@@ -412,8 +413,8 @@ def with_cached(data: bytes, value) -> bytes:
         for info in src.infolist():
             body = src.read(info.filename)
             if info.filename == "xl/worksheets/sheet1.xml":
-                assert b"<v></v>" in body
-                body = body.replace(b"<v></v>", f"<v>{value}</v>".encode())
+                body, n = re.subn(rb"<v\s*/>|<v></v>", f"<v>{value}</v>".encode(), body)     # openpyxl spells it <v></v> with lxml, <v /> without
+                assert n
             dst.writestr(info, body)
     return out.getvalue()
 
@@ -575,7 +576,7 @@ def command_lines(capsys, *argv) -> dict:
 
 
 def test_command_prints_the_same_today_on_both_sides(tmp_path, capsys, clean_env):
-    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12")
+    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(tmp_path / "Melange"), "--glassbox-dir", str(tmp_path / "g"))
     box = command_lines(capsys, "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12")
     assert win["MELANGE_TODAY"] == box["MELANGE_TODAY"] == "2026-10-12"
     assert win["MONEYBALL_ROOT"] == os.path.abspath(tmp_path) and "MELANGE_TREE_DIR" not in win
@@ -594,7 +595,7 @@ def test_command_container_passthrough_from_flags_and_environment(tmp_path, caps
     assert box["MELANGE_DRAFT_DIR"] == "/from/flag" and box["MELANGE_DATA_DIR"] == "/from/env"
     assert box["IMAGE_COMPUTE_MELANGE"] == "compute-melange:test"
     assert "MELANGE_LOCAL_DIR" not in box and "MELANGE_GLASSBOX_DIR" not in box
-    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12")
+    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(tmp_path / "Melange"), "--glassbox-dir", str(tmp_path / "g"))
     assert "MELANGE_DATA_DIR" not in win
 
 
@@ -612,7 +613,7 @@ def test_command_container_without_a_verified_manifest_or_an_explicit_image_refu
     assert cp.main(["command", "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12"]) == 2
     captured = capsys.readouterr()
     assert captured.out == "" and "no verified image" in captured.err
-    assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12"]) == 0     # the Windows side needs no image
+    assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(tmp_path / "Melange"), "--glassbox-dir", str(tmp_path / "g")]) == 0     # the Windows side needs no image
 
 
 @pytest.mark.parametrize("returncode, stdout", [(1, ""), (1, MANIFEST_IMAGE + "\n"), (0, "\n")])
@@ -653,7 +654,142 @@ def test_command_execute_plumbing_with_a_fake_runner(tmp_path, monkeypatch, caps
         return SimpleNamespace(returncode=7)
 
     monkeypatch.setattr(cp.subprocess, "run", fake_run)
-    rc = cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--execute", "--timeout", "30"])
+    rc = cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--execute", "--timeout", "30", "--local-dir", str(tmp_path / "Melange"), "--glassbox-dir", str(tmp_path / "g")])
     assert rc == 7 and seen["timeout"] == 30 and seen["cwd"] == os.path.abspath(tmp_path)
     assert seen["env"]["MONEYBALL_ROOT"] == os.path.abspath(tmp_path) and seen["env"]["MELANGE_TODAY"] == "2026-10-12"
     assert seen["argv"][0] == sys.executable and "running it now" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------- relocated, clean-environment runs (P7)
+
+def test_windows_side_refuses_without_a_local_dir_and_prints_nothing(tmp_path, capsys, clean_env):
+    assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12"]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "--local-dir" in captured.err
+
+
+def test_windows_side_refuses_without_a_glassbox_dir_and_prints_nothing(tmp_path, capsys, clean_env):
+    assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(tmp_path / "Melange")]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "--glassbox-dir" in captured.err
+
+
+def test_windows_side_refuses_a_local_dir_not_named_melange_or_the_live_store(tmp_path, capsys, clean_env, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "live"))
+    for local in (tmp_path / "loc", tmp_path / "live" / "Melange"):   # a sibling LOCALAPPDATA\Melange; the live store itself
+        assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(local)]) == 2
+        assert "named Melange" in capsys.readouterr().err
+
+
+def test_from_step_warns_that_a_resumed_run_is_no_parity_proof(tmp_path, capsys, clean_env):
+    assert cp.main(["command", "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12", "--from", "x.py"]) == 0
+    assert "DE-045" in capsys.readouterr().err
+    assert cp.main(["command", "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12"]) == 0
+    assert "DE-045" not in capsys.readouterr().err
+
+
+def test_windows_side_redirects_every_root_and_rebases_stored_paths(tmp_path, capsys, clean_env):
+    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path / "t"), "--today", "2026-10-12",
+                        "--local-dir", str(tmp_path / "l" / "Melange"), "--data-dir", str(tmp_path / "d"),
+                        "--draft-dir", str(tmp_path / "dr"), "--glassbox-dir", str(tmp_path / "g"))
+    assert win["MELANGE_REBASE_STORED"] == "1" and win["PYTHONUTF8"] == "1" and win["MELANGE_XLSX_WRITER"] == "openpyxl"
+    assert win["MELANGE_LOCAL_ROOT"] == os.path.abspath(tmp_path / "l" / "Melange") and win["LOCALAPPDATA"] == os.path.abspath(tmp_path / "l")
+    assert win["MELANGE_DATA_ROOT"] == os.path.abspath(tmp_path / "d") and win["MONEYBALL_DRAFT"] == os.path.abspath(tmp_path / "dr")
+    assert win["GLASSBOX_EVENTS_DIR"] == os.path.abspath(tmp_path / "g")
+
+
+def test_windows_side_executes_with_only_the_allowlisted_environment(tmp_path, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(cp.subprocess, "run", lambda argv, cwd, env, timeout: seen.update(env=env) or SimpleNamespace(returncode=0))
+    for name, value in (("COSPONSOR_FORECAST_REFRESH", "1"), ("ANTHROPIC_API_KEY", "secret"), ("MELANGE_LOCAL_ROOT", "C:/live"), ("PATH", "/bin")):
+        monkeypatch.setenv(name, value)
+    assert cp.main(["command", "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--execute",
+                    "--local-dir", str(tmp_path / "Melange"), "--glassbox-dir", str(tmp_path / "g")]) == 0
+    env = seen["env"]
+    assert "COSPONSOR_FORECAST_REFRESH" not in env and "ANTHROPIC_API_KEY" not in env
+    assert env["MELANGE_LOCAL_ROOT"] == os.path.abspath(tmp_path / "Melange") and env["PATH"] == "/bin"
+    assert all(k in cp.ENV_ALLOW or k.startswith(("MELANGE_", "MONEYBALL_", "PYTHON")) or k in ("LOCALAPPDATA", "GLASSBOX_EVENTS_DIR") for k in env), sorted(env)
+
+
+def test_from_step_is_appended_for_both_sides(tmp_path, capsys, clean_env):
+    win = command_lines(capsys, "--side", "windows", "--root", str(tmp_path), "--today", "2026-10-12", "--local-dir", str(tmp_path / "Melange"),
+                        "--glassbox-dir", str(tmp_path / "g"), "--from", "build_vote_category")
+    assert win["run"].endswith("run_pipeline.py --from build_vote_category")
+    box = command_lines(capsys, "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12", "--from", "build_vote_category")
+    assert box["run"].endswith("run --rm chain python /melange/fec/run_pipeline.py --from build_vote_category")
+    plain = command_lines(capsys, "--side", "container", "--root", str(tmp_path), "--today", "2026-10-12")
+    assert plain["run"].endswith("run --rm chain")
+
+
+def test_audio_pilot_dir_adds_the_parity_override_and_its_mount_point(tmp_path, capsys, clean_env, monkeypatch):
+    pilot = tmp_path / "pilot"
+    box = command_lines(capsys, "--side", "container", "--root", str(tmp_path / "t"), "--today", "2026-10-12", "--audio-pilot-dir", str(pilot))
+    assert box["MELANGE_AUDIO_PILOT_DIR"] == str(pilot)
+    assert "-f ops/compute/melange.compose.yaml -f ops/compute/melange.parity.compose.yaml --profile chain" in box["run"]
+    plain = command_lines(capsys, "--side", "container", "--root", str(tmp_path / "t"), "--today", "2026-10-12")
+    assert "MELANGE_AUDIO_PILOT_DIR" not in plain and "parity.compose" not in plain["run"]
+    ran = {}
+    monkeypatch.setattr(cp.subprocess, "run", lambda argv, cwd, env, timeout: ran.update(argv=argv) or SimpleNamespace(returncode=0))
+    (tmp_path / "t").mkdir()
+    assert cp.main(["command", "--side", "container", "--root", str(tmp_path / "t"), "--today", "2026-10-12", "--execute",
+                    "--audio-pilot-dir", str(pilot)]) == 0
+    assert (tmp_path / "t" / "audio_pilot").is_dir() and "ops/compute/melange.parity.compose.yaml" in ran["argv"]
+
+
+def test_walk_files_does_not_enter_a_directory_link(tmp_path):
+    import subprocess
+    target = tmp_path / "live" / "audio_pilot"
+    write_tree(target, {"a.wav": b"x" * 10})
+    root = tmp_path / "run"
+    write_tree(root, {"keep.txt": b"k"})
+    link = root / "audio_pilot"
+    try:
+        os.symlink(target, link, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        if not (os.name == "nt" and subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True).returncode == 0):
+            pytest.skip("cannot create a symlink or junction here")
+    assert os.path.exists(link / "a.wav")                       # the link works ...
+    assert cp.walk_files(root) == ["keep.txt"]                  # ... and is still not entered
+    assert list(cp.snapshot_tree(root)) == ["keep.txt"]
+
+
+def test_at_file_arguments_expand_with_comments_and_blank_lines(tmp_path):
+    src = make_src(tmp_path)
+    args = tmp_path / "freeze.args"
+    args.write_text("# read set\n--include\n\nfec/a.py\n# a comment\nnotes/readme.md\n", encoding="utf-8")
+    assert cp.main(["freeze", "--src", str(src), "--dest", str(tmp_path / "dest"), "@" + str(args)]) == 0
+    assert set(json.loads((tmp_path / "dest.manifest.json").read_text("utf-8"))) == {"fec/a.py", "notes/readme.md"}
+
+
+def test_the_shipped_local_read_set_names_the_two_directories_the_traced_set_missed(tmp_path):
+    shipped = Path(cp.__file__).with_name("parity_readset_local_extra.args")
+    local = tmp_path / "local"
+    write_tree(local, {"staffer_network/normalized/lda-source-native/generation-20260830T231200Z/a.bin": b"a",
+                       "staffer_network/normalized/lda-source-native/generation-OTHER/b.bin": b"b",
+                       "demographics/lodes/x/y.csv": b"y", "demographics/other.csv": b"o", "elsewhere.txt": b"e"})
+    assert cp.main(["freeze", "--src", str(local), "--dest", str(tmp_path / "dest"), "@" + str(shipped)]) == 0
+    assert set(json.loads((tmp_path / "dest.manifest.json").read_text("utf-8"))) == {
+        "staffer_network/normalized/lda-source-native/generation-20260830T231200Z/a.bin", "demographics/lodes/x/y.csv"}
+
+
+def test_compare_store_writes_one_snapshot_per_root(tmp_path):
+    case = make_case(tmp_path)
+    rc, _ = compare(case, "--store", str(tmp_path / "store"))
+    assert rc == 0
+    assert sorted(p.name for p in (tmp_path / "store").iterdir()) == ["A1.manifest.json", "A2.manifest.json", "B.manifest.json"]
+    assert "ranks_python.json" in json.loads((tmp_path / "store" / "B.manifest.json").read_text("utf-8"))
+
+
+def test_workbook_style_only_difference_is_canonical_but_a_cached_value_is_not(tmp_path):
+    openpyxl = pytest.importorskip("openpyxl")
+    from openpyxl.styles import Font
+    plain = build_book(tmp_path / "p.xlsx")
+    wb = openpyxl.load_workbook(tmp_path / "p.xlsx")
+    wb["Data"]["A1"].font = Font(bold=True)
+    wb.save(tmp_path / "s.xlsx")
+    styled = (tmp_path / "s.xlsx").read_bytes()
+    rc, rep = compare(make_case(tmp_path / "c", a1={"out/w.xlsx": plain}, a2={"out/w.xlsx": plain}, b={"out/w.xlsx": styled}))
+    assert rc == 0 and rep["classes"]["B"]["out/w.xlsx"]["class"] == "OOXML_CANONICAL"      # xlsx_content_diff: styles reported, not gated
+    rc, rep = compare(make_case(tmp_path / "d", a1={"out/w.xlsx": with_cached(plain, 3)}, a2={"out/w.xlsx": with_cached(plain, 3)},
+                                b={"out/w.xlsx": with_cached(plain, 4)}))
+    assert rc == 1 and "cached_value" in rep["classes"]["B"]["out/w.xlsx"]["detail"]

@@ -20,6 +20,7 @@ import re
 
 from stance.rank_honors_policy import POLICY, CONVERSION_TOLERANCE, literal, number
 import bill_rules as BR
+from paths import to_host
 
 
 def integer(value):
@@ -58,7 +59,7 @@ class Snapshot:
         self.hashes = {}
 
     def path(self, value):
-        p = Path(value)
+        p = Path(to_host(value))
         if p.is_absolute():
             return p.resolve()
         # Windows references in receipts must also work in a copied test root.

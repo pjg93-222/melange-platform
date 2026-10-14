@@ -19,9 +19,10 @@ import pytest
 OPS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(OPS.parent))
 from ops.release_lib import inputs  # noqa: E402
+from ops.tests.layout import src  # noqa: E402
 
 yaml = pytest.importorskip("yaml", reason="PyYAML not installed")
-WF_DIR = OPS / "github" / "workflows"
+WF_DIR = src("ops/github/workflows")
 SPEC = inputs.load_spec()
 
 # workflow file -> (image, artifact release.py reads, jobs that must pass before digests.json is written)

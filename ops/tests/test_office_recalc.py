@@ -26,9 +26,10 @@ import office_recalc as OR  # noqa: E402
 import xl_engine as E  # noqa: E402
 import xl_equivalence as X  # noqa: E402
 import security_gate  # noqa: E402
+from ops.tests.layout import src  # noqa: E402
 
 ALLOW = ["_XLFN.XLOOKUP"]
-WF = OPS / "github" / "workflows" / "compute-office.yml"
+WF = src("ops/github/workflows/compute-office.yml")
 
 
 def sha(path):

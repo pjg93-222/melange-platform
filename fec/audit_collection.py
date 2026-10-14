@@ -810,7 +810,8 @@ def audit_audio_supply(
                 "source_manifest_sha256": canonical_json_sha256(manifest),
                 "feature_sha256": canonical_json_sha256(feature, omit=("feature_sha256",)),
             }
-            if any(row.get(key) != value for key, value in expected.items()):
+            if any((to_host(str(row.get(key) or "")) if key == "transcript_path" else row.get(key)) != value
+                   for key, value in expected.items()):
                 errors.append("Axe stored turn provenance mismatch: %s/%s" % (sid, seg))
                 continue
             if (row.get("match"), row.get("words")) != (
