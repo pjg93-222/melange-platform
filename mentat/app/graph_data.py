@@ -18,6 +18,7 @@ import collection_gaps
 import downstream
 import evidence_csv
 import native_scan
+import report_publication
 from view_cache import ViewCache, file_signature
 
 from report_insights import digest, digest_stamp, key, local_reference, stamp
@@ -378,7 +379,7 @@ def audited_store(book, label):
         fingerprint = source_data._workbook_source(stamp(book))
     except (ValueError, OSError, KeyError, zipfile.BadZipFile):
         return None, None
-    cache = source_data.PROJECT / '.cache/industry-report' / source_data._slug(identity(Path(book).name)['industry'])
+    cache = source_data._report_cache_root() / source_data._slug(identity(Path(book).name)['industry'])
     manifest, payload = lineage_paths(cache, fingerprint, label)
     return tidy_beside(payload), manifest
 
@@ -503,7 +504,21 @@ def read_audited(file_stamp, sources, dependencies):
     for year in sorted(sources):
         found, sentence = audited_transfers(sources[year])
         edges += found
-        basis.append({'cycles': [year], 'text': sentence})
+        import contribution_data as source_data
+        def source_hash(book):
+            try:
+                return source_data._workbook_source(stamp(book))
+            except (OSError, ValueError, KeyError, zipfile.BadZipFile):
+                return None
+        served_hash, historical_hash = source_hash(file_stamp[0]), source_hash(sources[year]['book'])
+        basis.append({'cycles': [year], 'text': sentence, 'source': {
+            'kind': 'historical_audited_report', 'cycle': year,
+            'workbook': sources[year]['book'].name, 'workbook_sha256': digest(sources[year]['book']),
+            'database_sha256': historical_hash, 'served_workbook': Path(file_stamp[0]).name,
+            'served_workbook_sha256': digest_stamp(file_stamp), 'served_database_sha256': served_hash,
+            'same_database_build': served_hash == historical_hash if served_hash and historical_hash else None,
+            'accounting_basis': 'Committee transfers from explicitly named historical evidence; not attributed industry giving.',
+            'note': sentence}})
     if sources and (stamp(file_stamp[0]) != file_stamp or file_signature(transfer_files(file_stamp[0])) != dependencies):
         raise ValueError('An audited transfer source changed while reading transfers.')
     return edges, basis
@@ -520,7 +535,7 @@ def transfer_source(path):
     except (ValueError, OSError, KeyError, zipfile.BadZipFile):
         return None, None
     industry = path.name.removesuffix(' Industry Spending Overview.xlsx')
-    folder = source_data.PROJECT / '.cache/industry-report' / source_data._slug(industry)
+    folder = source_data._report_cache_root() / source_data._slug(industry)
     return (folder / f'industry_data-{fingerprint[:16]}.json',
             folder / f'manifest-{fingerprint[:16]}.json')
 
@@ -1169,6 +1184,10 @@ _views = ViewCache()
 
 def graph_view(paths, filters):
     paths = tuple(map(Path, paths))
+    return report_publication.read(paths, lambda: _graph_view_ready(paths, filters))
+
+
+def _graph_view_ready(paths, filters):
     # Saved estimate bundles have their own manifest/hash protocol. Keep that
     # gate on every estimate read rather than treating a view cache as proof.
     if filters.get('mode') == 'estimates':
@@ -1177,7 +1196,8 @@ def graph_view(paths, filters):
         snapshots = list(downstream.ROOT.glob('*/snapshots.json')) if filters.get('mode') == 'activity' else []
         full_sources = [p for path in paths for p in transfer_files(path)] if filters.get('mode') == 'activity' else []
         bundles = [audit_manifest_path(path) for path in paths] if filters.get('mode') == 'activity' else []
-        return file_signature([*paths, *snapshots, *full_sources, *bundles, *map(collection_gaps.quality_csv, paths)])
+        publication_files = [file for path in paths for file in report_publication.dependencies(path)]
+        return file_signature([*paths, *publication_files, *snapshots, *full_sources, *bundles, *map(collection_gaps.quality_csv, paths)])
     before = dependencies()
     selection = tuple((k,str(filters.get(k) or '')) for k in
                       ('company','tier','cycle','category','recipient','latest','funding','mode','direction'))
@@ -1233,6 +1253,7 @@ def _graph_view(paths, filters):
     available, note = True, 'Direct contributions to uniquely linked principal or authorized candidate committees.'
     ties = []
     trace, index_rows, note_title = None, [], ''
+    historical_sources = []
     if mode != 'direct':
         candidate_rows = []
         try:
@@ -1265,9 +1286,11 @@ def _graph_view(paths, filters):
                     index.update(transfer_index(path))
                 index_rows = sorted(index.values(), key=lambda row: row['cycle'])
                 reached = {key[0] for key in network['keys']}
+                basis = [b for version in stamps for b in transfer_basis(version, audited=True)
+                         if reached & set(b['cycles'])]
+                historical_sources = [b['source'] for b in basis if 'source' in b]
                 trace = transfer_trace(network, eligible, trace_coverage(stamps, reports, index),
-                                       [b['text'] for version in stamps for b in transfer_basis(version, audited=True)
-                                        if reached & set(b['cycles'])])
+                                       [b['text'] for b in basis])
                 note_title = trace['command']
                 rows = activity_rows
             else:
@@ -1361,6 +1384,7 @@ def _graph_view(paths, filters):
             # holds a rebuild command. Candidate views only.
             **({'candidate_note_title':note_title, 'transfer_index':index_rows,
                 'transfer_trace':trace} if mode != 'direct' else {}),
+            'historical_transfer_sources': historical_sources,
             'downstream_edges':network['edges'] if mode == 'activity' and available else [],
             'pac_candidate_relationships':ties,
             'downstream_sources':downstream.sources(network) if mode == 'activity' and available else [],

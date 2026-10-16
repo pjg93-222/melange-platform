@@ -114,7 +114,7 @@ class ReportDirectoryConsoleTests(unittest.TestCase):
     def test_graph_comparison_and_freshness_receive_only_authoritative_paths(self):
         path = self.report('Banking')
         with (patch.object(app,'graph_schema',return_value=['2023-2024']),
-             patch.object(app,'graph_view',return_value={'reports':[{}]}) as graph,
+             patch.object(app,'graph_view',return_value={'reports':[{'sha256':app.contribution_data._hash(path)}]}) as graph,
              patch.object(app,'report_freshness',return_value={}) as freshness,
              patch.object(app,'comparison_subjects',return_value={}) as subjects,
              patch.object(app,'comparison_flows',return_value={}) as flows):
@@ -153,6 +153,7 @@ class ReportDirectoryConsoleTests(unittest.TestCase):
         os.chdir(self.root)
         self.addCleanup(os.chdir,previous)
         fake = MagicMock()
+        fake.server_address = ('127.0.0.1', 0)
         with patch.object(sys,'argv',['server.py','--data-root','relative-state','--read-only']), \
              patch.object(app,'ThreadingHTTPServer',return_value=fake),patch.object(app,'Console') as console:
             app.main()

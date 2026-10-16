@@ -38,7 +38,8 @@ from typing import Any, Iterable, Sequence
 from sqlite_snapshot import create_snapshot, verify_database
 from fec_key_store import load_keys
 from mentat_env import seam
-from api_request_pool import RequestPool
+from api_request_pool import RequestPool, RemoteRequestPool
+from api_request_budget import budget_id, budget_path, legacy_budget_paths
 from merge_company_shards import (
     committed_merge_lease, content_sha256, file_sha256, merge_lock_path,
     parse_specifications,
@@ -230,7 +231,7 @@ def discover_keys(keys_file: Path | None, environment: dict[str, str]) -> list[s
 
 
 def key_id(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:12]
+    return budget_id(value).rsplit(":", 1)[-1]
 
 
 def available_memory_bytes() -> int:
@@ -623,6 +624,7 @@ def execute_lane(
         environment["MENTAT_REQUEST_POOL_TOKEN"] = request_pool.token
         environment["MENTAT_REQUEST_POOL_LANE"] = str(lane_run.lane)
         environment["MENTAT_REQUEST_POOL_WIDTH"] = str(len(request_pool.keys))
+        environment["MENTAT_REQUEST_POOL_REMOTE"] = "1" if isinstance(request_pool, RemoteRequestPool) else "0"
     if r_library_path is not None:
         environment["R_LIBS_USER"] = str(r_library_path)
     command = [
@@ -1288,14 +1290,12 @@ def _main_unlocked(arguments: Sequence[str] | None = None,
         if options.r_library_path
         else None
     )
-    budget_database = (
-        options.budget_database.resolve(strict=False)
-        if options.budget_database
-        else Path(__file__).resolve().parents[1]
-        / ".cache"
-        / "fec-api-budget.sqlite"
-    )
-    budget_database.parent.mkdir(parents=True, exist_ok=True)
+    budget_database = budget_path(Path(__file__).resolve().parents[1], explicit=options.budget_database)
+    remote_pool_path = os.environ.get("MENTAT_REQUEST_POOL_CONFIG", "").strip()
+    if remote_pool_path and options.no_shared_requests:
+        raise ValueError("Host pool mode cannot fall back to direct provider requests.")
+    if not remote_pool_path:
+        budget_database.parent.mkdir(parents=True, exist_ok=True)
     if options.keys_file is not None:
         options.keys_file = options.keys_file.resolve(strict=True)
 
@@ -1647,11 +1647,16 @@ def _main_unlocked(arguments: Sequence[str] | None = None,
     execution_limiter = LaneLimiter(primary_worker_count)
     request_pool = None
     worker_ceiling = lane_count if options.no_shared_requests else min(len(keys), options.max_parallel or len(keys), options.max_lane_ceiling or len(keys))
-    if not options.no_shared_requests:
+    if remote_pool_path:
+        request_pool = RemoteRequestPool(remote_pool_path, keys)
+        if lifecycle is not None:
+            lifecycle["request_pool"] = request_pool
+    elif not options.no_shared_requests:
         # HTTP width follows the key supply, never the RAM-derived lane cap: the
         # keys are the rate limit. R lanes stay bounded by execution_limiter.
         pool_width = options.pool_width if options.pool_width > 0 else worker_ceiling
-        request_pool = RequestPool(keys, budget_database, pool_width)
+        request_pool = RequestPool(keys, budget_database, pool_width,
+            legacy_paths=legacy_budget_paths(extra=(source_database,)))
         if lifecycle is not None:
             lifecycle["request_pool"] = request_pool
         request_pool.url = request_pool.start()

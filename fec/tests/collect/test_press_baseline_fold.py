@@ -18,6 +18,7 @@ that R function under Rscript 4.6.0 on 2026-08-30, not by reading the code.
 from __future__ import annotations
 
 import csv
+from datetime import datetime, timezone
 import hashlib
 import io
 import json
@@ -26,14 +27,18 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 FEC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT = os.path.dirname(FEC)
 sys.path.insert(0, FEC)
 
+from collect import fold_promoted_press_runs, press_baseline_fold  # noqa: E402
+from collect.build_press_engine_feed import ReceiptRejected  # noqa: E402
 from collect.press_baseline_fold import (  # noqa: E402
-    BASELINE_FIELDS, FoldRefused, fetched_keys, fold_pending, fold_run,
-    index_key, promote_baseline, scan_baseline,
+    BASELINE_FIELDS, FoldRefused, RunInputRefused, fetched_keys, fold_pending, fold_run,
+    folded_run_names, index_key, promote_baseline, record_skipped_uninspectable,
+    scan_baseline,
 )
 
 # Verified against Rscript 4.6.0: canonical_url(x) in fec/collect/refresh_press_delta.R.
@@ -351,6 +356,333 @@ class PressBaselineFoldTest(unittest.TestCase):
         # A real divergence, pinned so a future "unify these" refactor fails loudly.
         from press_stream import canonical_url as stream_canonical
         self.assertNotEqual(index_key(BASE_A), stream_canonical(BASE_A))
+
+
+class FoldReceiptLedgerTest(unittest.TestCase):
+    """The receipt is the only record of which runs are folded: it must not lose or misread any."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="press_fold_ledger_")
+        self.baseline = os.path.join(self.tmp, "all_press_release_index.csv")
+        self.receipt = os.path.join(self.tmp, "press_baseline_fold_receipt.json")
+        self.outputs = os.path.join(self.tmp, "outputs")
+        os.makedirs(self.outputs, exist_ok=True)
+        _write_baseline(self.baseline, [BASE_A, BASE_B])
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, name="press_refresh_20260830", delta=None, fulltext=None):
+        return _make_run(os.path.join(self.outputs, name),
+                         delta if delta is not None else [NEW_FETCHED],
+                         fulltext if fulltext is not None else [
+                             {"url": NEW_FETCHED, "body": _body(50),
+                              "body_word_count": 50, "source": "HOST"}])
+
+    def _pending(self):
+        return fold_pending(outputs_root=self.outputs, baseline_path=self.baseline,
+                            receipt_path=self.receipt)
+
+    def _fold_one(self, run):
+        return fold_run(run, baseline_path=self.baseline, receipt_path=self.receipt)
+
+    def _stored(self):
+        with io.open(self.receipt, encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_done_list_survives_a_history_longer_than_the_cap(self):
+        for index in range(4):
+            url = "https://www.theta%d.senate.gov/news/x" % index
+            self._run(name="press_refresh_2026083%d" % index, delta=[url],
+                      fulltext=[{"url": url, "body": _body(30),
+                                 "body_word_count": 30, "source": "HOST"}])
+        with mock.patch.object(press_baseline_fold, "HISTORY_LIMIT", 2):
+            self.assertEqual(len(self._pending()), 4)
+        stored = self._stored()
+        self.assertEqual(len(stored["history"]), 2, "history stays capped")
+        self.assertEqual(stored["folded_runs"], sorted(
+            "press_refresh_2026083%d" % index for index in range(4)))
+        self.assertEqual(len(folded_run_names(self.receipt)), 4)
+        # NEGATIVE CONTROL: with only the capped history, the two oldest runs would fold again.
+        self.assertEqual(self._pending(), [])
+
+    def test_a_complete_no_op_counts_as_done(self):
+        self._run(delta=[BASE_A], fulltext=[{"url": BASE_A, "body": _body(50),
+                                             "body_word_count": 50, "source": "HOST"}])
+        first = self._pending()
+        self.assertEqual([item["status"] for item in first], ["NO_OP"])
+        self.assertEqual(folded_run_names(self.receipt), {"press_refresh_20260830"})
+        self.assertEqual(self._pending(), [], "a finished no-op must not be rescanned")
+
+    def test_a_no_op_with_unstored_candidates_is_examined_again(self):
+        self._run(delta=[NEW_UNFETCHED])           # its body has not landed yet
+        first = self._pending()
+        self.assertEqual(first[0]["status"], "NO_OP")
+        self.assertEqual(first[0]["candidates_without_stored_body"], 1)
+        self.assertEqual(folded_run_names(self.receipt), set())
+        self.assertEqual(len(self._pending()), 1)
+
+    def test_a_crash_between_replace_and_receipt_is_healed_as_done(self):
+        self._run()
+        self.assertEqual(len(self._pending()), 1)
+        os.remove(self.receipt)                    # the baseline was replaced, the receipt was lost
+        again = self._pending()
+        self.assertEqual([item["status"] for item in again], ["NO_OP"])
+        self.assertEqual(again[0]["rows_added"], 0)
+        self.assertEqual(self._pending(), [])
+
+    def test_a_receipt_written_before_folded_runs_existed_is_still_honoured(self):
+        with io.open(self.receipt, "w", encoding="utf-8") as handle:
+            json.dump({"schema": "press-baseline-fold-v1", "history": [
+                {"source_run": "press_refresh_20260801", "status": "FOLDED"},
+                {"source_run": "press_refresh_20260802", "status": "NO_OP"}]}, handle)
+        self.assertEqual(folded_run_names(self.receipt), {"press_refresh_20260801"})
+        self._fold_one(self._run(name="press_refresh_20260803"))
+        self.assertEqual(self._stored()["folded_runs"],
+                         ["press_refresh_20260801", "press_refresh_20260803"])
+
+    def test_skipped_uninspectable_survives_a_fold(self):
+        record_skipped_uninspectable(self.receipt, [
+            {"source_run": "press_refresh_20260101", "reason": "MISSING_RUN_FILES",
+             "detail": "gone"}])
+        before = self._stored()
+        self._fold_one(self._run())
+        after = self._stored()
+        self.assertEqual(after["status"], "FOLDED")
+        self.assertEqual(after["skipped_uninspectable"], before["skipped_uninspectable"])
+        self.assertEqual(after["skipped_uninspectable_at"], before["skipped_uninspectable_at"])
+
+    def test_a_receipt_that_is_not_an_object_refuses(self):
+        for text in ("[]", '"x"', "null"):
+            with io.open(self.receipt, "w", encoding="utf-8") as handle:
+                handle.write(text)
+            with self.subTest(text=text):
+                with self.assertRaises(FoldRefused):
+                    folded_run_names(self.receipt)
+                with self.assertRaises(FoldRefused):
+                    self._pending()
+
+    def test_an_infinite_word_count_falls_back_to_the_body(self):
+        path = os.path.join(self.tmp, "evidence_inf.csv")
+        _write_csv(path, ["url", "body", "body_word_count"], [
+            {"url": NEW_FETCHED, "body": _body(30), "body_word_count": "inf"},
+            {"url": NEW_UNFETCHED, "body": _body(3), "body_word_count": "inf"}])
+        self.assertEqual(fetched_keys(path), {index_key(NEW_FETCHED)})
+
+    def test_a_verdict_the_caller_established_replaces_valid_run(self):
+        run = _make_run(os.path.join(self.outputs, "press_refresh_20260830"), [NEW_FETCHED],
+                        [{"url": NEW_FETCHED, "body": _body(50), "body_word_count": 50,
+                          "source": "HOST"}], seal=False)
+        completed = datetime(2026, 8, 30, 5, 0, tzinfo=timezone.utc)
+        with mock.patch.object(press_baseline_fold, "valid_run",
+                               side_effect=AssertionError("valid_run must not be asked")):
+            payload = fold_run(run, baseline_path=self.baseline, receipt_path=self.receipt,
+                               verdict=(completed, {}))
+        self.assertEqual(payload["rows_added"], 1)
+        self.assertTrue(payload["receipt_validated"])
+        self.assertEqual(payload["source_receipt_completed_at"], completed.isoformat())
+
+
+class PromotedFoldTest(unittest.TestCase):
+    """fold_promoted: the intake receipt vouches for a run today's streaks would refuse."""
+
+    PENDING = ReceiptRejected("PENDING_BODY_ATTEMPTS", "streak reset by a drained member")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="press_fold_promoted_")
+        self.baseline = os.path.join(self.tmp, "all_press_release_index.csv")
+        self.fold_receipt = os.path.join(self.tmp, "fold.json")
+        self.outputs = os.path.join(self.tmp, "outputs")
+        os.makedirs(self.outputs, exist_ok=True)
+        _write_baseline(self.baseline, [BASE_A, BASE_B])
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, name, url):
+        return _make_run(os.path.join(self.outputs, name), [url],
+                         [{"url": url, "body": _body(50), "body_word_count": 50,
+                           "source": "HOST"}])
+
+    def _feed(self, runs, intake_status="ACCEPTED"):
+        outputs = {}
+        for name in ("tone", "fulltext", "mentions"):
+            path = os.path.join(self.tmp, "%s.csv" % name)
+            with io.open(path, "w", encoding="utf-8") as handle:
+                handle.write("url\n")
+            outputs[name] = {"path": path, "sha256": _sha256(path)}
+        accepted = []
+        for root in runs:
+            intake_path = os.path.join(self.tmp, "intake_%s.json" % os.path.basename(root))
+            with io.open(intake_path, "w", encoding="utf-8") as handle:
+                json.dump({"schema": "collection-intake-receipt-v1", "status": intake_status,
+                           "inputs": {"press_retry_receipt_sha256": _sha256(
+                               os.path.join(root, "press_network_retry_receipt.json"))}}, handle)
+            accepted.append({"source_run": root, "collection_intake": {
+                "path": intake_path, "sha256": _sha256(intake_path)}})
+        return self._write_feed(outputs, accepted)
+
+    def _write_feed(self, outputs, accepted):
+        feed = os.path.join(self.tmp, "feed.json")
+        with io.open(feed, "w", encoding="utf-8") as handle:
+            json.dump({"schema": "press-refresh-engine-feed-v1",
+                       "status": "ACTIVE_TYPED_SUPPLEMENT",
+                       "promotion_mode": "CUMULATIVE_ACCEPTED_RUN_LEDGER",
+                       "outputs": outputs, "accepted_runs": accepted}, handle)
+        return feed
+
+    def _baseline_urls(self):
+        with io.open(self.baseline, encoding="utf-8-sig", newline="") as handle:
+            return [row["url"] for row in csv.DictReader(handle)]
+
+    def _rewrite_retry(self, root, **changes):
+        path = os.path.join(root, "press_network_retry_receipt.json")
+        with io.open(path, encoding="utf-8") as handle:
+            document = json.load(handle)
+        document.update(changes)
+        with io.open(path, "w", encoding="utf-8") as handle:
+            json.dump(document, handle)
+
+    def test_a_promoted_partial_run_folds_on_the_intake_receipt(self):
+        run = self._run("press_refresh_20260830", NEW_FETCHED)
+        feed = self._feed([run])
+        skipped = []
+        with mock.patch.object(fold_promoted_press_runs, "inspect_run",
+                               side_effect=self.PENDING), \
+                mock.patch.object(press_baseline_fold, "valid_run",
+                                  side_effect=AssertionError("fold must rest on the intake")):
+            results = fold_promoted_press_runs.fold_promoted(
+                feed, self.baseline, self.fold_receipt, skipped=skipped)
+        self.assertEqual(skipped, [])
+        self.assertEqual([item["rows_added"] for item in results], [1])
+        self.assertTrue(results[0]["receipt_validated"])
+        self.assertIn(NEW_FETCHED, self._baseline_urls())
+
+    def test_the_fallback_refuses_what_the_intake_does_not_vouch_for(self):
+        def intake_not_accepted(run):
+            return self._feed([run], intake_status="REJECTED")
+
+        def retry_changed_after_intake(run):
+            feed = self._feed([run])
+            self._rewrite_retry(run, note="edited after the intake")
+            return feed
+
+        def retry_not_live(run):
+            self._rewrite_retry(run, mode="historical_body_recovery")
+            return self._feed([run])
+
+        def completed_at_unparsable(run):
+            self._rewrite_retry(run, completed_at="sometime")
+            return self._feed([run])
+
+        def fulltext_hash_wrong(run):
+            self._rewrite_retry(run, fulltext_csv_sha256="0" * 64)
+            return self._feed([run])
+
+        cases = (intake_not_accepted, retry_changed_after_intake, retry_not_live,
+                 completed_at_unparsable, fulltext_hash_wrong)
+        for number, case in enumerate(cases):
+            run = self._run("press_refresh_2026090%d" % number, NEW_FETCHED)
+            feed = case(run)
+            skipped = []
+            with self.subTest(case=case.__name__), mock.patch.object(
+                    fold_promoted_press_runs, "inspect_run", side_effect=self.PENDING):
+                self.assertEqual(fold_promoted_press_runs.fold_promoted(
+                    feed, self.baseline, self.fold_receipt, skipped=skipped), [])
+                self.assertEqual([item["reason"] for item in skipped],
+                                 ["PENDING_BODY_ATTEMPTS"])
+                with self.assertRaises(RuntimeError):
+                    fold_promoted_press_runs.promoted_roots(feed)
+        self.assertEqual(self._baseline_urls(), [BASE_A, BASE_B])
+
+    def test_another_rejection_reason_never_reaches_the_fallback(self):
+        run = self._run("press_refresh_20260830", NEW_FETCHED)
+        feed = self._feed([run])
+        skipped = []
+        with mock.patch.object(fold_promoted_press_runs, "inspect_run",
+                               side_effect=ReceiptRejected("FULLTEXT_CSV_SHA_MISMATCH", "x")):
+            self.assertEqual(fold_promoted_press_runs.fold_promoted(
+                feed, self.baseline, self.fold_receipt, skipped=skipped), [])
+        self.assertEqual([item["reason"] for item in skipped], ["FULLTEXT_CSV_SHA_MISMATCH"])
+
+    def test_a_root_without_its_index_delta_is_skipped_and_the_next_still_folds(self):
+        first = self._run("press_refresh_20260830", NEW_FETCHED)
+        os.remove(os.path.join(first, "press_url_delta.csv"))
+        second_url = "https://www.kappa.senate.gov/news/two"
+        second = self._run("press_refresh_20260831", second_url)
+        feed = self._feed([first, second])
+        skipped = []
+        results = fold_promoted_press_runs.fold_promoted(
+            feed, self.baseline, self.fold_receipt, skipped=skipped)
+        self.assertEqual([item["source_run"] for item in results], ["press_refresh_20260831"])
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(skipped[0]["source_run"], "press_refresh_20260830")
+        self.assertEqual(skipped[0]["reason"], "FOLD_REFUSED")
+        self.assertIn("index delta not found", skipped[0]["detail"])
+        self.assertFalse(skipped[0]["already_folded"])
+        self.assertIn(second_url, self._baseline_urls())
+        self.assertNotIn(NEW_FETCHED, self._baseline_urls())
+        with self.assertRaises(FoldRefused):          # no collector -> old all-or-nothing
+            fold_promoted_press_runs.fold_promoted(feed, self.baseline, self.fold_receipt)
+
+    def test_a_baseline_refusal_is_an_alarm_not_a_per_root_skip(self):
+        # Only a refusal about the RUN's own inputs may be skipped; one about the baseline or the fold
+        # receipt must stop the sweep, even with a collector, so later roots never fold into a
+        # baseline that just failed its integrity check.
+        run = self._run("press_refresh_20260830", NEW_FETCHED)
+        feed = self._feed([run])
+
+        def missing():
+            os.remove(self.baseline)
+
+        def empty():
+            io.open(self.baseline, "w").close()
+
+        def schema_drift():
+            _write_csv(self.baseline, ["url", "title"], [{"url": BASE_A, "title": "t"}])
+
+        def unreadable_fold_receipt():
+            with io.open(self.fold_receipt, "w", encoding="utf-8") as handle:
+                handle.write("{truncated")
+
+        for damage in (missing, empty, schema_drift, unreadable_fold_receipt):
+            with self.subTest(damage=damage.__name__):
+                _write_baseline(self.baseline, [BASE_A, BASE_B])
+                if os.path.exists(self.fold_receipt):
+                    os.remove(self.fold_receipt)
+                damage()
+                skipped = []
+                with self.assertRaises(FoldRefused) as caught:
+                    fold_promoted_press_runs.fold_promoted(
+                        feed, self.baseline, self.fold_receipt, skipped=skipped)
+                self.assertNotIsInstance(caught.exception, RunInputRefused)
+                self.assertEqual(skipped, [])
+                with self.assertRaises(FoldRefused):
+                    fold_promoted_press_runs.fold_promoted(
+                        feed, self.baseline, self.fold_receipt)
+
+    def test_a_malformed_ledger_entry_is_a_named_error(self):
+        feed = self._feed([])
+        with io.open(feed, encoding="utf-8") as handle:
+            document = json.load(handle)
+        document["accepted_runs"] = ["press_refresh_20260829"]
+        with io.open(feed, "w", encoding="utf-8") as handle:
+            json.dump(document, handle)
+        with self.assertRaises(RuntimeError) as caught:
+            fold_promoted_press_runs.promoted_roots(feed, [])
+        self.assertIn("malformed entry", str(caught.exception))
+
+    def test_a_duplicate_root_is_caught_even_when_the_first_was_skipped(self):
+        feed = self._feed([])
+        missing = os.path.join(self.outputs, "press_refresh_20260829")
+        with io.open(feed, encoding="utf-8") as handle:
+            document = json.load(handle)
+        document["accepted_runs"] = [{"source_run": missing}, {"source_run": missing}]
+        with io.open(feed, "w", encoding="utf-8") as handle:
+            json.dump(document, handle)
+        with self.assertRaises(RuntimeError) as caught:
+            fold_promoted_press_runs.promoted_roots(feed, [])
+        self.assertIn("duplicate source run", str(caught.exception))
 
 
 if __name__ == "__main__":

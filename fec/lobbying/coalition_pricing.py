@@ -94,9 +94,13 @@ INTRO_WINDOW = 4                      # congresses in the LEP 115-118 pooling wi
 CHAIR_TITLES = ('chairman', 'chair', 'chairwoman', 'cochairman')
 
 
+_MISSING, _YEARS_LOADED = [], []   # filled by build(); dumped so a degraded run is visible
+
+
 def _load(name, default=None):
     p = os.path.join(B, name)
     if not os.path.exists(p):
+        _MISSING.append(name)
         return default
     with open(p, encoding='utf-8') as fh:
         return json.load(fh)
@@ -153,6 +157,7 @@ def _z_within(values, groups):
 
 
 def build():
+    del _MISSING[:], _YEARS_LOADED[:]
     cong = _load('data/engine/congestion.json') or []
     C = {m['member']: m for m in cong}
     members = sorted(C)
@@ -201,6 +206,7 @@ def build():
         if not os.path.exists(p):
             print('WARNING: missing %s - contest will understate' % p)
             continue
+        _YEARS_LOADED.append(y)
         with open(p, encoding='utf-8-sig', errors='replace', newline='') as fh:
             for row in csv.DictReader(fh):
                 b, lid = row.get('bioguide_id'), row.get('lob_id')
@@ -325,6 +331,8 @@ def main():
             'committee_score': 'positional by construction',
             'cosponsorship_degree': 'that is reach - the builder objective already prices it'},
         'contest_window': list(CONTEST_YEARS),
+        'contest_years_loaded': list(_YEARS_LOADED),
+        'inputs_missing': list(_MISSING),
         'contest_source': 'LDA rebuild our_network_fullscope_{year}_strict.csv (distinct lob_id)',
         'jurisdiction': dict(JURISDICTION),
         'members': out,

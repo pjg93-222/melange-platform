@@ -170,27 +170,26 @@ def immutable_write(path: Path, body: bytes) -> bool:
     """Create exclusively; accept identical prior bytes, never overwrite."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    # Write a unique temp sibling, then publish with os.link, which fails if
+    # the target exists. A crash leaves only a stray .tmp, never a truncated
+    # object, and racing writers never see a partial file.
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        descriptor = os.open(
-            path,
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
-            0o644,
-        )
-    except FileExistsError:
-        require(path.read_bytes() == body, f"immutable content drift: {path}")
-        return False
-    try:
-        with os.fdopen(descriptor, "wb") as handle:
+        with open(tmp, "wb") as handle:
             handle.write(body)
             handle.flush()
             os.fsync(handle.fileno())
-    except BaseException:
         try:
-            path.unlink()
+            os.link(tmp, path)
+        except FileExistsError:
+            require(path.read_bytes() == body, f"immutable content drift: {path}")
+            return False
+        return True
+    finally:
+        try:
+            tmp.unlink()
         except FileNotFoundError:
             pass
-        raise
-    return True
 
 
 def immutable_json(path: Path, value: Any) -> bool:

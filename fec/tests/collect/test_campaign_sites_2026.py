@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import urllib.error
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -31,13 +32,18 @@ class FetchStub:
 
     def __call__(self, url, timeout):
         self.calls.append((url, timeout))
-        return self.responses.get(url, (200, SIMPLE_HTML))
+        result = self.responses.get(url, (200, SIMPLE_HTML))
+        if isinstance(result, Exception):
+            raise result
+        # Fixtures may give (status, raw) or (status, raw, final_url); production returns 5 values.
+        return tuple(result) + (url, "utf-8", False)[len(result) - 2:]
 
 
 class FakeRobotParser:
-    def __init__(self, robots_url, allowed=True):
+    def __init__(self, robots_url, allowed=True, delay=None):
         self.robots_url = robots_url
         self.allowed = allowed
+        self.delay = delay
         self.checks = []
 
     def can_fetch(self, user_agent, url):
@@ -46,11 +52,11 @@ class FakeRobotParser:
 
     def crawl_delay(self, user_agent):
         del user_agent
-        return None
+        return self.delay
 
 
-def robot_factory(allowed=True):
-    return lambda robots_url: FakeRobotParser(robots_url, allowed=allowed)
+def robot_factory(allowed=True, delay=None):
+    return lambda robots_url: FakeRobotParser(robots_url, allowed=allowed, delay=delay)
 
 
 class CampaignSites2026Tests(unittest.TestCase):
@@ -65,20 +71,29 @@ class CampaignSites2026Tests(unittest.TestCase):
             max_pages=max_pages,
         )
 
+    @staticmethod
+    def candidate_row(url, name="SAMPLE New"):
+        return {
+            "state": "MN",
+            "district": "09",
+            "candidate_name": name,
+            "party": "DEMO",
+            "incumbent_bioguide": "",
+            "url": url,
+            "official_url": "",
+            "notes": "",
+        }
+
     def test_slug_generation(self):
-        first_identity = "Jane Q. Doe|https://example.com/"
+        first_identity = "MN|05|Jane Q. Doe"
         self.assertEqual(
-            campaign_sites.candidate_slug(
-                "MN", "05", "Jane Q. Doe", "https://example.com/", ""
-            ),
+            campaign_sites.candidate_slug("MN", "05", "Jane Q. Doe"),
             "mn-05-doe-jane-"
             + hashlib.sha256(first_identity.encode("utf-8")).hexdigest()[:6],
         )
-        second_identity = "O'Neil, Pat|https://example.com/official/"
+        second_identity = "CA|12|O'Neil, Pat"
         self.assertEqual(
-            campaign_sites.candidate_slug(
-                "CA", "12", "O'Neil, Pat", "", "https://example.com/official/"
-            ),
+            campaign_sites.candidate_slug("CA", "12", "O'Neil, Pat"),
             "ca-12-o-neil-pat-"
             + hashlib.sha256(second_identity.encode("utf-8")).hexdigest()[:6],
         )
@@ -439,6 +454,7 @@ class CampaignSites2026Tests(unittest.TestCase):
 
             manifest = collector.process_row(row, RUN_UTC)
 
+            self.assertEqual(manifest["status"], "skipped_robots")
             page = manifest["pages"][0]
             self.assertEqual(page["final_url"], final_url)
             self.assertTrue(page["disallowed_redirect"])
@@ -563,6 +579,165 @@ class CampaignSites2026Tests(unittest.TestCase):
             campaign_sites.emit_glassbox(
                 "task.started", "running", campaign_sites._empty_summary()
             )
+
+    def test_subpage_failure_is_recorded_and_does_not_sink_the_candidate(self):
+        home = (
+            b'<html><body><a href="/about">About</a> '
+            b'<a href="/issues">Issues</a></body></html>'
+        )
+        about = "https://example.com/about"
+        fetch = FetchStub(
+            {
+                "https://example.com/": (200, home),
+                about: urllib.error.HTTPError(about, 404, "nf", {}, None),
+            }
+        )
+        with tempfile.TemporaryDirectory() as out_dir, mock.patch.object(
+            campaign_sites.time, "sleep"
+        ):
+            collector = self.make_collector(out_dir, fetch=fetch, max_pages=3)
+            manifest = collector.process_row(
+                self.candidate_row("https://example.com/"), RUN_UTC
+            )
+
+        self.assertEqual(manifest["status"], "collected")
+        self.assertEqual(len(manifest["page_errors"]), 1)
+        self.assertEqual(manifest["page_errors"][0]["url"], about)
+        self.assertEqual(len(manifest["pages"]), 2)
+
+    def test_http_error_is_not_retried_or_downgraded_to_http(self):
+        page = "https://example.com/page"
+        fetch = FetchStub({page: urllib.error.HTTPError(page, 403, "no", {}, None)})
+        with tempfile.TemporaryDirectory() as out_dir, mock.patch.object(
+            campaign_sites.time, "sleep"
+        ):
+            collector = self.make_collector(out_dir, fetch=fetch)
+            manifest = collector.process_row(
+                self.candidate_row("http://example.com/page"), RUN_UTC
+            )
+
+        self.assertEqual([call[0] for call in fetch.calls], [page])
+        self.assertEqual(manifest["status"], "error")
+
+    def test_certificate_failure_is_not_downgraded_to_http(self):
+        page = "https://example.com/page"
+        failure = urllib.error.URLError(
+            campaign_sites.ssl.SSLCertVerificationError("bad certificate")
+        )
+        fetch = FetchStub({page: failure})
+        with tempfile.TemporaryDirectory() as out_dir, mock.patch.object(
+            campaign_sites.time, "sleep"
+        ):
+            collector = self.make_collector(out_dir, fetch=fetch)
+            manifest = collector.process_row(
+                self.candidate_row("http://example.com/page"), RUN_UTC
+            )
+
+        self.assertTrue(all(call[0] == page for call in fetch.calls))
+        self.assertEqual(manifest["status"], "error")
+
+    def test_private_target_reason_covers_reserved_and_alternate_literals(self):
+        for host in (
+            "0.0.0.0",
+            "100.64.0.1",
+            "[fd00::1]",
+            "[fe80::1]",
+            "[::ffff:127.0.0.1]",
+            "2130706433",
+            "0x7f000001",
+            "127.1",
+        ):
+            self.assertIsNotNone(
+                campaign_sites.private_target_reason("http://{}/".format(host)), host
+            )
+        self.assertIsNone(campaign_sites.private_target_reason("https://example.com/"))
+
+    def test_resolution_check_refuses_names_that_resolve_inward(self):
+        inward = [(2, 1, 6, "", ("10.1.2.3", 443))]
+        outward = [(2, 1, 6, "", ("93.184.216.34", 443))]
+        getaddrinfo = mock.patch.object(campaign_sites.socket, "getaddrinfo")
+        with getaddrinfo as patched:
+            patched.return_value = inward
+            with self.assertRaises(campaign_sites.UnverifiedTarget):
+                campaign_sites._assert_public_resolution("https://rebind.example/")
+            patched.return_value = outward
+            campaign_sites._assert_public_resolution("https://example.com/")
+            patched.side_effect = campaign_sites.socket.gaierror("no such host")
+            with self.assertRaises(urllib.error.URLError):
+                campaign_sites._assert_public_resolution("https://gone.example/")
+
+    def test_crawl_delay_over_the_cap_skips_the_site_without_a_fetch(self):
+        fetch = FetchStub()
+        with tempfile.TemporaryDirectory() as out_dir:
+            collector = campaign_sites.CampaignSiteCollector(
+                out_dir=out_dir,
+                fetch_fn=fetch,
+                robot_parser_factory=robot_factory(True, delay=120),
+                delay_min=0,
+                delay_max=0,
+            )
+            manifest = collector.process_row(
+                self.candidate_row("https://example.com/"), RUN_UTC
+            )
+
+        self.assertEqual(manifest["status"], "skipped_robots")
+        self.assertEqual(fetch.calls, [])
+        self.assertIn("crawl-delay", manifest["error"])
+
+    def test_unknown_charset_falls_back_to_utf8_and_only_five_values_are_accepted(self):
+        url = "https://example.com/"
+        for name in ("bogus", "hex", None, ""):
+            result = campaign_sites._normalize_fetch_result(
+                (200, b"x", url, name, False), url
+            )
+            self.assertEqual(result["charset"], "utf-8")
+        known = campaign_sites._normalize_fetch_result(
+            (200, b"x", url, "windows-1252", False), url
+        )
+        self.assertEqual(known["charset"], "cp1252")
+        with self.assertRaises(ValueError):
+            campaign_sites._normalize_fetch_result((200, b"x"), url)
+
+    def test_run_log_failure_keeps_the_candidate_status_and_fails_the_exit_code(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            roster_path = os.path.join(temp_dir, "roster.csv")
+            out_dir = os.path.join(temp_dir, "output")
+            with open(roster_path, "w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(
+                    handle, fieldnames=campaign_sites.EXPECTED_ROSTER_COLUMNS
+                )
+                writer.writeheader()
+                writer.writerow(self.candidate_row("https://example.com/"))
+            with mock.patch.object(campaign_sites, "emit_glassbox"), mock.patch.object(
+                campaign_sites, "_atomic_append_json_line", side_effect=OSError("disk full")
+            ), mock.patch("sys.stderr", io.StringIO()):
+                result = campaign_sites.main(
+                    [
+                        "--roster",
+                        roster_path,
+                        "--out-dir",
+                        out_dir,
+                        "--smoke",
+                        "1",
+                        "--delay-min",
+                        "0",
+                        "--delay-max",
+                        "0",
+                        "--max-pages",
+                        "1",
+                    ],
+                    fetch_fn=FetchStub(),
+                    robot_parser_factory=robot_factory(True),
+                )
+
+            self.assertEqual(result, 1)
+            manifest_dir = os.path.join(out_dir, "manifests")
+            with open(
+                os.path.join(manifest_dir, os.listdir(manifest_dir)[0]), encoding="utf-8"
+            ) as handle:
+                persisted = json.load(handle)
+            self.assertEqual(persisted["status"], "collected")
+            self.assertIn("disk full", persisted["run_log_error"])
 
 
 if __name__ == "__main__":

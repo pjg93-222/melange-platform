@@ -13,6 +13,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import functools
 import hashlib
 import json
 import os
@@ -241,6 +242,46 @@ def file_receipt(path: Path) -> dict[str, Any]:
     }
 
 
+def _total_observation(validator):
+    """Make an informational observation validator total (never raises).
+
+    A malformed evidence row must not abort the pre-sync audit: the
+    observation fails closed as STALE_OR_INVALID and never touches a gate.
+    """
+
+    @functools.wraps(validator)
+    def wrapped(*args: Any, **kwargs: Any) -> tuple[bool, dict[str, Any]]:
+        try:
+            return validator(*args, **kwargs)
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            KeyError,
+            AttributeError,
+            PresyncError,
+        ) as exc:
+            return False, {
+                "status": "STALE_OR_INVALID",
+                "evidence_current": False,
+                "informational_only": True,
+                "affects_gate_decisions": False,
+                "can_satisfy_blocked_gate": False,
+                "authoritative_for_legislation": False,
+                "authoritative_for_scoring": False,
+                "authoritative_for_sync_or_promotion": False,
+                "production_or_mainframe_written": False,
+                "sync_or_promotion_performed": False,
+                "issues": [
+                    f"observation validator failed closed: "
+                    f"{type(exc).__name__}: {exc}"
+                ],
+            }
+
+    return wrapped
+
+
+@_total_observation
 def validate_post_weekly_refresh_downstream_drift(
     pointer_path: Path | None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -366,7 +407,7 @@ def validate_post_weekly_refresh_downstream_drift(
         rows: list[dict[str, Any]] = []
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             issues.append(f"{label} output is unreadable: {error}")
             return rows
         if any(not line.strip() for line in lines):
@@ -662,6 +703,7 @@ def validate_post_weekly_refresh_downstream_drift(
     return not issues, state
 
 
+@_total_observation
 def validate_post_weekly_refresh_behavior_stance_semantics(
     pointer_path: Path | None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -724,6 +766,7 @@ def validate_post_weekly_refresh_behavior_stance_semantics(
     return True, state
 
 
+@_total_observation
 def validate_post_weekly_refresh_planning_dashboard_semantics(
     pointer_path: Path | None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -886,7 +929,7 @@ def validate_post_weekly_refresh_planning_dashboard_semantics(
         rows: list[dict[str, Any]] = []
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             issues.append(f"{label} output is unreadable: {error}")
             return rows
         if any(not line.strip() for line in lines):
@@ -1417,6 +1460,7 @@ def validate_post_weekly_refresh_planning_dashboard_semantics(
     return not issues, state
 
 
+@_total_observation
 def validate_post_weekly_refresh_workbook_ooxml_semantics(
     pointer_path: Path | None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -1558,7 +1602,7 @@ def validate_post_weekly_refresh_workbook_ooxml_semantics(
         rows: list[dict[str, Any]] = []
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             issues.append(f"{label} output is unreadable: {error}")
             return rows
         if any(not line.strip() for line in lines):
@@ -1889,6 +1933,7 @@ def validate_post_weekly_refresh_workbook_ooxml_semantics(
     return not issues, state
 
 
+@_total_observation
 def validate_formula_cache_freshness_observation(
     pointer_path: Path | None,
 ) -> tuple[bool, dict[str, Any]]:
@@ -3473,7 +3518,14 @@ def validate_billstatus_enrichment_completeness(
             "issues": [str(error)],
         }
     inputs = audit.get("inputs") or {}
-    worker = read_object(expected_worker_manifest_path)
+    try:
+        worker = read_object(expected_worker_manifest_path)
+    except (PresyncError, ValueError) as error:
+        return False, {
+            "status": "STALE_OR_INVALID",
+            "audit": file_receipt(audit_path),
+            "issues": [f"BILLSTATUS worker manifest is unreadable: {error}"],
+        }
     worker_plan = worker.get("plan") or {}
     reused_plan_path = Path(
         str(worker_plan.get("path") or "")
@@ -3510,7 +3562,8 @@ def validate_billstatus_enrichment_completeness(
         ),
     ):
         if not isinstance(recorded, dict) or not (
-            Path(str(recorded.get("path") or "")).resolve()
+            expected.is_file()
+            and Path(str(recorded.get("path") or "")).resolve()
             == expected.resolve()
             and recorded.get("bytes") == expected.stat().st_size
             and recorded.get("sha256") == sha256_file(expected)
@@ -3784,7 +3837,7 @@ def atomic_json(path: Path, value: Any) -> None:
 def read_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise PresyncError(f"cannot read JSON object {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise PresyncError(f"JSON root must be an object: {path}")
@@ -4628,9 +4681,11 @@ def validate_rollcall_identity_manifest(
 
 def _read_ndjson_objects(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for line_number, line in enumerate(
-        path.read_text(encoding="utf-8-sig").splitlines(), 1
-    ):
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise PresyncError(f"cannot decode NDJSON {path}: {exc}") from exc
+    for line_number, line in enumerate(text.splitlines(), 1):
         if not line.strip():
             continue
         try:
@@ -4957,7 +5012,7 @@ def acu_title_query_plan_gate(
                 ),
             }
         )
-    except (OSError, ValueError, PresyncError) as exc:
+    except (OSError, ValueError, TypeError, AttributeError, PresyncError) as exc:
         audit["validation_error"] = str(exc)
 
     if audit["acceptance_passed"]:
@@ -5427,6 +5482,36 @@ def coverage_resume_status(
             "launch_suppressed": True,
             "captcha_bypass_attempted": False,
         }
+    # The launch receipt written by a previous run records the pid of the
+    # collector that run started; config current_pid is static, so check it too.
+    receipt_path = out / "coverage_resume.json"
+    if receipt_path.is_file():
+        try:
+            previous = read_object(receipt_path)
+        except PresyncError as exc:
+            return {
+                "status": "process_liveness_unverifiable",
+                "pid": None,
+                "launch_suppressed": True,
+                "reason": f"prior launch receipt unreadable: {exc}",
+                "captcha_bypass_attempted": False,
+            }
+        previous_pid = previous.get("pid")
+        if isinstance(previous_pid, int) and not isinstance(previous_pid, bool):
+            previous_liveness = process_liveness(previous_pid)
+            if previous_liveness == "alive":
+                return {
+                    "status": "already_running",
+                    "pid": previous_pid,
+                    "captcha_bypass_attempted": False,
+                }
+            if previous_liveness == "unverifiable":
+                return {
+                    "status": "process_liveness_unverifiable",
+                    "pid": previous_pid,
+                    "launch_suppressed": True,
+                    "captcha_bypass_attempted": False,
+                }
     if not launch:
         return {
             "status": "launch_not_requested",
@@ -5880,7 +5965,14 @@ def shadow_acceptance_passed(state: dict[str, Any]) -> bool:
                     if _receipt_path_current(output) is None:
                         return False
         return True
-    except (OSError, ValueError, TypeError, PresyncError, json.JSONDecodeError):
+    except (
+        OSError,
+        ValueError,
+        TypeError,
+        AttributeError,
+        PresyncError,
+        json.JSONDecodeError,
+    ):
         return False
 
 
@@ -7238,7 +7330,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_ERROR
     try:
         result = orchestrate(args)
-    except (PresyncError, OSError, subprocess.SubprocessError) as exc:
+    except (
+        PresyncError,
+        OSError,
+        subprocess.SubprocessError,
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+    ) as exc:
         print(f"pre-sync audit failed closed: {exc}")
         return EXIT_ERROR
     print(json.dumps(result, indent=2, sort_keys=True))

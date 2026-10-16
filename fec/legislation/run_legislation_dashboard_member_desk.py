@@ -62,6 +62,9 @@ SECOND_RECEIPT = (
 SECOND_RECEIPT_MIRROR = (
     Path("intermediate") / "dashboard_member_desk_second_pass.receipt.json"
 )
+SECOND_PASS_STARTED = (
+    Path("intermediate") / "dashboard_member_desk_second_pass.started"
+)
 
 NETWORK_OUTPUTS = (
     "data/money/electoral_plays.json",
@@ -192,6 +195,7 @@ WORKING_OUTPUTS = (
     "Moneyball Dashboard.html",
     "member_desk_bundle.json",
     "cu-member-desk.html",
+    "cu-member-desk-profiles.js",
     "dashboard_exclusion_reconciliation.json",
     "data/engine/dashboard_integrity_report.json",
     "data/engine/dashboard_integrity_state.json",
@@ -212,6 +216,7 @@ PINNED_ENVIRONMENT = {
     "OPTIMIZE_RESULT_PATH": "",
     "DESK_B5_FALLBACK": "1",
     "DESK_FOOTPRINT": "1",
+    "DESK_SPLIT": "1",
     "DESK_MEDIA_CAP": "0",
     "DESK_MEDIA_STANCE": "1",
     "COMBINED_STALE_OK": "0",
@@ -669,9 +674,8 @@ def production_output_guard(
     workspace_root: Path = REPO_ROOT,
 ) -> dict[str, str | None]:
     guarded = {
-        *[Path(value).name for value in WORKING_OUTPUTS],
-        "bipartisan.json",
-    }
+        rel for rel in WORKING_OUTPUTS if not rel.startswith("intermediate/")
+    } | {"bipartisan.json"}
     return {
         name: (
             sha256_file(workspace_root / name)
@@ -700,6 +704,15 @@ def run_producer(
 ) -> dict[str, Any]:
     producer = (workspace_root / relative).resolve()
     environment = dict(os.environ)
+    # Caller-shell redirect/override vars must not reach the producers.
+    for name in (
+        "DESK_OUT",
+        "DASH_OUT",
+        "EFFICIENCY_LAYERS_PATH",
+        "FRONTIER_OUT",
+        "OPT_OUT",
+    ):
+        environment.pop(name, None)
     environment.update(PINNED_ENVIRONMENT)
     environment.update(
         {
@@ -1058,9 +1071,19 @@ def run_dashboard_branch(
             )
     else:
         assert first_prior is not None
-        validate_working_receipts(
-            run_dir, first_prior.get("declared_outputs") or {}
-        )
+        # A started marker bound to the first-pass generation means an earlier
+        # second pass already cleared the outputs; skip the (now impossible)
+        # first-pass hash check so a failed attempt can be retried.
+        started = safe_child(run_dir, SECOND_PASS_STARTED)
+        first_id = str(first_prior.get("generation_id"))
+        if not (
+            started.is_file()
+            and started.read_text(encoding="utf-8").strip() == first_id
+        ):
+            validate_working_receipts(
+                run_dir, first_prior.get("declared_outputs") or {}
+            )
+            atomic_bytes(started, first_id.encode("utf-8"))
         # Exact, run-confined overwrite targets only.  The first-pass receipt
         # remains immutable as the before-state audit.
         for relative in WORKING_OUTPUTS:

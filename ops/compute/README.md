@@ -42,7 +42,7 @@ two platforms from byte-identical copies of the read set, one after the other.
 `fec/weekly_refresh.py`, the daily Congress pipeline (`fec/legislation/refresh_congress_pipeline.py`) and `fec/collect/daily_media_refresh.py`
 run each step either on this host (engine `windows`: `python <script>` exactly as before) or in its compute container (`container`:
 `docker compose run` on the compose files here). The engine is chosen per phase by `fec/compute_engine.py`, from `ops/compute/engines.json`
-(`{"chain": "windows", "collect": "windows", "office": "windows"}` is what is committed, so nothing changes until a phase is switched):
+(`ops/compute/engines.json` is the source of truth for each phase's current engine, so read it or run `python ops/compute/cutover.py show` rather than trusting a copy here; a phase runs on the host until `cutover.py` switches it):
 
 | Phase (engine key) | Moves | Compose service | Switch needs (`cutover.py`) |
 |---|---|---|---|
@@ -60,7 +60,7 @@ set MELANGE_ENGINE_CHAIN=windows                      # per-process override of 
 ```
 
 The evidence files default to `audits/compute_parity/` (`chain_parity.json`, `collectors_replay.json`, `office_equivalence.json`, `office_rank_check.json`;
-`MELANGE_PARITY_DIR` moves the directory). No tool writes the collectors replay report yet; its shape is defined in `cutover.py`. The office pair is written by one run
+`MELANGE_PARITY_DIR` moves the directory). The collectors replay report is written by `collectors_replay.py run` (below); `cutover.py` reads `result` only. The office pair is written by one run
 of `xl_equivalence.py compare REF CAND --expect-formulas 98269 --rank-range 'Blended Model!T3:T535' --rank-range 'Blended Model!Y3:Y535' --report office_equivalence.json
 --rank-check-report office_rank_check.json`: the rank-gated rule of D-177 as amended 2026-10-13 (Paul: tiny rounding differences are allowed in number cells only
 when every rank, percentile and threshold matches exactly in the same run). In that run the 533 member ranks and every discrete cell (non-numeric values; formulas
@@ -86,8 +86,29 @@ Rules the code keeps:
   files, set by the job wrapper (`run_job.ps1`, lane C1, not written yet); a variable a service does not use points at an empty scratch file.
 * A timed-out or interrupted step removes its container (`docker rm -f <name>`); `--rm` removes one that ended.
 
-Not provided by this code, so check before switching `collect`: staging of `social_media.db` (507 MB, WAL: design 2.4 says every container writer stages it), starting
-Docker Desktop, and the secret files above. `fec/refresh_tick.py` is not switched (unscheduled; Option A was ruled, not the tick).
+Not provided by this code, so check before switching `collect`: staging of `social_media.db` for the production jobs (507 MB, WAL: design 2.4 says every container
+writer stages it; `collectors_replay.py stage` is the copy, the job wrapper must call it), starting Docker Desktop, and the secret files above
+(`collectors_replay.py keyenv --service collect|llm` prints the paths, FEC excepted). `fec/refresh_tick.py` is not switched (unscheduled; Option A was ruled, not the tick).
+
+## Collectors replay test (D-180; needs Docker Desktop, about 10 to 15 minutes, one request)
+
+`collectors_replay.py` proves a collector in the `compute-collector` image writes what the Windows run writes, from the responses the Windows run
+saw. One collector, one day: `fetch_congressional_record.py crec` for a past session day (one keyless GovInfo zip; it writes `social_media.db`, so it
+also exercises the database staging). Run `run` without `--execute` first: it prints both commands and every path and runs nothing.
+
+```
+python ops/compute/collectors_replay.py run --date 2025-09-02 --glassbox-dir <events dir> --execute
+```
+
+It freezes the code (three files: no key file rides along) and the collector's read set into scratch roots, stages `social_media.db` into A1 with the SQLite
+backup API (one consistent file, `-wal` folded in, journal mode DELETE), drops the test date from that copy, copies A1 to B and proves both identical
+(`chain_parity` snapshot/verify). A1 is `http_replay.py record` in a clean environment on a scratch local dir (`chain_parity.require_scratch_dirs`: never the
+live `%LOCALAPPDATA%\Melange`, `--glassbox-dir` required). B is the `replay` profile (network none, tree read-only, no secret). Gates: G0 seeds identical and a
+non-empty cassette, G1 both exit 0 (B's code includes http_replay's request-set check), G2 stdout (keep-awake lines masked), G3 `social_media.db` schema and
+every table's rows by sha256 (`cr_fetch_log.ts` masked) with integrity_check, G4 every other changed file, G5 the date stored at least one speech (else
+INCONCLUSIVE, exit 3: a non-session day proves nothing). `audits/compute_parity/collectors_replay.json` gets `result` PASS / FAIL / INCONCLUSIVE; the scratch
+copies, the cassette and the staged database are deleted (`--keep` to inspect). The live database is only read, through the backup API. Not covered: the other
+collectors in `compute_engine.STEP_SERVICE` (each needs its own date or arguments and read set), and the FEC money collector (it has its own lane).
 
 ## Parity run (design section 4; needs Docker and a free hour)
 
@@ -96,7 +117,7 @@ Docker Desktop, and the secret files above. `fec/refresh_tick.py` is not switche
 `bipartisan.json`; every other changed path is judged by content (D-177) and rank delta must be 0 over 533 members.
 
 ```
-python ops/compute/chain_parity.py freeze --src <tree> --dest <frozen> --list <read-set.txt>     # then copy <frozen> to A1, A2, B
+python ops/compute/chain_parity.py freeze --src <tree> --dest <frozen> --list <read-set.txt> --list ops/required_inputs.txt   # then copy <frozen> to A1, A2, B
 python ops/compute/chain_parity.py verify --root <A1> --manifest <frozen>.manifest.json           # before every run
 python ops/compute/chain_parity.py command --side windows   --root <A1> --today 2026-10-12 --local-dir <A1 local>\Melange --glassbox-dir <A1 events> --execute
 python ops/compute/chain_parity.py command --side container --root <B>  --today 2026-10-12 --audio-pilot-dir <live audio_pilot> --execute
@@ -110,7 +131,9 @@ UTF-8 mode with `MELANGE_XLSX_WRITER=openpyxl` like the container, and inherits 
 `--draft-dir` and `--glassbox-dir` redirect the other roots; `--from STEP` resumes the chain (`run_pipeline.py --from`);
 `--audio-pilot-dir` (container) adds `melange.parity.compose.yaml`, a read-only nested bind of the 18 GB `audio_pilot`. Directory
 links and junctions in a run root are never walked. Any argument may be `@FILE` (one per line); `parity_readset_local_extra.args`
-adds the two local-store directories the traced read set missed. Workbooks are judged by `xlsx_content_diff.py` (content and cached
+adds the two local-store directories the traced read set missed, and `ops/required_inputs.txt` adds the tree inputs it missed
+(`--list` repeats; a line ending in `/` takes a whole directory or glob of directories, `outputs/press_refresh_*/`, and an
+entry that matches nothing fails the freeze). Workbooks are judged by `xlsx_content_diff.py` (content and cached
 values gated, styles reported).
 
 Both sides take the same `--today` (it sets `MELANGE_TODAY`: `build_media_blend` decays by age, so two days apart differ for a

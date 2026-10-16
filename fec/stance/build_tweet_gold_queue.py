@@ -17,7 +17,7 @@ other target-aware sentiment analysis").  Mirrors build_gold_queue.py v2, adapte
       member-own | rt-endorsement (an RT is amplification — label the MEMBER's implied position) |
       third-party-voice.
 Output: tweet_gold_queue.csv (gold_* columns = USER'S; api_* reserved for an optional pre-label pass)."""
-import sys,csv,io,json,re,random,collections
+import sys,csv,io,json,re,random,collections,os
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import pandas as pd
 random.seed(7)
@@ -95,8 +95,16 @@ for i,whys in picked.items():
         'gold_target':'','gold_stance_toward_target':'','gold_target_cu_valence':'','gold_cu_alignment':'',
         'gold_attribution':'','gold_notes':''})
 rows.sort(key=lambda r:(r['member'],r['date']))
-with io.open(M+r'\data\stance\tweet_gold_queue.csv','w',encoding='utf-8-sig',newline='') as f:
+OUT=M+r'\data\stance\tweet_gold_queue.csv'
+# LABEL-PRESERVATION GUARD: ids are positional ('tw%05d' % corpus index) so hand gold_* / paid api_* labels cannot be re-joined
+# after a rebuild; refuse to overwrite a queue that already holds any (--force overrides, discarding them).
+if os.path.exists(OUT) and '--force' not in sys.argv:
+    with io.open(OUT,encoding='utf-8-sig',newline='') as f:
+        n=sum(1 for r in csv.DictReader(f) for k,v in r.items() if k and k.startswith(('gold_','api_')) and (v or '').strip())
+    if n: raise SystemExit('REFUSING to overwrite %s: %d non-empty gold_*/api_* cells would be wiped (pass --force to override)'%(OUT,n))
+with io.open(OUT+'.tmp','w',encoding='utf-8-sig',newline='') as f:
     w=csv.DictWriter(f,fieldnames=list(rows[0].keys())); w.writeheader(); w.writerows(rows)
+os.replace(OUT+'.tmp',OUT)
 cc=collections.Counter(r['model_stance'] for r in rows); pl=collections.Counter(r['platform'] for r in rows)
 mm=collections.Counter(r['member'] for r in rows); pt=collections.Counter(r['party'] for r in rows)
 sl=collections.Counter(s for r in rows for s in r['slices'].split(';'))

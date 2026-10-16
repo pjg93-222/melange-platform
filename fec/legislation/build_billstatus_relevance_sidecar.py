@@ -251,27 +251,26 @@ def load_candidates(
     by_key: dict[str, dict[str, Any]] = {}
     by_line: dict[int, tuple[str, str]] = {}
     count = 0
-    with path.open("rb") as handle:
-        for line_number, raw in enumerate(handle, start=1):
-            if not raw.strip():
-                continue
-            try:
-                row = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as error:
-                raise ContractError(
-                    f"invalid candidate NDJSON line {line_number}: {path}"
-                ) from error
-            require(
-                isinstance(row, dict)
-                and isinstance(row.get("canonical_key"), str),
-                f"candidate identity missing at line {line_number}",
-            )
-            key = str(row["canonical_key"])
-            require(key not in by_key, f"duplicate discovery candidate: {key}")
-            line_hash = sha256_bytes(raw.rstrip(b"\r\n"))
-            by_key[key] = row
-            by_line[line_number] = (key, line_hash)
-            count += 1
+    for line_number, raw in iter_ndjson_raw_lines(path):
+        if not raw.strip():
+            continue
+        try:
+            row = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ContractError(
+                f"invalid candidate NDJSON line {line_number}: {path}"
+            ) from error
+        require(
+            isinstance(row, dict)
+            and isinstance(row.get("canonical_key"), str),
+            f"candidate identity missing at line {line_number}",
+        )
+        key = str(row["canonical_key"])
+        require(key not in by_key, f"duplicate discovery candidate: {key}")
+        line_hash = sha256_bytes(raw.rstrip(b"\r\n"))
+        by_key[key] = row
+        by_line[line_number] = (key, line_hash)
+        count += 1
     require(
         receipt.get("record_count") == count,
         "advanced-search candidate count drift",

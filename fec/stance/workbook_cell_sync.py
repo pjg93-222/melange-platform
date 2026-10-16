@@ -137,15 +137,18 @@ def publish_cells(workbook,changes,root):
         proof_path=Path(str(authored)+'.report.json')
         def valid_proof():
             if not authored.exists() or not proof_path.exists():return False
-            proof=json.loads(proof_path.read_text(encoding='utf-8'))
+            try:proof=json.loads(proof_path.read_text(encoding='utf-8'))
+            except (ValueError,OSError):return False
             return (proof.get('schema')=='workbook-cell-author-v1' and proof.get('status')=='PASS'
                     and (proof.get('scores_and_ranks_verified')==533 if writer=='artifact' else proof.get('engine')=='openpyxl')
                     and proof.get('plan_sha256')==digest(plan) and proof.get('helper_sha256')==digest(helper)
                     and proof.get('output_sha256')==digest(authored))
         if valid_proof():exit_code=None
         elif writer=='artifact':
-            result=subprocess.run([config['node'],str(helper),str(plan)],env=env)
-            exit_code=result.returncode
+            try:
+                result=subprocess.run([config['node'],str(helper),str(plan)],env=env,timeout=1800)
+                exit_code=result.returncode
+            except subprocess.TimeoutExpired:exit_code='timeout'
         else:
             author_cell_sync(plan);exit_code=None
         # The bundled Windows runtime can fail during teardown after a successful

@@ -1470,20 +1470,38 @@ def main() -> int:
         for key in missing_sponsors
     )
 
-    out_dir.mkdir(parents=True, exist_ok=True)
     gaps_path = out_dir / "complete_coverage_gap_ledger.ndjson"
+    report_path = out_dir / "reconciliation_report.json"
+    markdown_path = out_dir / "RECONCILIATION_REPORT.md"
+    workbook_path = out_dir / "congress_bills_exhaustive_20260725.xlsx"
+    # Resolve every relative()/sha256 string before the first write so an
+    # out-of-ROOT path fails before any output is touched.
+    run_manifest_rel = relative(run_dir / "manifest.json")
+    run_manifest_sha = sha256(run_dir / "manifest.json")
+    registry_rel = relative(args.registry.resolve())
+    registry_sha = sha256(args.registry.resolve())
+    archive_rel = relative(args.archive.resolve())
+    gaps_rel = relative(gaps_path)
+    report_rel = relative(report_path)
+    markdown_rel = relative(markdown_path)
+    workbook_rel = relative(workbook_path)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # A stale report (possibly acceptance.passed=True) must not outlive a
+    # failed write phase next to the new gap ledger.
+    report_path.unlink(missing_ok=True)
     write_ndjson(gaps_path, combined_gaps)
     report = {
         "schema": "acu-congress-legislation-reconciliation-v2",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "primary_instrument": "Congress.gov Advanced Search - Legislation",
         "quorum_used": False,
-        "run_manifest": relative(run_dir / "manifest.json"),
-        "run_manifest_sha256": sha256(run_dir / "manifest.json"),
-        "registry": relative(args.registry.resolve()),
-        "registry_sha256": sha256(args.registry.resolve()),
+        "run_manifest": run_manifest_rel,
+        "run_manifest_sha256": run_manifest_sha,
+        "registry": registry_rel,
+        "registry_sha256": registry_sha,
         "historical_archive": {
-            "path": relative(args.archive.resolve()),
+            "path": archive_rel,
             "distinct_records": len(archive_keys),
             "recovered": len(archive_keys & record_keys),
             "missing": len(historical_missing),
@@ -1579,8 +1597,7 @@ def main() -> int:
             ),
             "false_positive_exclusion_count": len(review_exclusions),
             "unresolved_count": len(unresolved_memberships),
-            "promotion_gate_passed": bool(membership_review_manifest)
-            and not unresolved_memberships,
+            "promotion_gate_passed": acceptance["membership_review_complete"],
             "article_cross_reference_complete": bool(
                 membership_review_manifest
             )
@@ -1606,14 +1623,12 @@ def main() -> int:
         "acceptance": acceptance,
         "known_bill_results": known_results,
         "query_audit": query_rows,
-        "coverage_gap_ledger": relative(gaps_path),
+        "coverage_gap_ledger": gaps_rel,
         "coverage_gap_count": len(combined_gaps),
         "exclusion_count": len(exclusions),
     }
-    report_path = out_dir / "reconciliation_report.json"
     write_json(report_path, report)
 
-    markdown_path = out_dir / "RECONCILIATION_REPORT.md"
     lines = [
         "# Congress.gov Legislation Reconciliation",
         "",
@@ -1653,7 +1668,7 @@ def main() -> int:
     ]
     markdown_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
-    workbook_path: Path | None = None
+    workbook_written = False
     if relationship_complete or args.allow_incomplete_relationships:
         core_frames, category_frames = workbook_frames(
             records,
@@ -1668,17 +1683,15 @@ def main() -> int:
             text_relevance,
             registry,
         )
-        workbook_path = (
-            out_dir / "congress_bills_exhaustive_20260725.xlsx"
-        )
         export_workbook(
             workbook_path, core_frames, category_frames, query_meta
         )
+        workbook_written = True
 
     summary = {
-        "report": relative(report_path),
-        "markdown": relative(markdown_path),
-        "workbook": relative(workbook_path) if workbook_path else None,
+        "report": report_rel,
+        "markdown": markdown_rel,
+        "workbook": workbook_rel if workbook_written else None,
         "unique_records": len(records),
         "membership_count": len(memberships),
         "historical_recovered": len(archive_keys & record_keys),

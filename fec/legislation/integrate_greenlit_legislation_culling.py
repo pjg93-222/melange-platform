@@ -704,6 +704,45 @@ def integrate(
         canonical_bytes(generation_basis)
     ).hexdigest()
 
+    gates = {
+        "coordinator_receipt_hash_verified": True,
+        "coordinator_output_hashes_verified": True,
+        "all_4180_source_decisions_accounted": (
+            len(integrated) + len(superseded)
+            == expected_action_count + expected_hold_count + 15
+        ),
+        "all_2981_greenlit_actions_applied": (
+            len(actions_with_hash) == expected_action_count
+        ),
+        "all_1184_held_decisions_visible_non_scoring": (
+            len(held) == expected_hold_count
+            and all(not row["scoring_eligible"] for row in held)
+        ),
+        "15_reconciled_short_act_supersessions_preserved": (
+            len(superseded) == 15
+        ),
+        "bill_1_amendment_0_5_weights_enforced": True,
+        "production_promotion_authorized": False,
+        "canonical_promotion_gate_passed": False,
+    }
+    failed_gates = [
+        name
+        for name, ok in gates.items()
+        if not ok
+        and name
+        not in (
+            "production_promotion_authorized",
+            "canonical_promotion_gate_passed",
+        )
+    ]
+    if failed_gates:
+        raise IntegrationError(
+            "integration gates failed: " + ", ".join(failed_gates)
+        )
+    missing_direction_edges = edge_state_counts[
+        "included_membership_only_non_scoring"
+    ]
+
     if out_dir.exists() and any(out_dir.iterdir()):
         existing = out_dir / "integration_receipt.json"
         if existing.is_file():
@@ -827,29 +866,10 @@ def integrate(
                     not row["scoring_eligible"] for row in edges
                 ),
             },
-            "gates": {
-                "coordinator_receipt_hash_verified": True,
-                "coordinator_output_hashes_verified": True,
-                "all_4180_source_decisions_accounted": (
-                    len(integrated) + len(superseded) == 4180
-                ),
-                "all_2981_greenlit_actions_applied": (
-                    len(actions_with_hash) == 2981
-                ),
-                "all_1184_held_decisions_visible_non_scoring": (
-                    len(held) == 1184
-                    and all(not row["scoring_eligible"] for row in held)
-                ),
-                "15_reconciled_short_act_supersessions_preserved": (
-                    len(superseded) == 15
-                ),
-                "bill_1_amendment_0_5_weights_enforced": True,
-                "production_promotion_authorized": False,
-                "canonical_promotion_gate_passed": False,
-            },
+            "gates": gates,
             "canonical_promotion_blockers": [
-                "1184 held decision units remain unresolved by explicit policy",
-                "19 Greenlit membership edges have no scoring direction",
+                f"{len(held)} held decision units remain unresolved by explicit policy",
+                f"{missing_direction_edges} Greenlit membership edges have no scoring direction",
                 "production promotion and external sync were not authorized",
             ],
             "outputs": outputs,

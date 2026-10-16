@@ -25,6 +25,7 @@ from openpyxl.xml.constants import ARC_CONTENT_TYPES, SHARED_STRINGS, SHEET_MAIN
 from openpyxl.xml.functions import fromstring, iterparse
 
 import response_cache
+import report_publication
 
 MAX_ROWS = 50000
 MAX_COLUMNS = 200
@@ -588,6 +589,10 @@ def worksheet_data(file_stamp, sheet_name='', header=0):
 
 
 def worksheet_entry(path, sheet_name='', header=0):
+    return report_publication.read([path], lambda: _worksheet_entry(path, sheet_name, header))
+
+
+def _worksheet_entry(path, sheet_name='', header=0):
     """/api/report-data as a response_cache entry: exactly the bytes Handler.send writes for a fresh
     worksheet_data answer (response_cache.json_body), and their gzip, built once per workbook version.
 

@@ -15,7 +15,7 @@ named with --evidence SLOT=PATH):
 
     phase    slot         default file             must say
     chain    report       chain_parity.json        what `chain_parity.py compare --report` writes: result PASS, exit_code 0, no failed gates
-    collect  report       collectors_replay.json   result PASS   (no tool writes this report yet; the replay harness's job)
+    collect  report       collectors_replay.json   result PASS   (written by `collectors_replay.py run`)
     office   equivalence  office_equivalence.json  what `xl_equivalence.py compare --report` writes: equivalent true, cells compared > 0
     office   rank_check   office_rank_check.json   result PASS, members 533, rank_exact 533   (D-174's 533-rank check; also nothing writes
                                                    it yet: compute_pillars audit mode prints `rank EXACT 533/533`)

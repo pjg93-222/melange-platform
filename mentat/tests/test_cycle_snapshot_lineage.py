@@ -2,10 +2,12 @@
 import hashlib
 from contextlib import closing
 import json
+import os
 from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import shutil
 import unittest
 from unittest.mock import patch
 
@@ -40,7 +42,7 @@ class CycleSnapshotTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
 
-    def fixture(self, cycle='2023-2024', amount=123):
+    def fixture(self, cycle='2023-2024', amount=123, portable=False):
         name = f'Fixture Industry Spending Overview {cycle}.xlsx'
         book = openpyxl.Workbook()
         sheet = book.active
@@ -54,11 +56,35 @@ class CycleSnapshotTests(unittest.TestCase):
         book.save(workbook)
         book.close()
         payload = self.root / ('input-' + cycle + '.json')
-        payload.write_text(json.dumps({'metadata': {'industry': 'Fixture', 'database_path': str(self.database),
+        from runtime_paths import portable_receipt
+        payload.write_text(json.dumps({'metadata': {'industry': 'Fixture', 'database_path': portable_receipt(self.database) if portable else str(self.database),
                                                  'expected_cycle_totals': {cycle: amount}},
                                       'raw_rows': []}), encoding='utf-8')
         receipt = publish(workbook, payload, project=self.root, reports=self.reports)
         return workbook, payload, receipt
+
+    def test_collector_lineage_moves_between_roots_without_rewriting_receipts(self):
+        with patch.dict(os.environ, {'MENTAT_DATA_ROOT':str(self.root),
+                                    'MENTAT_CONSOLE_ROOT':str(self.root/'console'),
+                                    'MENTAT_REPORT_CACHE_ROOT':str(self.root/'.cache/industry-report')}):
+            _,payload,receipt=self.fixture(portable=True)
+            manifest_bytes=Path(receipt['manifest']).read_bytes()
+            payload_bytes=Path(receipt['payload']).read_bytes()
+            self.assertTrue(self.sources()[0]['available'])
+        with tempfile.TemporaryDirectory(prefix='mentat-recipient-') as recipient:
+            target=Path(recipient)/'approved-data'
+            shutil.copytree(self.root,target)
+            with patch.dict(os.environ, {'MENTAT_DATA_ROOT':str(target),
+                                        'MENTAT_CONSOLE_ROOT':str(target/'console'),
+                                        'MENTAT_REPORT_CACHE_ROOT':str(target/'.cache/industry-report')}), patch.object(data,'PROJECT',target):
+                source=source_memo._original(target/'reports')[0]
+                self.assertTrue(source['available'])
+                self.assertEqual(source['database'],target/'source.db')
+                self.assertEqual(source['manifest'].read_bytes(),manifest_bytes)
+                self.assertEqual(source['payload'].read_bytes(),payload_bytes)
+                self.assertEqual(data.catalog(target/'reports',[source])['datasets'][0]['available'],True)
+                source['payload'].write_bytes(payload_bytes+b' ')
+                self.assertFalse(source_memo._original(target/'reports')[0]['available'])
 
     def sources(self):
         return source_memo._original(self.reports)

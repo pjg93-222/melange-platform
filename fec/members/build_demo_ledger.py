@@ -724,8 +724,10 @@ def main():
         # cross-check the replicated CU snapshot against the already-built desk bundle
         bundled = row["bundle_cu_metrics"] or {}
         mine = cu.snapshot(row["geo"]) if row["geo"] else None
-        if bundled and mine:
-            same = (bundled.get("employment_lq") == mine["employment_lq"]
+        if bundled and not mine:
+            cu_check_bad.append((row["name"], bundled, mine))  # unresolved geo: fail closed
+        elif bundled and mine:
+            same =(bundled.get("employment_lq") == mine["employment_lq"]
                     and bundled.get("establishment_lq") == mine["establishment_lq"]
                     and bundled.get("employment") == mine["employment"]
                     and bundled.get("establishments") == mine["establishments"])
@@ -756,6 +758,8 @@ def main():
         for nm, b, m in cu_check_bad[:5]:
             print("  MISMATCH", nm, b, m)
         sys.exit("CU metric replication does not reproduce the built bundle. Stopping.")
+    if roster and cu_check_ok == 0:
+        sys.exit("CU replication cross-check compared 0 rows (bundle lost cu_metrics?). Stopping.")
 
     # allowed-figure sets are computed over the SENT ledger, not this one
     sent = {name: strip_audit(rec) for name, rec in ledger.items()}

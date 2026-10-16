@@ -6,6 +6,7 @@ or adds anyone to the operational staffer population.
 import argparse
 from collections import Counter, defaultdict
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
@@ -204,7 +205,7 @@ def run(directory, repo, output, identity_supplement=None):
             'builder_sha256':sha(Path(__file__)),'source_accounting':str(directory/'progress.json'),
             **({'identity_supplement':str(identity_supplement),'identity_supplement_sha256':sha(identity_supplement)} if supplement else {})},
         'policy':'Reconciled identity bindings and explicitly labeled ecosystem associations only. Source observations never establish employment duration. Unknown dates and conflicting histories remain in review.'}
-    output.parent.mkdir(parents=True,exist_ok=True);output.write_text(json.dumps(receipt,indent=2),encoding='utf8')
+    output.parent.mkdir(parents=True,exist_ok=True);tmp=output.with_name(output.name+'.tmp');tmp.write_text(json.dumps(receipt,indent=2),encoding='utf8');os.replace(tmp,output)
     db.close();print(packed({'path':str(output),'status':receipt['status'],'counts':dict(counts)}),flush=True)
     return receipt
 

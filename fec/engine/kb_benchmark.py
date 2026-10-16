@@ -91,7 +91,7 @@ print('\nBattaglini-Patacchini check — Spearman rho of Katz-Bonacich centralit
 for name, d, keys in pairs:
     rho, n = spearman(KB, d, keys)
     res[name] = {'rho': round(rho, 4) if rho is not None else None, 'n': n}
-    print('  %-52s rho=%+.3f (n=%d)' % (name, rho, n))
+    print('  %-52s %s (n=%d)' % (name, 'rho=%+.3f' % rho if rho is not None else 'rho=n/a', n))
 top = sorted(members, key=lambda n: -KB[n])[:max(10, N // 10)]
 unbought = [n for n in top if alloc.get(n, 0) == 0][:15]
 print('\ntop-decile KB centrality with $0 suggested (centrality the model declines to buy — stance/receptivity/capacity price it out):')

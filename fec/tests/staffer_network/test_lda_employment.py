@@ -277,6 +277,32 @@ def main():
            [subject.period_label(key) for _ident, key in ledger.formers['lda:lobbyist:3']],
            ['2024 Q1'])
 
+    print('[j2] filings are counted once per person, not once per issue-area edge')
+    with tempfile.TemporaryDirectory() as directory:
+        multi = subject.Filings()
+        for uuid, registrant in (('fa', 'A'), ('fb1', 'B'), ('fb2', 'B')):
+            multi.add(uuid, registrant, 'C', subject.period_key(2026, 'first_quarter'))
+        # filing fa names the person on 5 issue areas, fb1 and fb2 on one each
+        edge_rows = [{'predicate': 'NAMED_ON_ACTIVITY', 'subject_id': 'p',
+                      'object_id': 'lda:activity:%s:%d' % (uuid, n)}
+                     for uuid, n in [('fa', i) for i in range(5)] + [('fb1', 0), ('fb2', 0)]]
+        edges = write(directory, 'multi_edges.ndjson.gz', edge_rows)
+        people, _counts = subject.read_filer_links(edges, multi)
+        chosen, _latest, _formers, rule = subject.employer_of(people['p'], multi.registrant_ids)
+        eq('the registrant with 2 filings beats the one with 1 filing on 5 activities',
+           multi.registrant_ids[chosen], 'B')
+        eq('and the tie is recorded as decided by filings in the period', rule,
+           subject.TIE_BY_PERIOD_FILINGS)
+
+    print('[j3] the affiliate-shaped count is clients that are not the registrant itself')
+    names = {'R': 'AFFIL PARENT INC', 'C1': 'Affil Parent, Inc.', 'C2': 'SUBSIDIARY LLC'}
+    mixed = subject.Filings()
+    mixed.add('g1', 'R', 'C1', 1)
+    mixed.add('g2', 'R', 'C2', 1)
+    _engagement, client_counts, other_counts = subject.registrant_engagement(mixed, names)
+    eq('the total client count includes the self-filing', client_counts[0], 2)
+    eq('the other-client count does not', other_counts[0], 1)
+
     print('[k] a filing that disagrees with itself REFUSES; it is not resolved by guess')
     with tempfile.TemporaryDirectory() as directory:
         # Two activities inside one filing naming two different clients. Real

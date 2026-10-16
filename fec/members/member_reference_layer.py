@@ -45,6 +45,7 @@ REF_ROSTER_FILTER = os.environ.get('REF_ROSTER_FILTER', '1') == '1'         # ro
 REF_IDENTICAL_ONCE = os.environ.get('REF_IDENTICAL_ONCE', '1') == '1'       # per edge, windows identical after whitespace normalisation count once in n_scored/pos/neg/neu ('0' = once per copy, the old behaviour)
 AF_STATE = {'REF_PRESS_OWN_DOMAIN': REF_PRESS_OWN_DOMAIN, 'REF_ROSTER_FILTER': REF_ROSTER_FILTER,
             'REF_IDENTICAL_ONCE': REF_IDENTICAL_ONCE}
+X_PASS = 'ok'   # outcome of the X-mention pass, written into the artifact (fail-open label fix)
 FILTERED = collections.Counter()   # what each admission filter excluded, reported in the artifact
 MODEL = 'claude-fable-5'
 CACHE = os.path.join(B, 'data', 'members', 'member_reference_cache_fable.jsonl')
@@ -164,6 +165,8 @@ def extract():
             refs.append({'a':spk,'b':mem,'src':'PRESS_OFFICIAL_MENTION',
                          'date':r.get('date') or '','w':window})
     # X original-post mentions (framed text; plain RTs counted separately as endorsement events)
+    global X_PASS
+    X_PASS = 'ok'
     try:
         import openpyxl
         con2 = sqlite3.connect(os.path.join(B, 'social_media.db'), timeout=120)
@@ -183,6 +186,7 @@ def extract():
                 if mem and mem != spk:
                     refs.append({'a': spk, 'b': mem, 'src': 'X', 'date': str(row[idt] or '') if idt is not None else '', 'w': t[:300]})
     except Exception as e:
+        X_PASS = 'skipped: %s' % str(e)[:80]
         print('  (X mention pass skipped: %s)' % str(e)[:80])
     # Admission: a third-party press headline and a roll-call/signature-block window are not
     # references. Dropped here, so they never reach n_raw, the dyad cap or the scoring queue.
@@ -375,7 +379,8 @@ if '--score' in sys.argv or '--rebuild' in sys.argv:
     from moneyball_core import dump_atomic
     dump_atomic({'edges': out_edges, 'dyad_cap': DYAD_CAP, 'model': ', '.join(sorted(_cache_models)) or MODEL,
                  'admission_filters': RF.admission_filters_block(AF_STATE, FILTERED),
-                 'provenance': 'substantive member references (formality discarded per user 2026-07-04); speeches+press+X; Fable-valenced'},
+                 'x_pass': X_PASS,
+                 'provenance': 'substantive member references (formality discarded per user 2026-07-04); speeches+press%s; Fable-valenced' % ('+X' if X_PASS == 'ok' else ' (X pass SKIPPED)')},
                 os.path.join(B, 'member_references.json'))
     npos = sum(1 for e in out_edges if e['net'] > 0.2); nneg = sum(1 for e in out_edges if e['net'] < -0.2)
     print('member_references.json: %d substantive directed edges | positive %d | negative %d' % (len(out_edges), npos, nneg))

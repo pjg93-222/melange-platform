@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "host_root_environment": "LOCALAPPDATA",
+  "host_relative_path": ["Mentat", "fec-api-budget.sqlite"],
+  "legacy_project_relative_path": [".cache", "fec-api-budget.sqlite"]
+}

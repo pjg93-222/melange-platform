@@ -87,6 +87,8 @@ import contribution_workbook_guard
 import collection_gaps
 import snapshot_registry
 import industry_scope
+from runtime_paths import collector_environment
+from api_request_budget import budget_path, legacy_budget_paths
 
 # Bump the server revision with schema changes so existing desktop launchers
 # detect that the running process needs the updated contribution reader.
@@ -95,6 +97,7 @@ import evidence_csv
 import evidence_geo
 import geocode
 from report_directory import report_directory, require_report_path
+import report_publication
 from validate_industry_coverage import workbook_roster
 from collection_coverage import inspect as inspect_coverage, cycles_from
 from fec_key_store import load_keys, save_keys, environment_keys, status as key_status
@@ -1749,6 +1752,10 @@ class Console:
                             ignore=shutil.ignore_patterns("__pycache__", "node_modules", ".cache", "*.bak*",
                                     *(("fec_beneficiary", "fec_committee_master") if folder == "inputs" else ())))
         shutil.copy2(PROJECT / "mentat.R", runtime / "mentat.R")
+        # The path-only resolver is shared by the console and copied collectors;
+        # no model data or other personal app assets are staged into this folder.
+        (runtime / 'app').mkdir(exist_ok=True)
+        shutil.copy2(Path(__file__).parent / 'runtime_paths.py', runtime / 'app' / 'runtime_paths.py')
         shutil.copy2(directory / "roster.xlsx", runtime / "inputs" / "Company Name.xlsx")
         source_root = Path(active_sources['path']) if active_sources.get('path') else PROJECT / 'inputs'
         copy_fec_sources(source_root, runtime / 'inputs', cycles)
@@ -1765,7 +1772,7 @@ class Console:
             # The runtime above is re-staged either way, so a code fix landed
             # since the stopped attempt is the code the resume runs.
             command += ["-ResumeRunId", resume_run_id]
-        environment = os.environ.copy()
+        environment = collector_environment(os.environ, runtime)
         library = r_library_path(environment, PROJECT, self.rscript)
         if library:
             command.extend(['-RLibraryPath', library])
@@ -1785,7 +1792,9 @@ class Console:
         environment["MENTAT_REPORT_DIRECTORY"] = str(self.report_directory)
         environment["MENTAT_CROSS_REFERENCE_ROOT"] = str(PROJECT / "state" / "cross-reference")
         environment["MENTAT_ACCEPTED_SOURCE_ROOT"] = str(PROJECT / "state" / "accepted-report-sources")
-        environment["MENTAT_API_BUDGET_DB"] = str(PROJECT / ".cache" / "fec-api-budget.sqlite")
+        environment["MENTAT_API_BUDGET_DB"] = str(budget_path(PROJECT, environment=environment))
+        environment["MENTAT_API_BUDGET_IMPORTS"] = json.dumps(
+            [str(path) for path in legacy_budget_paths(PROJECT, environment=environment)])
         environment["MENTAT_FEC_SOURCE_ROOT"] = str(runtime / 'inputs')
         for name in list(environment):
             if name == 'FEC_API_KEY' or re.fullmatch(r'FEC_API_KEY_\d+', name):
@@ -2667,7 +2676,9 @@ class Console:
             item = next((row for row in self.published_reports() if row['index'] == index), None)
             if item is None:
                 raise ValueError('Report not available in the authoritative folder. Refresh the report list.')
-            return require_report_path(self.report_directory / item['name'], self.report_directory)
+            path = require_report_path(self.report_directory / item['name'], self.report_directory)
+            report_publication.capture(path)
+            return path
         run = self.find(identifier)
         if not run or not run['directory']:
             raise ValueError('Report not available.')
@@ -2678,6 +2689,7 @@ class Console:
         path = require_report_path(path, self.report_directory)
         if str(path).startswith(('\\\\', '//')) or not path.is_file():
             raise ValueError('Local report not available.')
+        report_publication.capture(path)
         return path
 
     def published_reports(self):
@@ -2695,6 +2707,10 @@ class Console:
                 continue
             if not resolved.is_file():
                 continue
+            try:
+                publication = report_publication.capture(resolved)
+            except ValueError:
+                continue
             index = int(hashlib.sha256(path.name.encode('utf-8')).hexdigest()[:12],16)
             if index in identifiers:
                 raise ValueError('Report filename identifiers conflict; no ambiguous report will be opened.')
@@ -2707,10 +2723,12 @@ class Console:
             # the filename again.
             from report_identity import identity
             report_identity = identity(path.name)
+            if report_publication.capture(resolved) != publication:
+                continue
             stem = report_identity['label'] if report_identity else path.stem
             kind = report_identity['kind'] if report_identity else 'overview'
             rows.append({'index':index,'name':path.name,'industry':stem,'kind':kind,
-                         'source_directory':str(self.report_directory)})
+                         'source_directory':str(self.report_directory), 'publication': publication})
         return rows
 
     def report_sources(self):
@@ -2770,19 +2788,25 @@ class Console:
         if not selected:
             raise ValueError('Choose an industry with completed reports.')
         paths = [self.report_path(identifier,i) for i in selected['indices']]
-        result = graph_view(paths,filters)
-        # A report is stamped through its own published industry, not through
-        # the grouped catalogue name: one group can hold several workbooks.
-        published = {row['name']: row['industry'] for row in reports or []}
-        stamps = {item['industry']: item['build_stamp']
-                  for item in (registry or snapshot_registry.registry(self.report_directory))['snapshots']}
-        for report, path in zip(result['reports'], paths):
-            report['freshness'] = report_freshness(path)
-            report['source_directory'] = str(self.report_directory)
-            report['build_stamp'] = stamps.get(published.get(path.name))
-        result['report_directory'] = str(self.report_directory)
-        result['industry'] = industry
-        return result
+        def build():
+            result = graph_view(paths,filters)
+            # A report is stamped through its own published industry, not through
+            # the grouped catalogue name: one group can hold several workbooks.
+            published = {row['name']: row['industry'] for row in reports or []}
+            snapshots = (registry or snapshot_registry.registry(self.report_directory))['snapshots']
+            stamps = {item['industry']: item['build_stamp'] for item in snapshots}
+            by_workbook = {item['workbook']['name']: item for item in snapshots if item.get('workbook')}
+            for report, path in zip(result['reports'], paths):
+                scanned = by_workbook.get(path.name)
+                if scanned is not None and scanned['workbook']['sha256'] != report['sha256']:
+                    raise ValueError(report_publication.MESSAGE)
+                report['freshness'] = report_freshness(path)
+                report['source_directory'] = str(self.report_directory)
+                report['build_stamp'] = stamps.get(published.get(path.name))
+            result['report_directory'] = str(self.report_directory)
+            result['industry'] = industry
+            return result
+        return report_publication.read(paths, build)
 
     def comparison(self, identifier, industry, relationships=False, reports=None):
         if reports is None and identifier == 'published-reports':
@@ -3230,7 +3254,33 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
         data.pop('industry', None)
         return entry
 
+    def source_metadata(self, reader, industry=None):
+        """Keep available scanned sources and their metadata in one generation.
+
+        Pending/unavailable entries remain listed unavailable. They cannot
+        authorize facts, and are deliberately not upgraded by this boundary.
+        """
+        sources = contribution_data._sources(self.server.app.report_directory)
+        available = [item for item in sources if item.get('available') and item.get('workbook')]
+        if industry is not None:
+            registry = snapshot_registry.registry(self.server.app.report_directory, sources)
+            selected = snapshot_registry.find(registry, industry)
+            available = [item for item in available if selected and item['id'] == selected['dataset']]
+        def build():
+            for item in available:
+                scanned = item.get('publication')
+                if scanned is not None and report_publication.capture(item['workbook']) != scanned:
+                    raise ValueError(report_publication.MESSAGE)
+            return reader(sources)
+        return report_publication.read([item['workbook'] for item in available], build)
+
     def contribution_result(self, reader, data, sources=None):
+        directory = self.server.app.report_directory
+        sources = contribution_data._sources(directory) if sources is None else sources
+        paths = [item['workbook'] for item in sources if item['id'] == data.get('dataset')]
+        return report_publication.read(paths, lambda: self._contribution_result(reader, data, sources))
+
+    def _contribution_result(self, reader, data, sources=None):
         directory = self.server.app.report_directory
         checked = contribution_workbook_guard.verify_sources(directory, data.get('dataset'), sources=sources)
         result = reader(directory, data, sources)
@@ -3288,18 +3338,20 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
                                       'report_directory':str(app.report_directory), 'build': build, **build})
                 return self.send({"token": self.session_token(), **app.summary(query.get('include_archived', ['0'])[0] in ('1','true'))})
             if parsed.path == '/api/contributions/session':
-                registry = snapshot_registry.registry(app.report_directory)
-                entry = industry_scope.from_query(registry, parsed.query)
-                return self.send({'token': self.session_token(), 'read_only': bool(getattr(app, 'read_only', False)),
-                                  'industry': entry['industry'] if entry else None,
-                                  'industries': [{key: item[key] for key in ('industry','slug','available','build_stamp')}
-                                                 for item in registry['snapshots']]})
+                def build(sources):
+                    registry = snapshot_registry.registry(app.report_directory, sources)
+                    entry = industry_scope.from_query(registry, parsed.query)
+                    return {'token': self.session_token(), 'read_only': bool(getattr(app, 'read_only', False)),
+                            'industry': entry['industry'] if entry else None,
+                            'industries': [{key: item[key] for key in ('industry','slug','available','build_stamp')}
+                                           for item in registry['snapshots']]}
+                return self.send(self.source_metadata(build))
             if parsed.path == '/api/insights/catalog':
                 import analysis_data
                 import response_cache
                 # FIX 4: each dataset names what its report's own Data Quality check says was collected short.
-                return self.send_entry(response_cache.from_value(
-                    collection_gaps.attach(app.report_directory, analysis_data.catalog(app.report_directory))))
+                return self.send_entry(self.source_metadata(lambda sources: response_cache.from_value(
+                    collection_gaps.attach(app.report_directory, analysis_data.catalog(app.report_directory, sources)))))
             if parsed.path == '/api/forecast/pac':
                 import pac_giving_forecast
                 return self.send(pac_giving_forecast.catalog())
@@ -3309,26 +3361,27 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
             if parsed.path == '/api/contributions/catalog':
                 # One scan of the report folder for this request: the semantic
                 # catalogue and the registry annotation below read the same list.
-                sources = contribution_data._sources(app.report_directory)
-                catalog = contribution_query.semantics.catalog(app.report_directory, sources)
-                checks = {item['dataset']: item for item in contribution_workbook_guard.verify_sources(app.report_directory, strict=False, sources=sources)}
-                for dataset in catalog['datasets']:
-                    check = checks.get(dataset['id'])
-                    if check and not check['matched']:
-                        dataset.update(available=False, message=check['error'])
-                    elif check and any(check.get(key) is not None and dataset.get('provenance', {}).get(key) != check[key]
-                                       for key in ('workbook_sha256', 'database_sha256')):
-                        dataset.update(available=False, message='The report changed during source discovery. Refresh sources.')
-                registry = snapshot_registry.registry(app.report_directory, sources)
-                entry = industry_scope.from_query(registry, parsed.query)
-                if entry:
-                    catalog['datasets'] = [item for item in catalog['datasets'] if item.get('id') == entry['dataset']]
-                stamps = {item['dataset']: item['build_stamp'] for item in registry['snapshots']}
-                for dataset in catalog['datasets']:
-                    dataset['build_stamp'] = stamps.get(dataset.get('id'))
-                catalog['industry'] = entry['industry'] if entry else None
-                import response_cache
-                return self.send_entry(response_cache.from_value(collection_gaps.attach(app.report_directory, catalog)))
+                def build(sources):
+                    catalog = contribution_query.semantics.catalog(app.report_directory, sources)
+                    checks = {item['dataset']: item for item in contribution_workbook_guard.verify_sources(app.report_directory, strict=False, sources=sources)}
+                    for dataset in catalog['datasets']:
+                        check = checks.get(dataset['id'])
+                        if check and not check['matched']:
+                            dataset.update(available=False, message=check['error'])
+                        elif check and any(check.get(key) is not None and dataset.get('provenance', {}).get(key) != check[key]
+                                           for key in ('workbook_sha256', 'database_sha256')):
+                            dataset.update(available=False, message='The report changed during source discovery. Refresh sources.')
+                    registry = snapshot_registry.registry(app.report_directory, sources)
+                    entry = industry_scope.from_query(registry, parsed.query)
+                    if entry:
+                        catalog['datasets'] = [item for item in catalog['datasets'] if item.get('id') == entry['dataset']]
+                    stamps = {item['dataset']: item['build_stamp'] for item in registry['snapshots']}
+                    for dataset in catalog['datasets']:
+                        dataset['build_stamp'] = stamps.get(dataset.get('id'))
+                    catalog['industry'] = entry['industry'] if entry else None
+                    import response_cache
+                    return response_cache.from_value(collection_gaps.attach(app.report_directory, catalog))
+                return self.send_entry(self.source_metadata(build))
             if parsed.path == '/api/contributions/geography/catalog':
                 # geo_catalog() is industry-independent; the parameter is accepted
                 # and echoed so one client call carries one scope everywhere.
@@ -3336,9 +3389,11 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
                 return self.send({**contribution_geo.geo_catalog(),
                                   'industry': entry['industry'] if entry else None})
             if parsed.path == '/api/snapshots':
-                registry = snapshot_registry.registry(app.report_directory)
-                entry = industry_scope.from_query(registry, parsed.query)
-                return self.send({**registry, 'snapshots': [entry]} if entry else registry)
+                def build(sources):
+                    registry = snapshot_registry.registry(app.report_directory, sources)
+                    entry = industry_scope.from_query(registry, parsed.query)
+                    return {**registry, 'snapshots': [entry]} if entry else registry
+                return self.send(self.source_metadata(build))
             if parsed.path == "/api/runs":
                 return self.send(app.summary(query.get('include_archived', ['0'])[0] in ('1','true')))
             if parsed.path == '/api/evidence-csv':
@@ -3459,7 +3514,7 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
                 return self.send(app.snapshot(query.get("id", [""])[0], query.get("lane", [""])[0]))
             if parsed.path == "/api/report":
                 path = app.report_path(query.get('id', [''])[0], int(query.get('index', ['-1'])[0]))
-                return self.send(path.read_bytes(), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                return self.send(report_publication.read([path], path.read_bytes), content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             if parsed.path == '/api/reports':
                 return self.send(app.report_catalog(query.get('id', [''])[0]))
             if parsed.path == '/api/report-sources':
@@ -3496,19 +3551,23 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
                 # every workbook graph_catalog() offers. One registry per request,
                 # and none at all when no industry was named.
                 wanted = query.get('industry',[''])[0]
-                registry = snapshot_registry.registry(app.report_directory) if wanted else None
-                label = industry_scope.label_or_value(registry, wanted) if registry else wanted
                 if parsed.path == '/api/graph':
                     import response_cache
                     started = time.perf_counter()
-                    params = {**{k:v[0] for k,v in query.items()}, 'industry': label}
-                    self.send_entry(response_cache.from_value(app.graph(query.get('id',[''])[0], label,
-                                               dict(params), registry)))
+                    params = {**{k:v[0] for k,v in query.items()}, 'industry': wanted}
+                    def build(sources):
+                        registry = snapshot_registry.registry(app.report_directory, sources) if wanted else None
+                        label = industry_scope.label_or_value(registry, wanted) if registry else wanted
+                        params['industry'] = label
+                        return response_cache.from_value(app.graph(query.get('id',[''])[0], label,
+                                                                  dict(params), registry))
+                    self.send_entry(self.source_metadata(build, wanted))
                     if prefetch_request(self):
                         return   # graph.js's idle prefetch: answered the same, never recorded (H4)
-                    # The Graph drawer's second hop is /api/graph with mode=activity (graph.js).
                     return record_access(self, 'graph_drawer' if params.get('mode') == 'activity' else 'graph_view',
                                          params, started)
+                registry = snapshot_registry.registry(app.report_directory) if wanted else None
+                label = industry_scope.label_or_value(registry, wanted) if registry else wanted
                 if parsed.path == '/api/comparison-flows':
                     started = time.perf_counter()
                     self.send_entry(app.comparison_entry(query.get('id',[''])[0], label))

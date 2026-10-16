@@ -62,7 +62,7 @@ collect_path <- file.path(project_root, "R", "collect.R")
 fec_page_path <- file.path(project_root, "R", "fec_page.R")
 
 assert_dbconnect_configuration(lane_path, 2L)
-assert_dbconnect_configuration(paths_path, 1L)
+assert_dbconnect_configuration(paths_path, 2L)
 assert_dbconnect_configuration(fec_api_path, 0L)
 assert_dbconnect_configuration(collect_path, 0L)
 assert_dbconnect_configuration(fec_page_path, 0L)

@@ -35,8 +35,12 @@ Panel schema:
 Manifest schema:
   lodes-panel-v1, with LODES coverage/provenance, row checks, and panel metadata.
   In fetch-only mode xwalk and panel are null and row-check counters are zero.
+
+Exit rule: any state-year left with status 'error' (transient/non-404 failure and no cached
+copy) exits nonzero before the panel is built or the manifest written, so the last good panel
+and manifest stay intact; rerun to retry.  Permanent 404/410 'missing' gaps stay accepted.
 """
-import csv,datetime,gzip,hashlib,io,json,os,sys,time,urllib.request
+import csv,datetime,gzip,hashlib,io,json,os,sys,time,urllib.error,urllib.request,zlib
 from moneyball_core import dump_atomic
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 
@@ -189,6 +193,7 @@ def _download_file(state, year, path, force, throttle):
 
     part_path = path + '.part'
     for attempt in range(4):
+        terminal = False
         try:
             print('downloading %s (attempt %d/4): %s' %
                   (label, attempt + 1, url))
@@ -211,7 +216,7 @@ def _download_file(state, year, path, force, throttle):
                         chunk = validation.read(CHUNK_SIZE)
                         if not chunk:
                             break
-            except (gzip.BadGzipFile, EOFError, OSError) as exc:
+            except (gzip.BadGzipFile, EOFError, OSError, zlib.error) as exc:
                 failure = exc
                 try:
                     os.remove(part_path)
@@ -232,17 +237,19 @@ def _download_file(state, year, path, force, throttle):
                       (label, exc.code, url))
                 return _file_entry('missing')
             failure = exc
+            # other 4xx (400/403/...) will not heal on retry; 429 and 5xx do
+            terminal = 400 <= exc.code < 500 and exc.code != 429
         except Exception as exc:
             failure = exc
 
-        if attempt == 3:
+        if attempt == 3 or terminal:
             if cached:
-                print('!! re-download failed for %s after 4 attempts; '
+                print('!! re-download failed for %s after %d attempt(s); '
                       'kept cached file: %s (%s)' %
-                      (label, path, str(failure)))
+                      (label, attempt + 1, path, str(failure)))
                 return _file_entry('error_kept_cached', path)
-            print('!! download failed for %s after 4 attempts: %s' %
-                  (label, str(failure)))
+            print('!! download failed for %s after %d attempt(s): %s' %
+                  (label, attempt + 1, str(failure)))
             return _file_entry('error')
 
         delay = 3 * (attempt + 1)
@@ -566,6 +573,13 @@ def main():
         files = _fetch_files(raw_root, states, years, force)
     else:
         files = _local_files(raw_root, states, years)
+
+    errored = [key for key, entry in files.items() if entry['status'] == 'error']
+    if errored:
+        print('!! LODES transient download failures (no cached copy): %s; '
+              'refusing to build panel or write manifest; rerun to retry' %
+              ', '.join(errored))
+        raise SystemExit(1)
 
     build_result = None
     if mode in ('build', 'both'):

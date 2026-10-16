@@ -275,6 +275,7 @@ def run(argv=None, fetch=None, environ=None):
     # and that one never reaches `staged`.
     temps = []
     error = None
+    rollback_ok = True
     try:
         os.makedirs(directory, exist_ok=True)
         fetcher = fetch if fetch is not None else network_fetcher(args.timeout)
@@ -311,7 +312,9 @@ def run(argv=None, fetch=None, environ=None):
         # stale one.  Each live archive is therefore moved aside first and restored
         # if any replace fails.
         promoted = []
+        promoted_paths = []      # live paths this run wrote, with or without a saved aside
         saved = []
+        rollback_ok = True
         try:
             for entry in staged:
                 if os.path.exists(entry['path']):
@@ -320,9 +323,22 @@ def run(argv=None, fetch=None, environ=None):
                     saved.append((entry['path'], aside))
                 os.replace(entry['tmp'], entry['path'])
                 promoted.append(entry['type'])
+                promoted_paths.append(entry['path'])
         except Exception as exc:                 # noqa: BLE001
             error = ('publication failed after promoting %s: %s: %s'
                      % (promoted or 'nothing', type(exc).__name__, exc))
+            unrestored = []
+            saved_live = set(live for live, _aside in saved)
+            # A promoted archive with no previous file has no aside to restore: remove
+            # the new file so the failed run does not leave a half-published set.
+            for live in promoted_paths:
+                if live in saved_live:
+                    continue
+                try:
+                    if os.path.exists(live):
+                        os.unlink(live)
+                except OSError:
+                    unrestored.append(live)
             for live, aside in saved:
                 try:
                     if os.path.exists(live):
@@ -332,7 +348,10 @@ def run(argv=None, fetch=None, environ=None):
                 try:
                     os.replace(aside, live)
                 except OSError:
-                    pass
+                    unrestored.append(live)
+            if unrestored:
+                rollback_ok = False
+                error += '; rollback incomplete: %s' % unrestored
             promoted = []
         else:
             for _live, aside in saved:
@@ -363,8 +382,12 @@ def run(argv=None, fetch=None, environ=None):
             source='billstatus-bulk-refresh',
             duration_ms=int((time.time() - started) * 1000))
         print('BILLSTATUS bulk refresh FAILED — %s' % error, file=sys.stderr)
-        print('every existing archive was left untouched (receipt: %s)' % receipt_path,
-              file=sys.stderr)
+        if rollback_ok:
+            print('every existing archive was left untouched (receipt: %s)' % receipt_path,
+                  file=sys.stderr)
+        else:
+            print('ROLLBACK INCOMPLETE: inspect the archives named above and any .previous '
+                  'files (receipt: %s)' % receipt_path, file=sys.stderr)
         return 1
 
     archives = [{

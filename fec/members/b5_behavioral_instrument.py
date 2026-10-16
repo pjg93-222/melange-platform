@@ -62,9 +62,9 @@ def featurize(MEM, alltext):
             v = lex.analyze(tx, normalize=True) or {}
             c = {'h': h, 'v': [v.get(cat, 0.0) for cat in CATS]}
             cache[m] = c; dirty += 1
-            if dirty % 25 == 0: json.dump(cache, open(CACHEF, 'w'), indent=0)
+            if dirty % 25 == 0: MC.dump_atomic(cache, CACHEF, indent=0)
         rows.append(c['v'])
-    if dirty: json.dump(cache, open(CACHEF, 'w'), indent=0)
+    if dirty: MC.dump_atomic(cache, CACHEF, indent=0)
     X = np.array(rows, float)
     xsd = X.std(0, ddof=1); xsd[xsd < 1e-12] = 1
     X = (X - X.mean(0)) / xsd
@@ -102,8 +102,8 @@ def affect_lability(MEM):
             ss.append((a.get('positive_emotion', 0.0)) - (a.get('negative_emotion', 0.0)))
         s = float(np.std(ss, ddof=1)) if len(ss) > 1 else None
         cache[m] = s; per[m] = s
-        if len(cache) % 25 == 0: json.dump(cache, open(CF, 'w'))
-    con.close(); json.dump(cache, open(CF, 'w'))
+        if len(cache) % 25 == 0: MC.dump_atomic(cache, CF)
+    con.close(); MC.dump_atomic(cache, CF)
     vals = np.array([per.get(m) if per.get(m) is not None else np.nan for m in MEM], float)
     ok = ~np.isnan(vals)
     if ok.sum() < 100: return None, ok

@@ -203,7 +203,66 @@ def _block_and_district(row, label):
     return block, district
 
 
-def _add_block(counts, block, district):
+def _load_ct_tract_recode(path):
+    """Read the CT 2020-to-2022 tract bridge (same file fetch_hmda_district uses)."""
+    path = _require_file(path, "CT 2020-to-2022 tract bridge")
+    recode = {}
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as source:
+            reader = csv.DictReader(source)
+            fields = ("tract_fips_2020", "tract_fips_2022")
+            if not set(fields) <= set(reader.fieldnames or ()):
+                raise RedistrictingDensityError(
+                    f"CT bridge {path} lacks columns {list(fields)!r}; "
+                    f"found {reader.fieldnames!r}"
+                )
+            for row in reader:
+                old = (row.get(fields[0]) or "").strip()
+                new = (row.get(fields[1]) or "").strip()
+                for tract in (old, new):
+                    if (
+                        len(tract) != 11
+                        or not tract.isdigit()
+                        or not tract.startswith("09")
+                    ):
+                        raise RedistrictingDensityError(
+                            f"CT bridge row {reader.line_num} has invalid "
+                            f"CT tract {tract!r}"
+                        )
+                if recode.setdefault(old, new) != new:
+                    raise RedistrictingDensityError(
+                        f"CT bridge maps 2020 tract {old} to multiple "
+                        "2022 tracts"
+                    )
+    except RedistrictingDensityError:
+        raise
+    except (OSError, UnicodeError, csv.Error) as exc:
+        raise RedistrictingDensityError(
+            f"CT bridge unreadable: {exc}"
+        ) from exc
+    if not recode:
+        raise RedistrictingDensityError("CT bridge has no rows")
+    return recode
+
+
+def _county_of_block(block, ct_recode):
+    # FDIC/ACS code CT by 2022 planning region (09110..09190), not the 2020
+    # legacy counties (09001..09015), so CT blocks must be recoded first.
+    if block[:2] != "09":
+        return block[:5]
+    if ct_recode is None:
+        raise RedistrictingDensityError(
+            "CT block seen but no CT 2020-to-2022 tract bridge was supplied"
+        )
+    tract = ct_recode.get(block[:11])
+    if tract is None:
+        raise RedistrictingDensityError(
+            f"CT tract {block[:11]} is absent from the 2020-to-2022 bridge"
+        )
+    return tract[:5]
+
+
+def _add_block(counts, block, district, ct_recode=None):
     state = FIPS_TO_USPS[block[:2]]
     if state not in VOTING_STATES:
         return False
@@ -212,7 +271,7 @@ def _add_block(counts, block, district):
         if district in {"98", "ZZ"}
         else f"{state}-{district}"
     )
-    counts[block[:5]][bucket] += 1
+    counts[_county_of_block(block, ct_recode)][bucket] += 1
     return True
 
 
@@ -264,7 +323,7 @@ def _weight_receipt(counts, weights, districts, rows_read, effective_rows):
     }
 
 
-def county_weights_from_blocks(rows):
+def county_weights_from_blocks(rows, ct_recode=None):
     """Aggregate synthetic/effective block rows into block-count weights."""
     counts = collections.defaultdict(collections.Counter)
     rows_read = 0
@@ -274,7 +333,9 @@ def county_weights_from_blocks(rows):
             row, f"block row {row_number}"
         )
         rows_read += 1
-        effective_rows += int(_add_block(counts, block, district))
+        effective_rows += int(
+            _add_block(counts, block, district, ct_recode)
+        )
     weights, districts = _finalize_county_counts(counts)
     return weights, _weight_receipt(
         counts, weights, districts, rows_read, effective_rows
@@ -287,6 +348,7 @@ def _read_cd116_member(
     counts,
     expected_state=None,
     ignored_states=frozenset(),
+    ct_recode=None,
 ):
     try:
         raw = archive.open(member, "r")
@@ -327,7 +389,9 @@ def _read_cd116_member(
                     if state_fips in ignored_states:
                         ignored[state_fips] += 1
                         continue
-                    effective_rows += int(_add_block(counts, block, district))
+                    effective_rows += int(
+                        _add_block(counts, block, district, ct_recode)
+                    )
     except RedistrictingDensityError:
         raise
     except (OSError, UnicodeError, csv.Error, RuntimeError) as exc:
@@ -347,7 +411,12 @@ def _read_cd116_member(
     }
 
 
-def load_cd116_weights(zip_path, source_receipt_path=None, expected_districts=None):
+def load_cd116_weights(
+    zip_path,
+    source_receipt_path=None,
+    expected_districts=None,
+    ct_recode=None,
+):
     """Stream CD116 with complete state-file precedence for CO/MN/PA."""
     zip_path = _require_file(zip_path, "CD116 BEF ZIP")
     source_receipt_path = os.path.abspath(
@@ -376,12 +445,14 @@ def load_cd116_weights(zip_path, source_receipt_path=None, expected_districts=No
                     member,
                     counts,
                     expected_state=state_fips,
+                    ct_recode=ct_recode,
                 )
             members[BEF_NATIONAL_MEMBER] = _read_cd116_member(
                 archive,
                 BEF_NATIONAL_MEMBER,
                 counts,
                 ignored_states=frozenset(BEF_OVERRIDE_MEMBERS),
+                ct_recode=ct_recode,
             )
     except RedistrictingDensityError:
         raise
@@ -431,7 +502,7 @@ def load_cd116_weights(zip_path, source_receipt_path=None, expected_districts=No
     return weights, districts, receipt
 
 
-def load_cd119_weights(path, expected_districts=None):
+def load_cd119_weights(path, expected_districts=None, ct_recode=None):
     """Stream normalized CD119 block assignments into county weights."""
     path = _require_file(path, "CD119 block assignment")
     counts = collections.defaultdict(collections.Counter)
@@ -457,7 +528,9 @@ def load_cd119_weights(path, expected_districts=None):
                     row, f"CD119 row {reader.line_num}"
                 )
                 rows_read += 1
-                effective_rows += int(_add_block(counts, block, district))
+                effective_rows += int(
+                    _add_block(counts, block, district, ct_recode)
+                )
     except RedistrictingDensityError:
         raise
     except (OSError, EOFError, UnicodeError, csv.Error) as exc:
@@ -994,7 +1067,7 @@ def allocate_branches(
         districts[district] = {
             "bank_branches": round(bank_count, 12),
             "cu_branches": round(cu_count, 12),
-            "cu_share": round(cu_count / combined, 12) if combined else 0.0,
+            "cu_share": round(cu_count / combined, 12) if combined else None,
         }
     return districts, receipt
 
@@ -1174,15 +1247,20 @@ def build_artifacts(
     acs_geo_path,
     spine_path,
     source_receipt_path=None,
+    ct_bridge_path=None,
 ):
     """Build symmetric old/new district maps and member deltas in memory."""
+    ct_recode = (
+        _load_ct_tract_recode(ct_bridge_path) if ct_bridge_path else None
+    )
     old_weights, old_districts, old_receipt = load_cd116_weights(
         cd116_zip,
         source_receipt_path=source_receipt_path,
         expected_districts=435,
+        ct_recode=ct_recode,
     )
     new_weights, new_districts, new_receipt = load_cd119_weights(
-        cd119_path, expected_districts=435
+        cd119_path, expected_districts=435, ct_recode=ct_recode
     )
     common_counties = set(old_weights) & set(new_weights)
     if not common_counties:
@@ -1222,6 +1300,17 @@ def build_artifacts(
         ]:
             raise RedistrictingDensityError(
                 f"internal error: common {source} universe dropped during allocation"
+            )
+    for label, density in (("old", old_density), ("new", new_density)):
+        empty = sorted(
+            district
+            for district, value in density.items()
+            if value["cu_share"] is None
+        )
+        if empty:
+            raise RedistrictingDensityError(
+                f"{label}-line districts with zero total branches "
+                f"(county-code mismatch?): {empty!r}"
             )
     spine_rows = _load_spine_rows(spine_path)
     member_rows, member_receipt = build_member_deltas(
@@ -1365,6 +1454,10 @@ def main(argv=None):
         ),
     )
     parser.add_argument(
+        "--ct-bridge",
+        default=os.path.join(data_root, "geo", "ct_2022_block_crosswalk.csv"),
+    )
+    parser.add_argument(
         "--spine", default=os.path.join(MB_ROOT, "votes", "HSall_members.csv")
     )
     parser.add_argument(
@@ -1379,6 +1472,7 @@ def main(argv=None):
         ncua_path=args.ncua,
         acs_geo_path=args.acs_geography,
         spine_path=args.spine,
+        ct_bridge_path=args.ct_bridge,
     )
     density_path, member_path = write_outputs(
         artifact, member_rows, args.out_dir

@@ -41,9 +41,11 @@ def _sha256(path):
 
 def _manifest_rows(review_doc):
     """Load a hash-pinned accepted manifest for candidate rows, keyed by canonical row hash."""
-    source = review_doc.get('source_manifest') or {}
+    source = review_doc.get('source_manifest')
     if not source:
         return None
+    if not isinstance(source, dict):
+        raise ValueError('source_manifest is not an object')
     path = str(source.get('path') or '')
     expected = str(source.get('sha256') or '').lower()
     if not path or not SHA_RE.match(expected) or not os.path.isfile(path):
@@ -66,9 +68,11 @@ def _manifest_rows(review_doc):
 
 
 def _manifest_clip(raw, manifest_rows):
-    binding=raw.get('manifest_binding') or {}
+    binding=raw.get('manifest_binding')
     if not binding:
         return None,None,[]
+    if not isinstance(binding,dict):
+        return None,None,['manifest_binding is not an object']
     errors=[]
     row=(manifest_rows or {}).get(str(binding.get('source_row_sha256') or '').lower())
     if row is None:
@@ -109,7 +113,9 @@ def validate_clip_review(rel, row):
     if not re.match(r'^\d{4}-\d{2}-\d{2}$', aired_at): errors.append('aired_at missing/invalid')
     if not recording_context: errors.append('recording_context missing')
     if not speech_id: errors.append('speech_id missing')
-    topic = row.get('topic') or {}
+    topic = row.get('topic')
+    if topic and not isinstance(topic, dict): errors.append('topic is not an object')
+    if not isinstance(topic, dict): topic = {}
     topic_id = str(topic.get('id') or '').strip()
     topic_label = str(topic.get('label') or '').strip()
     topic_method = str(topic.get('method') or '').strip()
@@ -197,7 +203,9 @@ def measure_clip(path, review, smile=None):
     total_sec = 0.0; total_words = 0
     for seg in review['segments']:
         a = max(0, int(round(seg['start_sec'] * sr)))
-        b = min(len(sig), int(round(seg['end_sec'] * sr)))
+        b = int(round(seg['end_sec'] * sr))
+        if b > len(sig) + 1: raise ValueError('segment exceeds audio length')
+        b = min(len(sig), b)
         if b <= a: raise ValueError('segment outside audio bounds')
         part = sig[a:b]; parts.append(part)
         total_sec += len(part) / float(sr); total_words += seg['word_count']
@@ -280,6 +288,8 @@ def build(review_path, only=None, review_schema='b5-audio-review-v2-candidate',
     wanted = {x.strip() for x in (only or '').split(',') if x.strip()}
     accepted = {}; rejected = {}; smile = None
     for rel, raw in sorted(clip_rows.items()):
+        if not isinstance(raw, dict):
+            rejected[rel] = ['row is not an object']; continue
         member = str(raw.get('member') or rel.replace('\\', '/').split('/')[0]).strip()
         if wanted and member not in wanted: continue
         review, errors = validate_clip_review(rel, raw)

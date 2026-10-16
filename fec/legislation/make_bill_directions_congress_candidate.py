@@ -229,7 +229,7 @@ def main(argv=None):
             archive_name,
             archive_sha256,
         )
-    except (CandidateError, OSError, ValueError, KeyError) as exc:
+    except (CandidateError, BCA.ArchiveAbort, OSError, ValueError, KeyError) as exc:
         print('ERROR: %s' % exc, file=sys.stderr)
         return 2
     print(

@@ -223,7 +223,9 @@ def validate_source_manifest(document: Mapping[str, Any]) -> None:
         if not isinstance(acceptance_bar.get("pass"), bool):
             errors.append("acceptance_bar.pass must be boolean")
         comparison = acceptance_bar.get("comparison")
-        if comparison not in {">=", "<=", "=", None}:
+        if comparison is not None and not (
+            isinstance(comparison, str) and comparison in {">=", "<=", "="}
+        ):
             errors.append("acceptance_bar.comparison must be >=, <=, =, or null")
         threshold = acceptance_bar.get("threshold")
         observed = acceptance_bar.get("observed")
@@ -233,7 +235,7 @@ def validate_source_manifest(document: Mapping[str, Any]) -> None:
             and math.isfinite(value)
             for value in (threshold, observed)
         )
-        if computable_values and comparison is not None:
+        if computable_values and isinstance(comparison, str) and comparison in (">=", "<=", "="):
             computed = {
                 ">=": observed >= threshold,
                 "<=": observed <= threshold,
@@ -263,7 +265,12 @@ def validate_source_manifest(document: Mapping[str, Any]) -> None:
             else:
                 seen.add(path)
                 portable = PurePosixPath(path.replace("\\", "/"))
-                if portable.is_absolute() or ".." in portable.parts or ":" in portable.parts[0]:
+                if (
+                    not portable.parts
+                    or portable.is_absolute()
+                    or ".." in portable.parts
+                    or ":" in portable.parts[0]
+                ):
                     errors.append(f"files[{index}].path must be a safe relative path")
             digest = entry.get("sha256")
             if not isinstance(digest, str) or _SHA256.fullmatch(digest) is None:

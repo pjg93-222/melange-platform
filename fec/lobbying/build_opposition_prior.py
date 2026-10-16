@@ -438,7 +438,11 @@ def _read_associated(path):
     )
 
 
-def _load_collector_manifest(attribution_path, associated_path):
+def _load_collector_manifest(
+    attribution_path,
+    associated_path,
+    parsed_md5s=None,
+):
     manifest_path = os.path.join(
         os.path.dirname(attribution_path),
         "fec_spending_manifest.json",
@@ -469,6 +473,13 @@ def _load_collector_manifest(attribution_path, associated_path):
                 f"{filename} md5 mismatch: manifest {expected_md5}, actual "
                 f"{actual_md5}, file {path}"
             )
+        if parsed_md5s is not None:
+            parsed_md5 = parsed_md5s.get(filename)
+            if parsed_md5 is None or parsed_md5.casefold() != actual_md5.casefold():
+                raise IngestError(
+                    f"{filename} changed between parse and manifest check: "
+                    f"parsed md5 {parsed_md5}, now {actual_md5}, file {path}"
+                )
     receipts = payload.get("receipts")
     global_receipts = (
         receipts.get("global") if isinstance(receipts, dict) else None
@@ -1375,6 +1386,13 @@ def _run(args):
     roster_path = os.path.abspath(args.roster)
     lobbyview_path = os.path.abspath(args.lobbyview)
 
+    parsed_md5s = {}
+    for filename, path in (
+        ("fec_member_attribution.csv", attribution_path),
+        ("fec_member_associated.csv", associated_path),
+    ):
+        if os.path.isfile(path):
+            parsed_md5s[filename] = _file_md5(path)
     (
         source_members,
         observed_cycles,
@@ -1391,6 +1409,7 @@ def _run(args):
     snapshot_verified, manifest_data_max_date = _load_collector_manifest(
         attribution_path,
         associated_path,
+        parsed_md5s,
     )
     if snapshot_verified:
         data_max_date = manifest_data_max_date

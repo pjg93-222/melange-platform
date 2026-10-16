@@ -400,7 +400,7 @@ def attach(nodes, sidecar):
     a person labelled from no evidence is not.
     """
     attached, joined, distribution = 0, 0, {}
-    ruled, engagements = 0, {}
+    ruled, sidecar_order, engagements = 0, 0, {}
     if not (sidecar or {}).get("summaries"):
         return {"lda_people": 0, "joined_to_summary": 0, "labels": {}, "status": "sidecar_unavailable"}
     for ident, node in (nodes or {}).items():
@@ -418,7 +418,10 @@ def attach(nodes, sidecar):
             ruled += 1
             key = status.get("engagement") or "unstated"
             engagements[key] = engagements.get(key, 0) + 1
+        elif status.get("employer_source") == EMPLOYER_SOURCE_SIDECAR:
+            sidecar_order += 1
     return {"lda_people": attached, "joined_to_summary": joined, "labels": distribution,
             "employer_from_ruling": ruled,
-            "employer_from_sidecar_year_order": attached - ruled,
+            "employer_from_sidecar_year_order": sidecar_order,
+            "employer_none": attached - ruled - sidecar_order,
             "engagements": dict(sorted(engagements.items()))}

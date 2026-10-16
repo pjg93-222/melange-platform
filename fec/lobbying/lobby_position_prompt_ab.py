@@ -418,6 +418,7 @@ CACHE_STATS = collections.Counter()
 
 def _call(prompt, api_key, tries=6):
     """prompt is either a string or a list of Anthropic content blocks."""
+    import http.client
     import time
     import urllib.error
     import urllib.request
@@ -461,10 +462,23 @@ def _call(prompt, api_key, tries=6):
             if len(blocks) == 1 and isinstance(blocks[0], str):
                 return blocks[0]
             raise ValueError("unexpected content shape")
-        except Exception:
-            if attempt == tries - 1:
+        except ValueError:
+            return None  # deterministic at temperature 0; a retry re-buys the same reply
+        except urllib.error.HTTPError as exc:
+            # retry only 408/429/5xx/529; any other 4xx (bad key, credit, request) is final
+            if not (exc.code in (408, 429) or 500 <= exc.code < 600):
                 return None
-            time.sleep(min(2 ** attempt, 8))
+            delay = min(2 ** attempt, 8)
+            try:
+                delay = min(max(float(exc.headers.get("retry-after")), delay), 60)
+            except (TypeError, ValueError, AttributeError):
+                pass
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            # URLError, TimeoutError, ConnectionError and ssl errors are all OSError
+            delay = min(2 ** attempt, 8)
+        if attempt == tries - 1:
+            return None
+        time.sleep(delay)
     return None
 
 

@@ -16,6 +16,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import string
 import sys
@@ -276,6 +277,25 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return False
 
 
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _size_mismatch(path: Path, declared: Any) -> bool:
+    if declared is None:
+        return False
+    try:
+        return path.stat().st_size != int(declared)
+    except (OSError, TypeError, ValueError):
+        return True
+
+
+def _run_dir_confined(value: str) -> bool:
+    if value != "{run_dir}" and not value.startswith(("{run_dir}/", "{run_dir}\\")):
+        return False
+    return ".." not in re.split(r"[\\/]", value)
+
+
 def allowed_output_roots() -> tuple[Path, ...]:
     roots = {
         DEFAULT_OUT.resolve(),
@@ -314,7 +334,7 @@ def placeholders(values: Iterable[str]) -> set[str]:
     for value in values:
         try:
             for _, field, _, _ in formatter.parse(value):
-                if field:
+                if field is not None:
                     found.add(field)
         except ValueError as exc:
             raise IsolationError(f"invalid placeholder syntax: {value!r}") from exc
@@ -460,7 +480,7 @@ def validate_global_gate(
 
     contract_issues: list[str] = []
     if name == "approved_spreadsheet_engine_import":
-        source = evidence_value.get("input") or {}
+        source = _as_dict(evidence_value.get("input"))
         required = {
             "schema": "legislation-spreadsheet-engine-import-verification-v1",
             "status": "PASS",
@@ -487,8 +507,8 @@ def validate_global_gate(
         helper_path = (
             workspace_root / DEFAULT_ACCEPTED_WORKBOOK_HELPER
         ).resolve()
-        smoke = evidence_value.get("smoke_test") or {}
-        runtime = evidence_value.get("runtime") or {}
+        smoke = _as_dict(evidence_value.get("smoke_test"))
+        runtime = _as_dict(evidence_value.get("runtime"))
         required = {
             "schema": ACCEPTED_WORKBOOK_CAPABILITY_SCHEMA,
             "status": "PASS",
@@ -501,10 +521,16 @@ def validate_global_gate(
             for key, expected in required.items()
             if evidence_value.get(key) != expected
         )
-        if (
-            str(evidence_value.get("producer_sha256") or "").casefold()
-            != str((producer_receipt or {}).get("sha256") or "").casefold()
-        ):
+        producer_sha = str(evidence_value.get("producer_sha256") or "").casefold()
+        if not isinstance(producer_receipt, dict):
+            contract_issues.append(
+                "gate does not declare the producer source to bind"
+            )
+        elif not re.fullmatch(r"[0-9a-f]{64}", producer_sha):
+            contract_issues.append(
+                "capability receipt producer_sha256 is absent or not 64-hex"
+            )
+        elif producer_sha != str(producer_receipt.get("sha256") or "").casefold():
             contract_issues.append(
                 "capability receipt is not bound to current producer source"
             )
@@ -532,7 +558,7 @@ def validate_global_gate(
         if smoke.get("required_sheets_present") is not True:
             contract_issues.append("smoke test did not verify required sheets")
         if smoke.get("composite_rebind") is True:
-            source_tests = smoke.get("source_contract_tests") or {}
+            source_tests = _as_dict(smoke.get("source_contract_tests"))
             if not (
                 smoke.get("helper_source_unchanged") is True
                 and str(smoke.get("producer_only_change") or "").strip()
@@ -569,10 +595,7 @@ def validate_global_gate(
             if (
                 not item_path.is_file()
                 or sha256_file(item_path) != item_sha
-                or (
-                    item.get("size") is not None
-                    and item_path.stat().st_size != int(item["size"])
-                )
+                or _size_mismatch(item_path, item.get("size"))
             ):
                 contract_issues.append(f"{field} path/hash/size mismatch")
             allowed = (workspace_root / "audits" / "legfix5").resolve()
@@ -617,7 +640,7 @@ def default_capabilities(workspace_root: Path) -> dict[str, Any]:
             capability = read_json(producer_receipt)
         except (OSError, ValueError, json.JSONDecodeError):
             capability = {}
-        runtime = capability.get("runtime") or {}
+        runtime = _as_dict(capability.get("runtime"))
         node = Path(str(runtime.get("artifact_tool_node") or ""))
         modules = Path(
             str(runtime.get("artifact_tool_node_modules") or "")
@@ -799,7 +822,9 @@ def audit_step(
             )
         try:
             normalized_command = validate_executable(command, workspace_root)
-        except (IsolationError, KeyError) as exc:
+        except (
+            IsolationError, KeyError, IndexError, AttributeError, ValueError, TypeError
+        ) as exc:
             issues.append({"code": "command_not_executable", "detail": str(exc)})
         if producer_path is not None and normalized_command:
             rendered_tokens = [
@@ -851,7 +876,7 @@ def audit_step(
             }
         )
     for key, value in environment.items():
-        if key.endswith(("_OUT", "_ROOT")) and not value.startswith("{run_dir}"):
+        if key.endswith(("_OUT", "_ROOT")) and not _run_dir_confined(value):
             issues.append(
                 {
                     "code": "unsafe_environment_path_override",
@@ -1019,6 +1044,12 @@ def build(
     workspace = workspace_root.resolve()
     plan_path = out / PLAN_PATH_NAME
     audit_path = out / AUDIT_PATH_NAME
+    # Fail closed: any exception below must not leave a prior PASS plan/audit.
+    stale_plan_removed = plan_path.exists()
+    if stale_plan_removed:
+        plan_path.unlink()
+    if audit_path.exists():
+        audit_path.unlink()
     if capabilities_path is None:
         capabilities = default_capabilities(workspace)
         capability_receipt = None
@@ -1055,7 +1086,11 @@ def build(
         if normalized:
             normalized_steps.append(normalized)
 
-    global_gates = capabilities.get("global_gates") or {}
+    global_gates = capabilities.get("global_gates")
+    if global_gates is None:
+        global_gates = {}
+    if not isinstance(global_gates, dict):
+        raise IsolationError("capabilities global_gates must be an object")
     accepted_pass, accepted_audit = validate_global_gate(
         global_gates.get("accepted_ledger_workbook_producer"),
         name="accepted_ledger_workbook_producer",
@@ -1173,10 +1208,6 @@ def build(
             "production_written": False,
         }
 
-    stale_plan_removed = False
-    if plan_path.exists():
-        plan_path.unlink()
-        stale_plan_removed = True
     audit = {
         "schema": AUDIT_SCHEMA,
         "status": "FAIL",

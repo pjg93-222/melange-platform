@@ -240,7 +240,7 @@ def _load_signed_attention(path):
             )
         seen.add(identity_key)
         for sector in sectors:
-            if source in SIGN_AUTHORITY:
+            if probability is not None and source in SIGN_AUTHORITY:
                 sign_coverage[sector][source] += 1
         rows.append(
             {

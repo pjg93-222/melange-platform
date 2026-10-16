@@ -14,6 +14,7 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.dirname(os.path.dirname(HERE)))
 from fec.members import gen_demo_briefs as G   # noqa: E402
 
 LEDGER_PATH = os.path.join(HERE, "out", "demo_ledger.json")

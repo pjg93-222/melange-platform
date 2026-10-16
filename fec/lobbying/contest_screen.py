@@ -17,8 +17,9 @@ The 2026-08-05 interrogation is baked into the shipped semantics:
     for a different reason than the screen names);
   - most driving bills are current-congress, and filings run quarterly, so
     each row carries its 119th-Congress share as a lag flag;
-  - each row carries its bootstrap stability (share of 1,000 member
-    resamples, seed 11731, keeping the member in the top-15).
+  - each row carries its bootstrap stability (share of the 1,000 member
+    resamples, seed 11731, that CONTAIN the member and keep it in the
+    top-15; resamples are de-duplicated so a member is absent from ~37%).
 
 SCREEN, NOT A SCORE: consumed only by the industry page for display;
 no engine, rank, or receptivity input flows from this artifact.
@@ -304,6 +305,7 @@ def build_payload():
 
     rng = random.Random(BOOTSTRAP_SEED)
     keep_counts = collections.Counter()
+    present = collections.Counter()
     for _ in range(BOOTSTRAP_REPLICATES):
         sample = sorted(set(rng.randrange(n) for _ in range(n)))
         sub_controls = [ranks([control_ranks[c][i] for i in sample]) for c in range(5)]
@@ -319,7 +321,10 @@ def build_payload():
                 taken += 1
                 if taken == TOP_ROWS:
                     break
+        in_sample = set(sample)
         for i in top:
+            if i in in_sample:
+                present[i] += 1
             if i in winners:
                 keep_counts[i] += 1
 
@@ -343,7 +348,8 @@ def build_payload():
                 "current_congress_share": round(
                     sum(1 for b in shared if b.startswith("119:")) / len(shared), 2
                 ),
-                "stability": round(keep_counts[i] / BOOTSTRAP_REPLICATES, 3),
+                "stability": round(keep_counts[i] / present[i], 3) if present[i] else 0.0,
+                "presence": present[i],
             }
         )
     return {
@@ -356,7 +362,11 @@ def build_payload():
             "portfolio_floor": PORTFOLIO_FLOOR,
             "controls": ["log1p_portfolio", "finance_committee_118_119", "seniority", "recency_119_share", "advancement_momentum"],
             "exclusion_rule": "members with zero shared bills never listed",
-            "bootstrap": {"replicates": BOOTSTRAP_REPLICATES, "seed": BOOTSTRAP_SEED},
+            "bootstrap": {
+                "replicates": BOOTSTRAP_REPLICATES,
+                "seed": BOOTSTRAP_SEED,
+                "stability_denominator": "resamples containing the member (row presence)",
+            },
             "round3_reference": {"partial_rho": 0.1287, "perm_p": 0.0007},
             "staged_bills": len(stages),
         },

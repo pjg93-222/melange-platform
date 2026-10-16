@@ -767,8 +767,20 @@ def _markdown_body(state: dict[str, Any]) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
+def _write_new_or_match(path: Path, body: bytes) -> None:
+    # A prior interrupted export may have left byte-identical artifacts and no receipt.
+    if path.exists() and path.read_bytes() == body:
+        return
+    _write_new(path, body)
+
+
 def export_current(root: Path, *, audited_at: str | None = None) -> Path:
     root = validate_root(root)
+    with exclusive_lock(root):
+        return _export_current_locked(root, audited_at=audited_at)
+
+
+def _export_current_locked(root: Path, *, audited_at: str | None = None) -> Path:
     state = compute_effective_state(root)
     snapshot = root / "snapshots" / state["state_sha256"]
     receipt_path = snapshot / "audit_receipt.json"
@@ -785,7 +797,7 @@ def export_current(root: Path, *, audited_at: str | None = None) -> Path:
     }
     snapshot.mkdir(parents=True, exist_ok=True)
     for name, body in artifacts.items():
-        _write_new(snapshot / name, body)
+        _write_new_or_match(snapshot / name, body)
 
     receipt_core = {
         "schema": RECEIPT_SCHEMA,

@@ -111,6 +111,19 @@ def _validate_source_receipt(
         )
 
 
+def _obj(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _count(value: Any) -> int:
+    """Parse a count; -1 (fails every >= 0 gate) when malformed."""
+
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return -1
+
+
 def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
     """Validate one immutable candidate evidence envelope.
 
@@ -151,9 +164,9 @@ def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
 
     official = row.get("official_evidence")
     _require(isinstance(official, Mapping), "official_evidence must be an object")
-    title = official.get("title") or {}
-    summary = official.get("summary") or {}
-    full_text = official.get("full_text") or {}
+    title = _obj(official.get("title"))
+    summary = _obj(official.get("summary"))
+    full_text = _obj(official.get("full_text"))
 
     title_ready = bool(
         title.get("status") == "available"
@@ -171,7 +184,7 @@ def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
         and _valid_sha(summary.get("availability_receipt_sha256"))
     )
 
-    full_text_checks = full_text.get("validation") or {}
+    full_text_checks = _obj(full_text.get("validation"))
     full_text_ready = bool(
         full_text.get("status") in {"accepted", "resumed"}
         and _valid_sha(full_text.get("body_sha256"))
@@ -186,6 +199,8 @@ def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
     )
 
     category_evidence = row.get("category_evidence") or []
+    if not isinstance(category_evidence, Sequence) or isinstance(category_evidence, (str, bytes)):
+        category_evidence = []
     category_ids = [
         str(item.get("category_id") or "")
         for item in category_evidence
@@ -208,7 +223,7 @@ def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
         )
     )
 
-    keyword_review = row.get("keyword_review") or {}
+    keyword_review = _obj(row.get("keyword_review"))
     keyword_review_ready = bool(
         keyword_review.get("ruleset_sha256")
         and _valid_sha(keyword_review.get("ruleset_sha256"))
@@ -219,23 +234,23 @@ def validate_candidate_evidence(row: Mapping[str, Any]) -> dict[str, bool]:
         and category_audit_ready
     )
 
-    stage = row.get("stage") or {}
+    stage = _obj(row.get("stage"))
     stage_ready = bool(
         stage.get("status") == "available"
         and _nonempty(stage.get("value"))
         and _valid_sha(stage.get("actions_sha256"))
     )
 
-    relationships = row.get("relationships") or {}
+    relationships = _obj(row.get("relationships"))
     relationship_required = measure_kind not in {"hamdt", "samdt"}
     relationship_ready = bool(
         not relationship_required
         or (
             relationships.get("status") == "complete"
             and relationships.get("role_provenance_complete") is True
-            and int(relationships.get("sponsor_count") or 0) >= 1
-            and int(relationships.get("original_cosponsor_count") or 0) >= 0
-            and int(relationships.get("cosponsor_count") or 0) >= 0
+            and _count(relationships.get("sponsor_count")) >= 1
+            and _count(relationships.get("original_cosponsor_count")) >= 0
+            and _count(relationships.get("cosponsor_count")) >= 0
             and _valid_sha(relationships.get("edges_sha256"))
         )
     )
@@ -320,15 +335,17 @@ def membership_is_finalizable(
             return False
         if row.get("full_text_rule_out_complete") is not True:
             return False
-        version_inventory = (
-            (evidence.get("official_evidence") or {})
-            .get("full_text", {})
-            .get("version_inventory", {})
+        version_inventory = _obj(
+            _obj(_obj(evidence.get("official_evidence")).get("full_text")).get(
+                "version_inventory"
+            )
         )
+        reviewed = _count(version_inventory.get("reviewed_version_count"))
+        expected = _count(version_inventory.get("expected_version_count")) or -1
         if (
             version_inventory.get("all_versions_reviewed") is not True
-            or int(version_inventory.get("reviewed_version_count") or 0)
-            != int(version_inventory.get("expected_version_count") or -1)
+            or reviewed < 0
+            or reviewed != expected
         ):
             return False
     return True

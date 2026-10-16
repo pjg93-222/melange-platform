@@ -34,6 +34,8 @@ import pathlib
 from collections import Counter
 from datetime import datetime, timezone
 
+from moneyball_core import write_text_atomic
+
 SCHEMA = "acu-short-act-collision-sidecar-v1"
 
 
@@ -96,11 +98,11 @@ def main() -> int:
         })
 
     args.out_ndjson.parent.mkdir(parents=True, exist_ok=True)
-    with open(args.out_ndjson, "w", encoding="utf-8", newline="\n") as sink:
-        for o in out:
-            sink.write(json.dumps(o, ensure_ascii=False) + "\n")
+    args.out_summary.parent.mkdir(parents=True, exist_ok=True)
+    sidecar_text = "".join(json.dumps(o, ensure_ascii=False) + "\n" for o in out)
+    body = sidecar_text.encode("utf-8")
+    write_text_atomic(sidecar_text, str(args.out_ndjson))
 
-    body = args.out_ndjson.read_bytes()
     summary = {
         "schema": SCHEMA + "-summary",
         "generated_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -115,7 +117,7 @@ def main() -> int:
         "ledger_mutated": False,
         "note": "Additive sidecar. membership_review_ledger.ndjson is immutable and untouched.",
     }
-    args.out_summary.write_text(json.dumps(summary, indent=1), encoding="utf-8", newline="\n")
+    write_text_atomic(json.dumps(summary, indent=1), str(args.out_summary))
 
     print(f"orphans examined     : {stats['total']}")
     print(f"  guard already fired: {stats['guard_fired']}")

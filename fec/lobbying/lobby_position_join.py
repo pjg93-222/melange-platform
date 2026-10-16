@@ -77,6 +77,12 @@ ACCURACY_NOTE = (
     "a lead worth checking against the filing text beside it, never as a fact, and "
     "treat the absence of an Amend label as saying nothing."
 )
+UNBENCHMARKED_NOTE = (
+    "Positions are INFERRED by a model reading the filer's own description, not "
+    "disclosed by the filer. Variant {variant!r} is an unbenchmarked variant: the "
+    "Kim-benchmark accuracy figures do not describe it. Treat a Support or Oppose "
+    "badge as a lead worth checking against the filing text, never as a fact."
+)
 DIRECTIONAL = ("Support", "Oppose")
 # Must cover every label any shipped variant can emit. "Engage" is Kim's own
 # fifth class and belongs here: load_classifications treats an unmapped label as
@@ -115,6 +121,12 @@ def load_classifications(path, variant):
                 continue
             total += 1
             row = json.loads(line)
+            row_variant = row.get("prompt_variant")
+            if row_variant and row_variant != variant:
+                raise IngestError(
+                    f"{path} row {total} was classified with prompt_variant "
+                    f"{row_variant!r} but --variant is {variant!r}"
+                )
             if (row.get("classification_status") or "") != "ok":
                 unusable += 1
                 continue
@@ -188,6 +200,7 @@ def join(ledger_path, labels, variant, out_path=None):
         three[THREE_CLASS[label]] += 1
     out_path = out_path or ledger_path
     ledger._write_csv_atomic(out_path, ledger.LEDGER_FIELDS, rows)
+    benchmarked = variant == VALIDATION["variant"]
     return {
         "ledger_rows": len(rows),
         "rows_with_an_inferred_position": filled,
@@ -197,8 +210,8 @@ def join(ledger_path, labels, variant, out_path=None):
         "by_three_class": dict(sorted(three.items())),
         "directional_rows": sum(counts[label] for label in DIRECTIONAL),
         "position_basis": basis,
-        "validation": VALIDATION,
-        "accuracy_note": ACCURACY_NOTE,
+        "validation": VALIDATION if benchmarked else None,
+        "accuracy_note": ACCURACY_NOTE if benchmarked else UNBENCHMARKED_NOTE.format(variant=variant),
     }
 
 

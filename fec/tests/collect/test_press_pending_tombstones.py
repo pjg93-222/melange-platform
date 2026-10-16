@@ -275,6 +275,24 @@ class TombstoneLedgerTests(unittest.TestCase):
         self.assertEqual(document["members"]["T000472"]["consecutive_runs_with_pending"], 0)
         self.assertEqual(tombstoned_members(document), set())
 
+    def test_a_rebuild_keeps_the_streak_of_a_run_pruned_from_disk(self):
+        # Two of the three deferrals live in a run that was since pruned; a
+        # re-seal of the third must not lapse the tombstone.
+        self._run("press_refresh_20260901", [("T000472", URL_B), ("H001068", URL_A)])
+        self._run("press_refresh_20260902", [("T000472", URL_B)])
+        update(self.outputs, self.ledger)
+        shutil.rmtree(os.path.join(self.outputs, "press_refresh_20260901"))
+        self._run("press_refresh_20260903", [("T000472", URL_B)])
+        update(self.outputs, self.ledger)
+        self._run("press_refresh_20260903", [("T000472", URL_B), ("H001068", URL_A)])
+        document = update(self.outputs, self.ledger)
+        self.assertEqual(document["runs_seen"], ["press_refresh_20260901", "press_refresh_20260902",
+                                                 "press_refresh_20260903"])
+        self.assertEqual(tombstoned_members(document), {"T000472"})
+        # URL_A's only appearance is in the pruned run; its status must survive the replay.
+        self.assertEqual(document["records"][record_key("H001068", URL_A)]["last_collection_status"],
+                         "body_pending_network_attempt")
+
     def test_the_live_ledger_refuses_a_foreign_outputs_root(self):
         # ROOT is redirected so the "live" ledger is a tmp file even on failure.
         saved = tombstones.ROOT
@@ -495,6 +513,40 @@ class CompletionGateTests(unittest.TestCase):
         run, receipt = self._target(pairs)
         self.assertEqual(validate_body_completion(run, receipt)
                          ["pending_body_urls_tombstoned"], 1)
+
+    def test_validation_never_creates_the_ledger(self):
+        # The gate is a question, not a fold: it decides on an in-memory replay
+        # and must leave no ledger behind for a later sweep to build on.
+        pairs = [("H001068", URL_A)]
+        self._history(pairs)
+        run, receipt = self._target(pairs)
+        self.assertFalse(os.path.exists(self.ledger))
+        accepted, detail = pending_is_tombstoned_only(run, receipt, self.ledger)
+        self.assertTrue(accepted, detail)
+        self.assertEqual(detail["excused_by_url"], 1)
+        self.assertEqual(validate_body_completion(run, receipt)
+                         ["pending_body_urls_tombstoned"], 1)
+        self.assertFalse(os.path.exists(self.ledger))
+
+    def test_validation_leaves_an_existing_ledger_untouched_and_update_still_folds(self):
+        pairs = [("H001068", URL_A)]
+        self._history(pairs)
+        update(self.outputs, self.ledger)                  # persists runs 01 and 02
+        before = os.stat(self.ledger)
+        with io.open(self.ledger, "rb") as handle:
+            before_bytes = handle.read()
+        run, receipt = self._target(pairs)                 # run 03 is not in the ledger yet
+        self.assertEqual(validate_body_completion(run, receipt)
+                         ["pending_body_urls_tombstoned"], 1)
+        with io.open(self.ledger, "rb") as handle:
+            self.assertEqual(handle.read(), before_bytes)
+        self.assertEqual(os.stat(self.ledger).st_mtime_ns, before.st_mtime_ns)
+        self.assertEqual(len(load(self.ledger)["runs_seen"]), 2)
+        # The writer is unchanged: update() persists the third run's fold.
+        document = update(self.outputs, self.ledger)
+        self.assertEqual(len(load(self.ledger)["runs_seen"]), 3)
+        self.assertEqual(tombstoned_keys(load(self.ledger)), tombstoned_keys(document))
+        self.assertEqual(len(tombstoned_keys(document)), 1)
 
     # ---- weekly_refresh._press_partial_excused: the hard step's one excused exit 3 ------------
     # The helper's REAL source is AST-extracted and exec'd with MB_ROOT = this temp dir;

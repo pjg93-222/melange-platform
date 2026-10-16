@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import re
 import sqlite3
+import subprocess
 import sys
 import threading
 import time
@@ -13,7 +16,18 @@ import time
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from collect import build_press_engine_feed as feed
 from collect import daily_media_refresh as M
+
+
+@pytest.fixture(autouse=True)
+def quiet_interrupt_state():
+    """The stop flag and the live-child registry are module state; no test may leak them."""
+    M.STOP.clear()
+    M._LIVE.clear()
+    yield
+    M.STOP.clear()
+    M._LIVE.clear()
 
 
 def test_source_windows_and_press_root_are_bound_to_local_run_date(tmp_path):
@@ -26,7 +40,7 @@ def test_source_windows_and_press_root_are_bound_to_local_run_date(tmp_path):
         assert '--strict' in sources[name].args
     assert '--strict' in sources['bluesky'].args and '--verified-only' in sources['bluesky'].args
     press = M.press_steps(tmp_path, today)
-    assert press[0].timeout == 129600
+    assert press[0].timeout == 72000
     assert press[0].args[1] == str(tmp_path / 'outputs/press_refresh_20260913')
     assert press[0].args[press[0].args.index('--date-floor') + 1] == '2026-06-25'
     assert press[1].args[press[1].args.index('--press-delta-root') + 1] == press[0].args[1]
@@ -165,13 +179,23 @@ def test_parallel_press_finishes_but_derived_inputs_wait_for_all_sources(tmp_pat
     assert receipt['schema'] == 'daily-media-refresh-receipt-v1'
     assert receipt['local_date'] == '2026-09-13'
     assert receipt['dashboard_published_by_this_helper'] is False
-    assert all('command' in row and 'log_sha256' in row for row in receipt['sources'])
+    # Every step that ran carries its command and log hash; a skipped one never ran.
+    assert all('command' in row and 'log_sha256' in row
+               for row in receipt['sources'] if not row['status'].startswith('SKIPPED'))
     saved = json.loads((tmp_path / M.SUCCESS_RECEIPT).read_text())
     assert saved['local_date'] == ('2026-09-01' if source_failed else '2026-09-13')
     assert receipt['last_successful_collection_date'] == '2026-09-01'
     assert set(receipt['effective_windows']) == {'db_one', 'db_two', 'press', 'press_accept'}
     assert receipt['partial'] is False and receipt['partial_sources'] == []
     assert receipt['press_partial'] is None
+    skipped = {row['source']: row for row in receipt['sources'] if row['status'] == 'SKIPPED_AFTER_FAILURE'}
+    if source_failed:
+        # The derived step that never ran is on the record, naming what failed.
+        assert set(skipped) == {'derived'}
+        assert 'db_one' in skipped['derived']['note'] and skipped['derived']['error_count'] == 0
+        assert receipt['parked_steps'] == ['derived']
+    else:
+        assert not skipped and receipt['parked_steps'] == []
 
 
 def test_press_collection_failure_cannot_promote_or_run_derivatives(tmp_path, monkeypatch):
@@ -201,16 +225,40 @@ def press_step(run_root):
 
 
 def write_retry_receipt(run_root, **overrides):
+    # Stamped a few minutes ahead so the receipt is current however long the test
+    # takes to reach execute_step; the real collector stamps it after the run starts.
     document = {'schema_version': 2, 'mode': 'live_network_retry', 'status': 'PARTIAL',
-                'pending_body_urls': 2200, 'failed_bodies': 2578}
+                'pending_body_urls': 2200, 'failed_bodies': 2578,
+                'completed_at': (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat()}
     document.update(overrides)
     M.write_json(Path(run_root) / M.PRESS_RETRY_RECEIPT, document)
     return document
 
 
-def test_press_budgeted_partial_is_recorded_and_never_counted_as_a_failure(tmp_path):
+def patch_inspect_run(monkeypatch, excused, error=None):
+    """Stand in for the intake gate's read-only run test, so no press files are needed.
+
+    excused=True accepts the run, False refuses it the way the gate does, and an
+    error is raised as-is to model a failure that is not a refusal.
+    """
+    calls = []
+
+    def fake(path):
+        calls.append(Path(path))
+        if error is not None:
+            raise error
+        if excused:
+            return datetime.now(timezone.utc), {'status': 'PARTIAL', 'pending_body_urls': 2200}
+        raise feed.ReceiptRejected('PENDING_BODY_ATTEMPTS', 'a pending body URL is not tombstoned')
+
+    monkeypatch.setattr(feed, 'inspect_run', fake)
+    return calls
+
+
+def test_press_budgeted_partial_is_recorded_and_never_counted_as_a_failure(tmp_path, monkeypatch):
     run_root = tmp_path / 'outputs/press_refresh_20260913'
     write_retry_receipt(run_root)
+    calls = patch_inspect_run(monkeypatch, excused=True)
 
     def runner(step, root, log, environment):
         log.write_text('status=PARTIAL pending_body_urls=2200')
@@ -220,15 +268,179 @@ def test_press_budgeted_partial_is_recorded_and_never_counted_as_a_failure(tmp_p
     assert row['returncode'] == 3 and row['status'] == 'PARTIAL'
     assert row['error_count'] == 0 and 'error' not in row
     assert row['partial'] == {'pending_body_urls': 2200, 'failed_bodies': 2578,
-                              'status': 'PARTIAL', 'run_root': str(run_root)}
+                              'status': 'PARTIAL', 'run_root': str(run_root),
+                              'intake_excused': True}
+    assert calls == [run_root]
 
 
-def test_press_partial_without_a_retry_receipt_still_records_the_absence(tmp_path):
+def test_press_partial_the_gate_refuses_is_recorded_unexcused_with_the_reason(tmp_path, monkeypatch):
     run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root)
+    patch_inspect_run(monkeypatch, excused=False)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    # Still a designed partial: no failure, no error. It is only not excused.
+    assert row['status'] == 'PARTIAL' and row['error_count'] == 0 and 'error' not in row
+    assert row['partial']['intake_excused'] is False
+    assert row['partial']['intake_refusal_reason'] == 'PENDING_BODY_ATTEMPTS'
+    assert 'not tombstoned' in row['partial']['intake_refusal_detail']
+    assert row['partial']['pending_body_urls'] == 2200
+
+
+@pytest.mark.parametrize('error', [RuntimeError('boom'), OSError('disk gone'), AttributeError('odd receipt')])
+def test_an_unexpected_inspect_run_error_means_not_excused_never_a_crash(tmp_path, monkeypatch, error):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root)
+    patch_inspect_run(monkeypatch, excused=True, error=error)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    assert row['status'] == 'PARTIAL' and row['error_count'] == 0 and 'error' not in row
+    assert row['partial']['intake_excused'] is False
+    assert row['partial']['intake_refusal_reason'] == 'INSPECT_ERROR'
+    assert type(error).__name__ in row['partial']['intake_refusal_detail']
+
+
+@pytest.mark.parametrize('stamp', [
+    lambda moment: moment.isoformat(),                                  # offset
+    lambda moment: moment.isoformat().replace('+00:00', 'Z'),           # Z suffix
+    lambda moment: moment.strftime('%Y-%m-%d %H:%M:%S') + ' UTC',       # refresh_press_delta.R's own form
+    lambda moment: moment.replace(tzinfo=None).isoformat(),             # naive: UTC by the producer contract
+])
+def test_every_receipt_timestamp_dialect_counts_as_current(tmp_path, monkeypatch, stamp):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root, completed_at=stamp(datetime.now(timezone.utc) + timedelta(minutes=5)))
+    patch_inspect_run(monkeypatch, excused=True)
     row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
                          lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
     assert row['status'] == 'PARTIAL' and row['error_count'] == 0
+
+
+def test_press_exit_three_without_a_retry_receipt_is_a_failure(tmp_path, monkeypatch):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    assert row['returncode'] == 3 and row['status'] == 'FAIL' and row['error_count'] >= 1
+    assert row['error'].startswith('RuntimeError: press exited 3 without a readable retry receipt')
+    # The absence is still on the record, and the gate was never consulted.
     assert row['partial'] == {'note': 'retry receipt absent', 'run_root': str(run_root)}
+    assert calls == []
+
+
+def test_press_exit_three_with_an_unreadable_or_non_object_receipt_is_a_failure(tmp_path, monkeypatch):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    run_root.mkdir(parents=True)
+    receipt = run_root / M.PRESS_RETRY_RECEIPT
+    for text in ('{not json', '[1, 2, 3]', '"PARTIAL"', ''):
+        receipt.write_text(text, encoding='utf-8')
+        row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                             lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+        assert row['status'] == 'FAIL' and row['error_count'] >= 1, text
+        assert row['error'].startswith('RuntimeError: press exited 3'), text
+    assert calls == []
+
+
+@pytest.mark.parametrize('overrides, needle', [
+    ({'completed_at': (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()}, 'predates this run'),
+    ({'completed_at': '2026-01-01 00:00:00 UTC'}, 'predates this run'),
+    ({'completed_at': ''}, 'no usable completed_at'),
+    ({'completed_at': None}, 'no usable completed_at'),
+    ({'completed_at': 'sometime yesterday'}, 'no usable completed_at'),
+    ({'status': 'PASS', 'pending_body_urls': 0}, 'not a PARTIAL'),
+    ({'status': 'PASS'}, 'not a PARTIAL'),
+    ({'status': 'FAIL'}, 'not a PARTIAL'),
+    ({'status': None}, 'not a PARTIAL'),
+    ({'pending_body_urls': 0}, 'not a PARTIAL'),
+    ({'pending_body_urls': -4}, 'not a PARTIAL'),
+    ({'pending_body_urls': None}, 'not a PARTIAL'),
+    ({'pending_body_urls': '2200'}, 'not a PARTIAL'),
+    ({'pending_body_urls': 2200.0}, 'not a PARTIAL'),
+    ({'pending_body_urls': True}, 'not a PARTIAL'),
+])
+def test_press_exit_three_needs_a_current_partial_receipt_with_a_backlog(tmp_path, monkeypatch, overrides, needle):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root, **overrides)
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    # Exit 3 without proof is a FAIL, never a PARTIAL: it cannot advance the success anchor.
+    assert row['returncode'] == 3 and row['status'] == 'FAIL', overrides
+    assert row['error_count'] >= 1
+    assert row['error'].startswith('RuntimeError: press exited 3') and needle in row['error']
+    assert 'intake_excused' not in row.get('partial', {})
+    assert calls == []
+
+
+def test_press_exit_zero_reusing_a_partial_receipt_is_recorded_partial(tmp_path, monkeypatch):
+    # current_source_run reuses a tombstone-excused same-day PARTIAL run and exits 0,
+    # so the receipt (here older than the step) is the only place the gap is visible.
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root, completed_at=(datetime.now(timezone.utc) - timedelta(hours=6)).isoformat())
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: 0)
+    assert row['returncode'] == 0 and row['status'] == 'PARTIAL'
+    assert row['error_count'] == 0 and 'error' not in row
+    assert row['partial'] == {'pending_body_urls': 2200, 'failed_bodies': 2578,
+                              'status': 'PARTIAL', 'run_root': str(run_root),
+                              'intake_excused': True, 'reused_same_day_receipt': True}
+    assert calls == [run_root]
+
+
+def test_a_reused_partial_press_run_reaches_the_receipt_and_runs_press_intake(tmp_path, monkeypatch):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    write_retry_receipt(run_root, completed_at=(datetime.now(timezone.utc) - timedelta(hours=6)).isoformat())
+    patch_inspect_run(monkeypatch, excused=True)
+    monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('crec', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: press_lane(run_root))
+    monkeypatch.setattr(M, 'derived_steps', lambda root, today: [M.Step('derived', 'fixture')])
+    executed = []
+    mutex = threading.Lock()
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        with mutex:
+            executed.append(step.name)
+        return 0
+
+    assert M.run(tmp_path, today=date(2026, 9, 13), runner=runner, preflight_check=lambda root: None) == 0
+    assert {'press', 'press_intake', 'press_feed', 'press_baseline_fold'} <= set(executed)
+    receipt = json.loads((tmp_path / M.RECEIPT).read_text())
+    rows = {row['source']: row for row in receipt['sources']}
+    assert rows['press']['status'] == 'PARTIAL' and rows['press']['returncode'] == 0
+    assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
+    assert receipt['press_partial']['pending_body_urls'] == 2200
+    assert receipt['press_partial']['intake_excused'] is True
+    assert receipt['press_partial']['reused_same_day_receipt'] is True
+    assert receipt['parked_steps'] == [] and receipt['status'] == 'PASS' and receipt['error_count'] == 0
+
+
+def test_an_unexcused_reused_partial_press_run_parks_the_lane(tmp_path, monkeypatch):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root)
+    patch_inspect_run(monkeypatch, excused=False)
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {}, lambda step, root, log, environment: 0)
+    assert row['status'] == 'PARTIAL' and row['partial']['reused_same_day_receipt'] is True
+    assert row['partial']['intake_excused'] is False and M.parks_intake(row)
+
+
+@pytest.mark.parametrize('text', [None, '{not json', '[1, 2]', '"PARTIAL"', '',
+                                  '{"status": "PASS", "pending_body_urls": 0}'])
+def test_press_exit_zero_without_a_partial_receipt_stays_pass(tmp_path, monkeypatch, text):
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    if text is not None:
+        run_root.mkdir(parents=True)
+        (run_root / M.PRESS_RETRY_RECEIPT).write_text(text, encoding='utf-8')
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {}, lambda step, root, log, environment: 0)
+    assert row['status'] == 'PASS' and row['error_count'] == 0 and 'partial' not in row
+    assert calls == []
 
 
 @pytest.mark.parametrize('code', [1, 2, 75])
@@ -258,6 +470,7 @@ def test_press_partial_passes_the_day_while_naming_the_gap(tmp_path, monkeypatch
     def lock(*args, **kwargs):
         yield {'pid': 17, 'token': 'lease', 'adopted': False}
     monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    patch_inspect_run(monkeypatch, excused=False)
     run_root = tmp_path / 'outputs/press_refresh_20260913'
     write_retry_receipt(run_root)
     monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('db_one', 'fixture')])
@@ -289,12 +502,14 @@ def test_press_partial_passes_the_day_while_naming_the_gap(tmp_path, monkeypatch
     assert receipt['press_partial']['pending_body_urls'] == 2200
     assert receipt['press_partial']['failed_bodies'] == 2578
     assert receipt['press_partial']['status'] == 'PARTIAL'
+    assert receipt['press_partial']['intake_excused'] is False
     assert [row['status'] for row in receipt['sources'] if row['source'] == 'press'] == ['PARTIAL']
     # The PASS success anchor carries the same partial evidence, so no later run
     # can read it as a complete press generation.
     saved = json.loads((tmp_path / M.SUCCESS_RECEIPT).read_text())
     assert saved['local_date'] == '2026-09-13' and saved['partial_sources'] == ['press']
-    assert re.search(r'press: PARTIAL \(\d+(\.\d+)?s\) pending_body_urls=2200', capsys.readouterr().out)
+    assert re.search(r'press: PARTIAL \(\d+(\.\d+)?s\) pending_body_urls=2200 intake_excused=False',
+                     capsys.readouterr().out)
 
 
 # --- Smoke mode ---------------------------------------------------------
@@ -387,12 +602,18 @@ def press_lane(run_root):
 
 
 def parked_world(tmp_path, monkeypatch, press_returncode):
+    # The intake gate's verdict on an exit-3 press is the caller's to set first,
+    # with patch_inspect_run; a complete press run (exit 0) never consults it.
     @contextmanager
     def lock(*args, **kwargs):
         yield {'pid': 17, 'token': 'lease', 'adopted': False}
     monkeypatch.setattr(M, 'pipeline_run_lock', lock)
     run_root = tmp_path / 'outputs/press_refresh_20260913'
-    write_retry_receipt(run_root)
+    if press_returncode == M.PRESS_PARTIAL_RETURNCODE:
+        write_retry_receipt(run_root)
+    else:
+        # A complete run seals a PASS receipt; a PARTIAL one on exit 0 is the reuse case.
+        write_retry_receipt(run_root, status='PASS', pending_body_urls=0)
     monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('crec', 'fixture')])
     monkeypatch.setattr(M, 'press_steps', lambda root, today: press_lane(run_root))
     monkeypatch.setattr(M, 'derived_steps', lambda root, today: [
@@ -415,7 +636,9 @@ def parked_world(tmp_path, monkeypatch, press_returncode):
 
 
 def test_partial_press_parks_the_intake_steps_instead_of_feeding_them(tmp_path, monkeypatch):
+    calls = patch_inspect_run(monkeypatch, excused=False)
     code, executed, receipt = parked_world(tmp_path, monkeypatch, M.PRESS_PARTIAL_RETURNCODE)
+    assert len(calls) == 1
     # Nothing that hands the intake gate this run's press directory was launched.
     assert 'press' in executed
     assert not {'press_intake', 'press_feed', 'press_baseline_fold', 'all_intake'} & set(executed)
@@ -423,6 +646,8 @@ def test_partial_press_parks_the_intake_steps_instead_of_feeding_them(tmp_path, 
     assert {'crec', 'hearing_extract', 'social_master'} <= set(executed)
     rows = {row['source']: row for row in receipt['sources']}
     assert rows['press']['status'] == 'PARTIAL'
+    assert rows['press']['partial']['intake_excused'] is False
+    assert rows['press']['partial']['intake_refusal_reason'] == 'PENDING_BODY_ATTEMPTS'
     for name in ('press_intake', 'press_feed', 'press_baseline_fold', 'all_intake'):
         assert rows[name]['status'] == 'SKIPPED_PARTIAL'
         assert rows[name]['error_count'] == 0
@@ -450,9 +675,15 @@ def test_a_failing_press_run_still_stops_its_lane_without_parking(tmp_path, monk
     assert 'press_intake' not in executed
     rows = {row['source']: row for row in receipt['sources']}
     assert rows['press']['status'] == 'FAIL'
-    # A failure is not a park: the lane simply broke, and the day fails.
-    assert 'press_intake' not in rows
-    assert receipt['parked_steps'] == [] and receipt['status'] == 'FAIL'
+    # A failure is not a park: the lane simply broke, and the day fails. What it
+    # left unrun is still on the record, as skipped-after-failure, never as parked.
+    skipped = ('press_intake', 'press_feed', 'press_baseline_fold', 'all_intake', 'hearing_extract', 'social_master')
+    for name in skipped:
+        assert rows[name]['status'] == 'SKIPPED_AFTER_FAILURE' and rows[name]['error_count'] == 0
+        assert rows[name]['note'] == 'not run: press failed earlier in this run'
+    assert receipt['parked_steps'] == list(skipped)
+    assert receipt['partial'] is False and receipt['status'] == 'FAIL'
+    assert receipt['error_count'] == 1
     assert code == 1
     assert 'all_intake' not in executed
 
@@ -462,3 +693,425 @@ def test_summarize_partials_reports_nothing_when_no_source_is_partial():
     M.summarize_partials(state)
     assert state == {'sources': state['sources'], 'partial': False,
                      'partial_sources': [], 'press_partial': None, 'parked_steps': []}
+
+
+# --- Excused PARTIAL: the intake gate accepts the generation -----------------
+
+
+def test_excused_press_partial_keeps_the_lane_running_through_the_intake_steps(tmp_path, monkeypatch):
+    calls = patch_inspect_run(monkeypatch, excused=True)
+    code, executed, receipt = parked_world(tmp_path, monkeypatch, M.PRESS_PARTIAL_RETURNCODE)
+    # The gate was asked about this run's own press directory, once.
+    assert calls == [tmp_path / 'outputs/press_refresh_20260913']
+    # Nothing is parked: the intake steps and the derived all_intake step all ran.
+    assert {'press', 'press_intake', 'press_feed', 'press_baseline_fold', 'all_intake',
+            'hearing_extract', 'social_master'} <= set(executed)
+    assert executed.index('press_intake') > executed.index('press')
+    rows = {row['source']: row for row in receipt['sources']}
+    # The press row stays PARTIAL, so the receipt still names the gap.
+    assert rows['press']['status'] == 'PARTIAL' and rows['press']['partial']['intake_excused'] is True
+    for name in ('press_intake', 'press_feed', 'press_baseline_fold', 'all_intake'):
+        assert rows[name]['status'] == 'PASS'
+    assert code == 0 and receipt['status'] == 'PASS' and receipt['error_count'] == 0
+    assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
+    assert receipt['press_partial']['intake_excused'] is True
+    assert receipt['press_partial']['pending_body_urls'] == 2200
+    assert receipt['parked_steps'] == []
+
+
+def test_unexcused_press_partial_parks_the_lane_and_the_derived_intake_step(tmp_path, monkeypatch):
+    patch_inspect_run(monkeypatch, excused=False)
+    code, executed, receipt = parked_world(tmp_path, monkeypatch, M.PRESS_PARTIAL_RETURNCODE)
+    assert not {'press_intake', 'press_feed', 'press_baseline_fold', 'all_intake'} & set(executed)
+    assert {'hearing_extract', 'social_master'} <= set(executed)
+    assert receipt['parked_steps'] == ['press_intake', 'press_feed', 'press_baseline_fold', 'all_intake']
+    assert receipt['partial_sources'] == ['press'] and code == 0
+
+
+def test_parks_intake_is_true_only_for_an_unexcused_partial_or_a_smoke_skip():
+    assert M.parks_intake({'status': 'PARTIAL', 'partial': {'intake_excused': False}})
+    assert M.parks_intake({'status': 'PARTIAL', 'partial': {}})          # no verdict recorded: stay parked
+    assert M.parks_intake({'status': 'PARTIAL'})
+    assert M.parks_intake({'status': 'SKIPPED_SMOKE'})
+    assert not M.parks_intake({'status': 'PARTIAL', 'partial': {'intake_excused': True}})
+    assert not M.parks_intake({'status': 'PASS'})
+    assert not M.parks_intake({'status': 'FAIL'})
+
+
+# --- Collector log errors: terminal statuses and the step's own keys ----------
+
+
+def test_changed_log_errors_counts_only_the_steps_own_key_prefix():
+    stamp = ('err:timeout', 'now')
+    after = {'cnn:2026-09-10': stamp, 'cnnseg:abc': stamp, 'npr:1': stamp, 'nprfeed:1': stamp,
+             'aei:7': stamp, 'antag2:1': stamp, 'cfr:9': stamp, 'hh:3': stamp, 'fox': stamp}
+
+    def keys(step):
+        return sorted(error['key'] for error in M.changed_log_errors({}, after, step))
+
+    assert keys(M.Step('cnn', 'x.py', kind='interview')) == ['cnn:2026-09-10', 'cnnseg:abc']
+    assert keys(M.Step('npr', 'x.py', kind='interview')) == ['npr:1', 'nprfeed:1']
+    assert keys(M.Step('fox', 'x.py', kind='interview')) == ['fox']
+    # Supervisor legs belong to nobody in this run, and no step name prefixes them.
+    for name in ('abc', 'cbs', 'mtp', 'pbs', 'msnow', 'crec', 'chrg'):
+        assert keys(M.Step(name, 'x.py')) == []
+    assert keys(M.Step('cnn', 'x.py')) != keys(M.Step('npr', 'x.py'))
+    # A bare step name works too, and omitting the step keeps the unfiltered behaviour.
+    assert [error['key'] for error in M.changed_log_errors({}, after, 'aei')] == ['aei:7']
+    assert len(M.changed_log_errors({}, after)) == len(after)
+
+
+def test_a_supervisor_leg_error_in_the_shared_log_is_not_charged_to_the_collector(tmp_path):
+    database = tmp_path / 'social_media.db'
+    with sqlite3.connect(database) as connection:
+        connection.execute('CREATE TABLE iv_fetch_log(key TEXT PRIMARY KEY,status TEXT,ts TEXT)')
+    (tmp_path / 'collector_sentinels').mkdir()
+    step = M.Step('cnn', 'members/fetch_interviews.py', ('cnn', '--strict'), kind='interview')
+
+    def runner_for(*rows):
+        def runner(step, root, log, environment):
+            log.write_text('done')
+            with sqlite3.connect(database) as connection:
+                connection.executemany('INSERT INTO iv_fetch_log VALUES(?,?,?)', rows)
+            (root / 'collector_sentinels' / 'cnn.done').write_text('done')
+            return 0
+        return runner
+
+    clean = M.execute_step(step, tmp_path, tmp_path, {}, runner_for(
+        ('cnn:2026-09-10', 'ok', 'new'), ('aei:7', 'err:supervisor', 'new'), ('antag:1', 'err:other', 'new')))
+    assert clean['status'] == 'PASS' and clean['error_count'] == 0 and clean['item_errors'] == []
+    broken = M.execute_step(step, tmp_path, tmp_path, {}, runner_for(
+        ('cnnseg:2026-09-11', 'err:http', 'new'), ('asf:7', 'err:supervisor', 'new')))
+    assert broken['status'] == 'FAIL' and broken['error_count'] == 1
+    assert broken['item_errors'] == [{'key': 'cnnseg:2026-09-11', 'status': 'err:http'}]
+
+
+@pytest.mark.parametrize('status', ['noqa', 'NOQA', 'NoQa', 'OK', 'Empty', 'NOPAGE', 'Gone', 'NoEp', 'NoSession'])
+def test_terminal_log_statuses_are_compared_lowercased(status):
+    assert M.changed_log_errors({}, {'chrg:CHRG-119hhrg1': (status, 'today')}) == []
+    assert M.changed_log_errors({}, {'chrg:CHRG-119hhrg1': (status, 'today')}, M.Step('chrg', 'x.py')) == []
+
+
+def test_noqa_is_terminal_and_an_unknown_status_still_is_not():
+    assert 'noqa' in M.TERMINAL_LOG_STATUSES
+    assert M.TERMINAL_LOG_STATUSES == {'ok', 'nosession', 'noep', 'empty', 'nopage', 'gone', 'noqa'}
+    assert M.changed_log_errors({}, {'chrg:x': ('err:timeout', 't'), 'chrg:y': ('NOQA', 't')}) \
+        == [{'key': 'chrg:x', 'status': 'err:timeout'}]
+
+
+def test_crec_day_coverage_accepts_any_terminal_status_in_any_case(tmp_path):
+    with sqlite3.connect(tmp_path / 'social_media.db') as connection:
+        connection.execute('CREATE TABLE cr_fetch_log(key TEXT PRIMARY KEY,status TEXT,ts TEXT)')
+        connection.executemany('INSERT INTO cr_fetch_log VALUES(?,?,?)', [
+            ('crec:CREC-2026-09-09', 'OK', 'old'), ('crec:CREC-2026-09-10', 'NoSession', 'old'),
+            ('crec:CREC-2026-09-11', 'empty', 'old'), ('crec:CREC-2026-09-12', 'NOPAGE', 'old'),
+            ('crec:CREC-2026-09-13', 'err:timeout', 'old')])
+    step = M.Step('crec', 'unused.py', ('crec', '--since', '2026-09-09', '--until', '2026-09-14'), kind='congress_record')
+    result = M.validate_source(step, tmp_path, time.time(), {})
+    # Only the errored day and the day with no checkpoint at all remain.
+    assert result['item_errors'] == [{'key': 'crec:CREC-2026-09-13', 'status': 'err:timeout'},
+                                     {'key': 'crec:CREC-2026-09-14', 'status': 'MISSING'}]
+
+
+# --- Unknown pre-run snapshot, naive timestamps ------------------------------
+
+
+def test_an_unknown_pre_run_snapshot_does_not_charge_history_to_the_step(tmp_path, monkeypatch):
+    historical = {'chrg:CHRG-old1': ('err:timeout', 'long ago'), 'chrg:CHRG-old2': ('err:http', 'long ago')}
+    calls = []
+
+    def snapshot(root, table):
+        calls.append(table)
+        if len(calls) == 1:
+            raise sqlite3.OperationalError('database is locked')
+        return historical
+
+    monkeypatch.setattr(M, 'fetch_log_snapshot', snapshot)
+    ran = []
+    step = M.Step('chrg', 'unused.py', kind='congress_record')
+    row = M.execute_step(step, tmp_path, tmp_path, {}, lambda *args: ran.append(args) or 0)
+    assert ran == []                      # the collector was never launched
+    assert row['status'] == 'FAIL' and row['error_count'] == 1
+    assert row['error'] == 'OperationalError: database is locked'
+    # Diffing against an empty baseline would have charged both historical keys.
+    assert 'item_errors' not in row
+    assert calls == ['cr_fetch_log']      # the after-snapshot was not even taken
+    assert 'log diff skipped' in row['diagnostic_error']
+
+
+def test_unknown_snapshot_still_reads_the_current_source_receipt(tmp_path):
+    step = M.Step('bluesky', 'unused.py', ('--since', '2026-08-30'), kind='bluesky')
+    M.write_json(tmp_path / M.BLUESKY_RECEIPT, {
+        'schema': 'bluesky-source-receipt-v1', 'status': 'FAIL',
+        'completed_at': datetime.now(timezone.utc).isoformat(), 'error_count': 3})
+    result = M.failure_diagnostics(step, tmp_path, time.time(), None)
+    assert result['error_count'] == 3 and result['source_status'] == 'FAIL'
+    assert 'diagnostic_error' not in result       # a receipt-only kind has no log diff to skip
+
+
+def test_a_known_snapshot_charges_only_what_the_run_changed(tmp_path):
+    with sqlite3.connect(tmp_path / 'social_media.db') as connection:
+        connection.execute('CREATE TABLE cr_fetch_log(key TEXT PRIMARY KEY,status TEXT,ts TEXT)')
+        connection.execute('INSERT INTO cr_fetch_log VALUES(?,?,?)', ('chrg:CHRG-old', 'err:old', 'long ago'))
+    step = M.Step('chrg', 'unused.py', kind='congress_record')
+
+    def runner(step, root, log, environment):
+        with sqlite3.connect(root / 'social_media.db') as connection:
+            connection.execute('INSERT INTO cr_fetch_log VALUES(?,?,?)', ('chrg:CHRG-new', 'err:http', 'now'))
+        return 1
+
+    row = M.execute_step(step, tmp_path, tmp_path, {}, runner)
+    assert row['status'] == 'FAIL' and row['error_count'] == 1
+    assert row['item_errors'] == [{'key': 'chrg:CHRG-new', 'status': 'err:http'}]
+    assert 'diagnostic_error' not in row
+
+
+def test_a_naive_completed_at_is_read_as_utc_at_both_receipt_sites(tmp_path):
+    assert M.completed_at_utc({'completed_at': '2026-09-13T10:00:00'}) == datetime(2026, 9, 13, 10, tzinfo=timezone.utc)
+    assert M.completed_at_utc({'completed_at': '2026-09-13T10:00:00Z'}) == datetime(2026, 9, 13, 10, tzinfo=timezone.utc)
+    assert M.completed_at_utc({'completed_at': '2026-09-13T12:00:00+02:00'}) == datetime(2026, 9, 13, 10, tzinfo=timezone.utc)
+    naive = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+    # require_receipt site
+    receipt = tmp_path / 'source.json'
+    M.write_json(receipt, {'schema': 's', 'status': 'COMPLETE', 'completed_at': naive})
+    assert M.require_receipt(receipt, 's', time.time())['status'] == 'COMPLETE'
+    # failure_diagnostics site
+    step = M.Step('bluesky', 'unused.py', kind='bluesky')
+    M.write_json(tmp_path / M.BLUESKY_RECEIPT, {'schema': 'bluesky-source-receipt-v1', 'status': 'FAIL',
+                                                'completed_at': naive, 'error_count': 2})
+    assert M.failure_diagnostics(step, tmp_path, time.time(), {})['error_count'] == 2
+
+
+# --- Skipped-after-failure rows ----------------------------------------------
+
+
+def test_a_failed_derived_step_records_the_rest_of_the_derived_lane_as_skipped(tmp_path, monkeypatch):
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('crec', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: [])
+    monkeypatch.setattr(M, 'derived_steps', lambda root, today: [
+        M.Step('first', 'fixture'), M.Step('second', 'fixture', kind='stance'), M.Step('third', 'fixture')])
+    executed = []
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        executed.append(step.name)
+        return 1 if step.name == 'first' else 0
+
+    assert M.run(tmp_path, today=date(2026, 9, 13), runner=runner, preflight_check=lambda root: None) == 1
+    assert executed == ['crec', 'first']
+    receipt = json.loads((tmp_path / M.RECEIPT).read_text())
+    rows = {row['source']: row for row in receipt['sources']}
+    for name in ('second', 'third'):
+        assert rows[name]['status'] == 'SKIPPED_AFTER_FAILURE' and rows[name]['error_count'] == 0
+        assert rows[name]['note'] == 'not run: first failed earlier in this run'
+    assert rows['second']['kind'] == 'stance'
+    assert receipt['parked_steps'] == ['second', 'third']
+    assert receipt['status'] == 'FAIL' and receipt['error_count'] == 1
+
+
+def test_summarize_partials_counts_skipped_after_failure_as_parked():
+    state = {'sources': [{'source': 'a', 'status': 'FAIL'}, {'source': 'b', 'status': 'SKIPPED_AFTER_FAILURE'},
+                         {'source': 'c', 'status': 'SKIPPED_PARTIAL'}, {'source': 'd', 'status': 'SKIPPED_SMOKE'},
+                         {'source': 'e', 'status': 'PASS'}]}
+    M.summarize_partials(state)
+    assert state['parked_steps'] == ['b', 'c', 'd'] and state['partial'] is False
+
+
+# --- Interrupts: children, the stop flag, the receipt ---------------------------
+
+
+class FakeChild:
+    """A collector child that is still running; it has no real process behind it."""
+    pid = 4242
+
+    def poll(self):
+        return None
+
+
+def test_terminate_tree_is_bounded_when_taskkill_and_the_wait_both_hang(monkeypatch):
+    class Stuck:
+        pid = 4242
+        killed = False
+
+        def wait(self, timeout=None):
+            assert timeout == 60                                  # never an unbounded wait
+            raise subprocess.TimeoutExpired('stuck', timeout)
+
+        def kill(self):
+            self.killed = True
+
+    seen = {}
+
+    def hung_run(*args, **kwargs):
+        seen['timeout'] = kwargs.get('timeout')
+        raise subprocess.TimeoutExpired(args[0], kwargs.get('timeout'))
+
+    monkeypatch.setattr(M.subprocess, 'run', hung_run)
+    monkeypatch.setattr(M.os, 'killpg', lambda pid, sig: None, raising=False)
+    process = Stuck()
+    M.terminate_tree(process)                                     # returns instead of hanging
+    assert process.killed
+    if os.name == 'nt':
+        assert seen['timeout'] == 60
+
+
+def test_run_process_registers_the_child_while_it_runs_and_drops_it_afterwards(tmp_path, monkeypatch):
+    seen = []
+
+    class FakePopen:
+        pid = 4321
+
+        def __init__(self, argv, **kwargs):
+            self.argv = argv
+
+        def wait(self, timeout=None):
+            seen.append([process for process, spec in M._LIVE])
+            return 0
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(M.subprocess, 'Popen', FakePopen)
+    monkeypatch.setattr(M.compute_engine, 'launch',
+                        lambda *args, **kwargs: M.compute_engine.Launch(['fixture'], None, None, 'collect'))
+    assert M.run_process(M.Step('x', 'unused.py'), tmp_path, tmp_path / 'x.log', {}) == 0
+    assert len(seen) == 1 and len(seen[0]) == 1 and isinstance(seen[0][0], FakePopen)
+    assert M._LIVE == []
+
+
+@pytest.mark.parametrize('stopped', [False, True])
+def test_run_process_terminates_and_unregisters_when_interrupted(tmp_path, monkeypatch, stopped):
+    terminated = []
+
+    class FakePopen:
+        pid = 4321
+
+        def __init__(self, argv, **kwargs):
+            pass
+
+        def wait(self, timeout=None):
+            raise KeyboardInterrupt
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(M.subprocess, 'Popen', FakePopen)
+    monkeypatch.setattr(M.compute_engine, 'launch',
+                        lambda *args, **kwargs: M.compute_engine.Launch(['fixture'], None, None, 'collect'))
+    monkeypatch.setattr(M.compute_engine, 'reap', lambda spec: None)
+    monkeypatch.setattr(M, 'terminate_tree', terminated.append)
+    if stopped:
+        M.STOP.set()          # the interrupt began before this child was registered
+    with pytest.raises(RuntimeError if stopped else KeyboardInterrupt):
+        M.run_process(M.Step('x', 'unused.py'), tmp_path, tmp_path / 'x.log', {})
+    assert len(terminated) == 1 and isinstance(terminated[0], FakePopen)
+    assert M._LIVE == []
+
+
+def test_terminate_live_processes_reaches_every_child_even_when_one_fails(monkeypatch):
+    first, second = FakeChild(), FakeChild()
+    reaped = []
+    M.register_process(first, 'spec-1')
+    M.register_process(second, 'spec-2')
+    killed = []
+
+    def terminate(process):
+        killed.append(process)
+        if process is first:
+            raise OSError('access denied')
+
+    monkeypatch.setattr(M, 'terminate_tree', terminate)
+    monkeypatch.setattr(M.compute_engine, 'reap', reaped.append)
+    M.terminate_live_processes()
+    assert killed == [first, second] and reaped == ['spec-2']
+    M.unregister_process(first)
+    assert [process for process, spec in M._LIVE] == [second]
+
+
+def test_an_interrupt_in_the_main_thread_kills_live_children_stops_the_lanes_and_fails_the_receipt(tmp_path, monkeypatch):
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('db_one', 'fixture'), M.Step('db_two', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: [])
+    monkeypatch.setattr(M, 'derived_steps', lambda root, today: [M.Step('derived', 'fixture')])
+    child, killed, executed = FakeChild(), [], []
+    registered = threading.Event()
+    monkeypatch.setattr(M, 'terminate_tree', killed.append)
+    monkeypatch.setattr(M.compute_engine, 'reap', lambda spec: None)
+
+    class InterruptingPool(ThreadPoolExecutor):
+        """Ctrl-C arrives in the main thread, at future.result(), once the collector is up."""
+        def submit(self, *args, **kwargs):
+            future = super().submit(*args, **kwargs)
+
+            def result(timeout=None):
+                assert registered.wait(10)
+                raise KeyboardInterrupt
+            future.result = result
+            return future
+
+    monkeypatch.setattr(M, 'ThreadPoolExecutor', InterruptingPool)
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        executed.append(step.name)
+        M.register_process(child, None)
+        registered.set()
+        try:
+            # A long collector: it only ends once the interrupt handler has stopped the run.
+            assert M.STOP.wait(10), 'the interrupt handler never set the stop flag'
+        finally:
+            M.unregister_process(child)
+        return 0
+
+    with pytest.raises(KeyboardInterrupt):
+        M.run(tmp_path, today=date(2026, 9, 13), runner=runner, preflight_check=lambda root: None)
+    assert killed == [child]                       # the live tree was terminated
+    assert executed == ['db_one']                  # the lane launched nothing after the interrupt
+    receipt = json.loads((tmp_path / M.RECEIPT).read_text())
+    assert receipt['status'] == 'FAIL' and receipt['error_count'] >= 1
+    assert receipt['error'].startswith('KeyboardInterrupt') and 'completed_at' in receipt
+    saved = list((tmp_path / 'audits/daily_media_refresh').glob('*/receipt.json'))
+    assert len(saved) == 1 and json.loads(saved[0].read_text())['status'] == 'FAIL'
+    assert not (tmp_path / M.SUCCESS_RECEIPT).exists()
+
+
+def test_an_ordinary_exception_still_returns_a_fail_code_instead_of_raising(tmp_path, monkeypatch):
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+
+    def failing_preflight(root):
+        raise RuntimeError('required existing media input is missing: social_media.db')
+
+    assert M.run(tmp_path, today=date(2026, 9, 13), runner=lambda *args: 0, preflight_check=failing_preflight) == 1
+    receipt = json.loads((tmp_path / M.RECEIPT).read_text())
+    assert receipt['status'] == 'FAIL' and 'social_media.db' in receipt['error']
+    assert not (tmp_path / M.SUCCESS_RECEIPT).exists()
+
+
+def test_a_stop_flag_left_over_from_an_interrupted_run_does_not_block_the_next(tmp_path, monkeypatch):
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('crec', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: [])
+    monkeypatch.setattr(M, 'derived_steps', lambda root, today: [M.Step('derived', 'fixture')])
+    M.STOP.set()
+    executed = []
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        executed.append(step.name)
+        return 0
+
+    assert M.run(tmp_path, today=date(2026, 9, 13), runner=runner, preflight_check=lambda root: None) == 0
+    assert executed == ['crec', 'derived']

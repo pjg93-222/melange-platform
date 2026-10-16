@@ -325,6 +325,7 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
         flags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name=='nt' else 0
         spec=compute_engine.launch(_producer_path(args[0]),args[1:],cwd=FE)   # engine 'windows' (the default): [sys.executable, producer, *args], env None
         handoff=spec.phase=='chain'
+        run=None
         if spec.container: log('   %s runs in container %s'%(name,spec.container))
         if handoff: _lease_handoff_out()
         try:
@@ -335,7 +336,8 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
         finally:
             _LIVE_CHILD[0]=None   # released on EVERY path: success, timeout, launch failure
             compute_engine.reap(spec)   # a container whose client was killed keeps running; --rm removes one that ended
-            if handoff: _lease_handoff_in()
+            # a timed-out chain skips the take-back so the abort below reports the real cause (timeout), not "lease not taken back"
+            if handoff and not (run is not None and run.timed_out): _lease_handoff_in()
         stdout,stderr=run.stdout,run.stderr
         if run.timed_out:
             log('%-28s TIMEOUT after %ds%s'%(name,timeout,' — aborting' if hard else ' — continuing'))

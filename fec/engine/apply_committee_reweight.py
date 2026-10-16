@@ -72,6 +72,7 @@ if '--apply' in sys.argv:
             try: w.Save(); saved = True; break
             except Exception as e: print('save retry %d: %s' % (a, str(e)[:70])); time.sleep(3)
         w.Close(SaveChanges=False); print('APPLIED + recalculated' if saved else 'NOT SAVED')
+        if not saved: sys.exit(2)
     finally:
         xl.Quit()
 else:

@@ -29,6 +29,7 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import sys
 import tempfile
 import time
 from typing import Any, Iterable, Iterator
@@ -1845,11 +1846,38 @@ def validate_existing(
     return manifest
 
 
+def fsync_path(path: Path) -> None:
+    """Flush a written file to disk (power loss must not leave it empty)."""
+    flags = os.O_RDWR | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def write_bytes_durable(path: Path, body: bytes) -> None:
+    with path.open("wb") as handle:
+        handle.write(body)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
 def atomic_write(path: Path, body: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.tmp.{os.getpid()}")
-    temporary.write_bytes(body)
-    os.replace(temporary, path)
+    descriptor, name = tempfile.mkstemp(
+        dir=path.parent,
+        prefix=f".{path.name}.tmp.",
+    )
+    temporary = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def remove_temporary_tree(path: Path, *, expected_parent: Path) -> None:
@@ -1908,6 +1936,7 @@ def build_augmentation(
     out_root: Path,
     pointer_path: Path | None = None,
     rollover_checkpoint_path: Path | None = None,
+    write_pointer: bool = True,
 ) -> tuple[Path, dict[str, Any], bool]:
     prefill_manifest_path = prefill_manifest_path.resolve()
     structured_manifest_path = structured_manifest_path.resolve()
@@ -2150,8 +2179,9 @@ def build_augmentation(
             rollover_path = (
                 temporary / "semantic_rollover_binding.json"
             )
-            rollover_path.write_bytes(
-                pretty_json_bytes(rollover_binding)
+            write_bytes_durable(
+                rollover_path,
+                pretty_json_bytes(rollover_binding),
             )
             outputs["semantic_rollover_binding"] = file_item(
                 rollover_path,
@@ -2314,9 +2344,13 @@ def build_augmentation(
             created = False
             manifest = existing
         else:
-            (temporary / "manifest.json").write_bytes(
-                pretty_json_bytes(manifest)
+            write_bytes_durable(
+                temporary / "manifest.json",
+                pretty_json_bytes(manifest),
             )
+            for child in temporary.iterdir():
+                if child.is_file():
+                    fsync_path(child)
             out_root.mkdir(parents=True, exist_ok=True)
             os.replace(temporary, out_dir)
             created = True
@@ -2327,8 +2361,22 @@ def build_augmentation(
                 expected_parent=out_root.parent,
             )
 
-    if pointer_path is not None:
+    if pointer_path is not None and write_pointer:
         pointer_path = pointer_path.resolve()
+        # An unconfirmed build must never replace a confirmed pointer: the
+        # confirmed snapshot carries the rollover binding later builds need.
+        if (
+            not manifest["currentness"]["confirmed"]
+            and pointer_path.is_file()
+            and read_object(pointer_path).get("currentness_confirmed")
+            is True
+        ):
+            print(
+                "Skipping pointer update: unconfirmed augmentation would "
+                f"replace confirmed pointer {pointer_path}",
+                file=sys.stderr,
+            )
+            return out_dir, manifest, created
         pointer = {
             "schema": POINTER_SCHEMA,
             "augmentation_id": manifest["augmentation_id"],
@@ -2415,7 +2463,8 @@ def main() -> int:
         structured_manifest_path=structured_manifest,
         registry_path=args.registry,
         out_root=args.out_root,
-        pointer_path=None if args.no_current else args.current,
+        pointer_path=args.current,
+        write_pointer=not args.no_current,
         rollover_checkpoint_path=(
             None
             if args.no_rollover_currentness

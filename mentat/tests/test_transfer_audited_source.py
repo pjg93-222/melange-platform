@@ -123,6 +123,25 @@ def add_sheet(book, note, rows=()):
 class ServedWithoutTheSheet(Fixture):
     """(a) The served book has no Transfer Paths sheet; the audited book's CSV supplies the cycle."""
 
+    def test_other_build_is_structured_evidence_and_does_not_change_served_giving(self):
+        book = openpyxl.load_workbook(self.path)
+        book.active['A1'] = 'Source DB SHA-256: ' + 'cd' * 32
+        book.save(self.path); book.close()
+        historical = self.audited(build=BUILD)
+        direct = graph_view([self.path], {'mode': 'direct', 'cycle': '2026'})
+        value = self.activity(cycle='2026')
+        source = value['historical_transfer_sources'][0]
+        self.assertEqual(source['kind'], 'historical_audited_report')
+        self.assertEqual(source['workbook'], historical.name)
+        self.assertEqual(source['workbook_sha256'], digest(historical))
+        self.assertEqual(source['served_workbook_sha256'], digest(self.path))
+        self.assertEqual(source['served_database_sha256'], 'cd' * 32)
+        self.assertEqual(source['database_sha256'], BUILD)
+        self.assertFalse(source['same_database_build'])
+        self.assertIn('not attributed industry giving', source['accounting_basis'])
+        self.assertIn('not the served workbook', source['note'])
+        self.assertEqual(value['totals'], direct['totals'])
+
     def test_the_audit_csv_supplies_each_transfer_once_and_never_a_candidate_gift(self):
         self.audited()
         found = graph_data.report_transfers(stamp(self.path), audited=True)

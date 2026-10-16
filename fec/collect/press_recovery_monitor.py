@@ -24,13 +24,15 @@ class Telemetry:
         self.lock = threading.RLock()
         self.stop = threading.Event()
         self.state = dict(pid=os.getpid(), stage='preparing', active={}, total=0, processed=0, recovered=0)
-        threading.Thread(target=self.heartbeat, daemon=True).start()
+        self.thread = threading.Thread(target=self.heartbeat, daemon=True); self.thread.start()
 
     def heartbeat(self):
         while not self.stop.is_set():
-            with self.lock:
-                self.state['heartbeat_at'] = datetime.now(timezone.utc).isoformat()
-                atomic(self.directory/'live_state.json', self.state)
+            try:
+                with self.lock:
+                    self.state['heartbeat_at'] = datetime.now(timezone.utc).isoformat()
+                    atomic(self.directory/'live_state.json', self.state)
+            except OSError: pass  # a locked/unwritable state file must not kill the heartbeat thread
             self.stop.wait(2)
 
     def update(self, **values):
@@ -42,8 +44,10 @@ class Telemetry:
                      url=row.get('url',''), member=row.get('member',''),
                      title=row.get('title',''), bioguide=row.get('bioguide',''), **values)
         with self.lock:
-            with (self.directory/'live_events.jsonl').open('a', encoding='utf-8') as f:
-                f.write(json.dumps(event, ensure_ascii=False)+'\n')
+            try:
+                with (self.directory/'live_events.jsonl').open('a', encoding='utf-8') as f:
+                    f.write(json.dumps(event, ensure_ascii=False)+'\n')
+            except OSError: pass  # best-effort log; the state update below must still happen
             if event['url']:
                 if kind == 'result': self.state['active'].pop(event['url'], None)
                 else: self.state['active'][event['url']] = event
@@ -51,9 +55,11 @@ class Telemetry:
     def close(self, status):
         self.update(stage=status, active={})
         self.stop.set()
-        with self.lock:
-            self.state['heartbeat_at'] = datetime.now(timezone.utc).isoformat()
-            atomic(self.directory/'live_state.json', self.state)
+        try:
+            with self.lock:
+                self.state['heartbeat_at'] = datetime.now(timezone.utc).isoformat()
+                atomic(self.directory/'live_state.json', self.state)
+        except OSError: pass  # final snapshot is best-effort; never mask the worker's own exit
 
 def alive(pid):
     if not pid: return False

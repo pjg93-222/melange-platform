@@ -336,8 +336,9 @@ def read_filer_links(edges_path, filings):
 
     Per person: the latest period seen, per-registrant (latest period, filings in
     that latest period, filings overall), and per-client the latest period.
+    Filings are counted once per person however many issue-area edges name them.
     Everything is folded as it streams, so memory is O(people x their own
-    registrants and clients), never O(edges).
+    filings), never O(edges).
     """
     people = {}
     edge_rows = named = unmatched = 0
@@ -353,7 +354,8 @@ def read_filer_links(edges_path, filings):
             if row.get('predicate') != NAMED_ON_ACTIVITY:
                 continue
             named += 1
-            found = filings.get(filing_uuid_of(row.get('object_id')))
+            filing_uuid = filing_uuid_of(row.get('object_id'))
+            found = filings.get(filing_uuid)
             if found is None:
                 unmatched += 1
                 continue
@@ -362,8 +364,13 @@ def read_filer_links(edges_path, filings):
             state = people.get(person)
             if state is None:
                 state = people[person] = {'latest': 0, 'registrants': {}, 'clients': {},
-                                          'filings': 0}
-            state['filings'] += 1
+                                          'seen': set()}
+            # One edge per (person, activity) and a filing has one activity per issue
+            # area: count each filing once per person, as the ruling says "filings".
+            # ponytail: holds the person's filing uuids; fine at corpus scale.
+            if filing_uuid in state['seen']:
+                continue
+            state['seen'].add(filing_uuid)
             if key > state['latest']:
                 state['latest'] = key
             seen = state['registrants'].get(registrant)
@@ -383,7 +390,8 @@ def read_filer_links(edges_path, filings):
 
 
 def registrant_engagement(filings, organisation_names):
-    """registrant index -> contract | in_house, plus its distinct client count.
+    """registrant index -> contract | in_house, plus its distinct client count and
+    its count of clients whose name differs from its own.
 
     A registrant is in-house only when EVERY client it ever named normalises to
     its own name.  One differently-named client makes it contract, which is the
@@ -394,7 +402,7 @@ def registrant_engagement(filings, organisation_names):
         registrant = packed >> Filings._REGISTRANT_SHIFT
         client = (packed >> Filings._CLIENT_SHIFT) & ((1 << 18) - 1)
         clients_of.setdefault(registrant, set()).add(client)
-    engagement, client_counts = {}, {}
+    engagement, client_counts, other_counts = {}, {}, {}
     for registrant, clients in clients_of.items():
         own = normalize_org_name(organisation_names.get(filings.registrant_ids[registrant], ''))
         others = sum(1 for client in clients
@@ -402,7 +410,8 @@ def registrant_engagement(filings, organisation_names):
                          organisation_names.get(filings.client_ids[client], '')) != own)
         engagement[registrant] = CONTRACT if others else IN_HOUSE
         client_counts[registrant] = len(clients)
-    return engagement, client_counts
+        other_counts[registrant] = others
+    return engagement, client_counts, other_counts
 
 
 def employer_of(state, registrant_ids):
@@ -488,7 +497,7 @@ def build_ledger(activity_path, edges_path, organisation_path):
         raise EmploymentContradiction(
             '%d activity rows disagree with their own filing about the registrant, client or '
             'period; this module will not pick a winner' % filings.conflicts)
-    engagement, client_counts = registrant_engagement(filings, organisation_names)
+    engagement, client_counts, other_counts = registrant_engagement(filings, organisation_names)
     people, edge_counts = read_filer_links(edges_path, filings)
     if edge_counts['unmatched_activities']:
         raise EmploymentContradiction(
@@ -523,7 +532,7 @@ def build_ledger(activity_path, edges_path, organisation_path):
             ledger.clients[person] = {filings.client_ids[index]: key
                                       for index, key in state['clients'].items()}
             client_pairs += len(state['clients'])
-            if client_counts.get(chosen) == 1:
+            if other_counts.get(chosen) == 1:
                 affiliate_shaped += 1
         else:
             ledger.clients[person] = {}

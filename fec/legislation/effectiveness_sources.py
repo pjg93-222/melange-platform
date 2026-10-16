@@ -215,7 +215,7 @@ def publications_from_local(root, draft_root, bills):
                 possible=[]
                 for bill in number_index.get((typ,num),[]):
                     title=re.sub(r"[^a-z0-9]+"," ",bill["title"].casefold()).strip()
-                    if len(title)>18 and title in normalized and pub and bill["introduced_date"]<=pub:possible.append(bill)
+                    if len(title)>18 and title in normalized and pub and bill.get("introduced_date") and bill["introduced_date"]<=pub:possible.append(bill)
                 if len(possible)==1:
                     links.append({"measure_id":possible[0]["measure_id"],"verified":True,"basis":"explicit_bill_number_and_exact_unique_official_title","literal_occurrences":occurrences})
                 else:

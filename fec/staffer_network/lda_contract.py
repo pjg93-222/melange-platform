@@ -245,10 +245,10 @@ def audit_sweeps(sweeps_root: str | Path, *, expected_years: Iterable[int]) -> d
         "duplicate_filing_uuid_occurrences": sum(
             row["duplicate_filing_uuid_occurrences"] for row in years
         ),
-        "source_count_first_sum": sum(row["source_count_first"] for row in years),
-        "source_count_final_sum": sum(row["source_count_final"] for row in years),
+        "source_count_first_sum": sum(row["source_count_first"] or 0 for row in years),
+        "source_count_final_sum": sum(row["source_count_final"] or 0 for row in years),
         "unique_shortfall_vs_final_count": sum(
-            row["unique_shortfall_vs_final_count"] for row in years
+            row["unique_shortfall_vs_final_count"] or 0 for row in years
         ),
         "pass": all(row["pass"] for row in years) and cross_year_duplicate_occurrences == 0,
     }

@@ -22,12 +22,20 @@ FLAGS.  ``REGRESSED`` -- the site yielded rows in some earlier run on disk and
 zero in the newest one.  ``NEVER_SEEN`` -- the member is in the press corpus'
 own member universe but has never yielded a row in any run on disk.  A healthy
 member gets no row at all, so the file is a worklist rather than a census.
+
+WHICH RUNS COUNT.  Only SEALED runs: ``press_network_retry_receipt.json`` is a
+dict with ``completed_at`` and a status that is absent (legacy receipts) or
+PASS / PARTIAL.  An in-flight or unsealed run is skipped like a missing index,
+so a walk that is still writing cannot read as "everyone vanished".  This is
+deliberately not ``valid_run``: that refuses every unexcused PARTIAL, and a
+PARTIAL run has a complete index (only bodies are pending).
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import io
+import json
 import os
 from pathlib import Path
 import re
@@ -40,6 +48,8 @@ from paths import ROOT  # noqa: E402
 
 
 INDEX_ARTIFACT = "press_refreshed_index.csv"
+RECEIPT_ARTIFACT = "press_network_retry_receipt.json"
+SEALED_STATUSES = ("PASS", "PARTIAL")
 RUN_NAME_RX = re.compile(r"^press_refresh_\d{8}$")
 REVIEW_FIELDS = ("bioguide", "member", "index_url_host", "run", "rows_this_run",
                  "rows_prev_run", "runs_with_rows", "last_run_with_rows",
@@ -71,6 +81,17 @@ def host_of(url):
         return (urlsplit(("" if url is None else str(url)).strip()).netloc or "").lower()
     except ValueError:
         return ""
+
+
+def run_is_sealed(run_dir):
+    """True when the run's receipt marks it finished (see WHICH RUNS COUNT above)."""
+    try:
+        with io.open(Path(run_dir) / RECEIPT_ARTIFACT, encoding="utf-8-sig") as handle:
+            receipt = json.load(handle)
+    except (OSError, ValueError):
+        return False
+    return (isinstance(receipt, dict) and bool(receipt.get("completed_at"))
+            and ("status" not in receipt or receipt["status"] in SEALED_STATUSES))
 
 
 def read_run_index(path):
@@ -148,16 +169,22 @@ def review_rows(outputs_root, baseline_path):
         if not path.is_dir() or not RUN_NAME_RX.match(path.name):
             continue
         index_path = path / INDEX_ARTIFACT
-        if not index_path.is_file():
+        if not index_path.is_file() or not run_is_sealed(path):
             continue
-        counts, run_names, run_hosts = read_run_index(index_path)
+        try:
+            counts, run_names, run_hosts = read_run_index(index_path)
+        except (OSError, ValueError, csv.Error) as error:
+            # One unreadable index must not cost the review of every other run.
+            sys.stderr.write("skipping %s: %s\n" % (path.name, error))
+            continue
         runs.append((path.name, counts))
         # Later runs win: a member who moved hosts should be reviewed at the
         # address the walk last actually used.
         names.update(run_names)
         hosts.update(run_hosts)
     if not runs:
-        raise ValueError("no press run on disk carries %s under %s" % (INDEX_ARTIFACT, outputs_root))
+        raise ValueError("no sealed, readable press run on disk carries %s under %s"
+                         % (INDEX_ARTIFACT, outputs_root))
 
     baseline_names, baseline_hosts = read_universe(baseline_path)
     for source, target in ((baseline_names, names), (baseline_hosts, hosts)):

@@ -35,6 +35,9 @@ def compact(root: Path, output: Path, expected_year: int) -> dict:
     root, output = Path(root), Path(output)
     if output.exists():
         raise ValueError("Immutable output already exists")
+    for name in ("A", "B"):
+        if not (root / name).is_dir():
+            raise ValueError("Missing twin directory: " + str(root / name))
     twins = {name: {p.name: p for p in (root / name).glob("page_*.json")} for name in ("A", "B")}
     common = sorted(set(twins["A"]) & set(twins["B"]))
     exact, divergent = [], []
@@ -45,6 +48,8 @@ def compact(root: Path, output: Path, expected_year: int) -> dict:
             exact.append((name, a, a_hash))
         else:
             divergent.append({"page": name, "a_sha256": a_hash, "b_sha256": b_hash})
+    if not exact:
+        raise ValueError("No byte-identical twin pages to authenticate")
 
     page_rows, evidence_rows, filing_ids = [], [], set()
     expected_total = set()

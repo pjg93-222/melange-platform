@@ -566,21 +566,32 @@ def load_canonical_cu_directions(path):
     congress fall through to the model ladder.
     """
     directions = {}
-    display_re = re.compile(r"^([A-Za-z.]+?)\s*\.?\s*(\d+)$")
-    with open(path, "r", encoding="utf-8-sig", newline="") as handle:
-        for row in csv.DictReader(handle):
-            congress = (row.get("Congress") or "").strip()
-            raw_bill = (row.get("Bill") or "").strip()
-            raw_direction = (row.get("Direction") or "").strip()
-            if not congress or not raw_bill or raw_direction not in ("1", "-1"):
-                continue
-            compact = raw_bill.replace(".", "").replace(" ", "").upper()
-            match = re.match(r"^([A-Z]+)(\d+)$", compact)
-            if not match:
-                continue
-            bill_type = match.group(1).lower()
-            bill_key = f"{int(congress)}:{bill_type}:{int(match.group(2))}"
-            directions[bill_key] = int(raw_direction)
+    path = os.path.abspath(path)
+    if not os.path.isfile(path):
+        raise OrgStancePriorsError(f"canonical bill directions not found: {path}")
+    try:
+        with open(path, "r", encoding="utf-8-sig", newline="") as handle:
+            for row in csv.DictReader(handle):
+                congress = (row.get("Congress") or "").strip()
+                raw_bill = (row.get("Bill") or "").strip()
+                raw_direction = (row.get("Direction") or "").strip()
+                if (
+                    not congress.isdecimal()
+                    or not raw_bill
+                    or raw_direction not in ("1", "-1")
+                ):
+                    continue
+                compact = raw_bill.replace(".", "").replace(" ", "").upper()
+                match = re.match(r"^([A-Z]+)(\d+)$", compact)
+                if not match:
+                    continue
+                bill_type = match.group(1).lower()
+                bill_key = f"{int(congress)}:{bill_type}:{int(match.group(2))}"
+                directions[bill_key] = int(raw_direction)
+    except (OSError, csv.Error) as exc:
+        raise OrgStancePriorsError(
+            f"could not read canonical bill directions {path}: {exc}"
+        ) from exc
     return directions
 
 

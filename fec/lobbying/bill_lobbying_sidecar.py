@@ -399,7 +399,9 @@ def _load_joining_forecast(forecast_dir, wanted_bill_keys, resolver):
             rows.append(
                 {
                     "bioguide_id": member,
-                    "name": record["name"],
+                    "name": (
+                        record["name"] if record["resolved"] else record["display"]
+                    ),
                     "is_former": bool(record["is_former"]),
                     "probability": round(probability, 4),
                     "joined": None if joined_code < 0 else joined_code,
@@ -472,8 +474,8 @@ def _top_engagement(engagements, organizations):
     )
     return {
         "organization": organizations[pair]["name"],
-        "bill": entry["bill"] or pair[1],
-        "bill_key": pair[1],
+        "bill": entry["bill"] or pair[0],
+        "bill_key": pair[0],
         "date": entry["date"],
         "count": entry["count"],
     }
@@ -606,7 +608,9 @@ def _member_rows(bill_key, bill_members, resolver):
         rows.append(
             {
                 "bioguide_id": source["bioguide_id"],
-                "name": record["name"],
+                "name": (
+                    record["name"] if record["resolved"] else record["display"]
+                ),
                 "role": source["role"],
                 "is_former": bool(record["is_former"]),
             }

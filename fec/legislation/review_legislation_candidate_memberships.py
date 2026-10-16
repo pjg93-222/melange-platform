@@ -259,15 +259,19 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def output_file_receipt(path: Path, record_count: int) -> dict[str, Any]:
+def display_path(path: Path) -> str:
     resolved = path.resolve()
-    display_path = (
+    return (
         str(resolved.relative_to(ROOT)).replace("\\", "/")
         if resolved.is_relative_to(ROOT)
         else str(resolved)
     )
+
+
+def output_file_receipt(path: Path, record_count: int) -> dict[str, Any]:
+    resolved = path.resolve()
     return {
-        "path": display_path,
+        "path": display_path(resolved),
         "bytes": resolved.stat().st_size,
         "sha256": sha256_file(resolved),
         "record_count": record_count,
@@ -778,10 +782,22 @@ def main() -> int:
     if manifest["status"] != "complete":
         raise RuntimeError("Advanced Search discovery run is not complete")
     registry = read_json(args.registry.resolve())
-    records = read_ndjson(run_dir / manifest["union"]["records_file"])
-    raw_memberships = read_ndjson(
-        run_dir / manifest["union"]["memberships_file"]
-    )
+    union = manifest["union"]
+    for key in ("records_file", "memberships_file"):
+        if not (run_dir / union[key]).is_file():
+            raise RuntimeError(f"Discovery union {key} is missing")
+    records = read_ndjson(run_dir / union["records_file"])
+    raw_memberships = read_ndjson(run_dir / union["memberships_file"])
+    if (
+        not records
+        or not raw_memberships
+        or len(records) != union.get("unique_record_count")
+        or len(raw_memberships) != union.get("membership_count")
+    ):
+        raise RuntimeError(
+            "Discovery union record/membership counts are empty or "
+            "disagree with the manifest"
+        )
     record_by_key = {row["canonical_key"]: row for row in records}
     query_meta = {row["query_id"]: row for row in manifest["queries"]}
     category_by_id = {
@@ -1722,17 +1738,11 @@ def main() -> int:
         "atomic_output_publish": True,
         "output_files_hash_bound": True,
         "outputs": output_receipts,
-        "ledger_file": str(ledger_path.relative_to(ROOT)).replace("\\", "/"),
-        "included_file": str(included_path.relative_to(ROOT)).replace("\\", "/"),
-        "exclusions_file": str(exclusions_path.relative_to(ROOT)).replace(
-            "\\", "/"
-        ),
-        "unresolved_file": str(unresolved_path.relative_to(ROOT)).replace(
-            "\\", "/"
-        ),
-        "sorted_review_queue_file": str(
-            sorted_review_queue_path.relative_to(ROOT)
-        ).replace("\\", "/"),
+        "ledger_file": display_path(ledger_path),
+        "included_file": display_path(included_path),
+        "exclusions_file": display_path(exclusions_path),
+        "unresolved_file": display_path(unresolved_path),
+        "sorted_review_queue_file": display_path(sorted_review_queue_path),
     }
     write_json(out_dir / "manifest.json", report)
     print(json.dumps(report, indent=2))

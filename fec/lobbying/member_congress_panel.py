@@ -635,6 +635,7 @@ def build_panel(
     district_eligible = 0
     district_crosswalk_joined = 0
     district_context_complete = 0
+    district_98_fallback = 0
     for key in sorted(spine, key=lambda item: (item[0], item[1])):
         member, congress = key
         service = spine[key]
@@ -682,6 +683,15 @@ def build_panel(
             district_key = district_crosswalk.get(member)
             if district_key is not None:
                 district_crosswalk_joined += 1
+                # Delegates (DC/PR) are district 0 in legislators.csv but
+                # keyed -98 in the district context files.
+                if district_key.endswith("-00") and not (
+                    district_key in financial or district_key in community
+                ):
+                    alt_key = district_key[:-3] + "-98"
+                    if alt_key in financial or alt_key in community:
+                        district_key = alt_key
+                        district_98_fallback += 1
                 row["cu_branch_share_v119"] = financial.get(district_key, "")
                 community_row = community.get(district_key, {})
                 row["owner_rate_v119"] = community_row.get("owner_rate", "")
@@ -727,6 +737,7 @@ def build_panel(
             "eligible_119_house_rows": district_eligible,
             "legislator_crosswalk_joined": district_crosswalk_joined,
             "complete_context_rows": district_context_complete,
+            "district_98_fallback_rows": district_98_fallback,
             "owner_rate_source_field": "derived.owner_occupied_share",
             "employment_rate_source_field": (
                 "derived.employment_population_ratio"

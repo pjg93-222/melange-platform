@@ -102,10 +102,17 @@ broad_url <- fec_build_url(
   variants,
   query_field = "contributor_employer"
 )
-fec_navigate(fec_active_session(session), broad_url)
-broad_total <- as.integer(
-  fec_read_page(fec_active_session(session))$info$recordsTotal
-)
+read_planning_total <- function() {
+  active_session <- fec_active_session(session)
+  previous_evidence <- fec_browser_evidence_callback(active_session)
+  attr(active_session, "mentat_evidence_callback") <- fec_chrome_archive_callback(
+    connection, company, cycle, paste0(broad_variant_set, ":planning_count"), variants,
+    "contributor_employer")
+  on.exit({ attr(active_session, "mentat_evidence_callback") <- previous_evidence }, add = TRUE)
+  fec_navigate(fec_active_session(session), broad_url)
+  as.integer(fec_read_page(fec_active_session(session))$info$recordsTotal)
+}
+broad_total <- read_planning_total()
 if (is.na(broad_total) || broad_total < 0L) {
   stop("Broad employer query returned an invalid total.", call. = FALSE)
 }
@@ -147,6 +154,7 @@ for (partition_index in seq_len(nrow(partitions))) {
     partition$label
   )
   result <- fec_walk_variant_set(
+    evidence_connection = connection,
     session = session,
     company = company,
     cycle = cycle,

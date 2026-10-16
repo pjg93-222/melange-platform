@@ -3554,12 +3554,13 @@ reliability_report_lines <- function(connection, amendment_summary = NULL) {
   # handling, including receipt-role exclusions and refreshed memo evidence.
   qa_rows <- spending_raw_report_rows(connection, versioning_applied = TRUE)
   qa_keep <- fec_receipt_countable(qa_rows)
+  qa_roles <- if (nrow(qa_rows)) qa_rows$receipt_role else character()
   for (table in c("contributions", "corporate_giving")) {
     selected <- qa_rows$source_table == table
     summary <- if (table == "contributions") contribution_summary else corporate_summary
     summary[, countable_rows := sum(qa_keep & selected)]
     summary[, countable_dollars := sum(qa_rows$contribution_receipt_amount[qa_keep & selected], na.rm = TRUE)]
-    summary[, unresolved_receipt_rows := sum(qa_keep & selected & fec_receipt_role_unresolved(qa_rows$receipt_role))]
+    summary[, unresolved_receipt_rows := sum(qa_keep & selected & fec_receipt_role_unresolved(qa_roles))]
   }
   max_load <- contribution_summary$max_load_date[[1L]]
   if (is.na(max_load) || !nzchar(trim_text(max_load))) {
@@ -3572,7 +3573,8 @@ reliability_report_lines <- function(connection, amendment_summary = NULL) {
     paste0("- Pages walked/checkpointed: ", pages_walked),
     paste0("- Retry count: ", retry_count),
     paste0("- Determinism spot-check (identical sub_id set): ", determinism_text),
-    paste0("- FEC data-through (maximum load_date): ", max_load),
+    paste0("- Latest observed FEC row load_date: ", max_load),
+    "- Collection completeness requires coverage evidence.",
     "",
     "## Rows and pages by company-cycle",
     "",

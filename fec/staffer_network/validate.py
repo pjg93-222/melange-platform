@@ -26,9 +26,9 @@ class PublicSafetyError(ValueError):
     pass
 
 
-_EMAIL_VALUE = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w.-])")
+_EMAIL_VALUE = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w-]|\.[A-Za-z0-9])")
 _PHONE_VALUE = re.compile(
-    r"(?<!\d)(?:\+1[ .-])?(?:\(\d{3}\)[ .-]|\d{3}[ .-])\d{3}[ .-]\d{4}(?!\d)"
+    r"(?<!\d)(?:\+1[ .-])?(?:\(\d{3}\)[ .-]?|\d{3}[ .-])\d{3}[ .-]\d{4}(?!\d)"
 )
 
 

@@ -210,11 +210,17 @@ def _cache_vector(cache_dir, cache_key, compute):
     cache_name = hashlib.sha256(cache_key.encode("utf-8")).hexdigest() + ".npy"
     cache_path = os.path.join(cache_dir, cache_name)
     if os.path.isfile(cache_path):
-        vector = np.load(cache_path, allow_pickle=False)
-        if vector.ndim == 1 and vector.size:
+        try:
+            vector = np.load(cache_path, allow_pickle=False)
+        except (ValueError, OSError, EOFError):
+            vector = None  # truncated by an interrupted write; recompute
+        if vector is not None and vector.ndim == 1 and vector.size:
             return vector.astype(np.float64), True
     vector = np.asarray(compute(), dtype=np.float64).reshape(-1)
-    np.save(cache_path, vector, allow_pickle=False)
+    tmp_path = cache_path + ".tmp"
+    with open(tmp_path, "wb") as handle:
+        np.save(handle, vector, allow_pickle=False)
+    os.replace(tmp_path, cache_path)
     return vector, False
 
 

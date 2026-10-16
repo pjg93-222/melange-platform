@@ -904,7 +904,7 @@ payload <- list(
     # F15: each view's own walk - its roots, carryover status and the committees it dated.
     view_date_rule = transfer_context$networks$census,
     industry = MENTAT_INDUSTRY,
-    database_path = database_path,
+    database_path = Sys.getenv("MENTAT_RECEIPT_DATABASE_PATH", database_path),
     database_bytes = file.info(database_path)$size,
     raw_rows = nrow(raw_export),
     workbook_raw_rows = nrow(workbook_raw_export),
@@ -1048,7 +1048,7 @@ if (nzchar(tidy_stage_path)) {
     cycle_label = trimws(Sys.getenv("MENTAT_CYCLE_FILTER", unset = "")),
     supported_cycles = as.integer(supported_cycles),
     cycle_labels = sprintf("%d-%d", supported_cycles - 1L, supported_cycles),
-    database_path = database_path,
+    database_path = Sys.getenv("MENTAT_RECEIPT_DATABASE_PATH", database_path),
     # The database SHA-256 is the orchestrator's quiesced hash, not something R
     # can recompute without re-reading a multi-gigabyte file; it reaches the
     # writer as --database-sha256 and is recorded here as unknown.
@@ -1057,9 +1057,9 @@ if (nzchar(tidy_stage_path)) {
     exporter_version = paste0("md5:", unname(tools::md5sum(script_path))),
     expected_cycle_totals = as.list(expected_cycle_totals),
     accounting_note = paste(
-      "Analysis Amount counts included itemized receipts at the named recipient",
-      "and is 0 for memo, conduit, superseded, duplicate and out-of-cycle legs;",
-      "Amount is the figure as filed. Neither is verified unique giving."
+      "Analysis Amount counts itemized receipts included by the report receipt rules at the named recipient; excluded rows are 0.",
+      "Valid conduit and nonduplicated memo receipts can be included.",
+      "Amount preserves the signed figure as filed. Neither column certifies unique giving."
     ),
     blank_columns = if (length(tidy_blank_columns)) tidy_blank_columns else character()
   ))

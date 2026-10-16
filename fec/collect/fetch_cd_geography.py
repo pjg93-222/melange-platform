@@ -42,7 +42,7 @@ Repo-plane output schema:
     "notes": {"co_split_block": <str>}
   }
 """
-import csv,datetime,gzip,hashlib,io,json,os,sys,time,urllib.request,zipfile
+import csv,datetime,gzip,hashlib,io,json,os,sys,time,urllib.error,urllib.request,zipfile,zlib
 from moneyball_core import dump_atomic
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 
@@ -98,11 +98,57 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def _discard_part(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+def _validate_zip(path, label):
+    try:
+        with zipfile.ZipFile(path, 'r') as archive:
+            bad_member = archive.testzip()
+    except (OSError, zipfile.BadZipFile, RuntimeError, zlib.error) as exc:
+        raise OSError(
+            '%s ZIP integrity check failed: %s' % (label, str(exc))
+        ) from exc
+    if bad_member is not None:
+        raise OSError(
+            '%s ZIP integrity check failed at member %s' %
+            (label, bad_member)
+        )
+
+
+def _preserve_corrupt_cache(path, label):
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime(
+        '%Y%m%dT%H%M%S%fZ'
+    )
+    corrupt_path = path + '.corrupt-' + stamp
+    try:
+        os.rename(path, corrupt_path)
+    except OSError as exc:
+        raise SystemExit(
+            'failed to preserve invalid cached %s %s: %s' %
+            (label, path, str(exc))
+        ) from exc
+    print(
+        '!! preserved invalid cached %s as %s' %
+        (label, corrupt_path)
+    )
+
+
 def _download_source(label, url, path, force):
     if os.path.exists(path) and not force:
-        print('cached %s: %s' % (label, path))
-        retrieved = _utc_iso(os.path.getmtime(path))
-        return {'url': url, 'sha256': _sha256(path), 'retrieved': retrieved}
+        try:
+            _validate_zip(path, label)
+        except OSError as exc:
+            print('!! cached %s failed validation: %s' % (label, str(exc)))
+            _preserve_corrupt_cache(path, label)
+        else:
+            print('cached %s: %s' % (label, path))
+            retrieved = _utc_iso(os.path.getmtime(path))
+            return {'url': url, 'sha256': _sha256(path), 'retrieved': retrieved}
 
     part_path = path + '.part'
     for attempt in range(4):
@@ -116,11 +162,17 @@ def _download_source(label, url, path, force):
                         if not chunk:
                             break
                         target.write(chunk)
+            _validate_zip(part_path, label)
             os.replace(part_path, path)
             retrieved = _utc_iso()
             print('downloaded %s: %s' % (label, path))
             return {'url': url, 'sha256': _sha256(path), 'retrieved': retrieved}
         except Exception as exc:
+            _discard_part(part_path)
+            if (isinstance(exc, urllib.error.HTTPError)
+                    and 400 <= exc.code < 500 and exc.code != 429):
+                raise SystemExit('download failed for %s: HTTP %d: %s' %
+                                 (label, exc.code, str(exc))) from exc
             if attempt == 3:
                 raise SystemExit('download failed for %s after 4 attempts: %s' %
                                  (label, str(exc))) from exc

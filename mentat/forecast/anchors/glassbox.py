@@ -56,12 +56,19 @@ def emit(kind, status, stage, summary, run_id, correlation_id='', parent_id='', 
 
 
 class Run:
-    """A run-scoped emitter: the first event is the correlation root; later events name it as their parent."""
+    """Run events plus optional flushed stdout progress, independent of the event directory."""
 
-    def __init__(self, run_id, folder=None):
+    def __init__(self, run_id, folder=None, progress=False):
         self.run_id, self.folder, self.root, self.ids, self._t = run_id, folder, '', [], {}
+        self.progress, self._active = progress, []
 
     def _emit(self, kind, status, stage, summary, detail='', duration_ms=-1, metadata=None):
+        if self.progress:
+            # Emit before filesystem events: an unavailable event directory must not hide the live stage.
+            print(json.dumps({'source': SOURCE, 'timestamp_utc': datetime.now(timezone.utc).isoformat(),
+                              'run_id': self.run_id, 'kind': kind, 'status': status, 'stage': stage,
+                              'summary': summary[:320], 'duration_ms': duration_ms,
+                              'elapsed_seconds': round(self._dur('run') / 1000, 3)}, ensure_ascii=False), flush=True)
         event_id = emit(kind, status, stage, summary, self.run_id, self.root, self.root, detail, duration_ms, self.folder, metadata)
         if event_id and not self.root:
             self.root = event_id
@@ -70,21 +77,26 @@ class Run:
         return event_id
 
     def _dur(self, key):
-        return int(round((time.time() - self._t[key]) * 1000)) if key in self._t else -1
+        return int(round((time.monotonic() - self._t[key]) * 1000)) if key in self._t else -1
 
     def start(self, summary, detail=''):
-        self._t['run'] = time.time()
+        self._t['run'] = time.monotonic()
         return self._emit('run.start', 'running', 'start', summary, detail)
 
     def stage_start(self, stage, summary=None):
-        self._t[stage] = time.time()
+        self._t[stage] = time.monotonic()
+        self._active.append(stage)
         return self._emit('stage.start', 'running', stage, summary or stage)
 
     def stage_finish(self, stage, summary=None, detail='', status='succeeded'):
+        if stage in self._active:
+            self._active.remove(stage)
         return self._emit('stage.finish', status, stage, summary or stage, detail, self._dur(stage))
 
     def finish(self, summary, detail='', status='succeeded'):
         return self._emit('run.finish', status, 'finish', summary, detail, self._dur('run'))
 
     def fail(self, summary, detail=''):
-        return self._emit('run.finish', 'failed', 'failure', summary, detail)
+        for stage in list(reversed(self._active)):
+            self.stage_finish(stage, summary, detail, status='failed')
+        return self._emit('run.finish', 'failed', 'failure', summary, detail, self._dur('run'))

@@ -36,6 +36,7 @@ import csv
 import dataclasses
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
@@ -851,7 +852,13 @@ class HttpFetcher:
                 status = int(response.status)
                 final_url = clean_url(response.geturl())
                 content_type = response.headers.get_content_type()
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            http.client.HTTPException,
+            ValueError,
+        ) as exc:
             raise CollectorError(f"official source fetch failed for {source_url}: {exc}") from exc
         if status != 200:
             raise CollectorError(f"official source returned HTTP {status}: {source_url}")
@@ -953,6 +960,10 @@ def fetch_actions(
             raise CollectorError(
                 f"Congress.gov actions response is not valid JSON for {key.canonical}: {exc}"
             ) from exc
+        if not isinstance(payload, dict):
+            raise CollectorError(
+                f"Congress.gov actions response is not a JSON object for {key.canonical}"
+            )
         page_actions = payload.get("actions")
         if isinstance(page_actions, dict):
             page_actions = page_actions.get("item") or page_actions.get("items")

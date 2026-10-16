@@ -73,12 +73,8 @@ rf_compare_bundles <- function(a, b, rel_tol = 1e-9, abs_tol = 1e-12) {
 # CRLF line endings written explicitly (the bytes R's text mode gives on Windows), so the file is byte-identical on every platform (compute parity, D-177).
 rf_write_csv <- function(d, path) {
   dir.create(dirname(path), recursive = TRUE, showWarnings = FALSE)
-  con <- textConnection("csv_lines", "w", local = TRUE)
-  utils::write.csv(d, con, row.names = FALSE)
-  close(con)
-  con <- file(path, open = "wb")
-  writeBin(charToRaw(enc2utf8(paste0(paste(csv_lines, collapse = "\r\n"), "\r\n"))), con)
-  close(con)
+  rc <- rawConnection(raw(0), "w"); utils::write.csv(d, rc, row.names = FALSE); b <- rawConnectionValue(rc); close(rc)
+  writeBin(charToRaw(gsub("\n", "\r\n", rawToChar(b), fixed = TRUE, useBytes = TRUE)), path)
   invisible(path)
 }
 

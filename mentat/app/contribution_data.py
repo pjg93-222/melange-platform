@@ -32,6 +32,8 @@ from cross_reference_engine import analyze
 from run_cross_reference import coalesce_source_observations
 from cross_reference_store import EvidenceStore
 from receipt_path import receipt_path
+import runtime_paths
+import report_publication
 
 CACHE_ROOT = PROJECT / 'state' / 'contribution-analytics'
 VERSION = 3
@@ -188,6 +190,20 @@ def _slug(industry):
     return re.sub(r'[^a-z0-9]+', '_', industry.lower()).strip('_')
 
 
+def _report_cache_root():
+    """Use selected runtime roots; preserve explicit PROJECT fixtures without overrides."""
+    if any(os.environ.get(name, '').strip() for name in ('MENTAT_REPORT_CACHE_ROOT', 'MENTAT_DATA_ROOT')):
+        return runtime_paths.report_cache_root()
+    return PROJECT / '.cache' / 'industry-report'
+
+
+def _data_cache_root():
+    """The selected data cache contains exact historical hydration receipts."""
+    if os.environ.get('MENTAT_DATA_ROOT', '').strip():
+        return runtime_paths.data_root() / '.cache'
+    return PROJECT / '.cache'
+
+
 def _sources(directory):
     """Only filenames in the supplied server-owned report directory enter scope.
     Internal payloads are lineage evidence, never substitute report workbooks.
@@ -225,8 +241,15 @@ def _sources(directory):
         # the pinned payload, so a Data book that is stale, hand-edited or
         # simply absent cannot become a substitute report source. A lineage
         # mismatch is reported, never silently accepted.
+        try:
+            publication = report_publication.capture(workbook)
+            item['publication'] = publication
+        except ValueError as error:
+            item.update(available=False, message=str(error))
+            result.append(item)
+            continue
         sibling = workbook.with_name(companion_name(info))
-        if sibling.is_file() and sibling.resolve().is_relative_to(directory):
+        if publication.get('data_published') is not False and sibling.is_file() and sibling.resolve().is_relative_to(directory):
             item['data_workbook'] = sibling
             try:
                 item['data_workbook_sha256'] = _hash(sibling)
@@ -243,7 +266,7 @@ def _sources(directory):
         try:
             db_hash = _workbook_source(_stamp(workbook))
             # The P&C cache historically omits the ampersand, which slug() also does.
-            cache = PROJECT / '.cache' / 'industry-report' / _slug(industry)
+            cache = _report_cache_root() / _slug(industry)
             manifest_path, payload = lineage_paths(cache, db_hash, info['cycle_label'])
             manifest = _json(manifest_path)
             if manifest.get('database_sha256') != db_hash:
@@ -264,14 +287,17 @@ def _sources(directory):
             if not database.is_file():
                 # A preserved recovery receipt is an explicit source lineage,
                 # not a newest-file or arbitrary-database fallback.
-                hydration_path=PROJECT/'.cache/receipt-metadata-repair-20260910'/_slug(industry)/'mentat.db.hydration.json'
+                hydration_path=_data_cache_root()/'receipt-metadata-repair-20260910'/_slug(industry)/'mentat.db.hydration.json'
                 hydration=_json(hydration_path)
                 if hydration.get('source_sha256') != original_hash:
                     raise ValueError('Recovered source lineage does not match this workbook.')
                 database=receipt_path(hydration['output']).resolve()
-                if not database.is_relative_to((PROJECT/'.cache').resolve()) or not database.is_file():
+                if not database.is_relative_to(_data_cache_root().resolve()) or not database.is_file():
                     raise ValueError('The pinned recovered contribution database is unavailable.')
                 db_hash=_hash(database)
+            if (report_publication.capture(workbook) != publication
+                    or _hash(workbook) != item['workbook_sha256']):
+                raise ValueError(report_publication.MESSAGE)
             item.update(available=True, database=database, database_sha256=db_hash,
                         original_database_sha256=original_hash,hydration_manifest=hydration_path,
                         payload=payload, payload_sha256=manifest.get('data_sha256'),
@@ -335,6 +361,9 @@ def _portable(path,roots):
 
 
 def _token(source):
+    publication = report_publication.capture(source['workbook'])
+    if source.get('publication') is not None and publication != source['publication']:
+        raise ValueError(report_publication.MESSAGE)
     if LOADED_RULE_STAMPS != [(str(p),p.stat().st_size,p.stat().st_mtime_ns) for p in RULE_PATHS]:
         raise ValueError('Accounting code changed. Restart the app to load the current accounting rules.')
     paths=[source['workbook'],source['database'],source['payload'],source['manifest']]

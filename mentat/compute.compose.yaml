@@ -137,7 +137,10 @@ services:
     <<: *job
     command: ["run", "collect-fanout"]
     networks: [collect]
-    secrets: [fec_api_keys]
+    secrets: [fec_api_keys, fec_request_pool]
+    environment:
+      <<: *env
+      MENTAT_REQUEST_POOL_CONFIG: /run/secrets/fec_request_pool
     mem_limit: 10g
     cpus: 6
     volumes:
@@ -169,3 +172,5 @@ networks:
 secrets:
   fec_api_keys:
     file: ${FEC_KEYS_FILE:-/dev/null}
+  fec_request_pool:
+    file: ${REQUEST_POOL_CONFIG_FILE:-/dev/null}

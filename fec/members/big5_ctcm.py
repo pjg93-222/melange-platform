@@ -60,7 +60,6 @@ model = semopy.Model(DESC)
 res = model.fit(df)
 print('fit:', res)
 ins = model.inspect()
-lo = ins[(ins['op'] == '~')]
 heywood = False; badload = []
 for _, r in ins.iterrows():
     if r['op'] == '~~' and r['lval'] == r['rval'] and float(r['Estimate']) < 0: heywood = True
@@ -103,7 +102,8 @@ print('  Heywood: %s | negative on-trait loadings: %s' % (heywood, badload or 'n
 bars = [('latent A-ES <= 0.50', aes <= 0.50, '%.3f' % aes),
         ('latent discriminant <= 0.30', disc <= 0.30, '%.3f' % disc),
         ('latent C vs votes >= +0.15', rC >= 0.15, '%+.3f' % rC),
-        ('loadings positive, no Heywood', (not heywood) and not badload, str(badload) if badload else 'ok')]
+        ('loadings positive, no Heywood', (not heywood) and not badload, str(badload) if badload else 'ok'),
+        ('optimizer converged', bool(res.success), str(res.message))]
 for nm, hit, det in bars: print('  BAR %-30s %s (%s)' % (nm, 'CLEAR' if hit else 'MISS', det))
 ok = all(b[1] for b in bars)
 if ok:

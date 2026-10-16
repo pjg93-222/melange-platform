@@ -34,6 +34,12 @@ OVERRIDES = os.path.join(ROOT, 'data', 'legislation', 'bill_overrides.csv')
 DIRECTIONS = os.path.join(ROOT, 'data', 'legislation', 'bill_directions.csv')
 STANCE = os.path.join(ROOT, 'category_stance.json')
 ARCHIVE_LEG = os.path.join(ROOT, 'archive_leg.json')
+ROUTING_AUDIT = os.path.join(ROOT, 'legislation_routing_audit.json')
+PRODUCTION_DROPS = frozenset((
+    'official-membership-withdrawn-or-role-superseded',
+    'identity-unverified-by-billstatus',
+    'unmatched-member',
+))
 MANUAL = os.path.join(ROOT, 'manual_bill_evidence.csv')
 FIELDS = ['Bill', 'Congress', 'Category', 'Direction', 'Include', 'Note']
 MANUAL_FIELDS = ['Member','Role','Bill','Title','Sponsor','Congress','Category','Direction',
@@ -90,13 +96,21 @@ def load_json(path, fallback):
 
 
 def load_directions():
-    out = {}
+    # Mirrors build_archive_legislative.load_direction_registry (typed mode); that
+    # module executes on import, so it cannot be imported here.
+    out = {'exact': {}, 'blank': {}}
     try:
         with open(DIRECTIONS, encoding='utf-8-sig', newline='') as handle:
             for row in csv.DictReader(handle):
-                key = BR.bill_key(row.get('Bill'))
-                if key:
-                    out[key] = _text(row.get('Direction')).strip()
+                key = BR.bill_type_key(row.get('Bill'))
+                if not key:
+                    continue
+                direction = _text(row.get('Direction')).strip()
+                congress = BR._congress(row.get('Congress'))
+                if congress:
+                    out['exact'][(key, congress)] = direction
+                else:
+                    out['blank'][key] = direction
     except OSError:
         pass
     return out
@@ -133,7 +147,10 @@ def resolved(row, overrides, directions):
         direction = {'1': 1, '+1': 1, '-1': -1}.get(_text(row.get('Direction')).strip(), 0)
         reason += '; manual evidence direction'
     else:
-        raw = directions.get(BR.bill_key(row.get('Name')))
+        type_key = BR.bill_type_key(row.get('Name'))
+        raw = directions.get('exact', {}).get((type_key, BR._congress(row.get('Congress'))))
+        if raw is None and type_key:
+            raw = directions.get('blank', {}).get(type_key)
         if raw is not None:
             direction = {'1': 1, '-1': -1}.get(raw, 0)
             reason += '; direction registry'
@@ -152,6 +169,40 @@ def resolved(row, overrides, directions):
     }
 
 
+def production_ledger():
+    # Read-only index of the production routing ledger by archive source_row.
+    try:
+        with open(ROUTING_AUDIT, encoding='utf-8') as handle:
+            return {entry.get('source_row'): entry for entry in json.load(handle).get('rows', [])}
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
+def apply_production_drops(rows):
+    ledger = production_ledger()
+    if ledger is None:
+        print('warning: %s unreadable; console include/exclude may overstate production evidence'
+              % ROUTING_AUDIT)
+        return
+    mismatched = 0
+    for index, row in enumerate(rows):
+        if row.get('_manual'):
+            continue
+        entry = ledger.get(index + 2)
+        if entry is None or _text(entry.get('bill')).strip() != _text(row.get('Name')).strip():
+            mismatched += 1
+            continue
+        disposition = entry.get('disposition')
+        if disposition in PRODUCTION_DROPS:
+            result = row['_resolved']
+            result['include'] = False
+            result['contribution'] = 0.0
+            result['reason'] += '; production: %s' % disposition
+    if mismatched:
+        print('warning: %d archive rows not aligned with %s; left unchanged'
+              % (mismatched, os.path.basename(ROUTING_AUDIT)))
+
+
 def state():
     source, rows = load_rows()
     overrides = BR.load_overrides(OVERRIDES)
@@ -167,6 +218,7 @@ def state():
         row['_resolved'] = resolved(row, overrides, directions)
         key = (BR.evidence_key(row.get('Name')), _text(row.get('Congress')))
         row['_all_categories'] = sorted(by_bill_categories[key])
+    apply_production_drops(rows)
     return {
         'source': source, 'rows': rows, 'overrides': overrides,
         'directions': directions, 'stance': stance, 'legislative': legislative,

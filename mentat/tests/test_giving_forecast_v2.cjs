@@ -122,7 +122,7 @@ test('a share shows both bases side by side with the pp change, both intervals a
   const cell = t.shareCellV2(horizon('banks', 0).shares.House, true, 'House');
   const columns = cell.children.find(c => c.className === 'gf-pair').children;
   assert.equal(columns.length, 2);
-  assert.match(flat(columns[0]), /Employees' candidate giving/);
+  assert.match(flat(columns[0]), /Included receipts to House\/Senate candidates/);
   assert.match(flat(columns[1]), /Roster PACs' candidate giving/);
   const all = flat(cell);
   assert.match(all, /2023–2024 Mentat share 34\.35% → 33\.41% \(-0\.94 pp\)/);       // employees, Polymarket-to-Polymarket

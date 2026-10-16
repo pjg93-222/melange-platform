@@ -97,7 +97,7 @@ STATES = {
         POSTURE_DISENGAGING,
         "Disengaging",
         "Dormant",
-        "Attention in 2022–2023, none in 2024–2025 and none so far in 2026.",
+        "Attention before 2024, none in 2024–2025 and none so far in 2026.",
     ),
     ADVERSARIAL: (
         POSTURE_DISENGAGING,

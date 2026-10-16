@@ -32,7 +32,7 @@ lmu = L.mean(0); lsd = L.std(0, ddof=1); lsd[lsd < 1e-12] = 1; L = (L - lmu) / l
 yC = np.array([BD[m]['diligence_z'] for m in MEM])
 party = np.array([1.0 if P.get(m) == 'R' else 0.0 for m in MEM])
 ages = [byr.get(n2b.get(m)) for m in MEM]
-med = np.median([a for a in ages if a]); age = np.array([(2026 - (a or (2026 - med))) for a in ages], float)
+med = np.median([a for a in ages if a]); age = np.array([2026 - (a if a else med) for a in ages], float)
 print('CONFIRMATORY N=%d | Empath %d cats | age known %d/%d' % (len(MEM), L.shape[1], sum(1 for a in ages if a), len(MEM)))
 ALPHAS = [1, 3, 10, 30, 100, 300, 1000]; SEEDS = [7, 17, 29, 43, 61]
 def hr(X, y):

@@ -73,8 +73,9 @@ def shift_stance(m,issues,steps,toward_anti):
             if CTORD[j]!=cur: MAT[m][iss]=CTORD[j]; moved.append(iss)
     return moved
 for mv in a.money:
-    m,src,amt=mv.split(':'); amt=float(amt)
+    m,src,amt=mv.split(':'); amt=float(amt); src=src.strip().lower()
     if m not in C: log.append('!! unknown member: '+m); continue
+    if src not in ('cu','comp'): log.append('!! unknown source (cu|comp): '+src); continue
     dlean=mr.shift_lean(m,src,amt,fm.CM[m])   # COMPET_MULT: same c as flip_value below (dial OFF -> 1.0)
     if src=='comp': ind[m]=ind.get(m,0)+amt
     elif src=='cu': cu_state[m]=cu_state.get(m,0)+amt
@@ -88,10 +89,14 @@ for mv in a.money:
         defections.append((m,mr.OV.get(m),newov,round(dlean,1),moved))
     log.append('money %s %s $%s -> lean %+.1f%s'%(m,src,f'{int(amt):,}',dlean,' [DEFECTS->%s]'%newov if newov else ' (absorbed, no defection)'))
 for m in a.defect:
-    if m in C: moved=shift_stance(m,sorted(DEFENSIVE),2,True); defections.append((m,mr.OV.get(m),'forced',None,moved)); log.append('forced defection %s on %s'%(m,moved))
+    if m not in C: log.append('!! unknown member: '+m); continue
+    moved=shift_stance(m,sorted(DEFENSIVE),2,True); defections.append((m,mr.OV.get(m),'forced',None,moved)); log.append('forced defection %s on %s'%(m,moved))
 for mv in a.stance:
     m,iss,tier=mv.split(':')
-    if m in C and iss in cats: MAT[m][iss]=tier; log.append('stance %s %s -> %s'%(m,iss,tier))
+    if m not in C: log.append('!! unknown member: '+m); continue
+    if iss not in cats: log.append('!! unknown issue: '+iss); continue
+    if tier not in CTORD: log.append('!! unknown tier: '+tier); continue
+    MAT[m][iss]=tier; log.append('stance %s %s -> %s'%(m,iss,tier))
 # ---- propagate + report ----
 print('================ SCENARIO ================')
 for l in log: print('  '+l)

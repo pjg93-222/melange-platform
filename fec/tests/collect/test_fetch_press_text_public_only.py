@@ -8,6 +8,7 @@ import email.message
 import http.client
 import io
 import ipaddress
+import json
 import runpy
 import socket
 import sys
@@ -50,6 +51,7 @@ def run(tmp_path, monkeypatch):
     monkeypatch.syspath_prepend(str(FEC))
     opened = []
     redirects = {}
+    pages = {}          # url -> (body bytes, Content-Type header or None); unlisted urls serve PAGE
 
     def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
         try:
@@ -68,7 +70,10 @@ def run(tmp_path, monkeypatch):
             response = urllib.response.addinfourl(io.BytesIO(b""), headers, req.full_url, 302)
             response.msg = "Found"
         else:
-            response = urllib.response.addinfourl(io.BytesIO(PAGE), headers, req.full_url, 200)
+            body, content_type = pages.get(req.full_url, (PAGE, None))
+            if content_type:
+                headers["Content-Type"] = content_type
+            response = urllib.response.addinfourl(io.BytesIO(body), headers, req.full_url, 200)
             response.msg = "OK"
         return response
 
@@ -77,6 +82,8 @@ def run(tmp_path, monkeypatch):
     monkeypatch.setattr(urllib.request.HTTPSHandler, "https_open", fake_open)
 
     def go(urls):
+        if go.seed is not None:
+            (tmp_path / "press_text_cache.jsonl").write_bytes(go.seed)
         with open(tmp_path / "draft" / "cu_press_stance_tone.csv", "w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(["url"])
@@ -87,9 +94,15 @@ def run(tmp_path, monkeypatch):
             assert exit_.code == 2        # some URL failed
         cache = tmp_path / "press_text_cache.jsonl"
         import json
-        return {r["url"]: r for r in map(json.loads, cache.read_text(encoding="utf-8").splitlines())} if cache.exists() else {}
+        rows = {}
+        for line in cache.read_text(encoding="utf-8").splitlines() if cache.exists() else []:
+            try:
+                rows[json.loads(line)["url"]] = json.loads(line)
+            except (ValueError, KeyError):
+                pass        # a torn line left by an earlier run
+        return rows
 
-    go.opened, go.redirects = opened, redirects
+    go.opened, go.redirects, go.pages, go.seed, go.cache = opened, redirects, pages, None, tmp_path / "press_text_cache.jsonl"
     return go
 
 
@@ -206,3 +219,47 @@ def test_the_timeout_is_still_25_seconds(run, monkeypatch):
     monkeypatch.setattr(urllib.request.OpenerDirector, "open", spy)
     run(["https://www.example.gov/press/1"])
     assert seen == [25]
+
+
+@pytest.mark.parametrize("seed", [
+    b'{"url": "https://seed.example/old", "text": ""}\n',
+    b'{"url": "https://seed.example/old", "te',          # killed mid-write: no trailing newline
+])
+def test_a_torn_last_line_does_not_glue_onto_the_next_row(run, seed):
+    run.seed = seed
+    url = "https://www.example.gov/press/1"
+    assert run([url])[url]["text"]
+    lines = run.cache.read_bytes().splitlines()
+    assert len(lines) == 2                                       # no blank line when the file already ended cleanly
+    assert lines[0] == seed.rstrip(b"\n")
+    assert json.loads(lines[1])["url"] == url
+
+
+def test_a_response_over_8_million_bytes_is_retryable(run):
+    url = "https://www.example.gov/huge"
+    run.pages[url] = (PAGE + b" " * (8_000_001 - len(PAGE)), None)
+    row = run([url])[url]
+    assert row["text"] == "" and row["classification"] == "live_retry_failed"
+    assert row["err"] == "response too large"
+
+
+def test_a_response_of_exactly_8_million_bytes_is_still_read(run):
+    url = "https://www.example.gov/big"
+    run.pages[url] = (PAGE + b" " * (8_000_000 - len(PAGE)), None)
+    assert run([url])[url]["text"]
+
+
+def test_the_declared_charset_is_used_to_decode_the_body(run):
+    url = "https://www.example.gov/latin1"
+    run.pages[url] = (("<p>" + "caf\u00e9 r\u00e9sum\u00e9 " * 12 + "</p>").encode("iso-8859-1"),
+                      "text/html; charset=iso-8859-1")
+    text = run([url])[url]["text"]
+    assert "caf\u00e9" in text and "\ufffd" not in text
+
+
+def test_an_unknown_charset_falls_back_to_utf8(run):
+    url = "https://www.example.gov/bogus"
+    run.pages[url] = (("<p>" + "caf\u00e9 r\u00e9sum\u00e9 " * 12 + "</p>").encode("utf-8"),
+                      "text/html; charset=no-such-charset")
+    row = run([url])[url]
+    assert "err" not in row and "caf\u00e9" in row["text"]

@@ -283,27 +283,34 @@ def redact_secrets(value: Any) -> str:
 
 def read_json(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
+        value = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, ValueError) as exc:
         raise AdjudicationError(f"cannot read JSON {path}: {exc}") from exc
+    # every caller does .get(...) on the result
+    if not isinstance(value, dict):
+        raise AdjudicationError(f"JSON is not an object: {path}")
+    return value
 
 
 def iter_packets(path: Path) -> Iterator[dict[str, Any]]:
     if not path.is_file():
         raise AdjudicationError(f"packet file does not exist: {path}")
-    with path.open(encoding="utf-8-sig") as handle:
-        for line_number, line in enumerate(handle, 1):
-            if not line.strip():
-                continue
-            try:
-                value = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise AdjudicationError(
-                    f"invalid packet JSON at {path}:{line_number}"
-                ) from exc
-            if not isinstance(value, dict):
-                raise AdjudicationError(f"packet {line_number} is not an object")
-            yield value
+    try:
+        with path.open(encoding="utf-8-sig") as handle:
+            for line_number, line in enumerate(handle, 1):
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    raise AdjudicationError(
+                        f"invalid packet JSON at {path}:{line_number}"
+                    ) from exc
+                if not isinstance(value, dict):
+                    raise AdjudicationError(f"packet {line_number} is not an object")
+                yield value
+    except (OSError, ValueError) as exc:
+        raise AdjudicationError(f"cannot read packets {path}: {exc}") from exc
 
 
 def retryable_no_call_keys(run_dir: Path) -> set[str]:
@@ -357,14 +364,21 @@ def prior_call_keys(run_dir: Path, *, packets_sha256: str) -> set[str]:
 def exclusive_write(path: Path, value: Any) -> str:
     data = value if isinstance(value, bytes) else canonical_bytes(value)
     path.parent.mkdir(parents=True, exist_ok=True)
+    # write a temp file, then hard-link it into place: link fails if path exists,
+    # so a crash never leaves a truncated immutable artifact at the final path
+    temp = path.with_name(f".{path.name}.{os.getpid()}.{os.urandom(4).hex()}.tmp")
     try:
-        with path.open("xb") as handle:
+        with temp.open("xb") as handle:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-    except FileExistsError:
-        if path.read_bytes() != data:
-            raise AdjudicationError(f"immutable artifact collision: {path}")
+        try:
+            os.link(temp, path)
+        except FileExistsError:
+            if path.read_bytes() != data:
+                raise AdjudicationError(f"immutable artifact collision: {path}")
+    finally:
+        temp.unlink(missing_ok=True)
     return sha256_bytes(data)
 
 
@@ -2144,7 +2158,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         run(parse_args(argv))
         return 0
-    except AdjudicationError as exc:
+    except (AdjudicationError, AttributeError, TypeError, ValueError, OSError) as exc:
         print(f"ERROR: {redact_secrets(exc)}", file=sys.stderr)
         return 2
 

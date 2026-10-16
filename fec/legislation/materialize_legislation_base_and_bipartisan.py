@@ -32,9 +32,11 @@ import re
 import shutil
 import sys
 import tempfile
+import zipfile
 from typing import Any, Iterable, Sequence
 
 import openpyxl
+from openpyxl.utils.exceptions import InvalidFileException
 
 from paths import ROOT as MB_ROOT
 
@@ -95,6 +97,18 @@ CENTRALITY_HEADERS = (
 
 class AdapterError(RuntimeError):
     """A fail-closed input or output contract violation."""
+
+
+# Unreadable or malformed input files (bad encoding, bad XLSX, short rows,
+# non-numeric sizes) are fail-closed conditions, not tracebacks.
+INPUT_READ_ERRORS = (
+    OSError,
+    UnicodeError,
+    ValueError,
+    IndexError,
+    zipfile.BadZipFile,
+    InvalidFileException,
+)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -461,56 +475,60 @@ def load_party_evidence(
         if not path.is_file():
             blockers.append(f"party_roster_missing:{path}")
             continue
-        with path.open(encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle)
-            required = {"congress", "bioguide_id", "party_code"}
-            if not reader.fieldnames or not required.issubset(reader.fieldnames):
-                blockers.append(f"party_roster_headers_invalid:{path}")
-                continue
-            row_count = 0
-            included_identity_rows = 0
-            missing_bioguide_rows = 0
-            for line_number, row in enumerate(reader, 2):
-                row_count += 1
-                try:
-                    congress = int(str(row.get("congress") or "").strip())
-                except ValueError:
-                    blockers.append(
-                        f"party_roster_congress_invalid:{path}:{line_number}"
+        try:
+            with path.open(encoding="utf-8-sig", newline="") as handle:
+                reader = csv.DictReader(handle)
+                required = {"congress", "bioguide_id", "party_code"}
+                if not reader.fieldnames or not required.issubset(reader.fieldnames):
+                    blockers.append(f"party_roster_headers_invalid:{path}")
+                    continue
+                row_count = 0
+                included_identity_rows = 0
+                missing_bioguide_rows = 0
+                for line_number, row in enumerate(reader, 2):
+                    row_count += 1
+                    try:
+                        congress = int(str(row.get("congress") or "").strip())
+                    except ValueError:
+                        blockers.append(
+                            f"party_roster_congress_invalid:{path}:{line_number}"
+                        )
+                        continue
+                    if congress not in PARTY_CONGRESSES:
+                        continue
+                    congresses_seen.add(congress)
+                    bioguide = normalize_name(row.get("bioguide_id")).upper()
+                    if not bioguide:
+                        missing_bioguide_rows += 1
+                        continue
+                    if not BIOGUIDE_RE.fullmatch(bioguide):
+                        blockers.append(
+                            f"party_roster_bioguide_invalid:{path}:{line_number}"
+                        )
+                        continue
+                    code = str(row.get("party_code") or "").strip()
+                    party = "D" if code == "100" else "R" if code == "200" else "I"
+                    evidence[(congress, bioguide)].add(party)
+                    source_rows[(congress, bioguide)].append(
+                        {
+                            "path": str(path.resolve()),
+                            "line": line_number,
+                            "party_code": code,
+                            "mapped_party": party,
+                        }
                     )
-                    continue
-                if congress not in PARTY_CONGRESSES:
-                    continue
-                congresses_seen.add(congress)
-                bioguide = normalize_name(row.get("bioguide_id")).upper()
-                if not bioguide:
-                    missing_bioguide_rows += 1
-                    continue
-                if not BIOGUIDE_RE.fullmatch(bioguide):
-                    blockers.append(
-                        f"party_roster_bioguide_invalid:{path}:{line_number}"
-                    )
-                    continue
-                code = str(row.get("party_code") or "").strip()
-                party = "D" if code == "100" else "R" if code == "200" else "I"
-                evidence[(congress, bioguide)].add(party)
-                source_rows[(congress, bioguide)].append(
+                    included_identity_rows += 1
+                source_audit.append(
                     {
-                        "path": str(path.resolve()),
-                        "line": line_number,
-                        "party_code": code,
-                        "mapped_party": party,
+                        **file_receipt(path),
+                        "row_count": row_count,
+                        "included_identity_rows": included_identity_rows,
+                        "missing_bioguide_rows_excluded": missing_bioguide_rows,
                     }
                 )
-                included_identity_rows += 1
-            source_audit.append(
-                {
-                    **file_receipt(path),
-                    "row_count": row_count,
-                    "included_identity_rows": included_identity_rows,
-                    "missing_bioguide_rows_excluded": missing_bioguide_rows,
-                }
-            )
+        except (AdapterError, *INPUT_READ_ERRORS) as exc:
+            blockers.append(f"party_roster_unreadable:{path}:{exc}")
+            continue
     missing_congresses = sorted(set(PARTY_CONGRESSES) - congresses_seen)
     if missing_congresses:
         blockers.append(
@@ -959,10 +977,20 @@ def validate_output_path(value: Path) -> Path:
 
 
 def install_idempotently(temp: Path, out: Path, names: Sequence[str]) -> bool:
+    # The manifest is the last name: an install that dies part-way leaves no
+    # manifest, so a manifest-less output is always a partial generation.
     targets = [out / name for name in names]
     existing = [path.exists() for path in targets]
     if any(existing):
         if not all(existing):
+            manifest = out / MANIFEST_NAME
+            prior = read_json(manifest).get("status") if manifest.is_file() else None
+            staged = read_json(temp / MANIFEST_NAME).get("status")
+            if prior and prior != staged:
+                raise AdapterError(
+                    f"prior {prior} generation exists; refusing to install "
+                    f"a {staged} generation over it"
+                )
             raise AdapterError(
                 "partial prior adapter output exists; refusing a mixed generation"
             )
@@ -977,8 +1005,15 @@ def install_idempotently(temp: Path, out: Path, names: Sequence[str]) -> bool:
             )
         return True
     out.mkdir(parents=True, exist_ok=True)
-    for name in names:
-        os.replace(temp / name, out / name)
+    installed: list[Path] = []
+    try:
+        for name in names:
+            os.replace(temp / name, out / name)
+            installed.append(out / name)
+    except BaseException:
+        for path in installed:
+            path.unlink(missing_ok=True)
+        raise
     return False
 
 
@@ -1004,7 +1039,7 @@ def materialize(
         try:
             roster = load_member_roster(roster_path)
             roster_receipt = file_receipt(roster_path)
-        except AdapterError as exc:
+        except (AdapterError, *INPUT_READ_ERRORS) as exc:
             blockers.append(f"current_member_roster_invalid:{exc}")
 
     party_paths = discover_party_rosters(
@@ -1227,7 +1262,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             party_rosters=args.party_roster,
             out=args.out,
         )
-    except AdapterError as exc:
+    except (AdapterError, *INPUT_READ_ERRORS) as exc:
         print(
             f"materialize_legislation_base_and_bipartisan: FAIL CLOSED: {exc}",
             file=sys.stderr,

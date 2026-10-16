@@ -11,7 +11,7 @@ Two supervised tasks come out of the same rows:
   task=hop1     : hop1_stance      (member's stance toward the TARGET — Burnham/Stanceformer layer;
                                     only rows where the user filled/verified hop1)
 Writes stance_training.jsonl + class/split stats."""
-import csv,json,io,sys,collections
+import csv,json,io,sys,collections,os
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import openpyxl
 B=MB_ROOT

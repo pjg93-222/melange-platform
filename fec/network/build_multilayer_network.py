@@ -34,7 +34,7 @@ CFG=os.environ.get('NET_CONFIG','cu')
 # Validate against the SHARED registry, not a local tuple: moneyball_core grew to five configs
 # when bank_reg and crypto were promoted, and a stale copy here refused them with a message
 # saying the value was invalid when it is valid and simply not augmentable.
-from moneyball_core import NETWORKS as _NETS, cu_dropped_sponsors, cu_edge_rows, cu_backfill_ties
+from moneyball_core import NETWORKS as _NETS, cu_dropped_sponsors, cu_edge_rows, cu_backfill_ties, save_workbook_atomic, dump_atomic
 if CFG not in _NETS:
     raise SystemExit('NET_CONFIG must be one of %s, got %r' % ('|'.join(sorted(_NETS)), CFG))
 if _NETS[CFG].get('family') == 'sector':
@@ -204,12 +204,14 @@ pr=wb.create_sheet('Provenance'); pr.append(['source_bioguide','target_bioguide'
 for (a,b),(lay,w) in sorted(edges.items()):
     e1.append([a,b,w]); pr.append([a,b,w,lay])
 pr.append([]); pr.append(['built',datetime.datetime.now().isoformat(),'base',os.path.basename(src)])
-pr.append(['policy','cosponsor verbatim; engagement w=6p/(1-p) cap %.1f; hcoi only isolated-incident, w=0.6*r*%.2f; social new-edge cap %.1f + reinforcement x(1+%.2f*min(1,p/.10)) on tied pairs'%(ENG_CAP,HCOI_W,SOC_CAP,SOC_REINF)])
+_hc_clause='hcoi on dominance (admitted whether or not members are isolated; tied pairs take max)' if MEDIA_ADMIT=='dominance' else 'hcoi only isolated-incident'
+_coap_clause=('; co-appearance untied-only w=min(%.2f,%.2f*n), n>=%d'%(COAP_CAP,COAP_W,COAP_FLOOR)) if HOL else ''
+pr.append(['policy','cosponsor verbatim; engagement w=6p/(1-p) cap %.1f; %s, w=0.6*r*%.2f; social new-edge cap %.1f + reinforcement x(1+%.2f*min(1,p/.10)) on tied pairs%s; MEDIA_ADMIT=%s'%(ENG_CAP,_hc_clause,HCOI_W,SOC_CAP,SOC_REINF,_coap_clause,MEDIA_ADMIT)])
 if _drop: pr.append(['identity_fix','CU_IDENTITY_FIX dropped %d misattributed out-edges of %s (Menendez, decision G 2026-10-11)'%(dropped_misattributed,','.join(sorted(_drop)))])
 _bf=cu_backfill_ties(src)
 if _bf: pr.append(['placeholder_backfill','CU_PLACEHOLDER_BACKFILL summed %d directed BILLSTATUS ties (weight %.4f) from bills lost to the placeholder DetailLink (2026-10-11)'%(len(_bf),sum(_bf.values()))])
 pr.append(['revert','delete this file — loaders fall back to the newest plain cosponsor xlsx'])
-wb.save(out)
+save_workbook_atomic(wb,out)
 if HOL:
     def _sha(pth):
         try: return hashlib.sha256(open(pth,'rb').read()).hexdigest()[:16]
@@ -227,8 +229,8 @@ if HOL:
                                   'press_hcoi.json':_sha(os.path.join(B, 'data', 'stance', 'press_hcoi.json')),
                                   'social_interactions.json':_sha(os.path.join(B, 'data', 'lobbying', 'social_interactions.json')),
                                   'co_appearance.json':_sha(os.path.join(B, 'data', 'network', 'co_appearance.json'))}}
-    json.dump(_man,open(out.replace('.xlsx','.manifest.json'),'w',encoding='utf-8', newline='\r\n'),indent=1)
-print('AUGMENTED NETWORK: +%d engagement edges, +%d HCoI edges (isolated-incident only), +%d SOCIAL edges, %d existing ties socially reinforced'%(neweng,newhc,newsoc,reinf)+(', +%d CO-APPEARANCE edges'%newcoap if HOL else ''))
+    dump_atomic(_man,out.replace('.xlsx','.manifest.json'),indent=1)
+print('AUGMENTED NETWORK: +%d engagement edges, +%d HCoI edges (%s), +%d SOCIAL edges, %d existing ties socially reinforced'%(neweng,newhc,'dominance: isolated or not' if MEDIA_ADMIT=='dominance' else 'isolated-incident only',newsoc,reinf)+(', +%d CO-APPEARANCE edges'%newcoap if HOL else '')+' [MEDIA_ADMIT=%s]'%MEDIA_ADMIT)
 print('  D4: %d/%d formerly-isolated members are now cascade-reachable: %s%s'%(
     len(reconnected),len(isolated),', '.join(sorted(reconnected)[:8]),'...' if len(reconnected)>8 else ''))
 if CFG=='cu':

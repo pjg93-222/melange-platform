@@ -63,6 +63,8 @@ def prepare(
         program_id = str(rec.get("id") or os.path.splitext(os.path.basename(path))[0])
         date = str(rec.get("date") or "")[:10]
         url = str(rec.get("url") or "")
+        if "c-span.org/" not in url.lower():
+            raise RuntimeError(f"program {program_id} url is not a c-span.org url: {url!r}")
         title = str(rec.get("title") or rec.get("page_title") or "")
         turns = rec.get("turns") or []
         expected = identity.expected_guest(title, date, [turn.get("name") for turn in turns])
@@ -210,12 +212,12 @@ def replace(
                 program["member_words"], program["detail"], now,
             ) for program in programs],
         )
-        con.commit()
         after = cspan_stats(con)
         if after["turns"] != len(rows):
             raise RuntimeError(
-                f"post-commit C-SPAN row count {after['turns']} != prepared {len(rows)}"
+                f"pre-commit C-SPAN row count {after['turns']} != prepared {len(rows)}"
             )
+        con.commit()
         integrity = con.execute("PRAGMA integrity_check").fetchone()[0]
         if integrity != "ok":
             raise RuntimeError(f"SQLite integrity_check failed: {integrity}")

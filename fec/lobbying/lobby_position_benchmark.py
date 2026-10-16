@@ -140,7 +140,7 @@ def score_pairs(pairs, truth_key, classes):
     per_class = {}
     for label in classes:
         tp = confusion[label][label]
-        fn = sum(confusion[label][g] for g in classes if g != label)
+        fn = sum(confusion[label].values()) - tp  # off-class predictions count as misses
         fp = sum(confusion[a][label] for a in classes if a != label)
         recall = tp / (tp + fn) if (tp + fn) else None
         precision = tp / (tp + fp) if (tp + fp) else None

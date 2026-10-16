@@ -19,10 +19,21 @@ RUNS = [('MC=20  SEED=7 (production)', {'MC':'20','SEED':'7'}),
 def frontier(env):
     out = B + r'\_mcstab_%s_%s.json' % (env['MC'], env['SEED'])
     e = dict(os.environ, TOPIC=TOPIC, FRONTIER_OUT=out, **env)
-    subprocess.run([sys.executable, FE + r'\budget_frontier.py'], capture_output=True, text=True,
-                   encoding='utf-8', errors='replace', env=e)
-    d = json.load(open(out)); os.remove(out)
-    t = d['topics'][TOPIC]
+    if os.path.exists(out): os.remove(out)  # never read a stale result left by an earlier failed run
+    try:
+        r = subprocess.run([sys.executable, FE + r'\budget_frontier.py'], capture_output=True, text=True,
+                           encoding='utf-8', errors='replace', env=e, timeout=3600)
+        if r.returncode != 0 or not os.path.exists(out):
+            sys.exit('budget_frontier failed (rc=%s) for %s:\n%s' % (r.returncode, env, (r.stderr or r.stdout)[-2000:]))
+        d = json.load(open(out))
+    except subprocess.TimeoutExpired:
+        sys.exit('budget_frontier timed out for %s' % (env,))
+    finally:
+        if os.path.exists(out): os.remove(out)
+    tp = d['topics']  # TOPIC is a substring filter in budget_frontier; resolve the exact key it wrote
+    key = TOPIC if TOPIC in tp else (next(iter(tp)) if len(tp) == 1 else None)
+    if key is None: sys.exit('TOPIC=%r matched %d labels (%s); give a more specific TOPIC' % (TOPIC, len(tp), ', '.join(tp)))
+    t = tp[key]
     seeds = [p['seed'] for p in t['path'] if p.get('seed')]
     return seeds, t['path'][-1]['spread'], t.get('knee')
 res = []

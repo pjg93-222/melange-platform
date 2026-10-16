@@ -44,6 +44,6 @@ for h,c in hdr.items():
 out=M+r'\data\stance\press_raw_original.json'
 if os.path.exists(out):
     bak=out+'.replaced-%s'%__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S')
-    os.replace(out,bak); print('existing cache moved to',os.path.basename(bak))
+    __import__('shutil').copy2(out,bak); print('existing cache backed up to',os.path.basename(bak))
 dump_atomic(cache,out)
 print('rebuilt press_raw_original.json from %s: %d categories x %d members'%(os.path.basename(src),len(cache),len(members)))

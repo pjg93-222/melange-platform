@@ -14,7 +14,10 @@ import os as _bootstrap_os, sys as _bootstrap_sys; _bootstrap_sys.path.insert(0,
 import argparse
 import hashlib
 import json
+import os
 import re
+import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -512,10 +515,29 @@ def main() -> None:
     registry = build_registry(args.outline)
     output = args.out.resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(
-        json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    body = json.dumps(registry, indent=2, ensure_ascii=False) + "\n"
+    handle, temporary_name = tempfile.mkstemp(
+        prefix=f".{output.name}.", suffix=".tmp", dir=output.parent
     )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(body)
+            stream.flush()
+            os.fsync(stream.fileno())
+        # A concurrent scanner can hold the freshly written file open; retry the
+        # replace before failing, then raise.
+        for attempt in range(8):
+            try:
+                os.replace(temporary, output)
+                break
+            except PermissionError:
+                if attempt == 7:
+                    raise
+                time.sleep(min(0.05 * (2**attempt), 0.75))
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     print(
         json.dumps(
             {

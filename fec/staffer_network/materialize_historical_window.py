@@ -10,7 +10,7 @@ from pathlib import Path
 import sqlite3
 import time
 
-from .lda_composite_repair import _load_completed_window_result, compare_twins, _load_window_payloads
+from .lda_composite_repair import _atomic_json, _load_completed_window_result, compare_twins, _load_window_payloads
 from .lda_source_native_corpus import _activity_id, _display_name, _source_id, _minimized_organization
 from .reconcile_held_evidence import packed, sha, digest
 from fec.surfaces.staffer_activity_index import report_bounds, build_period_memberships, SCHEMA
@@ -24,6 +24,9 @@ def materialize(root,window):
     database=out/'activity.sqlite';receipt_path=out/'activity.sqlite.receipt.json'
     if receipt_path.exists():
         receipt=json.loads(receipt_path.read_bytes())
+        building=out/'activity.building.sqlite'
+        # Crash between sealing and install: finish the install only if the built file matches the seal.
+        if not database.exists() and building.exists() and sha(building)==receipt['sha256']:building.replace(database)
         if not database.exists() or sha(database)!=receipt['sha256']:raise ValueError('Previously sealed historical index changed')
         return receipt
     if database.exists():raise ValueError('Historical index has no completed receipt')
@@ -91,14 +94,14 @@ def materialize(root,window):
         if con.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('Historical SQLite integrity failure')
         con.commit()
     finally:con.close()
-    temporary.replace(database)
     receipt={'schema':SCHEMA,'status':'PASS','scope':'SOURCE_ONLY_HISTORICAL_WINDOW','window_id':window,
-        'database':database.name,'sha256':sha(database),'bytes':database.stat().st_size,'counts':dict(counts),
+        'database':database.name,'sha256':sha(temporary),'bytes':temporary.stat().st_size,'counts':dict(counts),
         'sources':manifest_proofs,'source_receipt_sha256':digest(manifest_proofs),'builder_sha256':sha(Path(__file__)),
         'production_activated':False,'identity_adjudication_complete':False,'employment_inferred':False,
         'acquisition_comparison':comparison,'unknown_periods':'Retained without fabricated dates; absent from period routes.',
         'coverage_note':'This reconciles the API query result only; zero results do not establish the absence of historical lobbying.'}
-    receipt_path.write_text(json.dumps(receipt,indent=2),encoding='utf8')
+    _atomic_json(receipt_path,receipt)  # seal first (atomic), then install; a crash in between is healed on rerun
+    temporary.replace(database)
     return receipt
 
 

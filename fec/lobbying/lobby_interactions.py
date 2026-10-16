@@ -474,6 +474,28 @@ def verify_against_network(paths, built, years=YEARS):
     """
     problems = []
     parsed = built["receipts"]["activities_parsed"]
+    receipts_path = builder.fullscope_receipts_path(paths)
+    if not os.path.isfile(receipts_path):
+        raise IngestError(f"missing full-scope receipts {receipts_path}")
+    with open(receipts_path, "rb") as handle:
+        network_receipts = json.loads(handle.read().decode("utf-8"))
+    network_years = network_receipts.get("years") or {}
+    for filing_year in sorted(years):
+        ledger_count = parsed.get(filing_year, parsed.get(str(filing_year)))
+        year_block = network_years.get(str(filing_year))
+        network_count = None
+        if isinstance(year_block, dict) and isinstance(year_block.get("network"), dict):
+            network_count = year_block["network"].get("activities_parsed")
+        if ledger_count is None or network_count is None:
+            problems.append(
+                f"{filing_year} activities_parsed missing "
+                f"(ledger {ledger_count}, network {network_count})"
+            )
+        elif ledger_count != network_count:
+            problems.append(
+                f"{filing_year} activities_parsed ledger {ledger_count} "
+                f"!= network {network_count}"
+            )
     network_dyads = collections.defaultdict(set)
     for filing_year in sorted(years):
         path = builder.fullscope_network_output_path(paths, filing_year, strict=True)

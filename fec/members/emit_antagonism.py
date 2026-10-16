@@ -10,6 +10,7 @@ sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import numpy as np
 import members.hearing_antagonism_build as HB
 from members.hearing_display_contract import sha256_file
+from moneyball_core import dump_atomic
 
 from paths import ROOT
 B = ROOT
@@ -48,7 +49,7 @@ def run():
     meta = {'members': out, 'n': len(out), 'corpus_hearings': nh, 'basis': 'display+secondary A-antagonism facet',
             'gate': '5/5 passed 2026-07-11 (antagonism_validate.py)', 'note': 'does NOT feed engine A pillar; ranks unaffected'}
     meta.update(corpus_binding())
-    json.dump(meta, open(B + r'\data\stance\hearing_antagonism.json', 'w'), indent=0)
+    dump_atomic(meta, B + r'\data\stance\hearing_antagonism.json', indent=0)
     print('hearing_antagonism.json: %d members | corpus %d hearings' % (len(out), nh))
     o = sorted(mem, key=lambda m: -out[m]['antagonism_z'])
     print('top antagonism_z:', ', '.join('%s %.2f' % (m, out[m]['antagonism_z']) for m in o[:6]))

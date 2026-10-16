@@ -23,6 +23,7 @@ import os
 from pathlib import Path
 import posixpath
 import re
+import shutil
 import subprocess
 import sys
 from typing import Any, Mapping, Sequence
@@ -37,6 +38,8 @@ BASELINE_SCHEMA = "legislation-production-baseline-v1"
 WORKBOOK_BASENAME = "Moneyball Main Version - Blended.xlsx"
 DEFAULT_LAYOUT_NAME = "audited_member_layout.json"
 DEFAULT_RAW_NAME = "artifact_layout_extraction.json"
+HELPER_TIMEOUT_ENV = "ARTIFACT_LAYOUT_HELPER_TIMEOUT_SECONDS"
+DEFAULT_HELPER_TIMEOUT_SECONDS = 1800
 CAPABILITY_SCHEMA = "accepted-legislation-workbook-producer-capability-v1"
 CALIBRATION_PAYLOAD_SCHEMA = "accepted-legislation-workbook-payload-v1"
 CALIBRATION_REPORT_SCHEMA = "accepted-legislation-artifact-tool-report-v1"
@@ -1841,10 +1844,18 @@ def assert_stage_safe(
         raise LayoutExtractionError(
             "stage directory cannot be the production root"
         )
-    if stage_dir in {
-        baseline["workbook_path"].parent.resolve(),
-        Path(baseline["manifest_receipt"]["path"]).parent.resolve(),
-    }:
+    declared_text = str(baseline.get("production_source_declared") or "").strip()
+    if declared_text and stage_dir == Path(declared_text).resolve().parent:
+        raise LayoutExtractionError(
+            "stage directory cannot be the production workbook folder"
+        )
+    if any(
+        stage_dir == protected or stage_dir.is_relative_to(protected)
+        for protected in (
+            baseline["workbook_path"].parent.resolve(),
+            Path(baseline["manifest_receipt"]["path"]).parent.resolve(),
+        )
+    ):
         raise LayoutExtractionError(
             "stage directory cannot be an immutable baseline directory"
         )
@@ -1918,14 +1929,34 @@ def run(
             str(raw_path),
             str(render_dir),
         ]
-        result = subprocess.run(
-            command,
-            cwd=stage_dir,
-            env=runtime["environment"],
-            text=True,
-            capture_output=True,
-            check=False,
+        # Only a report written by this invocation may satisfy the existence
+        # check below; clear anything a previous run left behind.
+        raw_path.unlink(missing_ok=True)
+        if render_dir.is_dir():
+            shutil.rmtree(render_dir)
+        timeout_text = (environ if environ is not None else os.environ).get(
+            HELPER_TIMEOUT_ENV, ""
         )
+        try:
+            timeout_seconds = float(timeout_text) if timeout_text else 0.0
+        except ValueError:
+            timeout_seconds = 0.0
+        if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+            timeout_seconds = float(DEFAULT_HELPER_TIMEOUT_SECONDS)
+        try:
+            result = subprocess.run(
+                command,
+                cwd=stage_dir,
+                env=runtime["environment"],
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise LayoutExtractionError(
+                f"artifact-tool helper timed out after {timeout_seconds:g}s"
+            ) from exc
         (stage_dir / "artifact_tool.stdout.txt").write_text(
             result.stdout or "", encoding="utf-8", newline="\n"
         )
@@ -1990,6 +2021,28 @@ def parser() -> argparse.ArgumentParser:
     return result
 
 
+def _write_blocked_if_safe(
+    args: argparse.Namespace, layout_path: Path, message: str
+) -> None:
+    try:
+        baseline = resolve_frozen_workbook(args.baseline_manifest)
+        assert_stage_safe(args.stage_dir, baseline=baseline)
+    except Exception:
+        return
+    try:
+        args.stage_dir.resolve().mkdir(parents=True, exist_ok=True)
+        atomic_json(
+            layout_path,
+            _blocked_layout(
+                message,
+                baseline_manifest=args.baseline_manifest,
+                stage_dir=args.stage_dir,
+            ),
+        )
+    except OSError:
+        pass
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     layout_path = args.stage_dir.resolve() / DEFAULT_LAYOUT_NAME
@@ -2004,21 +2057,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         # Emit a machine-readable BLOCKED receipt only when the requested
         # destination is itself safe.  An unsafe stage path must remain
         # completely untouched.
-        try:
-            baseline = resolve_frozen_workbook(args.baseline_manifest)
-            assert_stage_safe(args.stage_dir, baseline=baseline)
-        except LayoutExtractionError:
-            pass
-        else:
-            atomic_json(
-                layout_path,
-                _blocked_layout(
-                    str(exc),
-                    baseline_manifest=args.baseline_manifest,
-                    stage_dir=args.stage_dir,
-                ),
-            )
+        _write_blocked_if_safe(args, layout_path, str(exc))
         print(f"BLOCKED: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:  # fail closed: never leave a stale PASS layout
+        message = f"{type(exc).__name__}: {exc}"
+        _write_blocked_if_safe(args, layout_path, message)
+        print(f"BLOCKED: {message}", file=sys.stderr)
         return 2
     print(
         json.dumps(

@@ -43,6 +43,7 @@ import urllib.parse
 from legislation.collect_official_rollcall_events import (
     ACCEPTED_DISPOSITIONS,
     MEASURE_TYPES,
+    CollectorError,
     MeasureKey,
     canonical_category,
     category_from_row,
@@ -926,7 +927,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def main(argv: Sequence[str] | None = None) -> int:
     try:
         manifest = run(parser().parse_args(argv))
-    except DirectionError as exc:
+    except (DirectionError, CollectorError) as exc:
         print(f"build_legislation_direction_ledger: FAIL CLOSED: {exc}")
         return 2
     return 0 if manifest["acceptance_passed"] else 2

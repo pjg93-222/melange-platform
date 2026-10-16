@@ -24,13 +24,13 @@ Usage:
   python fec/collect/fetch_congressional_record.py crec --since 2025-07-01 [--until 2026-07-02]
   python fec/collect/fetch_congressional_record.py chrg --since 2025-01-01
   python fec/collect/fetch_congressional_record.py status"""
-import sys,os,re,json,io,csv,zipfile,sqlite3,datetime,time,argparse,collections,html
+import sys,os,re,json,io,csv,zipfile,sqlite3,datetime,time,argparse,collections,html,unicodedata
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import urllib.request
 import urllib.parse
 import urllib.error
 B=MB_ROOT
-KEY=os.environ.get('GOVINFO_KEY') or (open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'govinfo_key.txt')).read().strip()
+KEY=os.environ.get('GOVINFO_KEY') or (open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'govinfo_key.txt'),encoding='utf-8-sig').read().strip()
      if os.path.exists(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'govinfo_key.txt')) else 'DEMO_KEY')
 DB=os.path.join(B,'social_media.db')
 UA={'User-Agent':'Mozilla/5.0 (research collector)'}
@@ -62,7 +62,8 @@ def get(url,binary=False,tries=3,api_key=None):
                 except UnicodeDecodeError as exc:
                     raise ValueError('response is not valid %s: %s'%(charset,_redact_url(url))) from exc
         except Exception as e:
-            if i==tries-1:
+            # a 4xx other than 408/429 is a permanent answer (bad key, missing page): retrying only burns quota
+            if i==tries-1 or (isinstance(e,urllib.error.HTTPError) and 400<=e.code<500 and e.code not in (408,429)):
                 raise RuntimeError('request failed: '+_redact_url(url)) from e
             time.sleep(3*(i+1))
 
@@ -112,22 +113,28 @@ try:
         if r['member'] in C and r.get('state'): state[r['member']]=r['state'].strip()
 except FileNotFoundError: pass
 SFIX={'jr','sr','ii','iii','iv'}
+def _fold(s): return ''.join(c for c in unicodedata.normalize('NFKD',s) if not unicodedata.combining(c))   # NFKD + drop combining marks: accented and plain spellings of a surname meet
 def surkeys(m):
-    ts=[t for t in m.replace('.','').split() if t.lower().rstrip(',') not in SFIX]
+    ts=[t for t in _fold(m).replace('.','').split() if t.lower().rstrip(',') not in SFIX]
     ks={ts[-1].upper()}
     if len(ts)>=3: ks.add((ts[-2]+' '+ts[-1]).upper())          # VAN ORDEN, DE LA CRUZ...
     if len(ts)>=4: ks.add((ts[-3]+' '+ts[-2]+' '+ts[-1]).upper())
     return {re.sub(r"[^A-Z\- ']",'',k) for k in ks}
 ROSTER=collections.defaultdict(list)   # (surname_key, chamber) -> [current-roster member]
 SERVICE=set()                          # (member, Congress, chamber), including prior chamber service
+HIST=collections.defaultdict(set)      # (surname_key, Congress, chamber) -> {(person id, state)} for EVERY HSall member, not just the roster
 _bio2member={r.get('bioguide'):m for m,r in C.items() if r.get('bioguide')}
 try:
     for r in csv.DictReader(open(os.path.join(B,'votes','HSall_members.csv'),encoding='utf-8-sig')):
         member=_bio2member.get(r.get('bioguide_id')); chamber=(r.get('chamber') or '').lower()
-        if not member or chamber not in ('house','senate'): continue
+        if chamber not in ('house','senate'): continue
         try: congress=int(float(r.get('congress') or ''))
         except ValueError: continue
-        SERVICE.add((member,congress,chamber))
+        sn=re.sub(r"[^A-Z\- ']",'',_fold(r.get('bioname') or '').split(',')[0].upper()).strip()   # same normalisation as resolve()
+        pid=r.get('bioguide_id') or r.get('icpsr')
+        if sn and pid:
+            for k in {sn,sn.split()[-1]}: HIST[(k,congress,chamber)].add((pid,(r.get('state_abbrev') or '').upper()))
+        if member: SERVICE.add((member,congress,chamber))
 except FileNotFoundError:
     pass
 for m in C:
@@ -147,7 +154,7 @@ ST2AB={'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':
 'puerto rico':'PR','guam':'GU','american samoa':'AS','virgin islands':'VI','district of columbia':'DC',
 'northern mariana islands':'MP'}
 def resolve(sur,st,chamber,congress=None):
-    sur=re.sub(r"[^A-Z\- ']",'',sur.upper()).strip()
+    sur=re.sub(r"[^A-Z\- ']",'',_fold(sur).upper()).strip()
     ab=ST2AB.get((st or '').lower(),st)
     # A joint hearing can contain members from both chambers.  Resolve across the combined candidate
     # set and require uniqueness; never restore the legacy Senate-first guess.
@@ -157,15 +164,23 @@ def resolve(sur,st,chamber,congress=None):
         for member in ROSTER.get((sur,ch),[]):
             if congress and SERVICE and (member,congress,ch) not in SERVICE: continue
             if member not in cand: cand.append(member)
+    who=None
     if ab:
         hit=[m for m in cand if state.get(m,'').upper()==str(ab).upper()]
-        if len(hit)==1: return hit[0]
-        if hit: cand=hit
-    if len(cand)==1: return cand[0]
-    return None
+        if len(hit)==1: who=hit[0]
+        elif hit: cand=hit
+    if who is None and len(cand)==1: who=cand[0]
+    # The roster alone cannot see a historical namesake (backfills): refuse when HSall shows >1 distinct
+    # person with this surname in that Congress/chamber (after the state tag, if any).  Empty HIST never refuses.
+    if who and congress and HIST:
+        h={e for ch in chambers for e in HIST.get((sur,congress,ch),())}
+        if ab: h={e for e in h if e[1]==str(ab).upper()}
+        if len({e[0] for e in h})>1: return None
+    return who
 # ---------------- speaker-turn parser ----------------
 TURN=re.compile(r'(?m)^ {0,6}(?:The )?(Mr|Mrs|Ms|Miss|Senator|Chairman|Chairwoman|Chair)\.?[ ]+'
-                r"([A-Z][A-Za-z'\-]+(?:[ \-][A-Za-z'\-]+){0,2}?)"
+                # Latin-1 letters (no multiplication/division signs) so "Mr. VELÁZQUEZ." and "Ms. BARRAGÁN." stay turns
+                r"([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+(?:[ \-][A-Za-zÀ-ÖØ-öø-ÿ'\-]+){0,2}?)"
                 # A transcript speaker label ends in a period.  Accepting a comma caused direct
                 # address ("Ms. Rainey, what do you think?") to become a false speaker turn.
                 r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?\. ')
@@ -191,7 +206,7 @@ _PERSON_NOISE={'THE','HON','HONORABLE','DR','MR','MRS','MS','PROFESSOR','JR','SR
                'MG','BG','LTG','GEN','COL','LTC','USA','USAF','USN','USMC','RET'}
 
 def _person_tokens(name):
-    return [t.upper() for t in re.findall(r"[A-Za-z][A-Za-z'\-]+",name) if t.upper() not in _PERSON_NOISE]
+    return [t.upper() for t in re.findall(r"[A-Za-z][A-Za-z'\-]+",_fold(name)) if t.upper() not in _PERSON_NOISE]
 
 def _header_is_serving_member(head,chamber,congress):
     toks=_person_tokens(head)
@@ -244,11 +259,13 @@ def member_service_chamber(member,congress,fallback):
     chambers=sorted({ch for m,c,ch in SERVICE if m==member and c==congress})
     return chambers[0] if len(chambers)==1 else ''
 
+def _page_text(t): return html.unescape(re.sub(r'<[^>]+>',' ',t))
+
 def parse_pages(texts,chamber_of,date,source,pkg,cur,congress=None):
     rows=0; agg=collections.Counter()
     for fname,txt in texts:
         ch=chamber_of(fname)
-        txt=html.unescape(re.sub(r'<[^>]+>',' ',txt))
+        txt=_page_text(txt)
         # CHRG-only: hearing witnesses can share a member's surname (Gov. Michael Barr before Rep. Andy
         # Barr) — harvest witness surnames from the STATEMENT OF/TESTIMONY OF headers and EXCLUDE those
         # surnames for this hearing entirely (honest drop beats mis-attribution).
@@ -263,7 +280,7 @@ def parse_pages(texts,chamber_of,date,source,pkg,cur,congress=None):
             # CREC prints speakers in ALL CAPS; hearing prints use mixed case -> caps filter is CREC-only
             if source!='CHRG' and not upperish(sur): continue
             if sur.upper().split()[0] in NONSPK: continue
-            if source=='CHRG' and sur.upper().split()[-1] in wit: continue
+            if source=='CHRG' and _fold(sur).upper().split()[-1] in wit: continue
             who=resolve(sur,mt.group(3),ch,congress or congress_for_date(date))
             if not who: continue
             seg=txt[mt.end():ms[i+1].start() if i+1<len(ms) else min(len(txt),mt.end()+20000)]
@@ -324,7 +341,8 @@ def run_crec(since,until):
             for n in z.namelist():
                 b=os.path.basename(n)
                 if b.endswith('.htm') and ('-PgH' in b or '-PgS' in b):
-                    texts.append((b,z.read(n).decode('utf-8','strict')))
+                    try: texts.append((b,z.read(n).decode('utf-8','strict')))
+                    except UnicodeDecodeError: print('  !! %s %s: not valid UTF-8 - page skipped'%(pid,b)); continue   # never decode with replacement: it would score corrupted text
             cham=lambda f:'house' if '-PgH' in f else 'senate'
             rows,agg=parse_pages(texts,cham,date,'CREC',pid,cur)
             cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)",('crec:'+pid,'ok',datetime.datetime.now().isoformat()))
@@ -332,6 +350,7 @@ def run_crec(since,until):
             _ingested+=1
             print('  %s: %3d pages -> %4d member turns (%d members)'%(pid,len(texts),rows,len(agg)))
         except Exception as e:
+            con.rollback()   # drop any speech rows this package inserted before failing, or the next run would treat the partial package as stored
             _errored+=1
             cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)",('crec:'+pid,'err:%s'%str(e)[:80],datetime.datetime.now().isoformat()))
             con.commit(); print('  !!',pid,str(e)[:100])
@@ -359,12 +378,16 @@ def fetch_chrg_html(pid):
 
 def run_chrg(since,until):
     con=db(); cur=con.cursor()
-    pkgs=[p for p in list_packages('CHRG',since) if since<=p['dateIssued']<=until and FINRX.search(p.get('title') or '')]
-    done={r[0] for r in cur.execute("SELECT key FROM cr_fetch_log WHERE status='ok'")}
+    listed=list_packages('CHRG',since)
+    # a listing row without a string packageId/dateIssued would KeyError the whole run -> skip it and say so
+    wellformed=[p for p in listed if isinstance(p,dict) and isinstance(p.get('packageId'),str) and p['packageId'] and isinstance(p.get('dateIssued'),str) and p['dateIssued']]
+    if len(wellformed)<len(listed): print('CHRG: %d malformed listing rows skipped'%(len(listed)-len(wellformed)))
+    pkgs=[p for p in wellformed if since<=p['dateIssued']<=until and FINRX.search(p.get('title') or '')]
+    done={r[0] for r in cur.execute("SELECT key FROM cr_fetch_log WHERE status IN ('ok','noqa')")}   # noqa is terminal: re-fetching cannot conjure a Q&A span
     have_pkg={p for (p,) in cur.execute("SELECT DISTINCT package FROM speeches WHERE source='CHRG'")}   # stored-package guard (2026-07-06)
     todo=[p for p in sorted(pkgs,key=lambda p:p['dateIssued']) if 'chrg:'+p['packageId'] not in done]
     print('CHRG: %d finance-relevant hearings since %s, %d to ingest'%(len(pkgs),since,len(todo)))
-    _ingested=_errored=0
+    _ingested=_errored=_noqa=0
     for p in todo:
         pid=p['packageId']; date=p['dateIssued']
         if pid in have_pkg:   # already stored -> mark done, never duplicate
@@ -373,12 +396,16 @@ def run_chrg(since,until):
         try:
             congress,hearing_chamber=chrg_scope(pid)
             texts=[(pid+'.htm',fetch_chrg_html(pid))]
+            if hearing_qa_bounds(_page_text(texts[0][1])) is None:   # parse_pages would skip the page and yield 0 rows: do not call that 'ok'
+                cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)",('chrg:'+pid,'noqa',datetime.datetime.now().isoformat()))
+                con.commit(); _noqa+=1; print('  -- %s: no ordinary-questioning span (noqa)'%pid); continue
             rows,agg=parse_pages(texts,lambda f:hearing_chamber,date,'CHRG',pid,cur,congress=congress)
             cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)",('chrg:'+pid,'ok',datetime.datetime.now().isoformat()))
             con.commit()
             _ingested+=1
             print('  %s [%s]: %d member turns'%(pid,(p.get('title') or '')[:60],rows))
         except Exception as e:
+            con.rollback()   # same as run_crec: no partial speech rows under an err mark
             _errored+=1
             cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)",('chrg:'+pid,'err:%s'%str(e)[:80],datetime.datetime.now().isoformat()))
             con.commit(); print('  !!',pid,str(e)[:100])
@@ -386,10 +413,12 @@ def run_chrg(since,until):
     # package ids come from the collections API listing rather than being guessed by date, so a
     # bare 404 here would be a genuine anomaly rather than the routine "no session that day" case
     # the _http_status_code()/_crec_package_absent() check in run_crec exists for -- but the floor
-    # stays the same regardless: requiring BOTH _ingested==0 and _errored>=3 keeps a week with zero
-    # finance-relevant hearings (zero attempts, zero errors, zero ingests) and a week with one or
-    # two transient failures (retried next run) from ever triggering exit 2.
-    return not (_errored>=3 and not _ingested)
+    # stays the same regardless: requiring BOTH _ingested==0 and (_errored+_noqa)>=3 keeps a week with
+    # zero finance-relevant hearings (zero attempts, zero errors, zero ingests) and a week with one or
+    # two transient failures (retried next run) from ever triggering exit 2.  A package whose page has
+    # no ordinary-questioning span ('noqa', terminal) counts with the errors: a run where nothing was
+    # ingested and three or more packages yielded nothing usable is a parser/source failure, not quiet.
+    return not ((_errored+_noqa)>=3 and not _ingested)
 def status():
     con=db()
     for src in ('CREC','CHRG'):
@@ -418,7 +447,7 @@ def main():
     elif a.cmd=='chrg':
         _keep_awake(); _complete=run_chrg(a.since,a.until); status()
         if not _complete:
-            print('CHRG: total outage (zero ingested, >=3 non-404 errors) — reporting collection failure'); return 2
+            print('CHRG: total outage (zero ingested, >=3 errors or no-Q&A packages) — reporting collection failure'); return 2
     else: status()
     return 0
 

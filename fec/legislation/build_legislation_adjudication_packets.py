@@ -139,14 +139,23 @@ def exclusive_write(path: Path, data: bytes) -> str:
     """Create one immutable artifact, or verify a byte-identical existing one."""
 
     path.parent.mkdir(parents=True, exist_ok=True)
+    created = False
     try:
         with path.open("xb") as handle:
+            created = True
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
     except FileExistsError:
         if path.read_bytes() != data:
             raise PacketBuildError(f"immutable artifact collision: {path}")
+    except BaseException:
+        if created:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
     return sha256_bytes(data)
 
 
@@ -221,17 +230,51 @@ def xml_to_text(raw: bytes) -> str:
 def load_extraction_receipts(root: Path) -> dict[str, dict[str, Any]]:
     if not root.is_dir():
         raise PacketBuildError(f"extraction receipt root does not exist: {root}")
+    # Keyed by the receipt's own content hash, not canonical_key: the evidence
+    # builder never prunes old content-addressed receipts, so one key may
+    # legitimately have several receipts on disk.
     receipts: dict[str, dict[str, Any]] = {}
     for path in sorted(root.rglob("*.json")):
+        receipt_sha = sha256_file(path)
+        if receipt_sha in receipts:
+            continue
         row = read_json(path)
+        if not isinstance(row, dict):
+            raise PacketBuildError(f"extraction receipt is not an object: {path}")
         key = str(row.get("canonical_key") or "")
         if not key:
             raise PacketBuildError(f"extraction receipt has no canonical_key: {path}")
-        if key in receipts:
-            raise PacketBuildError(f"duplicate extraction receipt for {key}")
         row["_receipt_path"] = str(path)
-        receipts[key] = row
+        receipts[receipt_sha] = row
     return receipts
+
+
+def bind_extraction_receipt(
+    evidence: Mapping[str, Any],
+    receipts: Mapping[str, Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Return the extraction receipt the evidence envelope itself names.
+
+    None means no receipt is named or the named one is not on disk. A receipt
+    that is named but fails the sha, canonical_key or body_sha256 binding
+    yields a sentinel that congress_gov_full_text reports as not bound.
+    """
+
+    full_text = (evidence.get("official_evidence") or {}).get("full_text") or {}
+    declared = str(full_text.get("extraction_receipt_sha256") or "")
+    if not declared:
+        return None
+    unbound: dict[str, Any] = {"_unbound": True}
+    if not valid_sha(declared):
+        return unbound
+    extraction = receipts.get(declared)
+    if extraction is None:
+        return None
+    if str(extraction.get("body_sha256") or "") != str(full_text.get("body_sha256") or ""):
+        return unbound
+    if str(extraction.get("canonical_key") or "") != str(evidence.get("canonical_key") or ""):
+        return unbound
+    return extraction
 
 
 def load_govinfo_versions(run_root: Path) -> dict[str, list[dict[str, Any]]]:
@@ -307,6 +350,9 @@ def congress_gov_full_text(
         return block
     if extraction is None:
         block["unavailable_reason"] = "extraction_receipt_absent"
+        return block
+    if extraction.get("_unbound"):
+        block["unavailable_reason"] = "extraction_receipt_not_bound"
         return block
 
     archive_path = Path(str(extraction.get("archive_path") or ""))
@@ -998,7 +1044,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     evidence=evidence,
                     memberships=memberships_by_key.get(key, []),
                     categories=categories,
-                    extraction=extraction.get(key),
+                    extraction=bind_extraction_receipt(evidence, extraction),
                     govinfo_receipts=govinfo.get(key, []),
                     billstatus=(
                         read_json(billstatus_index[key])
@@ -1154,15 +1200,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             },
         },
     }
+    if sha256_file(evidence_path) != evidence_sha:
+        raise PacketBuildError("candidate evidence changed during the run")
     exclusive_write(
         out_dir / "manifest.json", utc_stamp_free_canonical_bytes(manifest)
     )
     exclusive_write(
         out_dir / "receipt.json", utc_stamp_free_canonical_bytes(receipt)
     )
-
-    if sha256_file(evidence_path) != evidence_sha:
-        raise PacketBuildError("candidate evidence changed during the run")
     print(json.dumps(receipt, indent=2, ensure_ascii=False))
     return receipt
 

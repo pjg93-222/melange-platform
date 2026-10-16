@@ -38,6 +38,7 @@ import os
 from pathlib import Path
 import re
 from urllib.parse import urlsplit, urlunsplit
+from runtime_paths import data_root
 
 MENTAT = Path(__file__).resolve().parents[1]
 DEFAULT_MELANGE = Path.home() / 'OneDrive' / 'Desktop' / 'Melange Systems'
@@ -53,7 +54,7 @@ LINK_LABELS = {'P': 'Principal campaign committee', 'A': 'Authorized candidate c
 
 
 def _roots(context):
-    return (Path(context.get('inputs_dir') or os.environ.get('MENTAT_INPUTS_DIR') or MENTAT / 'inputs').resolve(),
+    return (Path(context.get('inputs_dir') or os.environ.get('MENTAT_INPUTS_DIR') or data_root() / 'inputs').resolve(),
             Path(context.get('melange_root') or os.environ.get('MENTAT_MELANGE_ROOT') or DEFAULT_MELANGE).resolve())
 
 

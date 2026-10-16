@@ -30,6 +30,9 @@ DEMO_POTENTIAL_MODES = ('footprint', 'growth_room')
 DEMO_POTENTIAL = (
     os.environ.get('DEMO_POTENTIAL') or 'footprint'
 ).strip().lower()
+if DEMO_POTENTIAL not in DEMO_POTENTIAL_MODES:
+    raise SystemExit('invalid DEMO_POTENTIAL %r; expected one of %s' % (
+        DEMO_POTENTIAL, ', '.join(DEMO_POTENTIAL_MODES)))
 # R7: the footprint qualification gate. Unrounded employment_lq, not the
 # vacuous branches>0-or-lq>0 proposal footprint_v2.py measured.
 FOOTPRINT_EMPLOYMENT_LQ_MIN = 1.0

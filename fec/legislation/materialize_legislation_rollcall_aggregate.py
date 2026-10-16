@@ -998,7 +998,7 @@ def build_outputs(inputs: dict[str, Any]) -> dict[str, Any]:
                     duplicate_cell_keys.add((key[2], category))
     for row in missing_identity_rows:
         row_decisions[id(row)] = (
-            str(row.get("disposition") or "unmatched"),
+            "missing_identity",
             "member_bioguide_not_available",
         )
 
@@ -1041,6 +1041,11 @@ def build_outputs(inputs: dict[str, Any]) -> dict[str, Any]:
                     f"{event_identity[0]}:{measure}:{bioguide}"
                 )
         audit_dispositions = []
+        if event is None:
+            blockers.append(
+                f"member_vote_has_no_event:{event_identity[0]}:{measure}:"
+                f"{row['_materializer_input_row']}"
+            )
         for category, direction in sorted(expected.items()):
             sign = int(direction["sign"])
             decay = DECAY.get(congress)
@@ -1049,10 +1054,6 @@ def build_outputs(inputs: dict[str, Any]) -> dict[str, Any]:
             weighted = None
             if event is None:
                 disposition, reason = "unmatched", "member_vote_has_no_event"
-                blockers.append(
-                    f"member_vote_has_no_event:{event_identity[0]}:{measure}:"
-                    f"{row['_materializer_input_row']}"
-                )
             elif decision == "duplicate":
                 disposition, reason = "excluded", decision_reason
             elif decision == "ambiguous":
@@ -1189,7 +1190,9 @@ def build_outputs(inputs: dict[str, Any]) -> dict[str, Any]:
                     ),
                 }
             )
-        if any(value == "included" for value in audit_dispositions):
+        if event is None:
+            materializer_disposition = "unmatched"
+        elif any(value == "included" for value in audit_dispositions):
             materializer_disposition = "included"
         elif any(value == "ambiguous" for value in audit_dispositions):
             materializer_disposition = "ambiguous"

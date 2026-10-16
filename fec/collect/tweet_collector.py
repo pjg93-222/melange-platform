@@ -65,7 +65,7 @@ def get(url,tries=3,timeout=25):
                 if t==tries-1: raise
                 _ra=(e.headers.get('Retry-After') or '').strip()
                 time.sleep(min(60,int(_ra) if _ra.isdigit() else 15*(t+1))); continue
-            if t==tries-1: raise
+            if e.code<500 or t==tries-1: raise   # 4xx (other than 429) is definitive: retrying cannot change it
             time.sleep(3)
         except Exception:
             if t==tries-1: raise
@@ -95,9 +95,10 @@ def cmd_init():
     if bs==0: print('  (registry carries no bluesky field yet — add handles manually: UPDATE members SET bluesky=? WHERE name=?)')
     print('db: %s'%DB)
 def _upsert_post(c,plat,pid,bg,created,text,reply_to,quote_of,repost_of,likes,reposts,replies,raw,media=None):
-    c.execute('INSERT OR IGNORE INTO posts(platform,post_id,bioguide,created_at,text,reply_to,quote_of,'
+    c.execute('INSERT INTO posts(platform,post_id,bioguide,created_at,text,reply_to,quote_of,'
               'repost_of,like_count,repost_count,reply_count,fetched_at,raw,media_json) '
-              'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+              'VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(platform,post_id) DO UPDATE SET '   # refetch refreshes the engagement counts only
+              'like_count=excluded.like_count,repost_count=excluded.repost_count,reply_count=excluded.reply_count',
               (plat,pid,bg,created,text,reply_to,quote_of,repost_of,likes,reposts,replies,
                datetime.datetime.now().isoformat(),json.dumps(raw,ensure_ascii=True)[:4000],
                json.dumps(media or [],ensure_ascii=True)[:12000]))
@@ -165,6 +166,8 @@ def bluesky_post_references(record, *, strict=False):
 def fetch_bluesky(limit_members=None,pages=3,*,verified_only=False,strict=False,since=None):
     """Public AppView — no auth.  Captures posts + reply/quote/mention edges via facets."""
     c=db(); rows=c.execute("SELECT bioguide,name,bluesky FROM members WHERE bluesky IS NOT NULL AND bluesky!='' AND bluesky!='none-found'").fetchall()
+    all_rows=rows   # full registry: mention targets must not shrink with the verified/skip/limit batch filters
+    h2bg={h.split()[0].lower():bg for bg,_,h in all_rows if (h or '').split() and (not verified_only or verified_bluesky_handle(h))}
     registered=len(rows)
     if verified_only:
         rows=[row for row in rows if verified_bluesky_handle(row[2])]
@@ -174,7 +177,6 @@ def fetch_bluesky(limit_members=None,pages=3,*,verified_only=False,strict=False,
         rows=[r for r in rows if r[0] not in done]
     rows=[(bg,nm,(h or '').split()[0]) for bg,nm,h in rows]   # strip the ' [UNVERIFIED — confirm]' review tag
     if limit_members: rows=rows[:limit_members]
-    h2bg={ (r[2] or '').lower():r[0] for r in rows }
     results=[]
     print('bluesky fetch: %d members with handles'%len(rows))
     for bg,name,handle in rows:
@@ -249,49 +251,56 @@ def fetch_bluesky(limit_members=None,pages=3,*,verified_only=False,strict=False,
             'verified_only':verified_only,'strict':strict,'since':since,'page_budget':pages,
             'registered_handles':registered,'selected_handles':len(rows),
             'unverified_handles_excluded':unverified_excluded,'error_count':failures,'results':results}
-def fetch_x(limit_members=None):
+def fetch_x(limit_members=None,first_pages=1):
     """X API v2 — needs env X_BEARER_TOKEN (paid tier).  Incremental via since_id checkpoints; captures
-    referenced_tweets (retweet/quote/reply) + entity mentions, mirroring Fink et al.'s request shape."""
+    referenced_tweets (retweet/quote/reply) + entity mentions, mirroring Fink et al.'s request shape.
+    Follows meta.next_token so a gap of >100 tweets is read in full before the checkpoint advances."""
     if not os.environ.get('X_BEARER_TOKEN'):
         print('X_BEARER_TOKEN not set — X fetch skipped.  (X read access is paid-tier only since 2023;'); print(' the Bluesky adapter needs no key.)'); return
     c=db(); rows=c.execute("SELECT bioguide,name,twitter_id,twitter FROM members WHERE twitter_id IS NOT NULL AND twitter_id!=''").fetchall()
+    id2bg={r[2]:r[0] for r in rows}   # full registry, built before the limit slice
     if limit_members: rows=rows[:limit_members]
-    id2bg={r[2]:r[0] for r in rows}
     for bg,name,uid,handle in rows:
         ck=c.execute('SELECT checkpoint FROM fetch_log WHERE platform=? AND bioguide=?',('x',bg)).fetchone()
-        since='&since_id='+ck[0] if ck and ck[0] else ''
+        since_id=ck[0] if ck and ck[0] else None
+        cap=35 if since_id else first_pages   # X serves at most 3200 timeline tweets = 32 pages, so 35 is a loop guard; the first fetch is a bounded backfill
         u=('https://api.twitter.com/2/users/%s/tweets?max_results=100&tweet.fields=created_at,referenced_tweets,entities,public_metrics,attachments'
            '&expansions=referenced_tweets.id.author_id,entities.mentions.username,attachments.media_keys'
-           '&media.fields=media_key,type,url,preview_image_url,alt_text,width,height,duration_ms,variants'%uid)+since
-        got=0; newest=None
+           '&media.fields=media_key,type,url,preview_image_url,alt_text,width,height,duration_ms,variants'%uid)+('&since_id='+since_id if since_id else '')
+        got=0; newest=None; token=None
         try:
-            d=get(u)
-            media_by_key={str(item.get('media_key')):item for item in
-                          (d.get('includes',{}).get('media') or []) if item.get('media_key')}
-            for t in d.get('data',[]) or []:
-                pid=t['id']; newest=max(newest or pid,pid)
-                rt=q=rp=None
-                for ref in t.get('referenced_tweets',[]) or []:
-                    if ref['type']=='retweeted': rt=ref['id']
-                    elif ref['type']=='quoted': q=ref['id']
-                    elif ref['type']=='replied_to': rp=ref['id']
-                pm=t.get('public_metrics',{})
-                media=[media_by_key[key] for key in (t.get('attachments',{}).get('media_keys') or [])
-                       if key in media_by_key]
-                _upsert_post(c,'x',pid,bg,t.get('created_at',''),t.get('text',''),rp,q,rt,
-                             pm.get('like_count',0),pm.get('retweet_count',0),pm.get('reply_count',0),t,media)
-                # interaction edges: referenced authors + mentions that are members
-                for iu in (d.get('includes',{}).get('tweets') or []):
-                    if iu['id'] in (rt,q,rp) and iu.get('author_id') in id2bg and id2bg[iu['author_id']]!=bg:
-                        kind='retweet' if iu['id']==rt else ('quote' if iu['id']==q else 'reply')
-                        c.execute('INSERT OR IGNORE INTO interactions VALUES(?,?,?,?,?,?)',
-                                  ('x',kind,bg,id2bg[iu['author_id']],pid,t.get('created_at','')))
-                for mn in (t.get('entities',{}).get('mentions') or []):
-                    tb=id2bg.get(str(mn.get('id','')))
-                    if tb and tb!=bg:
-                        c.execute('INSERT OR IGNORE INTO interactions VALUES(?,?,?,?,?,?)',
-                                  ('x','mention',bg,tb,pid,t.get('created_at','')))
-                got+=1
+            for _ in range(cap):
+                d=get(u+('&pagination_token='+urllib.parse.quote(token) if token else ''))
+                media_by_key={str(item.get('media_key')):item for item in
+                              (d.get('includes',{}).get('media') or []) if item.get('media_key')}
+                for t in d.get('data',[]) or []:
+                    pid=t['id']; newest=pid if newest is None or int(pid)>int(newest) else newest   # ids compare numerically, not as strings
+                    rt=q=rp=None
+                    for ref in t.get('referenced_tweets',[]) or []:
+                        if ref['type']=='retweeted': rt=ref['id']
+                        elif ref['type']=='quoted': q=ref['id']
+                        elif ref['type']=='replied_to': rp=ref['id']
+                    pm=t.get('public_metrics',{})
+                    media=[media_by_key[key] for key in (t.get('attachments',{}).get('media_keys') or [])
+                           if key in media_by_key]
+                    _upsert_post(c,'x',pid,bg,t.get('created_at',''),t.get('text',''),rp,q,rt,
+                                 pm.get('like_count',0),pm.get('retweet_count',0),pm.get('reply_count',0),t,media)
+                    # interaction edges: referenced authors + mentions that are members
+                    for iu in (d.get('includes',{}).get('tweets') or []):
+                        if iu['id'] in (rt,q,rp) and iu.get('author_id') in id2bg and id2bg[iu['author_id']]!=bg:
+                            kind='retweet' if iu['id']==rt else ('quote' if iu['id']==q else 'reply')
+                            c.execute('INSERT OR IGNORE INTO interactions VALUES(?,?,?,?,?,?)',
+                                      ('x',kind,bg,id2bg[iu['author_id']],pid,t.get('created_at','')))
+                    for mn in (t.get('entities',{}).get('mentions') or []):
+                        tb=id2bg.get(str(mn.get('id','')))
+                        if tb and tb!=bg:
+                            c.execute('INSERT OR IGNORE INTO interactions VALUES(?,?,?,?,?,?)',
+                                      ('x','mention',bg,tb,pid,t.get('created_at','')))
+                    got+=1
+                token=(d.get('meta') or {}).get('next_token')
+                if not token: break
+            # incremental gap not fully read -> keep the OLD checkpoint (ERR below); a first fetch (no checkpoint) is a bounded backfill and advances
+            if token and since_id: raise RuntimeError('X page cap hit before reaching checkpoint')
             _log(c,'x',bg,newest or (ck[0] if ck else ''),got,'ok'); c.commit(); print('  %-24s +%d tweets'%(name,got))
         except Exception as e:
             _log(c,'x',bg,ck[0] if ck else '',got,'ERR:'+str(e)[:80]); c.commit(); print('  %-24s ERROR %s'%(name,str(e)[:80]))
@@ -316,8 +325,8 @@ def fetch_truth(limit_members=None,pages=3):
         print('TRUTH_TOKEN not set — Truth Social fetch skipped.  Create an account, pull the OAuth bearer'); print(' from the web app (Network tab), set TRUTH_TOKEN, and fill members.truth handles.'); return
     c=db(); rows=c.execute("SELECT bioguide,name,truth FROM members WHERE truth IS NOT NULL AND truth!=''").fetchall()
     rows=[(bg,nm,(h or '').split()[0].lstrip('@')) for bg,nm,h in rows]
+    h2bg={r[2].lower():r[0] for r in rows}   # full registry, built before the limit slice
     if limit_members: rows=rows[:limit_members]
-    h2bg={r[2].lower():r[0] for r in rows}
     def tget(u):
         rq=urllib.request.Request(u,headers={**UA,'Authorization':'Bearer '+tok})
         return json.load(urllib.request.urlopen(rq,timeout=25))
@@ -384,8 +393,8 @@ def cmd_influence(min_posts=int(os.environ.get('TW_MIN_POSTS','25'))):
     for (i,j),n in eng.items():
         if items.get(i,0)>=min_posts:
             out.append({'src':cong.get(i,i),'dst':cong.get(j,j),'p':round(min(1.0,n/items[i]),4),'events':n})
-    json.dump({'method':'Fink et al. 2023: engagements normalized by author volume; floor %d posts'%min_posts,
-               'edges':sorted(out,key=lambda e:-e['p'])},open(B+r'\tweet_influence.json','w'),indent=1)
+    dump_atomic({'method':'Fink et al. 2023: engagements normalized by author volume; floor %d posts'%min_posts,
+                 'edges':sorted(out,key=lambda e:-e['p'])},B+r'\tweet_influence.json',indent=1)
     print('wrote tweet_influence.json (%d directed influence edges) — feed to build_multilayer_network.py when ready'%len(out))
 def cmd_discover(limit=None):
     """Probe Bluesky for member handles.  Official congressional accounts verify via DOMAIN handles
@@ -405,7 +414,7 @@ def cmd_discover(limit=None):
                (((tw or '').lower()+'.bsky.social') if tw else None,'unverified?'),
                (None if amb else 'rep%s.bsky.social'%last,'unverified?')]
         cands=[(cd,tg) for cd,tg in cands if cd and cd.lower() not in taken]
-        hit=False
+        hit=False; definitive=True   # definitive = every candidate got a clean 4xx (not 429) or a 200 without a did
         for cand,tag in cands:
             if not cand: continue
             try:
@@ -415,9 +424,13 @@ def cmd_discover(limit=None):
                     c.execute('UPDATE members SET bluesky=? WHERE bioguide=?',(cand+('' if tag=='verified' else ' [UNVERIFIED — confirm]'),bg))
                     c.commit()   # commit per hit: chunked/interrupted runs keep their progress
                     taken.add(cand.lower()); print('  %-24s -> @%s (%s)'%(name,cand,tag),flush=True); found+=1; break
-            except Exception: continue
-        if not hit:
+            except urllib.error.HTTPError as e:
+                if e.code==429 or not 400<=e.code<500: definitive=False   # rate limit / 5xx say nothing about the handle
+                continue
+            except Exception: definitive=False; continue   # network error / timeout: inconclusive
+        if not hit and definitive:
             c.execute("UPDATE members SET bluesky='none-found' WHERE bioguide=?",(bg,)); c.commit()   # sentinel: don't re-probe on the next chunk
+        elif not hit: print('  %-24s probe inconclusive, will re-probe'%name,flush=True)   # bluesky stays NULL so the next run retries
         time.sleep(0.15)
     c.commit(); print('discovered %d handles over %d probed members (verified = domain handle; confirm the unverified ones)'%(found,len(rows)))
 def cmd_classify():

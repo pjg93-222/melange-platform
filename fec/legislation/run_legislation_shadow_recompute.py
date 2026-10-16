@@ -58,6 +58,7 @@ STEP_LEDGER_SCHEMA = "legislation-shadow-step-receipts-v1"
 STEP_LEDGER_NAME = Path("intermediate") / "shadow_step_receipts.json"
 HEX_SHA_RE = re.compile(r"^[0-9a-f]{64}$", re.IGNORECASE)
 
+DEFAULT_STEP_TIMEOUT_SECONDS = 6 * 60 * 60
 REQUIRED_BASELINE_ROLES = (
     "legislation_archive_workbook",
     "archive_leg",
@@ -225,7 +226,7 @@ GATE_PROVENANCE: dict[str, tuple[str, str]] = {
     "rank_drift_within_threshold": ("measured", "compute_rank_drift"),
     "cross_run_value_idempotence": ("measured", "idempotence_audit"),
     "cross_run_byte_idempotence": ("measured", "idempotence_audit"),
-    "complete_31_role_output_closure": ("measured", "execute_run"),
+    "complete_baseline_role_output_closure": ("measured", "execute_run"),
 }
 APPROVED_PLAN_PLACEHOLDERS = frozenset(
     {
@@ -2507,7 +2508,18 @@ def execute_run(
                 errors="replace",
                 capture_output=True,
                 check=False,
+                timeout=step.get(
+                    "timeout_seconds", DEFAULT_STEP_TIMEOUT_SECONDS
+                ),
             )
+        except subprocess.TimeoutExpired as exc:
+            for stream, text in (("stdout", exc.stdout), ("stderr", exc.stderr)):
+                if isinstance(text, bytes):
+                    text = text.decode("utf-8", errors="replace")
+                (log_dir / f"{index:02d}_{name}.{stream}.txt").write_text(
+                    text or "", encoding="utf-8"
+                )
+            raise ShadowError(f"isolated_consumer_timeout:{name}") from exc
         finally:
             release_step_transients(
                 run_dir, step_name=name, prepared=prepared
@@ -2735,7 +2747,7 @@ def measure_rank_drift(
 
 def orchestrate(args: argparse.Namespace) -> dict[str, Any]:
     out = validate_out(args.out)
-    out.mkdir(parents=True)
+    out.mkdir(parents=True, exist_ok=True)
     audit_path = out / "shadow_recompute_audit.json"
     receipt_path = out / "staged_acceptance_receipt.json"
     try:
@@ -2788,8 +2800,17 @@ def orchestrate(args: argparse.Namespace) -> dict[str, Any]:
             "rank_drift_within_threshold": bool(drift["gate_passed"]),
             "cross_run_value_idempotence": value_pass,
             "cross_run_byte_idempotence": byte_pass,
-            "complete_31_role_output_closure": (
-                len(first["outputs"]) == len(second["outputs"]) == 31
+            "complete_baseline_role_output_closure": (
+                set(first["outputs"]) == set(second["outputs"])
+                and all(
+                    sorted(
+                        item["baseline_role"]
+                        for item in run["outputs"].values()
+                        if item["baseline_role"]
+                    )
+                    == sorted(REQUIRED_BASELINE_ROLES)
+                    for run in (first, second)
+                )
             ),
         }
         gate_provenance = build_gate_provenance(gates)

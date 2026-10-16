@@ -7,6 +7,7 @@ import os as _bootstrap_os, sys as _bootstrap_sys; _bootstrap_sys.path.insert(0,
 
 import argparse
 import json
+import shutil
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -243,82 +244,87 @@ def ensure_snapshot_bundle(
 
     root.mkdir(parents=True, exist_ok=True)
     bundle_dir.mkdir()
-    plan = BILLSTATUS.build_fetch_plan(
-        records_path,
-        exclusion_ledger_path,
-        tuple(exclusion_provenance_paths),
-        strict_manifest_path,
-        cumulative_manifest_path,
-        memberships_path,
-    )
-    BILLSTATUS.validate_snapshot_plan(
-        plan, expected_strict_manifest=strict_manifest_path
-    )
-    plan_path = bundle_dir / PLAN_NAME
-    with plan_path.open("x", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
+    try:
+        plan = BILLSTATUS.build_fetch_plan(
+            records_path,
+            exclusion_ledger_path,
+            tuple(exclusion_provenance_paths),
+            strict_manifest_path,
+            cumulative_manifest_path,
+            memberships_path,
+        )
+        BILLSTATUS.validate_snapshot_plan(
+            plan, expected_strict_manifest=strict_manifest_path
+        )
+        plan_path = bundle_dir / PLAN_NAME
+        with plan_path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(plan, indent=2, ensure_ascii=False) + "\n")
 
-    divergence, proven, unproven = DIVERGENCE.build_audit(
-        records_path=records_path,
-        strict_manifest_path=strict_manifest_path,
-        memberships_path=memberships_path,
-        review_ledger_path=review_ledger_path,
-        false_positive_exclusions_path=(
-            exclusion_provenance_paths[0]
-            if exclusion_provenance_paths
-            else None
-        ),
-        gap_ledger_path=gap_ledger_path,
-        aggregate_manifest_path=cumulative_manifest_path,
-    )
-    divergence_path = DIVERGENCE.write_audit(
-        bundle_dir / DIVERGENCE_SUBDIR,
-        divergence,
-        proven,
-        unproven,
-    )
-    specificity = SPECIFICITY.audit(
-        registry_path,
-        selected_manifest_path=strict_manifest_path,
-    )
-    require(
-        specificity.get("status") == "PASS",
-        "query-specificity audit blocked for selected strict manifest",
-    )
-    specificity_path = bundle_dir / SPECIFICITY_NAME
-    with specificity_path.open("x", encoding="utf-8", newline="\n") as handle:
-        handle.write(
-            json.dumps(specificity, indent=2, ensure_ascii=False) + "\n"
+        divergence, proven, unproven = DIVERGENCE.build_audit(
+            records_path=records_path,
+            strict_manifest_path=strict_manifest_path,
+            memberships_path=memberships_path,
+            review_ledger_path=review_ledger_path,
+            false_positive_exclusions_path=(
+                exclusion_provenance_paths[0]
+                if exclusion_provenance_paths
+                else None
+            ),
+            gap_ledger_path=gap_ledger_path,
+            aggregate_manifest_path=cumulative_manifest_path,
         )
-    bundle_receipt = {
-        "schema": SCHEMA,
-        "bundle_id": bundle_id,
-        "immutable": True,
-        "snapshot_only": True,
-        "network_executed": False,
-        "candidate_exclusions_performed": False,
-        "candidate_deletions_performed": False,
-        "sync_or_promotion_performed": False,
-        "inputs": inputs,
-        "outputs": {
-            "snapshot_plan": receipt(plan_path),
-            "divergence_audit": receipt(divergence_path),
-            "query_specificity_audit": receipt(specificity_path),
-        },
-    }
-    receipt_path = bundle_dir / RECEIPT_NAME
-    with receipt_path.open("x", encoding="utf-8", newline="\n") as handle:
-        handle.write(
-            json.dumps(bundle_receipt, indent=2, ensure_ascii=False) + "\n"
+        divergence_path = DIVERGENCE.write_audit(
+            bundle_dir / DIVERGENCE_SUBDIR,
+            divergence,
+            proven,
+            unproven,
         )
-    result = validate_bundle(
-        bundle_dir,
-        expected_bundle_id=bundle_id,
-        expected_inputs=inputs,
-        strict_manifest_path=strict_manifest_path,
-    )
-    result["created"] = True
-    return result
+        specificity = SPECIFICITY.audit(
+            registry_path,
+            selected_manifest_path=strict_manifest_path,
+        )
+        require(
+            specificity.get("status") == "PASS",
+            "query-specificity audit blocked for selected strict manifest",
+        )
+        specificity_path = bundle_dir / SPECIFICITY_NAME
+        with specificity_path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(
+                json.dumps(specificity, indent=2, ensure_ascii=False) + "\n"
+            )
+        bundle_receipt = {
+            "schema": SCHEMA,
+            "bundle_id": bundle_id,
+            "immutable": True,
+            "snapshot_only": True,
+            "network_executed": False,
+            "candidate_exclusions_performed": False,
+            "candidate_deletions_performed": False,
+            "sync_or_promotion_performed": False,
+            "inputs": inputs,
+            "outputs": {
+                "snapshot_plan": receipt(plan_path),
+                "divergence_audit": receipt(divergence_path),
+                "query_specificity_audit": receipt(specificity_path),
+            },
+        }
+        receipt_path = bundle_dir / RECEIPT_NAME
+        with receipt_path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(
+                json.dumps(bundle_receipt, indent=2, ensure_ascii=False) + "\n"
+            )
+        result = validate_bundle(
+            bundle_dir,
+            expected_bundle_id=bundle_id,
+            expected_inputs=inputs,
+            strict_manifest_path=strict_manifest_path,
+        )
+        result["created"] = True
+        return result
+    except BaseException:
+        # Half-built bundle would wedge this content address; the receipt is written last.
+        shutil.rmtree(bundle_dir, ignore_errors=True)
+        raise
 
 
 def parse_args() -> argparse.Namespace:

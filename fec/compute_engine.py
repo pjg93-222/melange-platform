@@ -234,12 +234,15 @@ def launch(script, arguments, *, phases=PHASES, root=None, cwd=None, environ=Non
 
 
 def reap(spec):
-    """Remove a container whose client was killed (a timeout, Ctrl-C).  --rm already removed one that ended; this is best effort."""
+    """Stop, then remove, a container whose client was killed (a timeout, Ctrl-C).  --rm already removed one that ended; this is best effort.
+
+    The stop gives the chain a SIGTERM and 30 s to unwind (release its lease) before the force-remove."""
     if spec.container:
-        try:
-            subprocess.run(['docker', 'rm', '-f', spec.container], capture_output=True, timeout=60)
-        except Exception:
-            pass
+        for argv, limit in ((['docker', 'stop', '-t', '30', spec.container], 90), (['docker', 'rm', '-f', spec.container], 60)):
+            try:
+                subprocess.run(argv, capture_output=True, timeout=limit)
+            except Exception:
+                pass
 
 
 def office_view(root=None, timeout=3600):

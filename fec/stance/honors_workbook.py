@@ -198,6 +198,13 @@ def merge_views(original, authored, destination):
                 existing = ET.Element(Q + 'sheet', name=name, sheetId=str(next_sheet))
                 existing.set('{' + REL + '}id', rid)
                 sheets.insert(index, existing)
+                # A sheet-local defined name addresses its sheet by POSITION (see
+                # remove_views): shift every one at or after the insertion point.
+                defined = book.find(Q + 'definedNames')
+                for entry in list(defined) if defined is not None else []:
+                    local = entry.get('localSheetId')
+                    if local is not None and int(local) >= index:
+                        entry.set('localSheetId', str(int(local) + 1))
                 next_sheet += 1
                 ET.SubElement(types, '{' + CT + '}Override', PartName='/' + target,
                               ContentType='application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml')
@@ -675,7 +682,7 @@ def publish(workbook, root=ROOT, *, replace_generated=False):
     # someone's edits does not become a whole-file restore again at the next cycle.
     original_exact = True if previous is None else (previous.get('original_exact', True) and not scoped)
     if writer == 'artifact':
-        author_exit = subprocess.run([runtime['node'], str(helper), str(plan)], env=env).returncode
+        author_exit = subprocess.run([runtime['node'], str(helper), str(plan)], env=env, timeout=600).returncode
     else:
         author_exit = None
         author_honors_views(plan)
@@ -693,11 +700,13 @@ def publish(workbook, root=ROOT, *, replace_generated=False):
         # Read independently after packaging, before replacing the live file.
         import openpyxl
         check = openpyxl.load_workbook(temporary, read_only=True, data_only=True)
-        for view in workbook_views(honors):
-            actual = list(check[view['name']].iter_rows(values_only=True))
-            if [list(row) for row in actual] != view['values']:
-                raise ValueError('Authored workbook cell parity failed: ' + view['name'])
-        check.close()
+        try:
+            for view in workbook_views(honors):
+                actual = list(check[view['name']].iter_rows(values_only=True))
+                if [list(row) for row in actual] != view['values']:
+                    raise ValueError('Authored workbook cell parity failed: ' + view['name'])
+        finally:
+            check.close()
         # The parity check above proves these views ARE the packaged bytes, so the
         # bound region is recorded from them rather than re-read from the file.
         with ZipFile(temporary) as packaged:

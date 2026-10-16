@@ -217,8 +217,8 @@ def verify_baseline(control_path: Path) -> tuple[bool, dict[str, Any]]:
             "file_count": len(files),
             "verification_failures": failures,
         }
-    except (OSError, ValueError, json.JSONDecodeError) as exc:
-        return False, {"reason": str(exc)}
+    except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError) as exc:
+        return False, {"reason": f"{type(exc).__name__}: {exc}"}
 
 
 def resolve_declared(path_value: Any, manifest_path: Path) -> Path | None:

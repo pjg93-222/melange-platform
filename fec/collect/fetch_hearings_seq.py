@@ -14,7 +14,7 @@ the main DB. The BUILDER (hearing_antagonism_build.py) computes refined events f
 Compact turn = [kind, party, dash, text]: kind = member-name | 'W'(witness) | 'C'(chair) | 'O'(other);
 text stored ONLY for members (what the hostility lexicon reads), capped; party for cross-party detection.
 Resume: hearings_seq.db seq_log 'seq:<pid>'. Era: 2019-2024 full HTML (2025+ PDF deferred)."""
-import sys, os, re, io, time, json, csv, zipfile, sqlite3, datetime, urllib.request, collections
+import sys, os, re, io, time, json, csv, zipfile, sqlite3, datetime, urllib.request, collections, unicodedata
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from paths import ROOT
@@ -56,17 +56,21 @@ def get(url, binary=False, tries=4, api_key=None):
             with urllib.request.urlopen(urllib.request.Request(_strip_api_key(url), headers=headers), timeout=120) as r:
                 d = r.read(); return d if binary else d.decode('utf-8', 'replace')
         except urllib.error.HTTPError as e:
-            if e.code in (404, 410): raise
+            if e.code in (400, 401, 403, 404, 410): raise     # terminal: retrying cannot change the answer
             if i == tries - 1: raise
-            time.sleep(4 * (i + 1))
+            time.sleep((30 if e.code == 429 else 4) * (i + 1))   # 429 = rate limited: back off long
         except Exception:
             if i == tries - 1: raise
             time.sleep(4 * (i + 1))
 
 C = {m['member']: m for m in json.load(open(B + r'\data\engine\congestion.json'))}
 SFIX = {'jr', 'sr', 'ii', 'iii', 'iv'}
+def _fold(s):
+    """Strip accents (NFKD, drop combining marks): Velazquez == Velázquez, so the A-Z key filter below
+    no longer deletes the accented letter (Sanchez was keyed SNCHEZ and fell through to witness)."""
+    return ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
 def surkeys(m):
-    ts = [t for t in m.replace('.', '').split() if t.lower().rstrip(',') not in SFIX]
+    ts = [t for t in _fold(m).replace('.', '').split() if t.lower().rstrip(',') not in SFIX]
     ks = {ts[-1].upper()}
     if len(ts) >= 3: ks.add((ts[-2] + ' ' + ts[-1]).upper())
     if len(ts) >= 4: ks.add((ts[-3] + ' ' + ts[-2] + ' ' + ts[-1]).upper())
@@ -99,7 +103,7 @@ def resolve(sur, chamber=None):
     whose comment already said "never restore the legacy Senate-first guess" -- that fix was
     simply never propagated here: scope to the package's chamber when it is known, and when it
     is not (joint hearings), UNION the chambers and require uniqueness. Never first-wins."""
-    sur = re.sub(r"[^A-Z\- ']", '', sur.upper()).strip()
+    sur = re.sub(r"[^A-Z\- ']", '', _fold(sur).upper()).strip()
     chambers = [chamber] if chamber in ('house', 'senate') else ['house', 'senate']
     cand = []
     for ch in chambers:
@@ -116,28 +120,42 @@ def party_of(m): return PARTY.get(BIO.get(m), '?')
 # a member grilling 'Secretary Driscoll' or 'General George' is no longer INVISIBLE. Witness turns get a
 # TYPE code (user 2026-07-10: control for business execs vs state/govt officials; substance shapes the
 # partisan/antagonism read). Type from honorific + the 'STATEMENT OF ..., <title>' header.
-MEMBER_HON = r'Mr|Mrs|Ms|Miss|Senator|Representative|Congressman|Congresswoman|Chairman|Chairwoman|Chair'
+MEMBER_HON = r'Mr|Mrs|Ms|Miss|Senator|Representative|Congressman|Congresswoman|Ranking Member|Chairman|Chairwoman|Chair'
+# Longer multiword forms precede their prefixes: regex alternation is first-wins, so 'Lieutenant' ahead of
+# 'Lieutenant Governor' would capture 'Governor Jones' as the NAME of a Lieutenant (typed military).
 WIT_HON = (r'Secretary|Under Secretary|Deputy Secretary|Administrator|Deputy Administrator|Acting Administrator|'
-           r'Director|Deputy Director|Acting Director|Commissioner|Ambassador|Comptroller|Inspector General|'
-           r'General|Lieutenant General|Major General|Brigadier General|Admiral|Vice Admiral|Rear Admiral|'
-           r'Colonel|Lieutenant Colonel|Lieutenant|Captain|Major|Commander|Sergeant|'
-           r'Governor|Lieutenant Governor|Mayor|Dr|Professor|Justice|Judge|Chief|Sheriff|Honorable')
-SPEAKER = re.compile(r'(?m)^ {0,6}(?:The )?(%s|%s)\.?[ ]+'
-                     r"([A-Z][A-Za-z'\-]+(?:[ \-][A-Za-z'\-]+){0,2}?)"
-                     r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?[.,] ' % (MEMBER_HON, WIT_HON))
-MEMBER_RE = re.compile(r'^(Mr|Mrs|Ms|Miss|Senator|Representative|Congressman|Congresswoman|Chairman|Chairwoman|Chair)$')
+           r'Director|Deputy Director|Acting Director|Commissioner|Ambassador|Comptroller|Inspector General|Attorney General|'
+           r'Lieutenant General|Major General|Brigadier General|General|Admiral|Vice Admiral|Rear Admiral|'
+           r'Lieutenant Colonel|Colonel|Lieutenant Governor|Lieutenant|Captain|Major|Commander|Sergeant|'
+           r'Governor|Mayor|Dr|Professor|Justice|Judge|Chief|Sheriff|Honorable')
+# Name group takes Latin-1 letters (accented surnames); alt 1 is the NO-NAME chair label ('The Chairman.' /
+# 'The CHAIR.') -- group(1) is None for it, so alt 2 keeps groups 1-3. The label must END IN A PERIOD: a comma
+# made 'Ms. Waters, what do you think?' (direct address) a false turn -- parity with the CR TURN fix.
+SPEAKER = re.compile(r'(?m)^ {0,6}(?:The (?:Chairman|Chairwoman|Chair|CHAIRMAN|CHAIRWOMAN|CHAIR)\. |'
+                     r'(?:The )?(%s|%s)\.?[ ]+'
+                     r"([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+"
+                     r"(?:[ \-][A-Za-zÀ-ÖØ-öø-ÿ'\-]+){0,2}?)"
+                     r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?\. )' % (MEMBER_HON, WIT_HON))
+MEMBER_RE = re.compile(r'^(Mr|Mrs|Ms|Miss|Senator|Representative|Congressman|Congresswoman|Ranking Member|Chairman|Chairwoman|Chair)$')
+MEMBER_ONLY = {'Senator', 'Representative', 'Congressman', 'Congresswoman', 'Ranking Member'}   # honorifics a witness never carries
 NONSPK = {'SPEAKER', 'PRESIDING', 'CLERK', 'VICE'}
 ENDDASH = re.compile(r'-{2,}\s*$')
 
+# Witness TYPE from the WHOLE honorific. The old substring search put 'Inspector General' in 'general' (military)
+# and 'Lieutenant Governor' in 'lieutenant' (military); an exact map has no such collisions.
+_HON_TYPE = {}
+for _t, _hons in (('M', 'general|lieutenant general|major general|brigadier general|admiral|vice admiral|rear admiral|'
+                        'colonel|lieutenant colonel|lieutenant|captain|major|commander|sergeant'),   # military
+                  ('S', 'governor|lieutenant governor|mayor|sheriff'),                               # state/local
+                  ('E', 'dr|professor'),                                                             # expert/academic
+                  ('J', 'justice|judge'),                                                            # judicial
+                  ('G', 'secretary|under secretary|deputy secretary|administrator|deputy administrator|acting administrator|'
+                        'director|deputy director|acting director|commissioner|ambassador|comptroller|inspector general|'
+                        'attorney general|chief|honorable')):                                        # federal govt
+    for _h in _hons.split('|'): _HON_TYPE[_h] = _t
 def hon_type(pre):
     """Witness TYPE from honorific alone (strong for non-Mr/Ms)."""
-    p = pre.lower()
-    if re.search(r'general|admiral|colonel|lieutenant|captain|major|commander|sergeant', p): return 'M'   # military
-    if re.search(r'governor|mayor|sheriff', p): return 'S'                                                # state/local
-    if re.search(r'dr|professor', p): return 'E'                                                          # expert/academic
-    if re.search(r'justice|judge', p): return 'J'                                                         # judicial
-    if re.search(r'secretary|administrator|director|commissioner|ambassador|comptroller|inspector|chief|honorable', p): return 'G'  # federal govt
-    return '?'   # Mr/Ms witness -> resolve via STATEMENT OF title
+    return _HON_TYPE.get(pre.lower(), '?')   # Mr/Ms witness -> resolve via STATEMENT OF title
 
 def title_type(t):
     """Witness TYPE from a STATEMENT OF title/org string (for Mr/Ms witnesses)."""
@@ -172,11 +190,13 @@ def parse_seq(txt, chamber=None):
     ms = list(SPEAKER.finditer(txt)); out = []; chair_ct = collections.Counter()
     for i, mt in enumerate(ms):
         pre, sur = mt.group(1), mt.group(2)
+        seg = txt[mt.end():ms[i + 1].start() if i + 1 < len(ms) else min(len(txt), mt.end() + 20000)]
+        dash = 1 if ENDDASH.search(seg.strip()) else 0
+        if pre is None:   # no-name chair label ('The Chairman.'): a chair turn we cannot name; not counted in chair_ct
+            out.append(['C', '?', dash, '']); continue
         is_member_hon = bool(MEMBER_RE.match(pre))
         is_chair = bool(re.match(r'Chair', pre, re.I))
-        seg = txt[mt.end():ms[i + 1].start() if i + 1 < len(ms) else min(len(txt), mt.end() + 20000)]
         segc = re.sub(r'\s+', ' ', re.sub(r'\[\[Page [^\]]+\]\]', '', seg)).strip()
-        dash = 1 if ENDDASH.search(seg.strip()) else 0
         surU = sur.upper(); surlast = surU.split()[-1]
         who = resolve(sur, chamber) if is_member_hon else None
         if who:
@@ -184,6 +204,11 @@ def parse_seq(txt, chamber=None):
             out.append([who, party_of(who), dash, segc[:TEXTCAP], 'C' if is_chair else 'M'])
         elif is_chair or surU.split()[0] in NONSPK:
             out.append(['C' if is_chair else 'O', '?', dash, ''])
+        elif is_member_hon and surlast not in wit_type and (pre in MEMBER_ONLY or any(
+                ROSTER.get((k, ch)) for ch in ('house', 'senate') for k in {_fold(surlast).upper(), _fold(surU).upper()})):
+            # a MEMBER that failed to resolve (ambiguous or out-of-roster surname) is not a witness: 'O' keeps it
+            # out of the witness census. Plain Mr./Ms. with a non-roster surname still falls through to 'W'.
+            out.append(['O', '?', dash, ''])
         else:
             # witness: type from honorific, else STATEMENT OF title, else '?'
             t = hon_type(pre)
@@ -219,8 +244,7 @@ def fetch_one_pdf(p):
         pdfs = [n for n in z.namelist() if n.lower().endswith('.pdf')]
         if not pdfs:
             return {'pid': pid, 'status': 'nopdf'}
-        r = pypdf.PdfReader(io.BytesIO(z.read(pdfs[0])))
-        txt = '\n'.join(pg.extract_text() for pg in r.pages)
+        txt = '\n'.join(pg.extract_text() for n in pdfs for pg in pypdf.PdfReader(io.BytesIO(z.read(n))).pages)   # every PDF, namelist order
         seq, chair = parse_seq(repair_pdf(txt), chamber_of_package(pid))
         named = sum(1 for t in seq if t[0] not in ('W', 'C', 'O'))
         if named < 3:
@@ -301,7 +325,8 @@ def run(since, until, workers=6, db_path=None):
             sc.execute("INSERT OR REPLACE INTO hearing_seq VALUES(?,?,?)", (pid, r['date'], json.dumps(r['seq'], separators=(',', ':'))))
             sc.execute("INSERT OR REPLACE INTO seq_log VALUES(?,?)", (pid, 'ok')); sc.commit()
             mc.execute("INSERT OR REPLACE INTO hearing_meta VALUES(?,?,?,?,?,?,?)",
-                       (pid, r['date'], r['title'], r['chair'], party_of(r['chair']) if r['chair'] else '?', r['named'], 0)); mc.commit()
+                       (pid, r['date'], r['title'], r['chair'], party_of(r['chair']) if r['chair'] else '?', r['named'],
+                        len({t[0] for t in r['seq'] if t[0] not in ('W', 'C', 'O')}))); mc.commit()
             if k % 100 == 0:
                 print('  [%d/%d] %s cached' % (k, len(todo), r['date']), flush=True)
     # Census over the LISTED window, read back from seq_log rather than counted incrementally: a
@@ -347,6 +372,20 @@ def max_seq_date(db_path):
         con.close()
     return row[0] if row else None
 
+def _hash_db(path):
+    """sha256 of the sequence DB's main file AFTER folding its WAL into it. seqdb() runs in WAL mode, so
+    committed rows can sit in the -wal file; hashing the main file alone misses them (and the pre-run hash
+    would differ from the previous receipt's for the same corpus)."""
+    path = str(path)
+    if os.path.exists(path):
+        try:
+            con = sqlite3.connect(path, timeout=120)
+            try: con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            finally: con.close()
+        except sqlite3.Error:
+            pass   # not a database (swapped/edited file): the plain hash below still breaks the chain
+    return sha256_file(path)
+
 def write_seq_receipt(db_path, *, since, until, listed, ok, nopage, failed, rebuild,
                       previous_receipt_path, now, pre_run_db_sha256=None):
     """Write ``<db_path>.receipt.json`` and return the receipt.
@@ -364,7 +403,7 @@ def write_seq_receipt(db_path, *, since, until, listed, ok, nopage, failed, rebu
     """
     db_path = str(db_path)
     md = max_seq_date(db_path)
-    db_sha = sha256_file(db_path)
+    db_sha = _hash_db(db_path)
     previous = None
     previous_sha = None
     if previous_receipt_path and os.path.isfile(str(previous_receipt_path)):
@@ -418,7 +457,7 @@ def main(argv=None):
             print('REBUILD REFUSED: %s' % exc, file=sys.stderr)
             return 2
     receipt_path = db_path + '.receipt.json'
-    pre_sha = sha256_file(db_path) if os.path.exists(db_path) else None
+    pre_sha = _hash_db(db_path) if os.path.exists(db_path) else None
     census = run(a.since, a.until, a.workers, db_path)
     receipt = write_seq_receipt(
         db_path, since=a.since, until=a.until, listed=census['listed'], ok=census['ok'],

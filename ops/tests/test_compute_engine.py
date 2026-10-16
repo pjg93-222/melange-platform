@@ -421,8 +421,35 @@ def test_a_chain_container_hands_the_lease_over_and_takes_it_back_and_reaps(monk
     assert world.events == ["out", "run", "in"]                                    # released before the container, re-taken after it
     assert argv[:2] == ["docker", "compose"] and argv[-3:] == ["chain", "python", "/melange/fec/run_pipeline.py"]
     assert kwargs["env"]["IMAGE_COMPUTE_MELANGE"] == CHAIN_IMG and kwargs["cwd"] == str(FEC)
-    assert reaped == [["docker", "rm", "-f", argv[argv.index("--name") + 1]]]
+    name = argv[argv.index("--name") + 1]
+    assert reaped == [["docker", "stop", "-t", "30", name], ["docker", "rm", "-f", name]]     # SIGTERM + 30 s to unwind, then the force-remove
     assert world.logs[0] == "   FULL PIPELINE + dashboards runs in container " + argv[argv.index("--name") + 1]
+
+
+def test_reap_still_removes_the_container_when_the_stop_fails(monkeypatch, tmp_path):
+    container_world(monkeypatch, tmp_path, "chain")
+    spec = SimpleNamespace(container="melange-chain-x")
+    seen = []
+
+    def run(argv, **kw):
+        seen.append(argv)
+        if argv[1] == "stop":
+            raise OSError("docker stop failed")
+
+    monkeypatch.setattr(CE.subprocess, "run", run)
+    CE.reap(spec)
+    assert seen == [["docker", "stop", "-t", "30", "melange-chain-x"], ["docker", "rm", "-f", "melange-chain-x"]]
+
+
+def test_a_timed_out_chain_container_aborts_as_a_timeout_not_as_a_lost_lease(monkeypatch, tmp_path):
+    container_world(monkeypatch, tmp_path, "chain")
+    monkeypatch.setattr(CE.subprocess, "run", lambda argv, **kw: None)
+    timed_out = SimpleNamespace(stdout="", stderr="", returncode=None, timed_out=True, timeout_note="killed")
+    world = step_world(timed_out, producer=str(REPO / "fec" / "run_pipeline.py"))
+    with pytest.raises(HardAbort):
+        world.ns["step"]("FULL PIPELINE + dashboards", ["run_pipeline.py"], timeout=7200, hard=True)
+    assert world.events == ["out", "run"]                                                  # the lease is NOT taken back after a timeout
+    assert world.aborts == [("FULL PIPELINE + dashboards", [], "timeout after 7200s")]
 
 
 def test_the_lease_comes_back_even_when_the_container_cannot_start(monkeypatch, tmp_path):

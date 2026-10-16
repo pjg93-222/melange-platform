@@ -40,7 +40,7 @@ _TITLE_GUEST = re.compile(
     r"talks|speaks|about|reacts|responds)\b|$)",
     re.I,
 )
-_PARTY_STATE = re.compile(r"\s*,?\s*\(?[DRI]\s*[-–]\s*[A-Za-z. -]{1,24}\)?\s*$", re.I)
+_PARTY_STATE = re.compile(r"(?:\s*,\s*|\s*\(|\s+)\(?(?-i:[DRI])\s*[-–]\s*[A-Za-z. -]{1,24}\)?\s*$", re.I)
 _SUFFIX = re.compile(
     r"(?:\s|,)+(?:M\.?D\.?|Ph\.?D\.?|D\.?D\.?S\.?|D\.?O\.?|J\.?D\.?|M\.?P\.?H\.?|"
     r"R\.?N\.?|Esq\.?|Jr\.?|Sr\.?|II|III|IV)\.?\s*$",

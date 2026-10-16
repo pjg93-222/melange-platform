@@ -51,9 +51,12 @@ def _working_style(block):
     if raw_vis == 'high' and adjusted_vis == 'high':
         s1 = ('This member has high public exposure even after accounting for formal office obligations; '
               'that residual may reflect newsworthiness or strategy and still does not establish that they are personally outgoing.')
-    elif raw_vis == 'high':
+    elif raw_vis == 'high' and adjusted_vis in ('middle', 'low'):
         s1 = ('This member operates under a high public spotlight, but the exposure is not unusually high once formal office '
               'obligations are considered; neither the title nor its visibility establishes a personally outgoing disposition.')
+    elif raw_vis == 'high':
+        s1 = ('This member operates under a high public spotlight; no role adjustment is available for this member, '
+              'and the exposure does not establish a personally outgoing disposition.')
     elif raw_vis == 'low':
         s1 = ('This member appears less often in the available public and media record, but lower exposure '
               'does not establish a private or introverted disposition.')
@@ -222,7 +225,7 @@ def self_test():
             'Agreeableness_low_antagonism': {'z': -0.9},
             'Neuroticism_affective_content': {'z': 0.1},
         },
-        'public_role_exposure': {'visibility_z': 2.8},
+        'public_role_exposure': {'visibility_z': 2.8, 'role_adjusted_visibility_z': 0.2},
         'observed_conversation': {'dominance_z': 1.1, 'expressiveness_z': -0.9},
         'behavioral_record': {},
         'verified_audio_v2': {
@@ -241,7 +244,7 @@ def self_test():
     assert 'extrovert' not in joined and 'introvert' not in joined
     assert out['usage']['input_tokens'] == 0 and out['usage']['output_tokens'] == 0
     assert out['model'] == 'local-deterministic-fable-style'
-    print('b5_narratives_local_candidate self-test: 7 passed, 0 FAILED')
+    print('b5_narratives_local_candidate self-test: 6 passed, 0 FAILED')
 
 
 def main():

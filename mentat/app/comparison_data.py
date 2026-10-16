@@ -11,6 +11,7 @@ from pathlib import Path
 from graph_data import report_facts, report_activity, money
 from report_insights import digest_stamp, stamp
 import response_cache
+import report_publication
 try:
     from view_cache import graph_code_extra
 except ImportError:  # a console that loaded view_cache before this build: memory only until it restarts
@@ -20,6 +21,11 @@ FLOWS_NAMESPACE = 'comparison-flows'
 
 
 def subjects(paths, industry):
+    paths = tuple(map(Path, paths))
+    return report_publication.read(paths, lambda: _subjects(paths, industry))
+
+
+def _subjects(paths, industry):
     stamps = [stamp(path) for path in paths]
     reports = [report_facts(version) for version in stamps]
     years = [year for report in reports for year in report['cycles']]
@@ -67,6 +73,11 @@ def flows(paths, industry):
 
 
 def flows_entry(paths, industry):
+    paths = tuple(map(Path, paths))
+    return report_publication.read(paths, lambda: _flows_entry(paths, industry))
+
+
+def _flows_entry(paths, industry):
     """/api/comparison-flows as a response_cache entry: exactly the bytes Handler.send writes
     for the freshly built answer (response_cache.json_body), and their gzip.
 

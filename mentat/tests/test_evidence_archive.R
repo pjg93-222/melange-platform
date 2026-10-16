@@ -35,6 +35,36 @@ observations <- DBI::dbReadTable(connection, "fec_response_observations")
 stopifnot(!any(grepl("do-not-archive|X-Api-Key", observations$query_json)),
   any(grepl("Acme", observations$query_json)))
 
+# Build-and-archive every supported public selector; no request is sent.
+selector_db <- tempfile(fileext = ".sqlite")
+selector_connection <- DBI::dbConnect(RSQLite::SQLite(), selector_db)
+init_schema(selector_connection)
+public_names <- character()
+for (field in c("contributor_employer", "contributor_name", "contributor_id")) {
+  selector_unit <- unit
+  selector_unit$id <- paste0("archive-selector:", field)
+  selector_unit$query_field <- field
+  selector_unit$variants <- if (field == "contributor_id") "C00000123" else "Acme"
+  selector_unit$query_filters <- list(min_date = "01/01/2024", max_date = "12/31/2024",
+    contributor_zip = "10001", contributor_city = "CITY", contributor_state = "NY")
+  selector_spec <- fec_api_request_spec(selector_unit, list(last_index = "400000000000000001",
+    last_contribution_receipt_date = "2024-01-02"))
+  expected <- selector_spec$params
+  public_names <- union(public_names, names(expected))
+  selector_spec$params <- c(selector_spec$params, list(api_key = "DO_NOT_ARCHIVE",
+    token = "DO_NOT_ARCHIVE", signature = "DO_NOT_ARCHIVE"))
+  fec_api_archive_response(selector_connection, selector_spec, response, page = 0L)
+  saved <- DBI::dbGetQuery(selector_connection,
+    "SELECT query_json FROM fec_response_observations WHERE unit_id=?", params = list(selector_unit$id))$query_json[[1L]]
+  request <- jsonlite::fromJSON(saved, simplifyVector = FALSE)$request
+  stopifnot(setequal(names(request$params), names(expected)),
+    all(vapply(names(expected), function(name) identical(request$params[[name]], expected[[name]]), logical(1L))),
+    !grepl("DO_NOT_ARCHIVE|api_key|signature|token", saved))
+}
+stopifnot(length(public_names) == 13L, "contributor_id" %in% public_names)
+DBI::dbDisconnect(selector_connection); unlink(selector_db)
+cat("All 13 request-builder public parameters retained; credential selectors excluded: PASS\n")
+
 # Malformed success bodies are archived before parsing fails.
 bad_transport <- fec_api_archiving_transport(connection, function(...) list(list(status = 200L, body = "not json")))
 bad <- bad_transport(list(spec), "secret", 1L)

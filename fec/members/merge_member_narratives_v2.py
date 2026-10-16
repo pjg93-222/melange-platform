@@ -7,9 +7,11 @@ import hashlib
 import json
 import os
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from fec.members.revise_member_narratives_v2 import (
     ARTIFACT_PATH,
     AUDIT_PATH,

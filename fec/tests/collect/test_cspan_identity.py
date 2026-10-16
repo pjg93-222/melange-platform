@@ -39,6 +39,16 @@ class CSpanIdentityTests(unittest.TestCase):
         expected = self.identity.expected_guest(title, date, [label])
         return self.identity.attribute(label, title, date, expected)
 
+    def test_clean_label_keeps_hyphenated_surnames_with_party_letter(self):
+        from members.cspan_identity import clean_label, norm
+        with open(os.path.join(ROOT, "data", "engine", "congestion.json"), encoding="utf-8") as handle:
+            names = [row["member"] for row in json.load(handle)]
+        names += ["Mariannette Miller-Meeks", "Sydney Kamlager-Dove"]
+        for name in names:
+            self.assertEqual(norm(name), clean_label("Rep. " + name), name)
+        self.assertEqual("don bacon", clean_label("Don Bacon (R-NE)"))
+        self.assertEqual("don bacon", clean_label("Don Bacon, R-NE"))
+
     def test_blank_role_does_not_control_member_identity(self):
         result = self.attribute("Don Bacon", "Representative Don Bacon on U.S. Policy")
         self.assertEqual("Don Bacon", result.member)

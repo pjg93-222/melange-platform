@@ -291,6 +291,8 @@ def complete(ledger: Path, release_path: Path, compact_receipt_path: Path,
             }
             with sqlite3.connect(uri, uri=True) as ledger_db:
                 historical_decisions, historical_gaps = classify_historical_clauses(ledger_db, db)
+            if len(historical_decisions) + len(historical_gaps) != historical["bounded_clauses"]:
+                raise ValueError("Historical clause partition incomplete")
 
     decisions = sorted(directory_decisions + lda_decisions + historical_decisions,
                        key=lambda row: (row["status"], row.get("missing_claim_id", row.get("clause_id", ""))))

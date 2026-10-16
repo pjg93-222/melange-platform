@@ -173,6 +173,8 @@ def main() -> int:
     parser.add_argument("--audit", default=None)
     parser.add_argument("--check", action="store_true", help="compute and print only; do not write")
     parser.add_argument("--backup-old", action="store_true")
+    parser.add_argument("--allow-empty", action="store_true",
+                        help="permit writing when no transcripts/turns were found (default: refuse)")
     parser.add_argument("--replace-shards", action="store_true",
                         help="remove stale turns_N.csv files after a successful canonical write")
     args = parser.parse_args()
@@ -185,6 +187,11 @@ def main() -> int:
     if args.check:
         print(json.dumps({key: value for key, value in audit.items() if key != "programs"}, indent=2))
         return 0
+
+    if not args.allow_empty and (audit["source_file_count"] == 0 or audit["turn_count"] == 0):
+        raise SystemExit(f"refusing to write: empty corpus under {out_dir} "
+                         f"(source_file_count={audit['source_file_count']}, turn_count={audit['turn_count']}); "
+                         "check --out or pass --allow-empty")
 
     copied: list[str] = []
     if args.backup_old:

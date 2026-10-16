@@ -863,7 +863,14 @@ def write_ndjson(path: Path, rows: Iterable[dict[str, Any]]) -> None:
         + "\n"
         for row in rows
     )
-    path.write_text(text, encoding="utf-8", newline="\n")
+    _atomic_write_text(path, text)
+
+
+def _atomic_write_text(path: Path, text: str) -> None:
+    """Write via a same-directory temp file so a crash never truncates ``path``."""
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8", newline="\n")
+    os.replace(tmp, path)
 
 
 def _canonicalize_xlsx(path: Path) -> None:
@@ -909,8 +916,10 @@ def write_workbook(
     workbook.properties.modified = dt.datetime(1980, 1, 1)
     workbook.calculation.fullCalcOnLoad = False
     workbook.calculation.forceFullCalc = False
-    workbook.save(path)
-    _canonicalize_xlsx(path)
+    tmp = path.with_name(path.name + ".tmp")
+    workbook.save(tmp)
+    _canonicalize_xlsx(tmp)
+    os.replace(tmp, path)
 
 
 def _read_workbook_rows(
@@ -1073,6 +1082,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 
     paths = output_paths(args.out)
     paths.workbook.parent.mkdir(parents=True, exist_ok=True)
+    # A failed run must never sit beside a previous run's PASS manifest.
+    paths.manifest.unlink(missing_ok=True)
     relationships = load_relationships(ledger_path)
     roster = load_roster(roster_path)
     edges, contributions, exclusions, names = construct_edges(
@@ -1087,7 +1098,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     legacy_comparison: dict[str, Any] | None = None
     if old_path is not None:
         legacy_comparison = compare_legacy(edges, centrality, old_path)
-        paths.legacy_comparison.write_text(
+        _atomic_write_text(
+            paths.legacy_comparison,
             json.dumps(
                 legacy_comparison,
                 indent=2,
@@ -1095,8 +1107,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 ensure_ascii=False,
             )
             + "\n",
-            encoding="utf-8",
-            newline="\n",
         )
 
     active_relationships = [
@@ -1211,10 +1221,9 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         raise AssertionError(
             f"network invariants failed: {manifest['invariants']!r}"
         )
-    paths.manifest.write_text(
+    _atomic_write_text(
+        paths.manifest,
         json.dumps(manifest, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-        newline="\n",
     )
     print(
         "staged base network: "

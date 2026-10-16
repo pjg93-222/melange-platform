@@ -26,7 +26,12 @@ RULE_TEXT = ('FEC committee-to-candidate (pas2) rows, D-049 count_latest filing-
 
 def iso(mdy):
     """FEC TRANSACTION_DT is MMDDYYYY; anything else is an unknown date ('')."""
-    return f'{mdy[4:8]}-{mdy[0:2]}-{mdy[2:4]}' if len(mdy) == 8 and mdy.isdigit() else ''
+    if len(mdy) != 8 or not mdy.isdigit():
+        return ''
+    try:
+        return date(int(mdy[4:8]), int(mdy[0:2]), int(mdy[2:4])).isoformat()
+    except ValueError:
+        return ''
 
 
 def month_ends(first_year, last_date):
@@ -80,6 +85,8 @@ def aggregate_file(path, yy, parties, membership, cuts_by_industry=None):
                 file_num = int(d['FILE_NUM'])
             except ValueError:
                 file_num = None
+            if not d['TRANSACTION_AMT'].strip():
+                raise ValueError('FEC pas2 row ' + str(index + 1) + ' has a missing TRANSACTION_AMT; refusing to infer zero.')
             rows.append(dict(rid=index, cmte_id=d['CMTE_ID'], rpt_tp=d['RPT_TP'], tran_id=d['TRAN_ID'], sub_id=d['SUB_ID'], file_num=file_num,
                              amndt_ind=d['AMNDT_IND'], cand_id=d['CAND_ID'], other_id=d['OTHER_ID'],
                              amount_cents=int(round(float(d['TRANSACTION_AMT'] or 0) * 100)), date=iso(d['TRANSACTION_DT']),

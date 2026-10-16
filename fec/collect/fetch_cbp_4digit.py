@@ -8,7 +8,8 @@ county, US, and congressional-district files; derives county-to-district weights
 B's latest raw block-level LODES WAC files and Phase A's block crosswalk; and builds the
 district-industry-4digit-v1 artifact.
 
-The CBP congressional-district XLSX is cached for Phase E provenance but is not parsed here.
+The CBP congressional-district XLSX is cached best-effort for Phase E
+(fec/district/validate_district_industry.py) and is not parsed here.
 
 Universe caveats:
   CNS20: CBP has no NAICS 92 (public administration) — cbp_lq_est is always null
@@ -352,8 +353,19 @@ def _download_source(
             _preserve_corrupt_cache(path, label)
         else:
             print('cached %s: %s' % (label, path))
+            cached_url = url
+            if fallback_404_url is not None:
+                # The bridge may have been fetched from the fallback URL;
+                # report the URL recorded at download time.
+                try:
+                    with open(
+                        path + '.source_url', 'r', encoding='utf-8'
+                    ) as sidecar:
+                        cached_url = sidecar.read().strip() or url
+                except OSError:
+                    cached_url = url
             return {
-                'url': url,
+                'url': cached_url,
                 'sha256': _sha256(path),
                 'retrieved': _utc_iso(os.path.getmtime(path)),
             }
@@ -386,6 +398,17 @@ def _download_source(
             _validate_source(part_path, label, integrity)
             os.replace(part_path, path)
             print('downloaded %s: %s' % (label, path))
+            if fallback_404_url is not None:
+                try:
+                    with open(
+                        path + '.source_url', 'w', encoding='utf-8'
+                    ) as sidecar:
+                        sidecar.write(active_url)
+                except OSError as exc:
+                    print(
+                        '!! could not record source URL for %s: %s' %
+                        (label, str(exc))
+                    )
             return {
                 'url': active_url,
                 'sha256': _sha256(path),
@@ -1007,14 +1030,12 @@ def _parse_cbp_archive(path, label, geography):
                 emp_value = _parse_count_cell(
                     row, emp_header, label, reader.line_num
                 )
-                if suppression_header is None:
-                    flag_suppressed = False
-                else:
-                    flag_suppressed = (
-                        _row_cell(
-                            row, suppression_header, label, reader.line_num
-                        ).strip().upper() in ('D', 'S')
-                    )
+                # 'N' = not available/not comparable (emp cell is 0)
+                flag_suppressed = (
+                    _row_cell(
+                        row, suppression_header, label, reader.line_num
+                    ).strip().upper() in ('D', 'S', 'N')
+                )
                 suppressed = (
                     flag_suppressed or emp_value is UNKNOWN
                 )
@@ -1426,6 +1447,8 @@ def _build_districts(
     districts = {}
     contradiction_high = 0
     contradiction_low = 0
+    contradiction_high_out_of_universe = 0
+    contradiction_low_out_of_universe = 0
     emitted_four_codes = set()
     for geo in sorted(phase_c['districts']):
         accumulator = allocated[geo]
@@ -1513,10 +1536,20 @@ def _build_districts(
                 cbp_lq_est_raw is not None and
                 cbp_lq_est_raw >= lq_hi
             )
+            # Out-of-universe sectors (CNS01/CNS03/CNS20) are counted
+            # apart so they do not inflate the headline counters; the
+            # per-district flags below are unchanged.
+            out_of_universe = sector in UNIVERSE_NOTES
             if contradicted_high:
-                contradiction_high += 1
+                if out_of_universe:
+                    contradiction_high_out_of_universe += 1
+                else:
+                    contradiction_high += 1
             if contradicted_low:
-                contradiction_low += 1
+                if out_of_universe:
+                    contradiction_low_out_of_universe += 1
+                else:
+                    contradiction_low += 1
             sector_agreement[sector] = {
                 'lodes_lq': lodes_lq,
                 'cbp_lq_est': _round_lq(cbp_lq_est_raw),
@@ -1568,6 +1601,10 @@ def _build_districts(
         'n_naics4': len(emitted_four_codes),
         'contradiction_high': contradiction_high,
         'contradiction_low': contradiction_low,
+        'contradiction_high_out_of_universe':
+            contradiction_high_out_of_universe,
+        'contradiction_low_out_of_universe':
+            contradiction_low_out_of_universe,
     }
 
 
@@ -1622,13 +1659,6 @@ def main():
         'us': _download_source(
             'CBP US', urls['us'], paths['us'], force, 'zip'
         ),
-        'cd_xlsx_cached': _download_source(
-            'CBP CD XLSX',
-            urls['cd_xlsx'],
-            paths['cd_xlsx'],
-            force,
-            None,
-        ),
         'ct_bridge': _download_source(
             'CT planning-region bridge',
             CT_BRIDGE_URL,
@@ -1638,6 +1668,21 @@ def main():
             CT_BRIDGE_FALLBACK_URL,
         ),
     }
+    # Best-effort: the XLSX is only cached for Phase E, never parsed here.
+    try:
+        sources['cd_xlsx_cached'] = _download_source(
+            'CBP CD XLSX',
+            urls['cd_xlsx'],
+            paths['cd_xlsx'],
+            force,
+            'zip',
+        )
+    except SystemExit as exc:
+        print(
+            '!! CBP CD XLSX unavailable; Phase E '
+            'validate_district_industry.py requires it: %s' % exc
+        )
+        sources['cd_xlsx_cached'] = None
 
     weight_path = os.path.join(
         geo_root, 'county_cd_weights.csv.gz'
@@ -1732,12 +1777,16 @@ def main():
     dump_atomic(artifact, output_path, separators=(',', ':'))
     print(
         'wrote district_industry_4digit.json: 435 districts, '
-        '%d naics4 codes, contradictions high/low = %d/%d, '
+        '%d naics4 codes, contradictions high/low = %d/%d '
+        '(in-universe sectors only); out-of-CBP-universe sectors '
+        '(CNS01/CNS03/CNS20) high/low = %d/%d; '
         'emp suppression share %.4f' %
         (
             district_result['n_naics4'],
             district_result['contradiction_high'],
             district_result['contradiction_low'],
+            district_result['contradiction_high_out_of_universe'],
+            district_result['contradiction_low_out_of_universe'],
             suppression_share,
         )
     )

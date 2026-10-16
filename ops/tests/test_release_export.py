@@ -39,6 +39,24 @@ class ExportConfigTests(Base):
         self.assertTrue(export.allowed_name("ops/locks/r-packages.txt", shipped))
         self.assertFalse(export.allowed_name("ops/locks/r-packages.txt", {}))             # only extra_names lets a .txt out
 
+    def test_desktop_installer_hook_survives_export_without_admitting_other_installer_scripts(self):
+        hook = "ops/desktop/client/installer.nsh"
+        omitted = ("ops/other/installer.nsh", "ops/desktop/client/unreviewed.nsh",
+                   "ops/desktop/packaging/native-build.yml.template")
+        contents = b"!macro customInit\r\n!macroend\r\n"
+        with mock.patch.dict(MELANGE_FILES, {hook: contents, **{path: b"not a release input\n" for path in omitted}}):
+            fixture = Fixture(with_liveness=False, big=False)
+        try:
+            plan = export.plan_export(fixture.cfg)
+            self.assertIn(hook, plan["entries"])
+            self.assertEqual(plan["entries"][hook][1], g("rev-parse", "HEAD:" + hook, cwd=fixture.melange))
+            dropped = dict(plan["dropped"])
+            for path in omitted:
+                self.assertNotIn(path, plan["entries"])
+                self.assertEqual(dropped[path], "extension not allowed")
+        finally:
+            fixture.close()
+
 
 class ExportTests(Base):
     @classmethod

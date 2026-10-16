@@ -264,10 +264,7 @@ run_lane <- function() {
   } else {
     "fresh"
   }
-  budget_database_path <- trimws(Sys.getenv(
-    "MENTAT_API_BUDGET_DB",
-    unset = ""
-  ))
+  budget_database_path <- if (fec_api_remote_pool()) "" else mentat_api_budget_path(project_root)
   budget_connection <- connection
   startup_jitter_seconds <- 0
   if (nzchar(budget_database_path)) {

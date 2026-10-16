@@ -13,6 +13,7 @@ import math
 import os
 from pathlib import Path
 import re
+from runtime_paths import app_data_root
 
 MODEL_ID = 'pac-r12-origin-half-r8-nowcast-v1'
 ACCOUNTING_BASIS = 'nominal_pac_to_house_senate_net'
@@ -248,7 +249,7 @@ def _timestamp(value):
 
 def _load_bundle():
     pointer_path = Path(os.environ.get('MENTAT_PAC_GIVING_POINTER') or
-                        Path(__file__).resolve().parent / 'data' / 'pac-giving-current.json')
+                        app_data_root() / 'pac-giving-current.json')
     pointer_path = pointer_path.resolve(strict=True)
     pointer = _json(pointer_path.read_bytes())
     if (not isinstance(pointer, dict) or type(pointer.get('schema_version')) is not int or

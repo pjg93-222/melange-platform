@@ -141,6 +141,9 @@ LIVE_SUPPORT_INPUTS = (
 )
 
 
+PRODUCER_TIMEOUT_SECONDS = 3600
+
+
 class ShadowError(RuntimeError):
     """A paired-shadow input, execution, or safety invariant failed."""
 
@@ -371,9 +374,10 @@ def build_events(
     membership_only = [
         row for row in edges if row.get("scoring_eligible") is not True
     ]
+    amendment_rows = read_ndjson(amendments_path)
     amendments = {
         str(row.get("canonical_key")): row
-        for row in read_ndjson(amendments_path)
+        for row in amendment_rows
     }
     reasons = {
         str(row.get("canonical_key")): str(row.get("reason") or "")
@@ -461,6 +465,7 @@ def build_events(
             }
         )
     return events, {
+        "amendment_partition_records": len(amendment_rows),
         "integrated_category_edges": len(edges),
         "scoring_ready_category_edges": len(scoring),
         "membership_only_non_scoring_category_edges": len(membership_only),
@@ -726,17 +731,38 @@ def run_producer(
     environment = dict(os.environ)
     environment["MONEYBALL_ROOT"] = str(shadow_root.resolve())
     environment["PILLAR_SNAPSHOT_FREEZE"] = "0"
-    completed = subprocess.run(
-        [sys.executable, str(script), *arguments],
-        cwd=str(ROOT),
-        env=environment,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        check=False,
-    )
     log_path = logs / f"{shadow_root.name}__{script.stem}.log"
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(script), *arguments],
+            cwd=str(ROOT),
+            env=environment,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+            check=False,
+            timeout=PRODUCER_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        def _partial(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, bytes):
+                return value.decode("utf-8", errors="replace")
+            return str(value)
+
+        log_path.write_text(
+            _partial(exc.stdout)
+            + "\n[stderr]\n"
+            + _partial(exc.stderr)
+            + f"\n[timeout after {PRODUCER_TIMEOUT_SECONDS}s]\n",
+            encoding="utf-8",
+        )
+        raise ShadowError(
+            f"{script_name} timed out after {PRODUCER_TIMEOUT_SECONDS}s for "
+            f"{shadow_root.name}; see {log_path}"
+        ) from exc
     log_path.write_text(
         completed.stdout
         + ("\n[stderr]\n" + completed.stderr if completed.stderr else ""),
@@ -983,6 +1009,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             args.amendments.resolve(),
             members,
         )
+        if (
+            args.amendments.resolve() == DEFAULT_AMENDMENTS.resolve()
+            and event_counts["amendment_partition_records"] != 3703
+        ):
+            raise ShadowError("default amendment partition is not 3703 records")
         event_path = out / "shadow_event_ledger.ndjson"
         event_count = atomic_ndjson(event_path, events)
         if event_count != 74:
@@ -1153,7 +1184,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                     integration_root / "integrated_membership_edges.ndjson",
                     93,
                 ),
-                "amendment_partition": receipt(args.amendments.resolve(), 3703),
+                "amendment_partition": receipt(
+                    args.amendments.resolve(),
+                    event_counts["amendment_partition_records"],
+                ),
             },
             "outputs": {
                 "shadow_event_ledger": receipt(event_path, event_count),

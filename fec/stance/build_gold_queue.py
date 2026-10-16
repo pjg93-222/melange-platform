@@ -10,7 +10,7 @@ across all issues, covering all stances"). Stratification:
 Output gold_label_queue.csv carries the richer Burnham-factorization schema; the api_* columns are
 filled by fec/stance/api_prelabel.py (Claude API pre-label pass) and the gold_* columns are the USER'S to
 adjudicate (pre-seeded from the API pass for correction-in-place)."""
-import csv, io, sys, hashlib, collections, random
+import csv, io, os, sys, hashlib, collections, random
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 random.seed(7)
 B = MB_ROOT
@@ -97,13 +97,23 @@ cols = ['id', 'member', 'party', 'date', 'title', 'url', 'categories', 'source_c
         'api_attribution', 'api_confidence', 'api_rationale', 'debate_vs_api',
         'gold_target', 'gold_stance_toward_target', 'gold_target_cu_valence', 'gold_cu_alignment',
         'gold_attribution', 'gold_notes']
-with io.open(OUT, 'w', encoding='utf-8-sig', newline='') as f:
+# Label-destruction guard: this rebuild writes every api_*/gold_* cell blank and merges nothing back.
+if os.path.exists(OUT):
+    with io.open(OUT, encoding='utf-8-sig', newline='') as _f:
+        _filled = sum(1 for _r in csv.DictReader(_f)
+                      if any((v or '').strip() for k, v in _r.items() if k and k.startswith(('api_', 'gold_'))))
+    if _filled:
+        raise SystemExit('REFUSING: %s has %d row(s) with filled api_*/gold_* cells; a rebuild would erase them. '
+                         'Move/rename the file first if a fresh queue is really intended.' % (OUT, _filled))
+_tmp = OUT + '.tmp'
+with io.open(_tmp, 'w', encoding='utf-8-sig', newline='') as f:
     w = csv.writer(f); w.writerow(cols)
     for k, (r, whys) in sorted(picked.items(), key=lambda kv: (kv[1][0].get('member') or '', kv[1][0].get('date') or '')):
         w.writerow([k, r.get('member'), r.get('party'), r.get('date'), r.get('title'), r.get('url'),
                     r.get('categories'), channel(r), ';'.join(sorted(whys)),
                     r.get('stance'), r.get('stance_src'), r.get('stance_conf'), r.get('lsd_net_norm'),
                     '', '', '', '', '', '', '', '', '', '', '', '', '', ''])
+os.replace(_tmp, OUT)
 cc = collections.Counter(pr[0].get('stance') for pr in picked.values())
 mm = collections.Counter(pr[0].get('member') for pr in picked.values())
 ch = collections.Counter(channel(pr[0]) for pr in picked.values())

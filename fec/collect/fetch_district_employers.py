@@ -41,6 +41,7 @@ import re
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections import defaultdict
@@ -63,6 +64,7 @@ USASPENDING_ENDPOINT = (
 CBP_YEAR = '2023'
 CBP_TOTAL_NAICS = '------'
 REDACTED_RECIPIENT = 'REDACTED DUE TO PII'
+MULTIPLE_RECIPIENTS = 'MULTIPLE RECIPIENTS'
 WEIGHT_SUM_TOLERANCE = 1e-4
 
 CNS_SECTORS = tuple('CNS%02d' % index for index in range(1, 21))
@@ -828,6 +830,7 @@ def _canonical_request_body(payload):
 
 def _request_usaspending(body, label):
     failure = None
+    message = ''
     for attempt in range(DOWNLOAD_ATTEMPTS):
         try:
             request = urllib.request.Request(
@@ -852,17 +855,31 @@ def _request_usaspending(body, label):
             return value
         except Exception as exc:
             failure = exc
+            message = str(exc)
+            if isinstance(exc, urllib.error.HTTPError):
+                try:
+                    snippet = exc.read()[:200]
+                except Exception:
+                    snippet = b''
+                message = '%s: %s' % (
+                    message, snippet.decode('utf-8', errors='replace')
+                )
+                # A 4xx (other than 429) will not change on retry.
+                if 400 <= exc.code < 500 and exc.code != 429:
+                    raise OSError(
+                        'request failed for %s: %s' % (label, message)
+                    ) from exc
             if attempt == DOWNLOAD_ATTEMPTS - 1:
                 break
             delay = RETRY_BASE_SECONDS * (attempt + 1)
             print(
                 '!! request retry for %s in %d seconds: %s' %
-                (label, delay, str(exc))
+                (label, delay, message)
             )
             time.sleep(delay)
     raise OSError(
         'request failed for %s after %d attempts: %s' %
-        (label, DOWNLOAD_ATTEMPTS, str(failure))
+        (label, DOWNLOAD_ATTEMPTS, message)
     ) from failure
 
 
@@ -904,7 +921,8 @@ def _extract_recipients(payload, label):
         )
     recipients = []
     redacted = 0
-    for index, item in enumerate(results[:10], 1):
+    multiple = 0
+    for index, item in enumerate(results, 1):
         item_label = '%s result %d' % (label, index)
         if not isinstance(item, dict):
             raise ValueError('%s is not an object' % item_label)
@@ -912,8 +930,11 @@ def _extract_recipients(payload, label):
         if not isinstance(name, str) or not name.strip():
             raise ValueError('%s has invalid name %r' % (item_label, name))
         name = name.strip()
-        if name == REDACTED_RECIPIENT:
+        if name.casefold() == REDACTED_RECIPIENT.casefold():
             redacted += 1
+            continue
+        if name.casefold() == MULTIPLE_RECIPIENTS.casefold():
+            multiple += 1
             continue
         amount = _recipient_amount(item.get('amount'), item_label)
         recipient_id = _recipient_identity(item)
@@ -922,7 +943,9 @@ def _extract_recipients(payload, label):
             'amount': amount,
             'recipient_id': recipient_id,
         })
-    return recipients, redacted
+        if len(recipients) == 10:
+            break
+    return recipients, redacted, multiple
 
 
 def _validate_cache_timestamp(value, geo):
@@ -967,12 +990,12 @@ def _load_usaspending_cache(path, geo, request_digest):
     if not isinstance(payload, dict):
         raise ValueError('cache has no response object')
     try:
-        recipients, redacted = _extract_recipients(
+        recipients, redacted, multiple = _extract_recipients(
             payload, 'cached USAspending %s' % geo
         )
     except ValueError as exc:
         raise ValueError('invalid cached response: %s' % str(exc)) from exc
-    return recipients, redacted, retrieved_at
+    return recipients, redacted, multiple, retrieved_at
 
 
 def _collect_usaspending_district(
@@ -989,7 +1012,10 @@ def _collect_usaspending_district(
                 'district_current': district,
             }],
         },
-        'limit': 10,
+        # 25 (not 10) so placeholder rows can be dropped and the top 10
+        # named recipients still backfilled; the request digest changes, so
+        # existing per-district caches re-fetch once.
+        'limit': 25,
         'page': 1,
     }
     request_body = _canonical_request_body(payload)
@@ -997,7 +1023,7 @@ def _collect_usaspending_district(
     cache_path = os.path.join(cache_root, '%s.json' % geo)
     if os.path.exists(cache_path) and not force:
         try:
-            recipients, redacted, retrieved_at = (
+            recipients, redacted, multiple, retrieved_at = (
                 _load_usaspending_cache(
                     cache_path, geo, request_digest
                 )
@@ -1012,6 +1038,7 @@ def _collect_usaspending_district(
                 'geo': geo,
                 'recipients': recipients,
                 'redacted': redacted,
+                'multiple': multiple,
                 'cached': True,
                 'retrieved_at': retrieved_at,
             }
@@ -1020,7 +1047,7 @@ def _collect_usaspending_district(
         request_body, 'USAspending %s' % geo
     )
     retrieved_at = _utc_iso()
-    recipients, redacted = _extract_recipients(
+    recipients, redacted, multiple = _extract_recipients(
         response, 'USAspending %s' % geo
     )
     cache_value = {
@@ -1039,6 +1066,7 @@ def _collect_usaspending_district(
         'geo': geo,
         'recipients': recipients,
         'redacted': redacted,
+        'multiple': multiple,
         'cached': False,
         'retrieved_at': retrieved_at,
     }
@@ -1047,18 +1075,18 @@ def _collect_usaspending_district(
 def _collect_usaspending(districts, fy, period, cache_root, force):
     os.makedirs(cache_root, exist_ok=True)
     geos = sorted(districts)
-    top_federal = {
-        geo: {
-            'status': 'failed',
-            'error': 'USAspending collection did not complete',
-        }
-        for geo in geos
+    # Same shape (a list) on success and failure; a failed district's reason
+    # lives in the sibling errors map, not in the top_federal value.
+    top_federal = {geo: [] for geo in geos}
+    errors = {
+        geo: 'USAspending collection did not complete' for geo in geos
     }
     stats = {
         'ok': 0,
         'fail': 0,
         'empty': 0,
         'redacted': 0,
+        'multiple': 0,
         'cached': 0,
         'retrieved_min': None,
         'retrieved_max': None,
@@ -1093,16 +1121,16 @@ def _collect_usaspending(districts, fy, period, cache_root, force):
                 except Exception as exc:
                     stats['fail'] += 1
                     error = str(exc) or exc.__class__.__name__
-                    top_federal[geo] = {
-                        'status': 'failed',
-                        'error': error,
-                    }
+                    top_federal[geo] = []
+                    errors[geo] = error
                     print('!! %s USAspending failed: %s' % (geo, error))
                 else:
                     recipients = result['recipients']
                     top_federal[geo] = recipients
+                    errors.pop(geo, None)
                     stats['ok'] += 1
                     stats['redacted'] += result['redacted']
+                    stats['multiple'] += result['multiple']
                     stats['cached'] += int(result['cached'])
                     retrieved_times.append(result['retrieved_at'])
                     if not recipients:
@@ -1126,19 +1154,20 @@ def _collect_usaspending(districts, fy, period, cache_root, force):
             raise
     print(
         'USAspending complete: ok/fail %d/%d, cached %d, '
-        'empty %d, redacted skipped %d' %
+        'empty %d, redacted skipped %d, multiple-recipients skipped %d' %
         (
             stats['ok'],
             stats['fail'],
             stats['cached'],
             stats['empty'],
             stats['redacted'],
+            stats['multiple'],
         )
     )
     if retrieved_times:
         stats['retrieved_min'] = min(retrieved_times)
         stats['retrieved_max'] = max(retrieved_times)
-    return top_federal, stats
+    return top_federal, stats, errors
 
 
 def _queue_rows():
@@ -1269,9 +1298,20 @@ def main():
         cbp_allocation_stats,
     ) = _allocate_cbp(cbp_records, county_weights, districts)
 
-    top_federal, usaspending_stats = _collect_usaspending(
-        districts, fy, period, cache_root, force
+    top_federal, usaspending_stats, usaspending_errors = (
+        _collect_usaspending(districts, fy, period, cache_root, force)
     )
+    # Coverage floor gates every write below (queue CSV and artifact).
+    if usaspending_stats['fail'] > MAX_USASPENDING_FAILURES:
+        print(
+            '!! USAspending coverage floor failed: %d failures exceeds %d' %
+            (
+                usaspending_stats['fail'],
+                MAX_USASPENDING_FAILURES,
+            )
+        )
+        print('!! refusing to write; last good artifact kept')
+        raise SystemExit(1)
 
     n_pending = _write_queue(queue_path)
     artifact_districts = {}
@@ -1281,6 +1321,10 @@ def main():
             'large_establishments': large_establishments[geo],
             'lodes_context': dict(districts[geo]),
         }
+        if geo in usaspending_errors:
+            artifact_districts[geo]['top_federal_error'] = (
+                usaspending_errors[geo]
+            )
 
     generated_at = _utc_iso()
     artifact = {
@@ -1326,6 +1370,8 @@ def main():
                 'empty': usaspending_stats['empty'],
                 'cached': usaspending_stats['cached'],
                 'redacted_skipped': usaspending_stats['redacted'],
+                'multiple_recipients_skipped':
+                    usaspending_stats['multiple'],
             },
             'cbp_suppression': {
                 'n_sizeclass_unknown_rows':
@@ -1344,22 +1390,21 @@ def main():
                     cbp_allocation_stats[
                         'n_output_sector_entries_incomplete'
                     ],
+                'n_cbp_counties_unmatched_in_weights':
+                    cbp_allocation_stats[
+                        'n_cbp_counties_unmatched_in_weights'
+                    ],
+                'unallocated_est_500plus_share':
+                    cbp_allocation_stats[
+                        'unallocated_est_500plus_share'
+                    ],
+                'unallocated_scope_note':
+                    cbp_allocation_stats['unallocated_scope_note'],
             },
         },
     }
     print('writing Phase G artifact: %s' % output_path)
     dump_atomic(artifact, output_path, separators=(',', ':'))
-    coverage_failed = (
-        usaspending_stats['fail'] > MAX_USASPENDING_FAILURES
-    )
-    if coverage_failed:
-        print(
-            '!! USAspending coverage floor failed: %d failures exceeds %d' %
-            (
-                usaspending_stats['fail'],
-                MAX_USASPENDING_FAILURES,
-            )
-        )
     print(
         'wrote district_employers.json: 435 districts, '
         'usaspending ok/fail %d/%d, cbp large-est %d districts nonzero, '
@@ -1371,8 +1416,6 @@ def main():
             n_pending,
         )
     )
-    if coverage_failed:
-        raise SystemExit(1)
 
 
 if __name__ == '__main__':

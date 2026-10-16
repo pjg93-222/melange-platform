@@ -702,6 +702,20 @@ class UnusualButValidAnchorTests(unittest.TestCase):
             json.dumps(out, allow_nan=False)
             return out['horizons'][0]
 
+    def test_an_ambiguous_candidate_basis_is_unavailable_while_general_and_pac_stay_usable(self):
+        reason = '2 included receipts have conflicting recipient committee types involving House or Senate.'
+        def edit(i):
+            i['candidate_receipts'].update(status='unavailable', reason=reason, cycles={}, observed=[], thin_base={}, excluded_non_giving={})
+            i['status']['candidate_receipts'] = 'unavailable'
+        h = self.with_anchors(edit)
+        for chamber in ('House', 'Senate'):
+            bases = {b['id']: b for b in h['shares'][chamber]['bases']}
+            self.assertEqual(bases['employee_candidate']['status'], 'unavailable')
+            self.assertEqual(bases['employee_candidate']['reason'], reason)
+            self.assertNotIn('anchor_total_nominal', bases['employee_candidate'])
+            self.assertEqual(bases['pac_candidate']['status'], 'ready')
+        self.assertEqual(next(m for m in h['pac']['measures'] if m['id']=='general_giving')['status'], 'ready')
+
     def test_a_missing_anchor_cycle_of_candidate_receipts_makes_the_share_bases_unavailable(self):
         def edit(i):
             i['candidate_receipts']['cycles'].pop('2024')

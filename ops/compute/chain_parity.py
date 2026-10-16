@@ -551,13 +551,21 @@ def cmd_freeze(a) -> int:
     if dest in manifest.resolve().parents:
         raise Usage("the manifest must live outside --dest")
     excl, rels = a.exclude or [], set()
-    if a.list:
-        for raw in Path(a.list).read_text(encoding="utf-8").splitlines():
-            line = raw.strip().replace("\\", "/")
+    for listing in a.list or []:
+        for raw in Path(listing).read_text(encoding="utf-8").splitlines():
+            line = raw.split("  #")[0].strip().replace("\\", "/")  # "path  # note" is allowed (ops/required_inputs.txt)
             if not line or line.startswith("#"):
                 continue
             if line.startswith("/") or re.match(r"^[A-Za-z]:", line) or ".." in line.split("/"):
                 raise Usage(f"--list entry must be a relative path inside --src: {line!r}")
+            if line.endswith("/"):  # "dir/" or "glob*/": every file under each matching directory; none matching fails
+                dirs = sorted(d for d in src.glob(line.rstrip("/")) if d.is_dir() and not d.is_symlink() and not os.path.isjunction(d))
+                if not dirs:
+                    raise Usage(f"--list directory entry matches no directory under --src: {line!r}")
+                for d in dirs:
+                    base = d.relative_to(src).as_posix() + "/"
+                    rels |= {base + r for r in walk_files(d) if not excluded(base + r, excl)}
+                continue
             if not (src / line).is_file():
                 raise Usage(f"--list entry is not a file under --src: {line!r}")
             if not excluded(line, excl):
@@ -622,29 +630,43 @@ def current_image(name: str = IMAGE_NAME) -> str:
     return image
 
 
+def require_scratch_dirs(local_dir, glassbox_dir) -> str:
+    """The guard every relocated Windows run shares (the chain here, the collectors replay in collectors_replay.py): the machine-local
+    store must be a COPY whose folder is named Melange, never the live one, and the Glass Box folder must be named explicitly.
+    -> the absolute local dir."""
+    if not local_dir:
+        raise Usage("--local-dir is required for the windows side: without it the chain writes the live machine-local Melange store")
+    local = os.path.abspath(local_dir)
+    # LOCALAPPDATA becomes local's parent, and staffer_contacts / staffer_source_catalog / forecast_ledger / refresh_billstatus_bulk
+    # read LOCALAPPDATA\Melange directly: any other leaf name sends them to a sibling of the copy (the live store, if that is it).
+    live = os.path.join(os.environ.get("LOCALAPPDATA") or "", "Melange")
+    if os.path.basename(local).lower() != "melange" or os.path.normcase(local) == os.path.normcase(os.path.abspath(live)):
+        raise Usage("--local-dir must be a COPY of the local store whose folder is named Melange, not the live %s" % live)
+    if not glassbox_dir:
+        raise Usage("--glassbox-dir is required for the windows side: without it the chain writes events into the live ~/.claude/glassbox/events")
+    live_events = os.path.normcase(os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude", "glassbox", "events")))
+    given = os.path.normcase(os.path.realpath(glassbox_dir))
+    if given == live_events or given.startswith(live_events + os.sep):
+        raise Usage("--glassbox-dir must be a scratch folder, not the live %s" % live_events)
+    return local
+
+
 def build_command(side: str, root: str, today: str, flags: dict | None = None):
     """-> (argv, env overrides, cwd) for one side of the parity run. The container image is, in this order: --image, the caller's
     IMAGE_COMPUTE_MELANGE (an explicit choice, for a build no release names yet), else the verified current manifest's."""
     root, flags = os.path.abspath(root), flags or {}
     start = ["--from", flags["start"]] if flags.get("start") else []
     if side == "windows":
-        local = flags.get("local_dir")
-        if not local:
-            raise Usage("--local-dir is required for the windows side: without it the chain writes the live machine-local Melange store")
-        local = os.path.abspath(local)
-        # LOCALAPPDATA becomes local's parent, and staffer_contacts / staffer_source_catalog / forecast_ledger / refresh_billstatus_bulk
-        # read LOCALAPPDATA\Melange directly: any other leaf name sends them to a sibling of the copy (the live store, if that is it).
-        live = os.path.join(os.environ.get("LOCALAPPDATA") or "", "Melange")
-        if os.path.basename(local).lower() != "melange" or os.path.normcase(local) == os.path.normcase(os.path.abspath(live)):
-            raise Usage("--local-dir must be a COPY of the local store whose folder is named Melange, not the live %s" % live)
-        if not flags.get("glassbox_dir"):
-            raise Usage("--glassbox-dir is required for the windows side: without it the chain writes events into the live ~/.claude/glassbox/events")
+        local = require_scratch_dirs(flags.get("local_dir"), flags.get("glassbox_dir"))
         env = {"MONEYBALL_ROOT": root, "MELANGE_TODAY": today, "MELANGE_REBASE_STORED": "1", "MELANGE_LOCAL_ROOT": local,
                "LOCALAPPDATA": os.path.dirname(local), "MELANGE_XLSX_WRITER": "openpyxl", "PYTHONUTF8": "1",
                "PYTHONIOENCODING": "utf-8:surrogateescape", "PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1"}
         for var, flag in (("MONEYBALL_DRAFT", "draft_dir"), ("MELANGE_DATA_ROOT", "data_dir"), ("GLASSBOX_EVENTS_DIR", "glassbox_dir")):
             if flags.get(flag):
                 env[var] = os.path.abspath(flags[flag])
+        # build_staffer_network_section shells out to ~/.claude/glassbox/emit.ps1, which writes the LIVE events folder whatever
+        # GLASSBOX_EVENTS_DIR says; an absent GLASSBOX_EMIT makes that producer skip the emit (non-fatal, no output byte depends on it).
+        env["GLASSBOX_EMIT"] = os.path.join(env["GLASSBOX_EVENTS_DIR"], "emit.ps1.absent")
         return [sys.executable, os.path.join(root, "fec", "run_pipeline.py")] + start, env, root
     env = {"MELANGE_TREE_DIR": root, "MELANGE_TODAY": today}
     for name, flag in PASSTHROUGH:
@@ -769,7 +791,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--dest", required=True, help="new or empty directory to copy into")
     s.add_argument("--include", action="extend", nargs="+", metavar="GLOB", help="files to copy (glob rules in the module docstring)")
     s.add_argument("--exclude", action="extend", nargs="+", metavar="GLOB", help="files to leave out (wins over include and list)")
-    s.add_argument("--list", metavar="FILE", help="file of exact relative paths, one per line (# comments allowed)")
+    s.add_argument("--list", action="append", metavar="FILE",
+                   help="file of exact relative paths, one per line (# comments allowed); a line ending in / takes every file "
+                        "under each directory it names or globs (outputs/press_refresh_*/); repeatable")
     s.add_argument("--manifest", metavar="M", help="manifest path (default <dest>.manifest.json)")
 
     s = add("verify", cmd_verify, "prove --root is byte-identical to --manifest (no extra, missing or modified file)")

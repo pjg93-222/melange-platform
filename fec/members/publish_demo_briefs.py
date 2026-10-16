@@ -153,9 +153,18 @@ def main():
     if repair_artifact:
         document["repair_artifact"] = repair_artifact
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    with open(args.out, "w", encoding="utf-8", newline="\n") as fh:
-        json.dump(document, fh, ensure_ascii=False, indent=1)
-        fh.write("\n")
+    tmp = args.out + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(document, fh, ensure_ascii=False, indent=1)
+            fh.write("\n")
+        os.replace(tmp, args.out)
+    except BaseException:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
     print(json.dumps({
         "roster": len(ledger),
         "accepted": len(slim),

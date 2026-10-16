@@ -71,13 +71,22 @@ def _matching_promotion(root: Path, staged_hash: str, rank_hash: str):
         except (OSError, TypeError, ValueError):
             continue
         installed = receipt.get('installed') or {}
+        if not isinstance(installed, dict) or any(
+            not isinstance(installed.get(name) or {}, dict)
+            for name in (RANK_NAME, STAGED_NAME) + CULLING_CONTINUITY_FILES
+        ):
+            continue
         original_rank_matches = (installed.get(RANK_NAME) or {}).get('sha256') == rank_hash
         continuity = {}
         if not original_rank_matches:
             for name in CULLING_CONTINUITY_FILES:
                 current = root / name
                 expected = (installed.get(name) or {}).get('sha256')
-                if not expected or not current.is_file() or sha256(current) != expected:
+                try:
+                    intact = bool(expected) and current.is_file() and sha256(current) == expected
+                except OSError:
+                    intact = False
+                if not intact:
                     break
                 continuity[name] = expected
         continued = len(continuity) == len(CULLING_CONTINUITY_FILES)

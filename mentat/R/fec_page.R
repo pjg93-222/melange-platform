@@ -307,6 +307,55 @@ fec_set_page_length <- function(session, page_length = 100L) {
   payload
 }
 
+# Session-scoped optional reader hook; actual collectors always supply their SQLite connection.
+fec_browser_evidence_callback <- function(session) attr(session, "mentat_evidence_callback", exact = TRUE)
+
+fec_retain_browser_bytes <- function(session, bytes, source_kind, page = -1L, status = NA_integer_) {
+  callback <- fec_browser_evidence_callback(session)
+  if (is.function(callback)) callback(bytes, source_kind, page, status)
+  invisible(NULL)
+}
+
+fec_chrome_archive_callback <- function(connection, company, cycle, variant_set, variants,
+                                       query_field, query_filters = list()) {
+  force(connection)
+  params <- c(list(two_year_transaction_period = as.integer(cycle)),
+    stats::setNames(list(as.list(variants)), query_field), query_filters)
+  spec <- list(id = paste(company, cycle, variant_set, sep = "::"), params = params)
+  function(bytes, source_kind, page, status) {
+    tryCatch(DBI::dbWithTransaction(connection, {
+      if (!is.raw(bytes)) stop("Browser evidence must be raw bytes.")
+      if (!source_kind %in% c("fec_browser_http_body_bytes", "fec_download_csv_bytes", "parsed_browser_snapshot"))
+        stop("Unsupported browser evidence kind.")
+      envelope <- mentat_evidence_json(list(schema_version = 1L, source_kind = source_kind,
+        company = company, cycle = as.integer(cycle),
+        original_response_bytes = source_kind != "parsed_browser_snapshot",
+        bytes_sha256 = digest::digest(bytes, algo = "sha256", serialize = FALSE),
+        byte_length = length(bytes), bytes_base64 = jsonlite::base64_enc(bytes)))
+      fec_api_archive_response(connection, spec, list(status = status, body = envelope),
+        page = page, payload_kind = source_kind)
+    }), error = function(condition) {
+      stop(structure(list(message = "FEC Chrome evidence could not be saved; collection stopped before parsing or certification.", call = NULL),
+        class = c("mentat_evidence_archive_failed", "error", "condition")))
+    })
+  }
+}
+
+fec_parse_export_file <- function(session, csv_path, expected_rows) {
+  stream <- file(csv_path, "rb")
+  bytes <- tryCatch(readBin(stream, "raw", n = file.info(csv_path)$size), finally = close(stream))
+  fec_retain_browser_bytes(session, bytes, "fec_download_csv_bytes", status = 200L)
+  rows <- data.table::fread(csv_path, colClasses = "character", na.strings = "NA",
+    showProgress = FALSE, encoding = "UTF-8")
+  if (nrow(rows) != expected_rows) stop("FEC export row-count mismatch: expected=", expected_rows,
+    " downloaded=", nrow(rows), call. = FALSE)
+  if (!"sub_id" %in% names(rows)) stop("FEC export is missing the required sub_id column.", call. = FALSE)
+  export_sub_ids <- trim_text(rows$sub_id)
+  if (any(!nzchar(export_sub_ids)) || anyDuplicated(export_sub_ids))
+    stop("FEC export contains blank or repeated sub_id values; refusing row-count-only completion.", call. = FALSE)
+  rows[]
+}
+
 fec_read_page <- function(session) {
   require_package("jsonlite")
   expression <- paste0(
@@ -314,11 +363,14 @@ fec_read_page <- function(session) {
     "var dt=window.jQuery('#results').DataTable();",
     "var info=dt.page.info();",
     "var rows=dt.rows().data().toArray();",
+    "if(rows.some(function(row){return typeof row.sub_id==='number' && !Number.isSafeInteger(row.sub_id);})){return {unsafe_numeric_sub_id:true};}",
     "return {info:info,rows:rows};",
     "})())"
   )
   json <- fec_runtime_value(session, expression)
+  fec_retain_browser_bytes(session, charToRaw(enc2utf8(json)), "parsed_browser_snapshot")
   payload <- jsonlite::fromJSON(json, simplifyVector = FALSE, bigint_as_char = TRUE)
+  if (isTRUE(payload$unsafe_numeric_sub_id)) stop("FEC browser table has an unsafe numeric sub_id; collect exact CSV or HTTP bytes instead.", call. = FALSE)
   if (is.null(payload$info) || is.null(payload$rows)) {
     stop("FEC DataTable payload is missing info or rows.", call. = FALSE)
   }
@@ -435,6 +487,7 @@ fec_click_next <- function(session, current_page) {
 }
 
 fec_is_transient_chromote_error <- function(error) {
+  if (inherits(error, "mentat_evidence_archive_failed")) return(FALSE)
   message <- tolower(conditionMessage(error))
   signatures <- c(
     "chromote: timed out waiting for response",
@@ -595,31 +648,7 @@ fec_export_current_query <- function(
       call. = FALSE
     )
   }
-  rows <- data.table::fread(
-    csv_path,
-    colClasses = "character",
-    na.strings = "NA",
-    showProgress = FALSE,
-    encoding = "UTF-8"
-  )
-  if (nrow(rows) != expected_rows) {
-    stop(
-      "FEC export row-count mismatch: expected=", expected_rows,
-      " downloaded=", nrow(rows),
-      call. = FALSE
-    )
-  }
-  if (!"sub_id" %in% names(rows)) {
-    stop("FEC export is missing the required sub_id column.", call. = FALSE)
-  }
-  export_sub_ids <- trim_text(rows$sub_id)
-  if (any(!nzchar(export_sub_ids)) || anyDuplicated(export_sub_ids)) {
-    stop(
-      "FEC export contains blank or repeated sub_id values; refusing ",
-      "row-count-only completion.",
-      call. = FALSE
-    )
-  }
+  rows <- fec_parse_export_file(session, csv_path, expected_rows)
   message("FEC export downloaded and verified: ", nrow(rows), " rows.")
   rows[]
 }
@@ -705,6 +734,60 @@ fec_browser_api_url <- function(session) {
 }
 
 fec_browser_api_batch <- function(
+  session,
+  api_url,
+  pages,
+  cursor = list(),
+  per_page = 100L,
+  attempts = 4L
+) {
+  require_package("jsonlite")
+  if (is.null(fec_browser_evidence_callback(session))) return(fec_browser_api_batch_legacy(
+    session, api_url, pages, cursor, per_page, attempts))
+  pages <- as.integer(pages)
+  responses <- list()
+  for (page in pages) {
+    response <- list(page = page, status = 0L, error = "request did not start")
+    for (attempt in seq_len(as.integer(attempts))) {
+      expression <- sprintf(paste0(
+        "(async function(){try{var url=new URL(%s);var cursor=%s;",
+        "url.searchParams.delete('page');url.searchParams.delete('last_contribution_receipt_date');",
+        "url.searchParams.delete('last_index');url.searchParams.set('per_page',String(%d));",
+        "if(cursor.last_contribution_receipt_date){url.searchParams.set('last_contribution_receipt_date',String(cursor.last_contribution_receipt_date));}",
+        "if(cursor.last_index){url.searchParams.set('last_index',String(cursor.last_index));}",
+        "var response=await fetch(url.href);var bytes=new Uint8Array(await response.arrayBuffer());",
+        "var binary='';for(var i=0;i<bytes.length;i++){binary+=String.fromCharCode(bytes[i]);}",
+        "return JSON.stringify({status:response.status,bytes_base64:btoa(binary),retry_after:Number(response.headers.get('Retry-After')||'0')});",
+        "}catch(error){return JSON.stringify({status:0,error:'browser transport failed'});}})()"),
+        jsonlite::toJSON(api_url, auto_unbox = TRUE),
+        jsonlite::toJSON(cursor, auto_unbox = TRUE, null = "null"), as.integer(per_page))
+      # Parse only the transport envelope first; archive original bytes before parsing the source JSON.
+      wire <- jsonlite::fromJSON(fec_runtime_value(session, expression, timeout_seconds = 60), simplifyVector = FALSE)
+      status <- as.integer(wire$status %||% 0L)
+      response <- list(page = page, status = status, error = wire$error %||% "")
+      if (!is.null(wire$bytes_base64)) {
+        bytes <- jsonlite::base64_dec(wire$bytes_base64)
+        fec_retain_browser_bytes(session, bytes, "fec_browser_http_body_bytes", page - 1L, status)
+        if (status == 200L) {
+          response$body <- jsonlite::fromJSON(rawToChar(bytes), simplifyVector = FALSE, bigint_as_char = TRUE)
+          break
+        }
+        response$error <- "FEC HTTP response refused"
+      }
+      if (status != 0L && status != 429L && status < 500L) break
+      if (attempt < attempts) {
+        retry_after <- suppressWarnings(as.numeric(wire$retry_after %||% 0))
+        Sys.sleep(if (is.finite(retry_after) && retry_after > 0) retry_after else min(8, 2^(attempt - 1L)))
+      }
+    }
+    responses[[length(responses) + 1L]] <- response
+    if (response$status != 200L || is.null(response$body)) break
+    cursor <- response$body$pagination$last_indexes %||% list()
+  }
+  list(responses = responses, cursor = cursor)
+}
+
+fec_browser_api_batch_legacy <- function(
   session,
   api_url,
   pages,
@@ -855,6 +938,7 @@ fec_walk_variant_set_api <- function(
           per_page = per_page
         ),
         error = function(error) {
+          if (inherits(error, "mentat_evidence_archive_failed")) stop(error)
           batch_error <<- conditionMessage(error)
           NULL
         }
@@ -1309,7 +1393,8 @@ fec_walk_variant_set <- function(
   retries = 3L,
   sleep_range = c(1.5, 3.5),
   query_retries = 3L,
-  max_pages = Inf
+  max_pages = Inf,
+  evidence_connection = NULL
 ) {
   query_retries <- as.integer(query_retries)
   if (is.na(query_retries) || query_retries < 0L) {
@@ -1318,6 +1403,9 @@ fec_walk_variant_set <- function(
   last_error <- NULL
   for (attempt in seq_len(query_retries + 1L)) {
     active_session <- fec_active_session(session)
+    previous_evidence <- fec_browser_evidence_callback(active_session)
+    attr(active_session, "mentat_evidence_callback") <- if (is.null(evidence_connection)) previous_evidence else fec_chrome_archive_callback(
+      evidence_connection, company, cycle, variant_set, variants, query_field, query_filters)
     result <- tryCatch(
       fec_walk_variant_set_once(
         session = active_session,
@@ -1337,7 +1425,8 @@ fec_walk_variant_set <- function(
       error = function(error) {
         last_error <<- error
         NULL
-      }
+      },
+      finally = { attr(active_session, "mentat_evidence_callback") <- previous_evidence }
     )
     if (!is.null(result)) {
       result$retries <- as.integer(result$retries) + attempt - 1L
@@ -1345,7 +1434,7 @@ fec_walk_variant_set <- function(
     }
     transient <- fec_is_transient_chromote_error(last_error)
     if (!transient || attempt > query_retries) {
-      stop(conditionMessage(last_error), call. = FALSE)
+      stop(last_error)
     }
     message(
       "Transient FEC browser failure for ", company, " cycle ", cycle,

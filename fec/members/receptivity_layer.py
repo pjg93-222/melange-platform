@@ -63,6 +63,7 @@ if not T: print('  !! big5_traits.json MISSING/EMPTY — every member falls to t
 # roll-call participation — RKH's own C criterion), dominance (E-resistance role, interview turn
 # stats + leadership), visibility/breadth (seed-prob roles). RECEPT_TRAITS=lexical reverts wholesale.
 BASIS=os.environ.get('RECEPT_TRAITS','behavioral')
+if BASIS not in ('behavioral','lexical'): raise ValueError('RECEPT_TRAITS=%r invalid; allowed: behavioral, lexical'%BASIS)
 # ---- N-SLOT (round-3 2026-07-09, user-ratified: "can you safely create it? proceed") ----
 # The Byrne composite's N was the engine's LAST text-derived leg ("no behavioral criterion exists"),
 # and the 07-09 psych-audit closed every ES/N validation route for text and voice. The behavioral
@@ -72,6 +73,7 @@ BASIS=os.environ.get('RECEPT_TRAITS','behavioral')
 # as every other behavioral component — never a text fallback, never an invented disposition);
 # RECEPT_N=text reverts the slot to the shrunken lexical N wholesale (the pre-round-3 legacy math).
 RECEPT_N=os.environ.get('RECEPT_N','affective')
+if RECEPT_N not in ('affective','behavioral','text'): raise ValueError('RECEPT_N=%r invalid; allowed: affective, behavioral, text'%RECEPT_N)
 # ROUND-7/7b AFFECTIVE-N PROMOTION (2026-07-11, user-ratified, pre-registered gate 5/5): affective_n
 # replaces the E-contaminated reactivity_z in the engine pressure slot. Airtight-audit interpretation:
 # E- and party-residualization are confound CONTROLS, not independent criterion-validity evidence; the
@@ -101,6 +103,7 @@ if RECEPT_N=='affective':
 # rule — NEVER a silent v1 fallback, never a mixed basis. RECEPT_COOP=v1 reverts wholesale.
 # Round-6's text-A look (MISS, methods sec-23) is orthogonal: criterion hygiene != text validity.
 RECEPT_COOP=os.environ.get('RECEPT_COOP','v2')
+if RECEPT_COOP not in ('v1','v2'): raise ValueError('RECEPT_COOP=%r invalid; allowed: v1, v2'%RECEPT_COOP)
 CV2={}
 if RECEPT_COOP!='v1':
     try: CV2={m:(d or {}).get('cooperation_v2_z') for m,d in json.load(open(os.path.join(B, 'coop_v2_candidate.json')))['members'].items()}

@@ -52,6 +52,13 @@ $PythonPath = $pythonChoice.Path
 Write-Host ('Python runtime: ' + $PythonPath + ' (' + $pythonChoice.Source + ')')
 if ($pythonChoice.Warning) { Write-Warning $pythonChoice.Warning }
 if (-not $Industry) { throw 'Industry cannot be empty.' }
+$runtimePaths = Join-Path $projectRoot 'app\runtime_paths.py'
+$reportCacheBase = & $PythonPath $runtimePaths --report-cache-root
+if ($LASTEXITCODE -ne 0 -or -not $reportCacheBase -or -not [IO.Path]::IsPathRooted([string]$reportCacheBase)) {
+  throw 'The shared report cache directory could not be resolved.'
+}
+$reportCacheBase = [IO.Path]::GetFullPath([string]$reportCacheBase)
+$env:MENTAT_REPORT_CACHE_ROOT = $reportCacheBase
 
 $reportBaseName = if ($CycleLabel) {
   "${Industry} Industry Spending Overview ${CycleLabel}"
@@ -61,12 +68,17 @@ $reportBaseName = if ($CycleLabel) {
 $industryToken = ($Industry -replace '[^A-Za-z0-9]+','_').Trim('_').ToLowerInvariant()
 if (-not $industryToken) { throw "Industry cannot be converted to a safe cache token: $Industry" }
 if (-not $WorkbookLockPath) {
-  $WorkbookLockPath = Join-Path $projectRoot '.cache\industry-report\workbook-builder.lock'
+  $WorkbookLockPath = Join-Path $reportCacheBase 'workbook-builder.lock'
 }
 
 if (-not $DatabasePath) {
   throw 'Pass -DatabasePath explicitly. Report sources are never selected from an ambient default database.'
 }
+$encodedDatabase = & $PythonPath $runtimePaths --encode-receipt $DatabasePath
+if ($LASTEXITCODE -ne 0 -or -not $encodedDatabase -or $encodedDatabase.Count -gt 1) {
+  throw 'Could not encode the explicit report database location.'
+}
+$env:MENTAT_RECEIPT_DATABASE_PATH = [string]$encodedDatabase
 Import-Module (Join-Path $scriptRoot 'report_directory.psm1') -Force
 $OutputDirectory = Resolve-MentatReportDirectory -ProjectRoot $projectRoot -OutputDirectory $OutputDirectory
 $env:MENTAT_REPORT_DIRECTORY = $OutputDirectory
@@ -410,7 +422,7 @@ function Invoke-MentatCrossReference {
 }
 
 New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
-$cacheRoot = Join-Path $projectRoot ('.cache\industry-report\' + $industryToken)
+$cacheRoot = Join-Path $reportCacheBase $industryToken
 $databaseHash = Get-QuiescentDatabaseSha256 $DatabasePath
 $sourceGuard = Join-Path $scriptRoot 'report_source_guard.py'
 $sourceGuardDirectory = Join-Path $projectRoot 'state\accepted-report-sources'
@@ -1073,18 +1085,21 @@ try {
     }
     # Publish companions on cache hits too, binding every CSV to the validated
     # workbook and exact payload. A bundle reader can reject partial updates.
-    & $PythonPath (Join-Path $projectRoot 'tools\enrich_downstream.py') $buildDataPath $BeneficiaryDirectory --audit-only --workbook $stageWorkbook --audit-directory (Join-Path $OutputDirectory ($reportBaseName + '.audit'))
+    & $PythonPath (Join-Path $projectRoot 'tools\enrich_downstream.py') $buildDataPath $BeneficiaryDirectory --audit-only --workbook $stageWorkbook --audit-directory (Join-Path $stageDirectory ($reportBaseName + '.audit'))
     if ($LASTEXITCODE -ne 0) { throw 'Audit companion publication failed.' }
-    Copy-Item -LiteralPath $stageWorkbook -Destination $pendingWorkbook -Force
-    Move-Item -LiteralPath $pendingWorkbook -Destination $targetWorkbook -Force
-    # Immediately after the Overview and BEFORE `sourceGuard accept`, so the
-    # accepted source advances only once BOTH books are on disk. The console
-    # globs this folder, so the pair must never be half-published: the Data book
-    # goes out under the same copy-then-atomic-move as the Overview.
-    if ($targetDataWorkbook) {
-      $pendingDataWorkbook = "$targetDataWorkbook.pending-$PID"
-      Copy-Item -LiteralPath $stageDataWorkbook -Destination $pendingDataWorkbook -Force
-      Move-Item -LiteralPath $pendingDataWorkbook -Destination $targetDataWorkbook -Force
+    # One output owner writes intent before replacing any artifact and commits
+    # a hash-bound generation manifest last. Readers refuse intermediate pairs;
+    # this is a reader commit boundary, not an atomic multi-file filesystem move.
+    $publicationArgs = @(
+      (Join-Path $scriptRoot 'publish_report_generation.py'), '--overview', $stageWorkbook,
+      '--audit-directory', (Join-Path $stageDirectory ($reportBaseName + '.audit'))
+    )
+    if ($targetDataWorkbook) { $publicationArgs += @('--data', $stageDataWorkbook) }
+    $publicationReceiptLines = & $PythonPath @publicationArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Report generation was not committed; readers will refuse an incomplete publication.' }
+    $publicationReceiptObject = ($publicationReceiptLines -join "`n") | ConvertFrom-Json
+    if ($publicationReceiptObject.state -ne 'committed' -or $publicationReceiptObject.generation -notmatch '^[a-f0-9]{32}$') {
+      throw 'The publisher did not return a committed report generation.'
     }
     Copy-Item -LiteralPath $sourceGuardReceipt -Destination (Join-Path $OutputDirectory ($reportBaseName + '.source-changes.json')) -Force
     & $PythonPath $sourceGuard accept --receipt $sourceGuardReceipt

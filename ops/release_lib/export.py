@@ -38,6 +38,10 @@ def remap(path: str) -> str:
 
 def allowed_name(path: str, export_cfg: dict | None = None) -> bool:
     export_cfg = export_cfg or {}
+    # The desktop builder includes this NSIS hook. Keep the exception path-bound:
+    # arbitrary installer scripts and inert workflow templates are not release inputs.
+    if path == "ops/desktop/client/installer.nsh":
+        return True
     low = posixpath.basename(path).lower()
     if low == ".gitattributes" or re.fullmatch(r"requirements.*\.txt", low):
         return True

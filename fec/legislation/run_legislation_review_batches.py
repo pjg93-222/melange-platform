@@ -106,6 +106,9 @@ def ndjson_bytes(rows: Iterable[dict[str, Any]]) -> bytes:
     ).encode("utf-8")
 
 
+STALE_TEMP_RE = re.compile(r"^\..+\.tmp-\d+$")
+
+
 def atomic_write(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.tmp-{os.getpid()}")
@@ -399,14 +402,23 @@ def write_shards(
         shard["checkpoint_relative"].as_posix() for shard in shards
     }
     existing_paths = set()
+    stale_temp_removed = 0
     for parent_name in ("shards", "checkpoints"):
         parent = out_dir / parent_name
         if parent.exists():
-            existing_paths.update(
-                path.relative_to(out_dir).as_posix()
-                for path in parent.rglob("*")
-                if path.is_file()
-            )
+            for path in parent.rglob("*"):
+                if not path.is_file():
+                    continue
+                if STALE_TEMP_RE.match(path.name):
+                    # Leftover from a hard kill inside atomic_write; the
+                    # shard/checkpoint it staged is rebuilt or revalidated.
+                    try:
+                        path.unlink()
+                        stale_temp_removed += 1
+                    except OSError:
+                        pass
+                    continue
+                existing_paths.add(path.relative_to(out_dir).as_posix())
     unexpected = sorted(existing_paths - expected_paths)
     if unexpected:
         raise BatchError(
@@ -457,7 +469,10 @@ def write_shards(
         state_path.unlink()
     except FileNotFoundError:
         pass
-    return {"reused_shards": reused, "rebuilt_shards": rebuilt}
+    runtime = {"reused_shards": reused, "rebuilt_shards": rebuilt}
+    if stale_temp_removed:
+        runtime["stale_temp_files_removed"] = stale_temp_removed
+    return runtime
 
 
 def build_views(

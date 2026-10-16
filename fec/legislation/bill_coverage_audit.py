@@ -841,7 +841,7 @@ def main():
                  '%d blocks -> %d categories' % (len(blocks), len(covered)))
         folded = collections.defaultdict(list)
         for b in blocks:
-            folded[blockcat[b]].append(b)
+            folded[blockcat.get(b, '(no BLOCKCAT entry)')].append(b)
         for cat in sorted(folded):
             cols = folded[cat]
             print('        %-28s cols %s%s' % (cat, cols, '   <- folded' if len(cols) > 1 else ''))

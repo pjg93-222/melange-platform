@@ -9881,10 +9881,10 @@ def test_org_mentions_bluesky_verified_only_and_unverified_receipt():
     assert receipt["input_rows"] == 1
     assert receipt["unverified_posts_aggregate"] == 1
     assert receipt["coverage"] == {
-        "counted_members": 33,
-        "collected_posters": 134,
-        "verified_handles": 335,
-        "roster_members": 533,
+        "counted_members": 1,
+        "collected_posters": 2,
+        "verified_handles": 1,
+        "roster_members": None,
     }
     assert receipt["unverified_marker"] == "[UNVERIFIED — confirm]"
 

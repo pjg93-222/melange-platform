@@ -599,11 +599,12 @@ def validate_numeric_plan(
         value.get("efficiency_layout")
     )
     nonbill = value.get("nonbill_numeric_policy")
+    letters = (
+        nonbill.get("cfpb_sign_on_letters") if isinstance(nonbill, dict) else None
+    )
     manual_hash = (
-        (nonbill or {})
-        .get("cfpb_sign_on_letters", {})
-        .get("manual_bill_evidence_sha256")
-        if isinstance(nonbill, dict)
+        letters.get("manual_bill_evidence_sha256")
+        if isinstance(letters, dict)
         else None
     )
     if nonbill != required_nonbill_numeric_policy(str(manual_hash or "")):
@@ -974,27 +975,26 @@ def run(
     if prior_receipt_path.exists():
         prior = read_object(prior_receipt_path)
         outputs = prior.get("outputs") or {}
+        prior_inputs = prior.get("inputs") or {}
+        prior_accepted = (
+            prior_inputs.get("accepted_workbook_receipt")
+            if isinstance(prior_inputs, dict)
+            else None
+        )
+        prior_verify = prior.get("artifact_tool_verification") or {}
         if not (
-            prior.get("schema") == RECEIPT_SCHEMA
+            isinstance(outputs, dict)
+            and isinstance(prior_accepted, dict)
+            and isinstance(prior_verify, dict)
+            and prior.get("schema") == RECEIPT_SCHEMA
             and prior.get("status") == "PASS"
             and prior.get("generation_id") == ledger["generation_id"]
             and prior.get("staged_only") is True
             and prior.get("production_written") is False
-            and (prior.get("inputs") or {})
-            .get("accepted_workbook_receipt", {})
-            .get("sha256")
-            == sha256_file(accepted_path)
-            and (prior.get("artifact_tool_verification") or {}).get(
-                "exact_counts_validated"
-            )
-            is True
-            and (prior.get("artifact_tool_verification") or {}).get(
-                "critical_inspection_count_mismatches"
-            )
-            == 0
-            and (prior.get("artifact_tool_verification") or {}).get(
-                "pillar_snapshot_members"
-            )
+            and prior_accepted.get("sha256") == sha256_file(accepted_path)
+            and prior_verify.get("exact_counts_validated") is True
+            and prior_verify.get("critical_inspection_count_mismatches") == 0
+            and prior_verify.get("pillar_snapshot_members")
             == EXPECTED_PILLAR_MEMBER_COUNT
         ):
             raise WorkbookRecomputeError(

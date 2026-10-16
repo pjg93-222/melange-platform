@@ -569,7 +569,47 @@ def start_index(resume):
     return matches[0]
 
 
+def _step_failure_metadata(script,argv,run):
+    """Keep the child result distinct from the chain's eventual exit 1."""
+    return {
+        'schema':'pipeline-step-failure-v1',
+        'captured_at_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
+        'step':script,'argv':list(argv),'cwd':os.getcwd(),'pid':run.pid,
+        'returncode':run.returncode,
+        'returncode_u32_hex':'0x%08X'%(run.returncode & 0xffffffff),
+        'native_returncode':None if run.timed_out else run.returncode,
+        'timed_out':run.timed_out,'timeout_note':run.timeout_note,
+        'timeout_seconds':bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS,
+        'elapsed_seconds':run.seconds,
+        'stream_format':'Full UTF-8 text returned by bounded_subprocess; replacement decoding and universal newlines.',
+    }
+
+
+def _record_step_failure(directory,metadata,run):
+    """Create a unique capture; callers report recording errors without changing the verdict."""
+    directory=os.path.abspath(directory)
+    os.makedirs(directory,exist_ok=True)
+    capture=os.path.join(directory,'failure-'+uuid.uuid4().hex)
+    os.mkdir(capture)
+    receipt=dict(metadata)
+    receipt['streams']={}
+    for name,text in (('stdout',run.stdout or ''),('stderr',run.stderr or '')):
+        filename=name+'.txt'
+        with open(os.path.join(capture,filename),'x',encoding='utf-8',newline='') as handle:
+            handle.write(text)
+        encoded=text.encode('utf-8')
+        receipt['streams'][name]={'file':filename,'bytes':len(encoded),
+                                 'sha256':hashlib.sha256(encoded).hexdigest()}
+    with open(os.path.join(capture,'metadata.json'),'x',encoding='utf-8',newline='') as handle:
+        json.dump(receipt,handle,indent=2)
+        handle.write('\n')
+    return capture
+
+
 def main(argv=None):
+    if os.name != 'nt':
+        import signal
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))   # `docker stop` / a timeout kill unwinds like Ctrl-C: the lease context exits cleanly
     forwarded = list(sys.argv[1:] if argv is None else argv)
     if '--effectiveness-shadow' in forwarded:
         # Separate frozen-evidence branch, before the production writer chain,
@@ -582,6 +622,8 @@ def main(argv=None):
     parser=argparse.ArgumentParser()
     parser.add_argument('--recalc',action='store_true')
     parser.add_argument('--from',dest='frm',default=None)
+    parser.add_argument('--diagnostics-dir',default=None,
+                        help='retain complete failed-step streams and child metadata in unique subdirectories')
     args=parser.parse_args(argv)
     try:
         first=start_index(args.frm)
@@ -623,7 +665,8 @@ def main(argv=None):
                     continue
                 _gb('pipeline.step','running','%s'%(script+' '+' '.join(script_args)).strip(),
                     stage=script,run_id=_GB_RUN,correlation_id=_GB_CORR)
-                run=run_bounded([sys.executable,_producer_path(script)]+script_args,timeout=bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS)
+                step_argv=[sys.executable,_producer_path(script)]+script_args
+                run=run_bounded(step_argv,timeout=bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS)
                 tail=(run.stdout or '').strip().splitlines()[-1:] or ['']
                 # A frozen step returns 124, never the 2 a display-only step is forgiven for, so it
                 # halts the chain through the existing failure path even inside TOLERANT_STEPS.
@@ -647,6 +690,17 @@ def main(argv=None):
                     duration_ms=int((time.time()-started)*1000),
                     detail='' if run.returncode==0 else ((run.stderr or '')[-1200:]))
                 if run.returncode!=0:
+                    failure=_step_failure_metadata(script,step_argv,run)
+                    print('  child pid=%s returncode=%s (%s)%s'%(
+                        run.pid,run.returncode,failure['returncode_u32_hex'],
+                        ' [timeout sentinel; native exit unavailable]' if run.timed_out else ''))
+                    if args.diagnostics_dir:
+                        try:
+                            capture=_record_step_failure(args.diagnostics_dir,failure,run)
+                            print('  failure diagnostics: '+capture)
+                        except Exception as exc:
+                            print('note: failure diagnostics not written (%s: %s)'%(
+                                type(exc).__name__,str(exc)[:200]))
                     from audit_failure_gate import pipeline_failure_output
                     print(pipeline_failure_output(script,run.stdout))
                     print((run.stderr or '')[-800:])

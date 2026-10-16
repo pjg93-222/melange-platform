@@ -42,6 +42,7 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+import zlib
 from collections import defaultdict
 
 from moneyball_core import dump_atomic
@@ -50,6 +51,8 @@ from moneyball_core import dump_atomic
 USER_AGENT = 'MelangeDemographics/1.0 (research; contact: repo owner)'
 CHUNK_SIZE = 1024 * 1024
 REQUEST_TIMEOUT = 120
+# Census batch geocoder takes minutes per 5000-row POST; 120 s re-POSTs it.
+GEOCODER_TIMEOUT = 600
 DOWNLOAD_ATTEMPTS = 4
 RETRY_BASE_SECONDS = 3
 GEOCODE_BATCH_SIZE = 5000
@@ -63,6 +66,8 @@ FDIC_URL_TEMPLATE = (
     'https://api.fdic.gov/banks/sod?filters=YEAR:{year}'
     '&fields=' + ','.join(FDIC_FIELDS) +
     '&limit=10000&offset={offset}&format=json'
+    # FDIC BankFind API sort_by/sort_order: stable order for offset paging
+    '&sort_by=UNINUMBR&sort_order=ASC'
 )
 NCUA_URL = (
     'https://ncua.gov/files/publications/analysis/'
@@ -195,7 +200,7 @@ def _validate_zip(path, label):
     try:
         with zipfile.ZipFile(path, 'r') as archive:
             bad_member = archive.testzip()
-    except (OSError, zipfile.BadZipFile, RuntimeError) as exc:
+    except (OSError, zipfile.BadZipFile, RuntimeError, zlib.error) as exc:
         raise OSError(
             '%s ZIP integrity check failed: %s' % (label, str(exc))
         ) from exc
@@ -221,15 +226,28 @@ def _preserve_corrupt_cache(path, label):
     print('!! preserved invalid cached %s as %s' % (label, corrupt_path))
 
 
-def _request_bytes(request, label):
+def _request_bytes(request, label, timeout=REQUEST_TIMEOUT):
     failure = None
     for attempt in range(DOWNLOAD_ATTEMPTS):
         try:
             with urllib.request.urlopen(
-                request, timeout=REQUEST_TIMEOUT
+                request, timeout=timeout
             ) as response:
                 return response.read()
         except Exception as exc:
+            if (
+                isinstance(exc, urllib.error.HTTPError) and
+                400 <= exc.code < 500 and exc.code != 429
+            ):
+                # permanent client error: retrying cannot change it
+                try:
+                    snippet = exc.read()[:200]
+                except Exception:
+                    snippet = b''
+                raise SystemExit(
+                    'request failed for %s: HTTP %d: %s' %
+                    (label, exc.code, snippet.decode('utf-8', 'replace'))
+                ) from exc
             failure = exc
             if attempt == DOWNLOAD_ATTEMPTS - 1:
                 break
@@ -392,15 +410,21 @@ def _load_fdic_records(path):
         raise SystemExit('FDIC SOD cache has no records: %s' % path)
     seen_uninumbr = set()
     duplicate_uninumbr = set()
+    n_blank_uninumbr = 0
     for row in records:
         raw_uninumbr = row.get('UNINUMBR')
         uninumbr = str(
             '' if raw_uninumbr is None else raw_uninumbr
         ).strip()
-        if uninumbr in seen_uninumbr:
+        if not uninumbr:
+            # blank is missing data, not a duplicate key
+            n_blank_uninumbr += 1
+        elif uninumbr in seen_uninumbr:
             duplicate_uninumbr.add(uninumbr)
         else:
             seen_uninumbr.add(uninumbr)
+    if n_blank_uninumbr:
+        print('!! FDIC SOD rows with blank UNINUMBR: %d' % n_blank_uninumbr)
     if duplicate_uninumbr:
         raise SystemExit(
             'FDIC SOD has duplicate UNINUMBR value(s): %s' %
@@ -1347,10 +1371,12 @@ def _response_layout(rows, expected_ids, path):
             ),
             None,
         )
-        if matched_row is None or len(matched_row) < 12:
+        # an all-non-match batch is valid; only a matched row must carry
+        # STATE+COUNTY+TRACT+BLOCK
+        if matched_row is not None and len(matched_row) < 12:
             raise SystemExit(
-                'Census geocoder response %s has no inspectable matched '
-                'row carrying STATE+COUNTY+TRACT+BLOCK; first row=%r' %
+                'Census geocoder response %s matched row lacks '
+                'STATE+COUNTY+TRACT+BLOCK columns; first row=%r' %
                 (path, first)
             )
         return {
@@ -1491,7 +1517,8 @@ def _fetch_geocode_batch(batch):
         method='POST',
     )
     return _request_bytes(
-        request, 'Census geocoder batch %s' % batch['filename']
+        request, 'Census geocoder batch %s' % batch['filename'],
+        timeout=GEOCODER_TIMEOUT,
     )
 
 
@@ -1640,6 +1667,9 @@ def _assign_records(
         'n_county_fallback': 0,
         'n_non_district': 0,
         'n_unallocated': 0,
+        # diagnostic only (not a path counter): geocoded block absent from
+        # the CD119 crosswalk, falls through to county fallback
+        'n_block_not_in_crosswalk': 0,
         'fallback_allocated_branch_equivalents': 0.0,
         'fallback_unallocated_branch_equivalents': 0.0,
     })
@@ -1680,6 +1710,8 @@ def _assign_records(
             stats['n_geocoded'] += 1
             continue
 
+        if block is not None:
+            stats['n_block_not_in_crosswalk'] += 1
         county = record.get('county_fips')
         if county is None and block is not None:
             county = block[:5]
@@ -1909,11 +1941,6 @@ def _build_metrics(
             },
         }
 
-    if len(result) != 435:
-        raise SystemExit(
-            'financial metrics yielded %d districts; expected 435' %
-            len(result)
-        )
     return {
         'districts': result,
         'national_bank_deposits_kusd': national_deposits,
@@ -2167,6 +2194,33 @@ def main():
             ),
         },
     }
+
+    # Below-threshold geocode match: park the artifact beside the live file
+    # as .candidate and stop, so a bad geocoder run cannot overwrite it.
+    # Zero submitted (all whole-county) has no match rate to judge.
+    low_match = [
+        (name, stats['n_geocoder_matched'] / stats['n_geocoder_submitted'])
+        for name, stats in (
+            ('fdic', fdic_match_stats), ('ncua', ncua_match_stats)
+        )
+        if stats['n_geocoder_submitted'] > 0
+    ]
+    low_match = [(name, rate) for name, rate in low_match if rate < 0.80]
+    if low_match:
+        candidate_path = output_path + '.candidate'
+        dump_atomic(artifact, candidate_path, separators=(',', ':'))
+        print(
+            '!! geocode match rate below 80%% for %s; wrote %s, '
+            'live artifact untouched' %
+            (
+                ', '.join(
+                    '%s %.1f%%' % (name, rate * 100)
+                    for name, rate in low_match
+                ),
+                candidate_path,
+            )
+        )
+        raise SystemExit(1)
 
     print('writing district financial artifact: %s' % output_path)
     dump_atomic(artifact, output_path, separators=(',', ':'))

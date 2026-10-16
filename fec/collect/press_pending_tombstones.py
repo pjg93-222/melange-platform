@@ -203,7 +203,7 @@ def listed_keys(run_root):
 def empty_ledger():
     return {"schema": TOMBSTONE_SCHEMA,
             "consecutive_deferrals_for_tombstone": CONSECUTIVE_DEFERRALS_FOR_TOMBSTONE,
-            "runs_seen": [], "run_seals": {}, "records": {}, "members": {}}
+            "runs_seen": [], "run_seals": {}, "run_inputs": {}, "records": {}, "members": {}}
 
 
 def load(tombstone_path=None):
@@ -243,6 +243,17 @@ def _write(tombstone_path, document):
         handle.write("\n")
     os.replace(str(tmp), str(path))
     return document
+
+
+def _run_inputs(document, rows, listed):
+    """What a run contributed, kept so a rebuild can replay it after the run dir is pruned.
+
+    ``listed`` is cut to keys the ledger already tracks: ``_fold_run`` only asks
+    whether a tracked key was offered, never about the rest of the index.
+    """
+    return {"rows": [[(row.get("bioguide") or ""), (row.get("url") or ""),
+                      (row.get("collection_status") or "")] for row in rows],
+            "listed": None if listed is None else sorted(k for k in listed if k in document["records"])}
 
 
 def _fold_run(document, run_name, rows, listed=None):
@@ -336,8 +347,11 @@ def _fold_run(document, run_name, rows, listed=None):
     return document
 
 
-def update(outputs_root=None, tombstone_path=None):
-    """Fold every run not yet in ``runs_seen``, oldest first.  Idempotent.
+def _ledger(outputs_root=None, tombstone_path=None):
+    """``(document, folded, dirty)``: the ledger after folding every unseen sealed run.
+
+    Read-only.  ``dirty`` is True when ``run_inputs`` was backfilled without a
+    fold, so the writer still has something to persist.
 
     A run directory with no pending artifact is skipped WITHOUT being recorded:
     it is either a run that predates the artifact or one still in flight, and
@@ -366,20 +380,71 @@ def update(outputs_root=None, tombstone_path=None):
             continue
         sealed.append((path, rows, sha256_file(path / PENDING_ARTIFACT)))
     seals = document.setdefault("run_seals", {})
+    inputs = document.setdefault("run_inputs", {})
+    dirty = False
+    todo = []  # (name, rows, listed, seal) in fold order
     if any(path.name in document["runs_seen"] and seals.get(path.name) != seal
            for path, _rows, seal in sealed):
         # A run re-sealed after a drain (10-11), or another root folded under
-        # its name (09-13): the counts no longer replay the evidence.  Replay.
+        # its name (09-13): the counts no longer replay the evidence.  Replay,
+        # but a run pruned from disk still counts: merge its retained inputs
+        # (``run_inputs``) with the on-disk runs, oldest first, so pruning can
+        # never lapse a tombstone.  (PAUL'S RULING 2026-10-14.)
+        old = document
+        on_disk = {path.name for path, _r, _s in sealed}
         document = empty_ledger()
+        for name in old["runs_seen"]:
+            if name not in on_disk and name in inputs:
+                todo.append((name, [dict(zip(("bioguide", "url", "collection_status"), row)) for row in inputs[name]["rows"]],
+                             None if inputs[name]["listed"] is None else set(inputs[name]["listed"]),
+                             old["run_seals"].get(name)))
+        todo += [(path.name, rows, listed_keys(path), seal) for path, rows, seal in sealed]
+        todo.sort(key=lambda item: item[0])
+    else:
+        todo = [(path.name, rows, listed_keys(path), seal) for path, rows, seal in sealed
+                if path.name not in document["runs_seen"]]
+        # A ledger folded before ``run_inputs`` existed has none for its on-disk
+        # runs; record them now, while the runs are still there to read.
+        for path, rows, _seal in sealed:
+            if path.name in document["runs_seen"] and path.name not in inputs:
+                inputs[path.name] = _run_inputs(document, rows, listed_keys(path))
+                dirty = True
     folded = []
-    for path, rows, seal in sealed:
-        if path.name in document["runs_seen"]:
-            continue
-        _fold_run(document, path.name, rows, listed_keys(path))
-        document["run_seals"][path.name] = seal
-        folded.append(path.name)
-    if folded:
-        _write(tombstone_path, document)
+    for name, rows, listed, seal in todo:
+        document["run_inputs"][name] = _run_inputs(document, rows, listed)
+        _fold_run(document, name, rows, listed)
+        document["run_seals"][name] = seal
+        folded.append(name)
+    return document, folded, dirty
+
+
+def current_ledger(outputs_root=None, tombstone_path=None):
+    """The ledger as it WOULD stand after folding every unseen sealed run.  Read-only.
+
+    Returns ``(document, folded)``: the folded document and the list of run
+    names folded in memory.  Never writes the ledger -- the only filesystem
+    access is reading it and the sealed run directories -- so a validation
+    sweep can ask the question as often as it likes without advancing any
+    streak on disk.  ``update`` is the writer.
+    """
+    document, folded, _dirty = _ledger(outputs_root, tombstone_path)
+    return document, folded
+
+
+def update(outputs_root=None, tombstone_path=None):
+    """Fold every run not yet in ``runs_seen``, oldest first.  Idempotent.
+
+    A run directory with no pending artifact is skipped WITHOUT being recorded:
+    it is either a run that predates the artifact or one still in flight, and
+    recording it would permanently hide the rows it later seals.
+
+    This is the WRITER; the gate uses the read-only ``current_ledger``.  The
+    explicit call sites are this CLI, audit_collection's intake step, and
+    refresh_press_stream after the walk seals.
+    """
+    document, folded, dirty = _ledger(outputs_root, tombstone_path)
+    if folded or dirty:
+        _write(Path(tombstone_path or DEFAULT_TOMBSTONES), document)
     return document
 
 
@@ -416,7 +481,9 @@ def pending_is_tombstoned_only(run_root, receipt, tombstone_path=None, outputs_r
     """Is every pending row of this run one the walk has provably given up on?
 
     Returns ``(accepted, detail)``.  ``detail`` is a one-line refusal string
-    when refused, and a dict of counts when accepted.  This is the ONLY place
+    when refused, and a dict of counts when accepted.  READ-ONLY: it folds
+    unseen sealed runs in memory (``current_ledger``) and never writes the
+    ledger, so re-validating history cannot advance a streak on disk.  This is the ONLY place
     that relaxes the completion gate, so every refusal below is load-bearing:
 
       * the receipt must be the walk's own PARTIAL shape with a positive
@@ -442,7 +509,10 @@ def pending_is_tombstoned_only(run_root, receipt, tombstone_path=None, outputs_r
     if type(count) is not int or count <= 0:
         return False, "press body backlog remains incomplete"
     try:
-        document = update(outputs_root or run_root.parent, tombstone_path)
+        # ponytail: each check replays every sealed run, which hashes N small
+        # pending CSVs, so a validation sweep costs O(runs^2).  Memoize on
+        # (ledger mtime, run seals) if discover_run ever gets slow.
+        document, _folded = current_ledger(outputs_root or run_root.parent, tombstone_path)
         rows = read_pending(run_root)
     except (PendingArtifactError, OSError) as exc:
         return False, "pending deferral ledger unusable: %s" % exc

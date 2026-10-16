@@ -196,6 +196,9 @@ if '--write' in sys.argv:
                    'the user\'s directed axis, it is NOT claimed to be validated-more-accurate until a fresh gold sample '
                    'is adjudicated on the new axis. Match precedence = list order (specific before generic). Re-eval before production.',
            'entries': entries}
-    json.dump(out, open(B + r'\data\stance\cu_valence_registry.json', 'w'), indent=1)
+    _reg = B + r'\data\stance\cu_valence_registry.json'
+    with open(_reg + '.tmp', 'w') as _f:   # atomic write: tmp then replace (consumers load this at import)
+        json.dump(out, _f, indent=1)
+    _o.replace(_reg + '.tmp', _reg)
     print('\nwrote data/stance/cu_valence_registry.json: %d entries (%d derived, %d user-confirmed)' %
           (len(entries), sum(1 for e in entries if e['source'] == 'derived-from-gold'), len(CONFIRMED)))

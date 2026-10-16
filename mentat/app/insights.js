@@ -676,6 +676,11 @@
       if(sort)rows.sort((a,b)=>{const av=a[sort.key],bv=b[sort.key];if(av===null||av===undefined)return bv===null||bv===undefined?0:1;if(bv===null||bv===undefined)return -1;return(typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true}))*sort.direction;});else rows.sort((a,b)=>channelRank(a)-channelRank(b)||serverOrder.get(a)-serverOrder.get(b));
       const wrap = makeTable(panel.columns || [], rows, {key, sort, onSort: column => { sorts[key] = {key: column.key, direction: sort && sort.key === column.key ? -sort.direction : -1}; renderTable(); Array.from(tableHost.querySelectorAll('.insights-sort')).find(button => button.dataset.column === column.key)?.focus({preventScroll: true}); }});
       const parts = [wrap], total = Number(panel.total_rows);
+      if (key === 'favorites') {
+        const scope = result && result.scope || {};
+        const pair = periodRanking(panel) && scope.baseline_cycle && scope.current_cycle ? ' Baseline/current columns compare ' + scope.baseline_cycle + ' and ' + scope.current_cycle + ' at matching same-stage cutoffs.' : '';
+        parts.unshift(node('p', 'Net amounts and shares cover every observed cycle in the analysis data.' + pair, 'insights-card-muted'));
+      }
       if (panel.truncated || (Number.isFinite(total) && total > rows.length)) parts.push(node('p', 'Showing ' + number.format(rows.length) + ' of ' + number.format(Number.isFinite(total) ? total : rows.length) + ' rows', 'insights-table-count'));
       tableHost.replaceChildren(...parts); wrap.scrollLeft = scrollLeft; wrap.scrollTop = scrollTop;
     };

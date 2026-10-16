@@ -2,6 +2,7 @@
 import http.client
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -62,3 +63,27 @@ def test_valid_host_unit():
     assert pm.valid_host("127.0.0.1:8876", 8876) and pm.valid_host("LOCALHOST:8876", 8876)
     assert not pm.valid_host(None, 8876) and not pm.valid_host("", 8876)
     assert not pm.valid_host("evil.example:8876", 8876) and not pm.valid_host("127.0.0.1:8877", 8876)
+
+
+def test_heartbeat_survives_unwritable_state(monkeypatch, tmp_path):
+    """A locked live_state.json (PermissionError) must not silently kill the heartbeat thread."""
+    calls = []
+    def locked(path, data): calls.append(1); raise PermissionError("locked")
+    monkeypatch.setattr(pm, "atomic", locked)
+    telemetry = pm.Telemetry(tmp_path)
+    deadline = time.monotonic() + 5
+    while len(calls) < 2 and time.monotonic() < deadline: time.sleep(.05)  # ticks every 2 s
+    assert len(calls) >= 2 and telemetry.thread.is_alive()
+    telemetry.close("ERROR")  # the final snapshot is best-effort too
+    telemetry.thread.join(timeout=3)
+    assert not telemetry.thread.is_alive()
+
+
+def test_event_log_failure_still_updates_state(tmp_path):
+    """An unwritable events log must not raise into worker threads or skip the active-state update."""
+    telemetry = pm.Telemetry(tmp_path / "missing")  # open('a') and atomic() both raise FileNotFoundError
+    telemetry.event("fetching", {"url": "https://x.house.gov/a"})
+    assert "https://x.house.gov/a" in telemetry.state["active"]
+    telemetry.event("result", {"url": "https://x.house.gov/a"})
+    assert telemetry.state["active"] == {}
+    telemetry.close("COMPLETE")

@@ -47,6 +47,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sys
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
@@ -890,6 +891,7 @@ def _verify_evidence_binding(
     receipt_path: Path | None,
     records_receipt: Mapping[str, Any],
     memberships_receipt: Mapping[str, Any],
+    evidence_receipt: Mapping[str, Any],
 ) -> dict[str, Any]:
     """Refuse to queue evidence built from different discovery files.
 
@@ -920,12 +922,21 @@ def _verify_evidence_binding(
         "candidate evidence was built from a different discovery memberships "
         f"file ({declared_memberships} != {memberships_receipt['sha256']})",
     )
+    declared_evidence = (
+        (receipt.get("outputs") or {}).get("candidate_evidence.ndjson") or {}
+    ).get("sha256")
+    require(
+        declared_evidence is None or declared_evidence == evidence_receipt["sha256"],
+        "the --evidence file is not the body this receipt describes "
+        f"({declared_evidence} != {evidence_receipt['sha256']})",
+    )
     return {
-        "verified": True,
+        "verified": declared_evidence is not None,
         "receipt_path": str(receipt_path.resolve()),
         "receipt_sha256": sha256_file(receipt_path),
         "declared_discovery_records_sha256": declared_records,
         "declared_discovery_memberships_sha256": declared_memberships,
+        "declared_candidate_evidence_sha256": declared_evidence,
     }
 
 
@@ -987,6 +998,7 @@ def build(
         evidence_receipt_path.resolve() if evidence_receipt_path else None,
         records_receipt,
         memberships_receipt,
+        evidence_receipt,
     )
 
     queries = load_query_headers(queries_dir)
@@ -1472,6 +1484,7 @@ def build(
                 + counts["rows_retired_by_existing_finalizable_decision"]
                 == counts["discovery_memberships"]
             ),
+            "candidate_evidence_binding_verified": binding["verified"] is True,
             "nineteen_category_queries_present": True,
             "missing_evidence_recorded_as_blocker_never_exclusion": True,
             "queue_rows_are_all_unresolved": all(
@@ -1526,10 +1539,20 @@ def build(
                         f"immutable queue artifact drift: {name}"
                     )
         else:
-            generation_root.mkdir(parents=True, exist_ok=False)
-            for name, body in sorted(bodies.items()):
-                write_new(generation_root / name, body)
-            write_new(generation_root / "manifest.json", manifest_body)
+            # Build beside the target and rename in one step so a crash never
+            # leaves a manifest-less generation that blocks every rerun.
+            staging = generation_root.parent / f".{queue_id}.staging-{os.getpid()}"
+            if staging.exists():
+                shutil.rmtree(staging)
+            staging.mkdir(parents=True, exist_ok=False)
+            try:
+                for name, body in sorted(bodies.items()):
+                    write_new(staging / name, body)
+                write_new(staging / "manifest.json", manifest_body)
+                os.replace(staging, generation_root)
+            except BaseException:
+                shutil.rmtree(staging, ignore_errors=True)
+                raise
 
         invocation = {
             "schema": GENERATION_SCHEMA + "-invocation",

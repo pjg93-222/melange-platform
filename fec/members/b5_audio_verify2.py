@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import sys
 
@@ -118,6 +119,13 @@ def verify_unit(target_embedding, segment_embeddings, thresholds,
     theta_eer = float(thresholds["theta_eer"])
     reasons = []
     segments = [np.asarray(seg, dtype=np.float64) for seg in (segment_embeddings or [])]
+    # NaN/inf make every '<' False and min() drop NaN, so fail closed up front.
+    competitor_arrays = [np.asarray(c, dtype=np.float64) for c in (competitor_embeddings or [])]
+    if (not all(np.isfinite(a).all() for a in segments + competitor_arrays)
+            or not np.isfinite(np.asarray(target_embedding, dtype=np.float64)).all()
+            or (coverage is not None and not math.isfinite(float(coverage)))):
+        return {"decision": "REJECT", "min_cosine": 0.0, "margin": None,
+                "coverage": 0.0, "reasons": ["non_finite_input"]}
     if not segments:
         return {"decision": "REJECT", "min_cosine": 0.0, "margin": None,
                 "coverage": float(coverage or 0.0), "reasons": ["no_scored_segments"]}
@@ -129,6 +137,9 @@ def verify_unit(target_embedding, segment_embeddings, thresholds,
         competitors = [np.asarray(c, dtype=np.float64) for c in competitor_embeddings]
         margin = min(tc - max(cosine(seg, c) for c in competitors)
                      for seg, tc in zip(segments, target_cosines))
+    if not math.isfinite(min_cosine) or (margin is not None and not math.isfinite(margin)):
+        return {"decision": "REJECT", "min_cosine": 0.0, "margin": None,
+                "coverage": 0.0, "reasons": ["non_finite_input"]}
     if coverage is None:
         coverage_value = 0.0
         reasons.append("coverage_missing_fails_closed")

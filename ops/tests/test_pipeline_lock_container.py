@@ -188,6 +188,8 @@ class ForeignHostIsHeldUnlessItsHeartbeatIsStale(LeaseTestCase):
         super().setUp()
         self.sim(False)
         self.dead = dead_pid()      # the pid rule would call this holder stale; it must not be asked
+        self.slept = []             # the stale-looking-heartbeat re-check waits 2 * HEARTBEAT_SECONDS + 5; no test really does
+        self.patch(pipeline_lock.time, 'sleep', side_effect=self.slept.append)
 
     def test_fresh_heartbeat_blocks_and_the_message_names_the_host_and_the_way_out(self):
         self.write_lease(self.dead, host=OTHER)
@@ -206,6 +208,37 @@ class ForeignHostIsHeldUnlessItsHeartbeatIsStale(LeaseTestCase):
         lease = self.acquire()
         self.assertEqual(os.getpid(), lease['pid'])
         self.assertNotEqual('tok', lease['token'])
+        self.assertTrue(self.slept and set(self.slept) == {2 * pipeline_lock.HEARTBEAT_SECONDS + 5},
+                        'a stale heartbeat is re-read after 2 intervals + 5 s before the holder is declared dead')
+
+    def test_fresh_heartbeat_is_live_without_waiting(self):
+        self.write_lease(self.dead, host=OTHER)
+        self.write_beat(age=1)
+        self.assertTrue(pipeline_lock._foreign_holder_is_live({'token': 'tok'}, self.path))
+        self.assertEqual([], self.slept)
+
+    def test_stale_heartbeat_that_beats_again_during_the_wait_is_live(self):
+        """A container frozen by laptop sleep resumes and beats within one interval."""
+        self.write_lease(self.dead, host=OTHER)
+        self.write_beat(age=pipeline_lock.LOCK_STALE_SECONDS_DEFAULT + 100)
+        self.slept.clear()
+        self.patch(pipeline_lock.time, 'sleep',
+                   side_effect=lambda seconds: (self.slept.append(seconds), os.utime(str(self.beat), None)))
+        self.assertTrue(pipeline_lock._foreign_holder_is_live({'token': 'tok'}, self.path))
+        self.assertEqual([2 * pipeline_lock.HEARTBEAT_SECONDS + 5], self.slept)
+        self.assertBlocked()
+
+    def test_stale_heartbeat_that_cannot_be_read_after_the_wait_is_live(self):
+        self.write_lease(self.dead, host=OTHER)
+        self.write_beat(age=pipeline_lock.LOCK_STALE_SECONDS_DEFAULT + 100)
+        self.patch(pipeline_lock.time, 'sleep', side_effect=lambda seconds: self.beat.unlink())
+        self.assertTrue(pipeline_lock._foreign_holder_is_live({'token': 'tok'}, self.path))
+
+    def test_stale_heartbeat_unchanged_after_the_wait_is_dead(self):
+        self.write_lease(self.dead, host=OTHER)
+        self.write_beat(age=pipeline_lock.LOCK_STALE_SECONDS_DEFAULT + 100)
+        self.assertFalse(pipeline_lock._foreign_holder_is_live({'token': 'tok'}, self.path))
+        self.assertEqual([2 * pipeline_lock.HEARTBEAT_SECONDS + 5], self.slept)
 
     def test_heartbeat_just_inside_the_timeout_still_blocks(self):
         self.write_lease(self.dead, host=OTHER)

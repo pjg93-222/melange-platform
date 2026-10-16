@@ -381,7 +381,7 @@ test('candidate mix, without the model fix: the bar is the projected FULL-cycle 
   const {t} = session();
   const house = t.mixModel(RUN.banks, null, 'House');
   const bases = RUN.banks.horizons[0].shares.House.bases;
-  assert.deepEqual(plain(house.rows.map(r => r.label)), ['Employees', 'Company PACs']);
+  assert.deepEqual(plain(house.rows.map(r => r.label)), ['Candidate receipts', 'Company PACs']);
   assert.equal(house.rows[0].share, bases[0].projected_cycle_R_share);
   assert.equal(house.rows[0].conditioned, false);
   assert.notEqual(house.rows[0].share, bases[0].projected_remaining_R_share, 'the remaining share (42.16%) is a different denominator');
@@ -458,7 +458,7 @@ test('out-of-range input: a neutral chip with the model\'s own sentence; the mod
 test('candidate mix: thin bases and out-of-range inputs are neutral; a share outside 0-100% is not drawn and not clipped', () => {
   const {t} = session({sector: 'credit_unions'});
   const house = t.mixModel(RUN.credit_unions, null, 'House');
-  assert.deepEqual(plain(house.chips.filter(c => c.kind === NEUTRAL).map(c => c.text).sort()), ['An input is outside the range this model was fitted on.', 'Thin base: Employees and Company PACs'], 'one chip per kind of flag; the tooltip names each base');
+  assert.deepEqual(plain(house.chips.filter(c => c.kind === NEUTRAL).map(c => c.text).sort()), ['An input is outside the range this model was fitted on.', 'Thin base: Candidate receipts and Company PACs'], 'one chip per kind of flag; the tooltip names each base');
   assert.equal(house.chips.filter(c => c.kind === AMBER).length, 1, 'the House employee basis is budget_inconsistent');
   const senate = t.mixModel(RUN.credit_unions_growth_down, null, 'Senate');
   const pacRow = senate.rows[1];
@@ -488,7 +488,7 @@ test('candidate mix: an industry with one basis captions that basis by name and 
   const house = t.mixModel(RUN.property_casualty, null, 'House');
   assert.deepEqual(plain(house.rows.map(r => r.state)), ['ready', 'missing']);
   assert.match(house.rows[1].reason, /No roster PAC committees are resolved/);
-  assert.match(house.caption, /^2023–2024: 43\.37% \(employees\)$/);
+  assert.match(house.caption, /^2023–2024: 43\.37% \(candidate receipts\)$/);
 });
 
 test('owner waivers: a neutral chip on the card of the term the waiver concerns, for the selected industry only', () => {
@@ -995,7 +995,7 @@ test('company PACs, credit unions (D-117): the chart and the Methods fold name t
   banks.t.anchorNote(banks.t.industry());
   const bankNotes = textOf(banks.els['gf-anchors-note']);
   assert.ok(bankNotes.includes('Company PACs: ' + BANKS19 + '; observed to 2026-06-30.') && !bankNotes.includes('single-PAC'));
-  // the party split: the Company PACs bar names the cohort in its tooltip (the very population of the dollars) and the results table does too; the Employees bar does not; banks do not; no single-PAC note anywhere
+  // the party split: the Company PACs bar names the cohort in its tooltip (the very population of the dollars) and the results table does too; the Candidate receipts bar does not; banks do not; no single-PAC note anywhere
   for (const chamber of ['House', 'Senate']) {
     const mix = t.mixModel(CYC.credit_unions, CYC.credit_unions, chamber), pacRow = mix.rows.find(r => r.id === 'pac_candidate'), empRow = mix.rows.find(r => r.id === 'employee_candidate');
     assert.equal(row(pacRow.tip, 'Population')[1], PANEL, chamber); assert.equal(row(empRow.tip, 'Population'), undefined, chamber);
@@ -1433,7 +1433,7 @@ test('the scope pill tooltip agrees with the bars: the model\'s change is labell
   const live = session({source: LANDED}).t;
   live.setRuns(LANDED.runs.banks, LANDED.runs.banks);
   const senate = rowsOf(live.exampleTip()).find(r => r[0] === 'Senate change in R share, drawn (conditioned)');
-  assert.equal(senate[1], 'Employees 51.44% to 48.17% (-3.27 pp) · Company PACs 64.5% to 75.76% (+11.26 pp)');
+  assert.equal(senate[1], 'Candidate receipts 51.44% to 48.17% (-3.27 pp) · Company PACs 64.5% to 75.76% (+11.26 pp)');
   assert.match(rowsOf(live.exampleTip()).find(r => r[0] === 'Senate change in R share, model, before conditioning on the giving already observed')[1], /^\+6\.06 pp · prior-cycle growth \+6\.06 pp$/);
   // a calculator without the fix names no input and conditions nothing: no change rows at all
   const plainTip = session().t; plainTip.setRuns(RUN.banks, RUN.banks);
@@ -1715,8 +1715,8 @@ test('the party split draws one 100% bar per basis: Democratic from the left, Re
   const model = t.mixModel(P1.banks, null, 'House'), host = els['gf-house-body'];
   t.drawMix(model, host, false);
   const groups = host.children;
-  assert.equal(groups.length, 2, 'Employees and Company PACs, never a pooled third');
-  assert.deepEqual(plain(groups.map(g => g.children[0].textContent)), ['Employees', 'Company PACs']);
+  assert.equal(groups.length, 2, 'Candidate receipts and Company PACs, never a pooled third');
+  assert.deepEqual(plain(groups.map(g => g.children[0].textContent)), ['Candidate receipts', 'Company PACs']);
   groups.forEach((group, i) => {
     const track = group.children[1], [dem, rep, tick] = track.children, row = model.rows[i];
     assert.equal(parseFloat(dem.style.width).toFixed(1), ((1 - row.share) * 100).toFixed(1));

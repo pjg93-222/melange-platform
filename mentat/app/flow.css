@@ -143,3 +143,84 @@ body[data-view] #view-evidence.flow-open > .evidence-layout { display: none; }
   .flow-body { grid-template-columns: minmax(0, 1fr); }
   .flow-title { font-size: 36px; }
 }
+
+/* Lane Z (2026-10-15): zoom, unfold in place, pin. */
+.flow-card { position: relative; }
+.flow-chart { user-select: none; -webkit-user-select: none; }
+.flow-canvas.is-loading { cursor: progress; }
+.flow-canvas.is-loading .flow-chart { opacity: .8; }
+/* The path of a focus zoom: "Banking > ActBlue > DCCC" and Back. */
+.flow-reroot { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
+.flow-reroot[hidden] { display: none; }
+.flow-trail { display: inline-flex; flex-wrap: wrap; align-items: center; margin: 0; padding: 0; list-style: none; }
+.flow-trail li + li::before { content: '\203A'; margin: 0 9px; color: var(--muted); }
+.flow-trail [aria-current] { color: var(--acu-plum); font-weight: 600; }
+.flow-trail-back { height: 28px; padding: 0 12px; font-size: 12.5px; }
+/* A small drawing of the original chart, the nodes zoomed through marked; the heading steps aside. */
+.flow-minimap { position: absolute; top: 46px; right: 16px; z-index: 3; width: 214px; height: 100px; padding: 0;
+  border: 1px solid var(--line); border-radius: 8px; background: #fbf8f5; cursor: pointer; overflow: hidden; }
+.flow-minimap[hidden] { display: none; }
+.flow-minimap-svg { display: block; }
+.flow-mini-link { fill: #b9b2c2; fill-opacity: .35; }
+.flow-mini-bar { fill: #a39b92; }
+.flow-mini-mark { fill: var(--acu-plum); }
+.flow-mini-current { fill: var(--acu-gold); stroke: var(--acu-plum); stroke-width: 1.2; }
+.flow-card.has-minimap .flow-heading, .flow-card.has-minimap .flow-sub, .flow-card.has-minimap .flow-reroot { padding-right: 236px; }
+/* The level the reader came from: its columns up to the node they clicked, narrow and faded. */
+.flow-ctx-bar { stroke: none; }
+.flow-ctx-focus { stroke: var(--acu-plum); stroke-width: 1.6; }
+/* An unfolded group: a thin bracket with a chevron to fold it back; an unfoldable one has its own chevron. */
+.flow-bracket { fill: none; stroke: #8d869a; stroke-width: 1.2; }
+.flow-collapse { cursor: pointer; outline: none; }
+.flow-collapse circle { fill: #fff; stroke: #8d869a; }
+.flow-collapse path { fill: none; stroke: var(--acu-plum); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.flow-collapse:hover circle, .flow-collapse:focus-visible circle { stroke: var(--acu-plum); }
+.flow-chevron { fill: var(--acu-purple); font: 400 11px var(--font-sans); }
+.flow-node--folds { cursor: pointer; }
+/* "-> n onward": the money a node passed on past the drawn steps, shown for the node under the pointer. */
+.flow-onward { opacity: 0; pointer-events: none; cursor: pointer; transition: opacity .1s ease; outline: none; }
+.flow-onward.is-lit, .flow-onward:focus-visible { opacity: 1; pointer-events: auto; }
+.flow-onward rect { fill: #fff; stroke: var(--acu-purple); stroke-width: 1; }
+.flow-onward text { fill: var(--acu-purple); font: 500 10.5px var(--font-sans); }
+.flow-link--onward { cursor: pointer; }
+/* The answer did not conserve: drawn as received, with this word above it. */
+.flow-contract-notice { margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--acu-gold); border-radius: 6px;
+  background: #fff6e0; color: #3c3449; font: 500 12.5px/1.4 var(--font-sans); }
+/* A word beside a node (a committee with nothing collected, a group that cannot unfold). */
+.flow-notice { cursor: pointer; }
+.flow-notice rect { fill: #fff6e0; stroke: var(--acu-gold); stroke-width: 1; }
+.flow-notice text { fill: #3c3449; font: 500 12px var(--font-sans); }
+/* Pins: each route stays lit in its own colour; "Show only linked" fades the rest. */
+.flow-chart.has-pins .flow-link.is-pinned { fill-opacity: .6; }
+.flow-chart.has-pins.is-tracing .flow-link.is-pinned { fill-opacity: .6; }
+/* What a pooling committee spends out of its pool (or what filled it) is not the pin's money: hatched, lighter,
+   with a dashed edge in the pin's colour (the fill and stroke are set by flow-chart.js). */
+.flow-chart.has-pins .flow-link.is-pooled, .flow-chart.has-pins.is-tracing .flow-link.is-pooled { fill-opacity: .7; stroke-opacity: .85;
+  stroke-width: 1.1; stroke-dasharray: 5 3; }
+.flow-chart.is-linked-only .flow-link:not(.is-pinned):not(.is-pooled) { fill-opacity: .04; }
+.flow-chart.is-linked-only .flow-node:not(.is-routed) { opacity: .3; }
+.flow-pins[hidden] { display: none; }
+.flow-body:has(> .flow-pins[hidden]) { grid-template-columns: minmax(0, 1fr); }
+.flow-rail .flow-pins { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); }
+.flow-pins-head { display: flex; align-items: center; justify-content: space-between; gap: 6px 12px; flex-wrap: wrap; }
+.flow-rail .flow-pins .flow-rail-title { font-size: 22px; }
+.flow-only { display: inline-flex; align-items: center; gap: 6px; color: #4c4459; font: 500 12.5px/1 var(--font-sans); cursor: pointer; }
+.flow-pin-card { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.flow-pin-head { display: flex; align-items: center; gap: 8px; color: #2f273f; font: 400 13px/1.3 var(--font-sans); }
+.flow-pin-swatch { flex: none; width: 10px; height: 10px; border-radius: 50%; }
+.flow-pin-x { margin-left: auto; padding: 0 4px; border: 0; background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.flow-pin-x:hover, .flow-pin-x:focus-visible { color: var(--acu-plum); }
+.flow-pin-block { margin-top: 8px; }
+.flow-pin-block + .flow-pin-block { padding-top: 8px; border-top: 1px dashed var(--line); }
+.flow-pin-block-head { margin: 0; color: #4c4459; font: 600 12px/1.35 var(--font-sans); }
+.flow-pin-block.is-pooled .flow-pin-block-head, .flow-pin-block.is-pooled .flow-pin-node, .flow-pin-block.is-pooled .flow-pin-step { color: #7f7888; }
+.flow-pin-path { margin: 4px 0 0; padding: 0; list-style: none; font: 400 12.5px/1.35 var(--font-sans); }
+.flow-pin-node { display: flex; justify-content: space-between; gap: 8px; color: #2f273f; }
+.flow-pin-node.is-pin { font-weight: 600; }
+.flow-pin-amount { flex: none; color: #6b6376; font-variant-numeric: tabular-nums; }
+.flow-pin-step { padding-left: 8px; color: #327a7a; font-size: 12px; font-variant-numeric: tabular-nums; }
+.flow-pin-rows { margin-top: 8px; height: 28px; padding: 0 12px; font-size: 12.5px; }
+.flow-pin-note { margin: 10px 0 0; color: var(--muted); font: 400 11.5px/1.4 var(--font-sans); }
+/* The gestures a node answers to, last in its tooltip; the destinations of an onward marker. */
+.flow-tip-hint { margin-top: 3px; padding-top: 3px; border-top: 1px solid var(--line); color: #6b6376; font-style: normal; font-size: 11.5px; }
+.flow-tip-go { display: block; padding: 1px 0; text-align: left; font-size: 12px; }

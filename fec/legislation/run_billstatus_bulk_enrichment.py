@@ -60,8 +60,9 @@ def atomic_write(path: Path, body: bytes, *, immutable: bool = False) -> None:
         if path.exists():
             require(path.read_bytes() == body, f"immutable content drift: {path}")
             return
-        with path.open("xb") as handle:
-            handle.write(body)
+        # Temp+fsync+replace: a crash can never leave truncated bytes at the
+        # content-addressed final name (which would read back as "drift").
+        atomic_write_bytes(path, body)
         return
     # Was ``path.with_name(path.name + ".tmp")``: a fixed scratch name shared by
     # every concurrent worker writing the same output, and exactly the kind of

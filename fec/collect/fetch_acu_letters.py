@@ -14,6 +14,7 @@ import collections
 import datetime
 import http.client
 import json
+import math
 import os
 import re
 import socket
@@ -24,10 +25,10 @@ import urllib.request
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUTPUT_PATH = os.path.join(
-    ROOT, "source_data", "acu_letters_snapshot_20260725.json"
-)
-PARTIAL_PATH = OUTPUT_PATH + ".partial"
+# main() names the snapshot by the run's UTC start date; the pinned 20260725 file is never overwritten
+# (system_manifest.json and the legislation evidence receipts hash it by name) unless --force is given.
+OUTPUT_DIR = os.path.join(ROOT, "source_data")
+PARTIAL_PATH = os.path.join(OUTPUT_DIR, "acu_letters_snapshot.partial.json")
 
 ENDPOINT = "https://www.americascreditunions.org/graphql"
 REFERER = (
@@ -48,7 +49,12 @@ DEFAULT_PAGE_SIZE = 50
 FALLBACK_PAGE_SIZE = 12
 MIN_REQUEST_DELAY_SECONDS = 1.0
 REQUEST_CAP = 200
+MAX_ATTEMPTS = 3
+RETRY_AFTER_CAP_SECONDS = 120
 PAGE_SIZE_REJECTION_STATUSES = {400, 413, 422}
+PAGE_SIZE_ERROR_PATTERN = re.compile(
+    r"limit|page.?size|too (many|large)|maximum|exceed", re.I
+)
 
 # Verbatim query text captured in audits/legfix3/acu_graphql_shapes.md.
 SEARCH_QUERY = """query search($offset: Int, $limit: Int, $query: String, $facets: [InputSolrFacet], $filters: [InputSolrConditionsGroup], $sort: InputSort) {
@@ -303,14 +309,6 @@ class GraphQLClient:
         self.requests_made = 0
 
     def post(self, payload, allow_page_size_fallback=False):
-        if self.requests_made >= REQUEST_CAP:
-            raise CollectorFailure(
-                "REQUEST_CAP",
-                "hard cap of %d requests reached" % REQUEST_CAP,
-            )
-        if self.requests_made:
-            time.sleep(MIN_REQUEST_DELAY_SECONDS)
-
         body = json.dumps(
             payload,
             ensure_ascii=False,
@@ -322,56 +320,96 @@ class GraphQLClient:
             headers=HEADERS,
             method="POST",
         )
-        self.requests_made += 1
-        try:
-            with urllib.request.urlopen(
-                request, timeout=self.timeout
-            ) as response:
-                status_code = getattr(response, "status", 200)
-                content_type = response.headers.get("Content-Type", "")
-                raw = response.read()
-        except urllib.error.HTTPError as exc:
-            status = "HTTP %s" % exc.code
-            if (
-                allow_page_size_fallback
-                and exc.code in PAGE_SIZE_REJECTION_STATUSES
-            ):
-                raise PageSizeRejected(
-                    status,
-                    "server rejected the 50-item request",
-                ) from exc
-            raise CollectorFailure(
-                status,
-                "ACU GraphQL returned %s" % status,
-            ) from exc
-        except urllib.error.URLError as exc:
-            reason = getattr(exc, "reason", exc)
-            if isinstance(reason, (TimeoutError, socket.timeout)):
+        for attempt in range(MAX_ATTEMPTS):
+            # Every attempt, retries included, passes the cap check and the politeness delay
+            # and is counted against REQUEST_CAP.
+            if self.requests_made >= REQUEST_CAP:
                 raise CollectorFailure(
+                    "REQUEST_CAP",
+                    "hard cap of %d requests reached" % REQUEST_CAP,
+                )
+            if self.requests_made:
+                time.sleep(MIN_REQUEST_DELAY_SECONDS)
+            self.requests_made += 1
+            retry_after = None
+            try:
+                with urllib.request.urlopen(
+                    request, timeout=self.timeout
+                ) as response:
+                    status_code = getattr(response, "status", 200)
+                    content_type = response.headers.get("Content-Type", "")
+                    raw = response.read()
+                break
+            except urllib.error.HTTPError as exc:
+                status = "HTTP %s" % exc.code
+                if (
+                    allow_page_size_fallback
+                    and exc.code in PAGE_SIZE_REJECTION_STATUSES
+                ):
+                    raise PageSizeRejected(
+                        status,
+                        "server rejected the 50-item request",
+                    ) from exc
+                failure = CollectorFailure(
+                    status,
+                    "ACU GraphQL returned %s" % status,
+                )
+                retryable = exc.code == 429 or 500 <= exc.code <= 599
+                retry_after = (
+                    exc.headers.get("Retry-After") if exc.headers else None
+                )
+                exc.close()
+                cause = exc
+            except urllib.error.URLError as exc:
+                reason = getattr(exc, "reason", exc)
+                if isinstance(reason, (TimeoutError, socket.timeout)):
+                    failure = CollectorFailure(
+                        "TIMEOUT",
+                        "ACU GraphQL request exceeded %.1fs"
+                        % self.timeout,
+                    )
+                    retryable = True
+                else:
+                    failure = CollectorFailure(
+                        "URL_ERROR",
+                        "ACU GraphQL request failed: %s" % reason,
+                    )
+                    retryable = isinstance(reason, ConnectionError)
+                cause = exc
+            except (TimeoutError, socket.timeout) as exc:
+                failure = CollectorFailure(
                     "TIMEOUT",
-                    "ACU GraphQL request exceeded %.1fs"
-                    % self.timeout,
-                ) from exc
-            raise CollectorFailure(
-                "URL_ERROR",
-                "ACU GraphQL request failed: %s" % reason,
-            ) from exc
-        except (TimeoutError, socket.timeout) as exc:
-            raise CollectorFailure(
-                "TIMEOUT",
-                "ACU GraphQL request exceeded %.1fs" % self.timeout,
-            ) from exc
-        except (OSError, http.client.HTTPException) as exc:
-            # urlopen() failures arrive as HTTPError/URLError and are handled above, but a failure
-            # DURING response.read() -- IncompleteRead, RemoteDisconnected, ConnectionResetError --
-            # is a plain OSError/HTTPException that main() does not catch, so a mid-body reset late
-            # in a ~200-request crawl escaped as a bare traceback: no status line, no partial
-            # snapshot, every accumulated letter lost.  Route it to the typed failure the
-            # partial-snapshot machinery already handles.
-            raise CollectorFailure(
-                type(exc).__name__,
-                "ACU GraphQL response read failed: %s" % exc,
-            ) from exc
+                    "ACU GraphQL request exceeded %.1fs" % self.timeout,
+                )
+                retryable = True
+                cause = exc
+            except (OSError, http.client.HTTPException) as exc:
+                # urlopen() failures arrive as HTTPError/URLError and are handled above, but a failure
+                # DURING response.read() -- IncompleteRead, RemoteDisconnected, ConnectionResetError --
+                # is a plain OSError/HTTPException that main() does not catch, so a mid-body reset late
+                # in a ~200-request crawl escaped as a bare traceback: no status line, no partial
+                # snapshot, every accumulated letter lost.  Route it to the typed failure the
+                # partial-snapshot machinery already handles.
+                failure = CollectorFailure(
+                    type(exc).__name__,
+                    "ACU GraphQL response read failed: %s" % exc,
+                )
+                retryable = True
+                cause = exc
+
+            if not retryable or attempt == MAX_ATTEMPTS - 1:
+                raise failure from cause
+            if retry_after and re.fullmatch(r"[0-9]+", retry_after.strip()):
+                delay = min(int(retry_after), RETRY_AFTER_CAP_SECONDS)
+            else:
+                delay = 2 ** attempt * 2
+            print(
+                "retrying after %s in %ds (attempt %d/%d)"
+                % (failure.status, delay, attempt + 1, MAX_ATTEMPTS),
+                file=sys.stderr,
+                flush=True,
+            )
+            time.sleep(delay)
 
         try:
             text = raw.decode("utf-8", "strict")
@@ -389,7 +427,7 @@ class GraphQLClient:
             )
         if document.get("errors"):
             summary = _graphql_error_summary(document["errors"])
-            if allow_page_size_fallback:
+            if allow_page_size_fallback and PAGE_SIZE_ERROR_PATTERN.search(summary):
                 raise PageSizeRejected("GRAPHQL_ERRORS", summary)
             raise CollectorFailure("GRAPHQL_ERRORS", summary)
         return document
@@ -593,6 +631,10 @@ def _fetch_attempt(client, page_size, state):
                 "search repeated id(s): %s"
                 % ", ".join(sorted(duplicates)),
             )
+        if not ids:
+            # count == 0 (a non-empty count with no ids already raised EMPTY_SEARCH_PAGE); skip the
+            # detail query rather than send id=[].
+            break
 
         detail_document = client.post(
             _advocacy_payload(ids, page_size),
@@ -658,24 +700,31 @@ def _fetch_attempt(client, page_size, state):
 def _atomic_write_json(path, payload):
     parent = os.path.dirname(path)
     os.makedirs(parent, exist_ok=True)
-    temporary = path + ".tmp"
-    with open(
-        temporary,
-        "w",
-        encoding="utf-8",
-        newline="\n",
-    ) as output:
-        json.dump(
-            payload,
-            output,
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
-        output.write("\n")
-        output.flush()
-        os.fsync(output.fileno())
-    os.replace(temporary, path)
+    temporary = path + ".tmp." + str(os.getpid())
+    try:
+        with open(
+            temporary,
+            "w",
+            encoding="utf-8",
+            newline="\n",
+        ) as output:
+            json.dump(
+                payload,
+                output,
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        try:
+            os.remove(temporary)
+        except OSError:
+            pass
+        raise
 
 
 def _snapshot_payload(letters, reported_count, fetched_at):
@@ -743,6 +792,10 @@ def _load_routing_weights(path):
             raise ValueError(
                 "selected routing row has invalid contribution"
             ) from exc
+        if not math.isfinite(contribution):
+            raise ValueError(
+                "selected routing row has non-finite contribution"
+            )
         weights[str(category)] += abs(contribution)
         selected_count += 1
     total = sum(weights.values())
@@ -778,9 +831,13 @@ def _print_reverse_gaps(fresh, weights, total_weight, selected_count):
         fresh.get(layer, 0) for layer in L1_CATEGORY_MAP
     )
     if new_acu_total <= 0:
-        raise ValueError(
-            "fresh letters contain no tags in the seven mapped layers"
+        # main() promises the snapshot survives this (it is already written and SUCCESS printed).
+        print(
+            "WARNING reverse-gap multipliers skipped: fresh letters contain no tags in the "
+            "seven mapped layers",
+            file=sys.stderr,
         )
+        return
 
     rows = []
     for layer, categories in L1_CATEGORY_MAP.items():
@@ -927,6 +984,11 @@ def _parse_args(argv=None):
         default=30.0,
         help="per-request timeout in seconds (default: 30)",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="overwrite an existing snapshot for the same date",
+    )
     args = parser.parse_args(argv)
     if args.timeout <= 0:
         parser.error("--timeout must be greater than zero")
@@ -939,6 +1001,7 @@ def main(argv=None):
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
     args = _parse_args(argv)
+    started = datetime.datetime.now(datetime.timezone.utc)
 
     try:
         weights, total_weight, selected_count = _load_routing_weights(
@@ -951,34 +1014,52 @@ def main(argv=None):
         )
         return 1
 
+    # Dated by the run's UTC start so a rerun never silently replaces pinned evidence; refuse before any request.
+    output_path = os.path.join(
+        OUTPUT_DIR,
+        "acu_letters_snapshot_%s.json" % started.strftime("%Y%m%d"),
+    )
+    if os.path.exists(output_path) and not args.force:
+        print(
+            "ERROR snapshot already exists: %s (use --force to overwrite)"
+            % output_path,
+            file=sys.stderr,
+        )
+        return 1
+
     client = GraphQLClient(args.timeout)
     state = _new_state(DEFAULT_PAGE_SIZE)
     try:
         try:
-            letters = _fetch_attempt(
-                client,
-                DEFAULT_PAGE_SIZE,
-                state,
-            )
-        except PageSizeRejected as exc:
-            print(
-                "page_size=50 rejected status=%s progress=%d/%s; "
-                "retrying with browser page_size=12"
-                % (
-                    exc.status,
-                    len(state["letters_by_id"]),
-                    state["reported_count"]
-                    if state["reported_count"] is not None
-                    else "?",
-                ),
-                flush=True,
-            )
-            state = _new_state(FALLBACK_PAGE_SIZE)
-            letters = _fetch_attempt(
-                client,
-                FALLBACK_PAGE_SIZE,
-                state,
-            )
+            try:
+                letters = _fetch_attempt(
+                    client,
+                    DEFAULT_PAGE_SIZE,
+                    state,
+                )
+            except PageSizeRejected as exc:
+                print(
+                    "page_size=50 rejected status=%s progress=%d/%s; "
+                    "retrying with browser page_size=12"
+                    % (
+                        exc.status,
+                        len(state["letters_by_id"]),
+                        state["reported_count"]
+                        if state["reported_count"] is not None
+                        else "?",
+                    ),
+                    flush=True,
+                )
+                state = _new_state(FALLBACK_PAGE_SIZE)
+                letters = _fetch_attempt(
+                    client,
+                    FALLBACK_PAGE_SIZE,
+                    state,
+                )
+        except KeyboardInterrupt as exc:
+            raise CollectorFailure(
+                "INTERRUPTED", "interrupted by user"
+            ) from exc
     except CollectorFailure as exc:
         progress = len(state["letters_by_id"])
         expected = (
@@ -1030,13 +1111,22 @@ def main(argv=None):
             state["reported_count"],
             fetched_at,
         )
-        _atomic_write_json(OUTPUT_PATH, snapshot)
+        _atomic_write_json(output_path, snapshot)
     except (OSError, ValueError) as exc:
         print(
             "ERROR snapshot validation/write failed: %s" % exc,
             file=sys.stderr,
         )
         return 1
+    try:
+        os.remove(PARTIAL_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:
+        print(
+            "WARNING could not remove stale partial %s: %s" % (PARTIAL_PATH, exc),
+            file=sys.stderr,
+        )
 
     print()
     print(
@@ -1048,7 +1138,7 @@ def main(argv=None):
             state["page_size"],
         )
     )
-    print("durable snapshot: %s" % OUTPUT_PATH)
+    print("durable snapshot: %s" % output_path)
     _print_tag_counts(fresh_counts)
     _print_reverse_gaps(
         fresh_counts,

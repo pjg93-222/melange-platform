@@ -11,8 +11,10 @@ import os, json, glob, wave, contextlib, multiprocessing as mp
 import numpy as np
 sys = _s; sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 from audio_rules import MIN_MEMBER_TARGET_SEC as MIN_SEC
+from moneyball_core import dump_atomic
 B = MB_ROOT
 ADIR = os.path.join(B, 'audio_pilot'); CLIPCACHE = os.path.join(B, 'data', 'members', 'b5_audio_clipcache.json')
+VERIFY = os.path.join(B, 'data', 'members', 'b5_audio_verify.json'); OUT = os.path.join(B, 'data', 'members', 'b5_audio_cache.json')
 DEF_JOBS = max(1, min(8, (os.cpu_count() or 2) - 2))
 
 def clip_seconds(path):
@@ -52,16 +54,16 @@ def featurize(paths, jobs):
                 else: print('  !! eGeMAPS fail %s (%s)' % (os.path.basename(p), err))
     return out, names
 
-def build(jobs=DEF_JOBS):
-    cache = json.load(open(CLIPCACHE, encoding='utf-8')) if os.path.exists(CLIPCACHE) else {'names': None, 'clips': {}}
-    clips = sorted(glob.glob(os.path.join(ADIR, '*', '*.wav')))
-    rel = lambda c: os.path.relpath(c, ADIR).replace('\\', '/')
+def build(jobs=DEF_JOBS, adir=ADIR, clipcache=CLIPCACHE, verify=VERIFY, out=OUT):
+    cache = json.load(open(clipcache, encoding='utf-8')) if os.path.exists(clipcache) else {'names': None, 'clips': {}}
+    clips = sorted(glob.glob(os.path.join(adir, '*', '*.wav')))
+    rel = lambda c: os.path.relpath(c, adir).replace('\\', '/')
     # identity-verification gate: only clips verified SOLO_TARGET & identity != MISMATCH
     # (b5_audio_verify.json; captions + Haiku hard-signal speaker/identity check). No verify file
     # -> behave as before (keep all). This is what makes the voiceprints clean (no multi-speaker,
     # no-caption, or wrong-member contamination) without touching the featurizer or aggregation math.
     VER = {}
-    _vp = os.path.join(B, 'data', 'members', 'b5_audio_verify.json')
+    _vp = verify
     if os.path.exists(_vp):
         VER = {k: v for k, v in json.load(open(_vp, encoding='utf-8')).items() if isinstance(v, dict)}
     _keep = lambda r: (not VER) or bool(VER.get(r, {}).get('keep'))
@@ -75,8 +77,8 @@ def build(jobs=DEF_JOBS):
         if names and not cache['names']: cache['names'] = names
         for p, v in feats.items():
             cache['clips'][rel(p)] = {'v': [round(x, 5) for x in v], 'sec': round(clip_seconds(p), 1)}
-        json.dump(cache, open(CLIPCACHE, 'w'))
-        print('  featurized %d clips -> %s' % (len(feats), os.path.basename(CLIPCACHE)))
+        dump_atomic(cache, clipcache)
+        print('  featurized %d clips -> %s' % (len(feats), os.path.basename(clipcache)))
     names = cache['names']
     if not names: print('no features yet — nothing to aggregate'); return
     bym = {}
@@ -98,26 +100,30 @@ def build(jobs=DEF_JOBS):
     sd = M.std(0, ddof=1) if len(feats) > 1 else np.ones(M.shape[1])
     sd = np.where(sd < 1e-12, 1.0, sd)
     Z = {m: np.clip((feats[m] - mu) / sd, -5.0, 5.0).round(5).tolist() for m in feats}  # winsorize: eGeMAPS heavy tails -> cap high-leverage outliers
-    from moneyball_core import dump_atomic
     dump_atomic({'members': sorted(feats), 'feature_names': names, 'z': Z,
                  'seconds': {m: round(secs[m], 1) for m in secs}, 'feature_set': 'eGeMAPSv02',
                  'n_features': len(names), 'min_sec': MIN_SEC,
                  'note': 'audio-prosody pilot; parallel+incremental clip cache; duration-weighted mean, z-within-source. prereg @3c94fc7'},
-                os.path.join(B, 'data', 'members', 'b5_audio_cache.json'))
-    print('wrote b5_audio_cache.json: %d members >= %ds, %d features (eGeMAPSv02)' % (len(feats), int(MIN_SEC), len(names)))
+                out)
+    print('wrote %s: %d members >= %ds, %d features (eGeMAPSv02)' % (os.path.basename(out), len(feats), int(MIN_SEC), len(names)))
 
 if __name__ == '__main__':
     jobs = DEF_JOBS
     for a in sys.argv:
         if a.startswith('--jobs='): jobs = int(a.split('=')[1])
     if '--test' in sys.argv:
-        import soundfile as sf
-        td = os.path.join(ADIR, '__test__'); os.makedirs(td, exist_ok=True)
+        import soundfile as sf, tempfile
+        root = tempfile.mkdtemp(prefix='b5_audio_test_')   # scratch root: never touches live audio_pilot / data/members
+        td = os.path.join(root, 'audio_pilot', '__test__'); os.makedirs(td); os.makedirs(os.path.join(root, 'data'))
         sr = 16000
         for i in range(2):
             t = np.linspace(0, 100, 100 * sr, endpoint=False)
             sig = 0.3 * np.sin(2 * np.pi * (120 + 15 * i) * t) * (1 + 0.25 * np.sin(2 * np.pi * 3 * t))
             sf.write(os.path.join(td, 'clip%d.wav' % i), sig.astype('float32'), sr)
-        build(jobs=1)
+        out = os.path.join(root, 'data', 'b5_audio_cache.json')
+        build(jobs=1, adir=os.path.join(root, 'audio_pilot'), clipcache=os.path.join(root, 'data', 'clipcache.json'),
+              verify=os.path.join(root, 'data', 'verify.json'), out=out)
+        assert '__test__' in json.load(open(out, encoding='utf-8'))['members'], 'synthetic member missing from output'
+        print('--test OK (scratch root %s)' % root)
     else:
         build(jobs)

@@ -77,6 +77,14 @@ def test_unmatched_and_ambiguous_candidates_are_counted_not_dropped_silently():
     assert members == {} and acct['2025-2026']['ambiguous_committee'] == {'C00400004': 100.0}
 
 
+def test_blank_committee_id_unlinked_row_keeps_the_bucket_a_dict():
+    members, acct = run([rf(cid=None, amount=30.25), rf(cid='C00200002', amount=12.5), rf(cid=None, amount=1.0)], [])
+    assert members == {}
+    assert acct['2025-2026']['unlinked_committee'] == {'(blank)': 31.25, 'C00200002': 12.5}
+    assert acct['2025-2026']['book_total'] == 43.75
+    json.dumps(acct, sort_keys=True)   # no None dict key
+
+
 def test_unknown_tier_fails_loud_and_unknown_book_refuses_import():
     with pytest.raises(ValueError): run([rf(tier='Intern')])
     side = {'Credit Union': 'cu'}

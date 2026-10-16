@@ -421,8 +421,9 @@ def build(sector, recs, D, rost, n_roster, shas):
         kept, per_term, dropped, flagged = screen_bankreg(recs)
 
     zero_cos = sum(1 for r in kept if not r.get('cos'))
-    off_sponsor = sum(1 for r in kept if r.get('sponsor') not in rost)
     edges, st = assemble(kept, rost, D['ow'], D['rw'], D['decay'], D['newest'])
+    # tie-capable only (zero-cosponsor bills excluded) so contributing / zero-cos / off-roster partition the screened bills
+    off_sponsor = st['counters'].get('bills_sponsor_off_roster', 0)
     contributing = sum(1 for r in kept
                        if r.get('sponsor') in rost and any(c[0] in rost for c in (r.get('cos') or [])))
 

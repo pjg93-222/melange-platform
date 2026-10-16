@@ -113,7 +113,7 @@ def read_json(path: Path) -> dict[str, Any]:
         raise PillarError(f"required JSON does not exist: {path}")
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except json.JSONDecodeError as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise PillarError(f"invalid JSON at {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise PillarError(f"JSON root must be an object: {path}")
@@ -176,10 +176,15 @@ def validate_hash_entry(
             f"artifact hash mismatch for {name}: expected {expected}, "
             f"observed {observed}"
         )
-    if entry.get("size") is not None and path.stat().st_size != int(
-        entry["size"]
-    ):
-        raise PillarError(f"artifact size mismatch: {name}")
+    if entry.get("size") is not None:
+        try:
+            expected_size = int(entry["size"])
+        except (TypeError, ValueError) as exc:
+            raise PillarError(
+                f"artifact size is invalid: {name}: {entry['size']!r}"
+            ) from exc
+        if path.stat().st_size != expected_size:
+            raise PillarError(f"artifact size mismatch: {name}")
     return {**receipt(path, relative_to=run_dir), "resolved_path": path}
 
 
@@ -201,16 +206,22 @@ def validate_workbook_receipt(
         raise PillarError("legislative-workbook receipt hash mismatch")
     value = read_json(path)
     outputs = value.get("outputs") or {}
+    if not isinstance(outputs, dict):
+        raise PillarError("legislative-workbook receipt outputs are malformed")
+    workbook_entry = outputs.get(WORKBOOK_NAME) or {}
+    snapshot_entry = outputs.get(SNAPSHOT_NAME) or {}
+    if not (isinstance(workbook_entry, dict) and isinstance(snapshot_entry, dict)):
+        raise PillarError("legislative-workbook receipt outputs are malformed")
     if not (
         value.get("schema") == WORKBOOK_RECEIPT_SCHEMA
         and value.get("status") == "PASS"
         and value.get("staged_only") is True
         and value.get("production_written") is False
         and value.get("generation_id") == generation_id
-        and (outputs.get(WORKBOOK_NAME) or {}).get("sha256")
-        == workbook_sha256
-        and (outputs.get(SNAPSHOT_NAME) or {}).get("sha256")
-        == snapshot_sha256
+        and str(workbook_entry.get("sha256")).casefold()
+        == str(workbook_sha256).casefold()
+        and str(snapshot_entry.get("sha256")).casefold()
+        == str(snapshot_sha256).casefold()
     ):
         raise PillarError(
             "legislative-workbook receipt is not PASS/hash-bound to this "
@@ -257,15 +268,33 @@ def workbook_cache(
         ]
         if not members or len(set(members)) != len(members):
             raise PillarError("rank workbook member roster is empty or duplicated")
-        rows = {
-            str(blended.cell(row, 1).value): row
-            for row in range(3, 536)
-            if blended.cell(row, 1).value
-        }
+        # compute_pillars assumes Blended rows mirror Rank & Allocation order
+        # (bmrows = {m: i + 3}); require contiguous roster rows and the same
+        # row for every member in both sheets, and reject duplicate names.
+        if any(
+            not rank_sheet.cell(3 + index, 1).value
+            for index in range(len(members))
+        ):
+            raise PillarError("Rank & Allocation roster has blank row gaps")
+        rows: dict[str, int] = {}
+        for row in range(3, 536):
+            if blended.cell(row, 1).value:
+                name = str(blended.cell(row, 1).value)
+                if name in rows:
+                    raise PillarError(
+                        f"Blended Model duplicate member name: {name!r}"
+                    )
+                rows[name] = row
         if set(rows) != set(members):
             raise PillarError(
                 "Blended Model formula-cache roster differs from Rank & "
                 "Allocation roster"
+            )
+        if any(
+            rows[member] != 3 + index for index, member in enumerate(members)
+        ):
+            raise PillarError(
+                "Blended Model rows do not mirror Rank & Allocation order"
             )
         values: dict[str, dict[str, float]] = {"O": {}, "E": {}, "F": {}}
         columns = {"O": 15, "E": 5, "F": 6}
@@ -349,7 +378,7 @@ def write_receipt_idempotently(path: Path, value: dict[str, Any]) -> bool:
                 "existing staged pillar/rank receipt differs for identical root"
             )
         return True
-    path.write_text(body, encoding="utf-8", newline="\n")
+    atomic_write(path, body.encode("utf-8"))
     return False
 
 
@@ -433,15 +462,18 @@ def run(
             "PILLAR_SNAPSHOT_FREEZE": "1",
         }
     )
-    completed = subprocess.run(
-        [sys.executable, str(SCRIPT), "--write"],
-        cwd=str(CODE_ROOT),
-        env=environment,
-        text=True,
-        capture_output=True,
-        timeout=900,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, str(SCRIPT), "--write"],
+            cwd=str(CODE_ROOT),
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=900,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise PillarError("compute_pillars timed out in shadow root") from exc
     if completed.returncode != 0:
         raise PillarError(
             "compute_pillars failed in shadow root: "
@@ -482,6 +514,11 @@ def run(
         SNAPSHOT_FIRST: receipt(snapshot_first_path, relative_to=root),
         RANKS_FIRST: receipt(ranks_first_path, relative_to=root),
     }
+    if (
+        outputs[SNAPSHOT_NAME]["sha256"] != outputs[SNAPSHOT_FIRST]["sha256"]
+        or outputs[RANKS_NAME]["sha256"] != outputs[RANKS_FIRST]["sha256"]
+    ):
+        raise PillarError("first-pass copies are not byte-identical")
     basis = {
         "generation_id": generation_id,
         "prerequisites_sha256": sha256_file(prerequisite_path),
@@ -501,12 +538,7 @@ def run(
         "workbook_formula_cache_complete": True,
         "snapshot_matches_workbook_cache": True,
         "snapshot_frozen": True,
-        "first_pass_copies_byte_identical": (
-            outputs[SNAPSHOT_NAME]["sha256"]
-            == outputs[SNAPSHOT_FIRST]["sha256"]
-            and outputs[RANKS_NAME]["sha256"]
-            == outputs[RANKS_FIRST]["sha256"]
-        ),
+        "first_pass_copies_byte_identical": True,
         "centrality_rank_policy": (
             "unchanged live method: workbook committee score is the influence "
             "pillar; base/AUG centrality does not modify rank"
@@ -533,9 +565,9 @@ def run(
             "argv": ["{python}", "fec/engine/compute_pillars.py", "--write"],
             "moneyball_root": ".",
             "pillar_snapshot_freeze": True,
+            # stdout/stderr hashes are excluded: compute_pillars prints a
+            # date-dependent ROLE_EXPIRY_WARN, which broke idempotent reruns.
             "returncode": completed.returncode,
-            "stdout_sha256": sha256_bytes(completed.stdout.encode("utf-8")),
-            "stderr_sha256": sha256_bytes(completed.stderr.encode("utf-8")),
         },
     }
     reused = write_receipt_idempotently(root / RECEIPT_NAME, result)
@@ -550,7 +582,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_dir=args.run_dir,
             prerequisites_path=args.prerequisites,
         )
-    except PillarError as exc:
+    except (PillarError, OSError) as exc:
         print(
             f"run_legislation_pillars_and_ranks: FAIL CLOSED: {exc}",
             file=sys.stderr,

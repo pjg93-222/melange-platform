@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -19,6 +20,10 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from members.load_cspan import connect, cspan_stats, prepare, replace  # noqa: E402
 from paths import ROOT  # noqa: E402
+
+# Backstop for manual or orphaned runs; never tighter than the daily (max 86400)
+# or weekly (5400) parent budgets, which kill earlier.
+STAGE_TIMEOUT_SECONDS = 86400
 
 
 def find_rscript() -> str:
@@ -33,8 +38,13 @@ def find_rscript() -> str:
     return str(candidates[-1])
 
 
-def run_checked(command: list[str], *, cwd: Path) -> None:
-    completed = subprocess.run(command, cwd=cwd)
+def run_checked(command: list[str], *, cwd: Path, timeout: int = STAGE_TIMEOUT_SECONDS) -> None:
+    try:
+        completed = subprocess.run(command, cwd=cwd, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        raise RuntimeError(
+            "%s timed out after %ds" % (Path(command[1]).name, timeout)
+        ) from error
     if completed.returncode:
         raise RuntimeError(
             "%s failed with exit %d" % (Path(command[1]).name, completed.returncode)
@@ -91,13 +101,17 @@ def main(argv: list[str] | None = None) -> int:
     rscript = find_rscript()
     collector = Path(ROOT) / "cspan" / "cspan_scrape.R"
     common = ["--since", since.isoformat(), "--until", until.isoformat(), "--out", str(args.out)]
-    if args.max:
+    if args.max is not None:
         common += ["--max", str(args.max)]
 
+    # The search stage writes no receipt when it returns 0 results, and receipt
+    # windows are date-only, so a same-day stale receipt must not survive a rerun.
+    (args.out / "search_receipt.json").unlink(missing_ok=True)
     run_checked([rscript, str(collector), "search", *common, "--strict"], cwd=Path(ROOT))
     search = load_receipt(
         args.out / "search_receipt.json", "cspan-wj-search-v1", since.isoformat(), until.isoformat()
     )
+    (args.out / "scrape_receipt.json").unlink(missing_ok=True)
     run_checked(
         [rscript, str(collector), "scrape", *common, "--members-only", "--retry-empty", "--strict"],
         cwd=Path(ROOT),
@@ -113,12 +127,21 @@ def main(argv: list[str] | None = None) -> int:
     if args.receipt.is_file():
         try:
             previous = json.loads(args.receipt.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
+        except (OSError, ValueError):
             previous = {}
+    if not isinstance(previous, dict):
+        previous = {}
 
     database_before = database_after = {}
     backup = None
-    changed = previous.get("source_digest_sha256") != summary["source_digest_sha256"]
+    prepared_digest = hashlib.sha256(
+        json.dumps([rows, programs], sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")
+    ).hexdigest()
+    if "loaded_digest_sha256" in previous:
+        changed = previous["loaded_digest_sha256"] != prepared_digest
+    else:
+        # legacy receipts: avoid a forced one-time replace and backup
+        changed = previous.get("source_digest_sha256") != summary["source_digest_sha256"]
     loaded = False
     if not args.no_load:
         connection = connect(str(args.db))
@@ -137,13 +160,18 @@ def main(argv: list[str] | None = None) -> int:
 
     payload = {
         "schema": "washington-journal-collection-v1",
-        "status": "COMPLETE",
+        "status": "PARTIAL" if args.max is not None else "COMPLETE",
+        "max": args.max,
         "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         "collector_horizon": until.isoformat(),
         "search_window_start": since.isoformat(),
         "source_latest_program_date": max(program_dates, default=""),
         "accepted_member_content_latest_date": max(accepted_dates, default=""),
         "source_digest_sha256": summary["source_digest_sha256"],
+        # '' after a --no-load run forces the next loading run to reload
+        "loaded_digest_sha256": (
+            prepared_digest if not args.no_load else previous.get("loaded_digest_sha256", "")
+        ),
         "cumulative_manifest_programs": search["cumulative_programs"],
         "cumulative_transcript_files": summary["source_file_count"],
         "accepted_programs": summary["prepared_programs"],

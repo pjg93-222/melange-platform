@@ -16,6 +16,7 @@ import gzip
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import re
 from typing import Any, Iterable, Iterator, Mapping, Sequence
@@ -88,15 +89,24 @@ def _rows(path: str | Path) -> Iterator[dict[str, Any]]:
 
 def _write_gzip(path: Path, values: Iterable[Mapping[str, Any]], *, key: str) -> int:
     rows = sorted(values, key=lambda row: str(row[key]))
-    with path.open("wb") as raw:
+    temporary = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    with temporary.open("wb") as raw:
         with gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as compressed:
             for row in rows:
                 compressed.write(canonical_json_bytes(row))
+    os.replace(temporary, path)
     return len(rows)
 
 
 def _write_json(path: Path, value: Mapping[str, Any]) -> None:
-    path.write_bytes(canonical_json_bytes(value))
+    temporary = path.with_suffix(path.suffix + f".tmp.{os.getpid()}")
+    temporary.write_bytes(canonical_json_bytes(value))
+    os.replace(temporary, path)
+
+
+def _text(value: Any) -> str | None:
+    """A non-empty stripped string, else None (never the text "None")."""
+    return value.strip() or None if isinstance(value, str) else None
 
 
 def _norm(value: Any) -> str:
@@ -166,7 +176,7 @@ def _registrant_aliases(value: str) -> set[str]:
     aliases = {normalized}
     for marker in (" dba ", " doing business as ", " formerly "):
         if marker in f" {normalized} ":
-            left, right = normalized.split(marker.strip(), 1)
+            left, right = f" {normalized} ".split(marker, 1)
             aliases.update({_norm(left), _norm(right)})
     return {alias for alias in aliases if len(alias) >= 5}
 
@@ -368,7 +378,7 @@ def _overlaps(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
 
 
 def _inherit_generic_container(
-    person_id: str, employer: str, title: str, bounds: Mapping[str, Any],
+    person_id: str, employer: str, title: str | None, bounds: Mapping[str, Any],
     episodes: Sequence[Mapping[str, Any]],
 ) -> Mapping[str, Any] | None:
     if _norm(employer) not in GENERIC_SENATE | GENERIC_HOUSE:
@@ -478,10 +488,9 @@ def _groups_and_edges(
     # 2-tuple return here is unchanged.
     if stats is not None:
         stats["co_tenure_pairs_rejected_zero_overlap"] = 0
-        # No container is ever excluded from pairing at this stage today. Reserved so a future
-        # container-exclusion gate (STAFFA-8, Paul-gated, not part of this patch) has somewhere
-        # real to report into instead of silently folding its skips into the zero-overlap count
-        # above -- which VERIFY_STAFFA.md flagged as actively misleading if the two ever merge.
+        # Counts pairs skipped inside the chamber-wide Senate/House buckets in
+        # CO_TENURE_EXCLUDED_CONTAINER_IDS (2026-09-07 owner ruling). Kept separate from the
+        # zero-overlap count above -- VERIFY_STAFFA.md flagged merging the two as misleading.
         stats["co_tenure_pairs_skipped_excluded_container"] = 0
     by_container: defaultdict[str, list[Mapping[str, Any]]] = defaultdict(list)
     for row in memberships:
@@ -566,9 +575,8 @@ def promote_and_group(
     blocked: list[dict[str, Any]] = []
 
     for source in _rows(provisional_episodes):
-        container = containers.resolve(
-            str(source["lda_source_person_id"]), str(source.get("employer_candidate") or source.get("raw_employer"))
-        )
+        employer = _text(source.get("employer_candidate")) or _text(source.get("raw_employer"))
+        container = containers.resolve(str(source["lda_source_person_id"]), employer) if employer else None
         if container is None:
             blocked.append({"source_id": source["episode_id"], "gate": "CONTAINER_ADJUDICATION_REQUIRED"})
             continue
@@ -595,9 +603,8 @@ def promote_and_group(
         if not unique:
             blocked.append({"source_id": source["match_candidate_id"], "gate": "SOURCE_NATIVE_ID_NOT_UNIQUE"})
             continue
-        container = containers.resolve(
-            str(source["lda_source_person_id"]), str(source.get("employing_office_candidate"))
-        )
+        employer = _text(source.get("employing_office_candidate"))
+        container = containers.resolve(str(source["lda_source_person_id"]), employer) if employer else None
         if container is None:
             blocked.append({"source_id": source["match_candidate_id"], "gate": "CONTAINER_ADJUDICATION_REQUIRED"})
             continue
@@ -655,9 +662,11 @@ def promote_and_group(
             bounds = {
                 "start_latest": start_high, "end_earliest": end_low,
             }
-            container = _inherit_generic_container(
-                person_id, str(fact.get("employer_raw")), str(fact.get("title_raw")), bounds, pre_profile
-            ) or containers.resolve(person_id, str(fact.get("employer_raw")))
+            employer = _text(fact.get("employer_raw"))
+            container = (
+                _inherit_generic_container(person_id, employer, fact.get("title_raw"), bounds, pre_profile)
+                or containers.resolve(person_id, employer)
+            ) if employer else None
             if container is None:
                 blocked.append({"source_id": f"authenticated-profile:{person_id}:{ordinal}", "gate": "CONTAINER_ADJUDICATION_REQUIRED"})
                 continue
@@ -704,10 +713,12 @@ def promote_and_group(
         # actually fired). A zero here means the overlap test is not firing, not that every
         # co-located pair actually overlapped.
         "co_tenure_pairs_rejected_zero_overlap": co_tenure_stats["co_tenure_pairs_rejected_zero_overlap"],
-        # Reserved for a future container-exclusion gate (STAFFA-8, Paul-gated, not part of this
-        # patch): stays 0 today because _groups_and_edges excludes no container from pairing.
+        # Pairs skipped inside the chamber-wide Senate/House buckets (CO_TENURE_EXCLUDED_CONTAINER_IDS,
+        # 2026-09-07 owner ruling); not zero-overlap rejections.
         "co_tenure_pairs_skipped_excluded_container": co_tenure_stats["co_tenure_pairs_skipped_excluded_container"],
     }
+    blocked_path = output / "employment_promotion_blocked.ndjson.gz"
+    _write_gzip(blocked_path, blocked, key="source_id")
     people = {row["resolved_person_id"] for row in episodes}
     receipt = {
         "schema_id": "staffer-network-employment-promotion-receipt-v1",
@@ -722,7 +733,7 @@ def promote_and_group(
         "counts": counts,
         "files": [
             {"path": path.name, "bytes": path.stat().st_size, "sha256": sha256_file(path)}
-            for path in (episode_path, decision_path, education_path, membership_path, group_path, edge_path)
+            for path in (episode_path, decision_path, education_path, membership_path, group_path, edge_path, blocked_path)
         ],
         "blocked_gate_counts": {
             gate: sum(row["gate"] == gate for row in blocked)
@@ -732,7 +743,6 @@ def promote_and_group(
         "edge_weight_formula": "1-exp(-overlap_days/tau_days)",
     }
     _write_json(output / "employment_promotion_receipt.json", receipt)
-    _write_gzip(output / "employment_promotion_blocked.ndjson.gz", blocked, key="source_id")
     return receipt
 
 

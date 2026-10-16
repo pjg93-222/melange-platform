@@ -15,7 +15,7 @@ sys.path.insert(0, str(FEC))
 import audit_collection
 from collect import refresh_press_stream as press
 from collect.build_press_engine_feed import ReceiptRejected, validate_body_completion
-from test_press_source_freshness import SOURCES, seal
+from test_press_source_freshness import SOURCES, seal, seal_historical
 
 
 def pending_proof(root, receipt, rows=()):
@@ -25,6 +25,25 @@ def pending_proof(root, receipt, rows=()):
         writer.writeheader()
         writer.writerows(rows)
     receipt["pending_body_urls_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fake_popen(monkeypatch, child):
+    """Replace the Popen the press module launches Rscript with; ``child(command, cwd)`` returns the exit code."""
+    class FakePopen:
+        pid = 4242
+
+        def __init__(self, command, cwd=None, **kwargs):
+            self.command, self.cwd, self.killed = command, cwd, False
+
+        def wait(self, *args, **kwargs):
+            assert not args and not kwargs, "the collector wait must stay unbounded"
+            return child(self.command, self.cwd)
+
+        def kill(self):
+            self.killed = True
+
+    monkeypatch.setattr(press.subprocess, "Popen", FakePopen)
+    return FakePopen
 
 
 def official_coverage_proof(root, receipt):
@@ -262,10 +281,10 @@ def test_partial_run_is_not_reusable_and_next_invocation_advances(tmp_path, monk
             updated.update(status="PARTIAL", pending_body_urls=1)
             pending_proof(tmp_path, updated, [{"url": "https://example.gov/b"}])
             receipt_path.write_text(json.dumps(updated))
-            return SimpleNamespace(returncode=3)
-        return SimpleNamespace(returncode=0)
+            return 3
+        return 0
 
-    monkeypatch.setattr(press.subprocess, "run", child)
+    fake_popen(monkeypatch, child)
     assert press.main(["--run-root", str(tmp_path)]) == 3
     assert json.loads(receipt_path.read_text())["pending_body_urls"] == 1
     assert press.main(["--run-root", str(tmp_path)]) == 0
@@ -353,3 +372,163 @@ def test_a_tombstoned_pending_body_needs_no_retry_receipt_but_a_fresh_one_does(
     else:
         assert audited["errors"] == [], audited
     assert audited["pending_failed_bodies_excused"] == 1
+
+
+def excused_partial_receipt(root):
+    """The shape valid_run hands back for a PARTIAL run whose pending rows the ledger excused."""
+    seal(root, SOURCES)
+    receipt = json.loads((root / "press_network_retry_receipt.json").read_text())
+    receipt.update(status="PARTIAL", pending_body_urls=2)
+    return receipt
+
+
+def test_excused_partial_receipt_is_reused_without_a_new_walk(tmp_path, monkeypatch, capsys):
+    receipt = excused_partial_receipt(tmp_path)
+    monkeypatch.setattr(press, "valid_run", lambda path, *a, **k: ("completed", receipt))
+    assert press.current_source_run(tmp_path, SOURCES) == ("completed", receipt)
+    assert "not repeating the same-day walk" in capsys.readouterr().out
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: SOURCES)
+    fake_popen(monkeypatch, lambda command, cwd: pytest.fail("collector launched"))
+    assert press.main(["--run-root", str(tmp_path)]) == 0
+
+
+@pytest.mark.parametrize("change", [
+    {"collector_sources_sha256": {**SOURCES, "press_backlog.R": "old"}},
+    {"pending_body_urls": 0}, {"pending_body_urls": True}, {"pending_body_urls": "2"},
+    {"status": "FAILED"}, {"status": None},
+])
+def test_only_pass_with_nothing_pending_or_an_excused_partial_is_reused(tmp_path, monkeypatch, change):
+    receipt = {**excused_partial_receipt(tmp_path), **change}
+    monkeypatch.setattr(press, "valid_run", lambda path, *a, **k: ("completed", receipt))
+    assert press.current_source_run(tmp_path, SOURCES) is None
+
+
+def test_partial_exit_cannot_certify_a_collector_source_changed_mid_walk(tmp_path, monkeypatch):
+    seal(tmp_path)
+    generations = iter([SOURCES, {**SOURCES, "refresh_press_delta.R": "changed"}])
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: next(generations))
+    monkeypatch.setattr(press, "find_rscript", lambda: "fixture-rscript")
+    fake_popen(monkeypatch, lambda command, cwd: 3)
+    with pytest.raises(RuntimeError, match="source"):
+        press.main(["--run-root", str(tmp_path)])
+
+
+def test_other_nonzero_exit_returns_unchanged_without_the_drift_check(tmp_path, monkeypatch):
+    seal(tmp_path)
+    generations = iter([SOURCES])     # a second hash read would raise StopIteration
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: next(generations))
+    monkeypatch.setattr(press, "find_rscript", lambda: "fixture-rscript")
+    fake_popen(monkeypatch, lambda command, cwd: 7)
+    assert press.main(["--run-root", str(tmp_path)]) == 7
+
+
+def test_tombstone_ledger_is_not_touched_for_a_run_root_outside_live_outputs(tmp_path, monkeypatch):
+    from collect import press_pending_tombstones as tombstones
+    monkeypatch.setattr(tombstones, "update", lambda *a, **k: pytest.fail("ledger update called"))
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: SOURCES)
+    monkeypatch.setattr(press, "find_rscript", lambda: "fixture-rscript")
+
+    def child(command, cwd):
+        seal(tmp_path, SOURCES)
+        return 0
+
+    fake_popen(monkeypatch, child)
+    assert press.main(["--run-root", str(tmp_path)]) == 0
+
+
+@pytest.mark.parametrize("failure", [None, "boom"])
+def test_tombstone_ledger_updates_once_after_a_live_walk_and_failure_is_non_fatal(
+        tmp_path, monkeypatch, capsys, failure):
+    from collect import press_pending_tombstones as tombstones
+    (tmp_path / "outputs").mkdir()
+    run_root = tmp_path / "outputs" / "press_refresh_20261013"
+    calls = []
+
+    def update(*args, **kwargs):
+        calls.append((args, kwargs))
+        if failure:
+            raise RuntimeError(failure)
+        return {"runs_seen": ["a", "b"], "records": {}, "members": {}}
+
+    monkeypatch.setattr(press, "ROOT", str(tmp_path))
+    monkeypatch.setattr(tombstones, "update", update)
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: SOURCES)
+    monkeypatch.setattr(press, "find_rscript", lambda: "fixture-rscript")
+
+    def child(command, cwd):
+        seal(run_root, SOURCES)
+        return 0
+
+    fake_popen(monkeypatch, child)
+    assert press.main(["--run-root", str(run_root)]) == 0
+    assert len(calls) == 1
+    out = capsys.readouterr().out
+    if failure:
+        assert "press tombstone ledger update skipped (non-fatal): RuntimeError: boom" in out
+    else:
+        assert "press tombstone ledger updated: 2 sealed run(s) counted, 0 URL(s) and 0 member(s)" in out
+
+
+def test_ledger_is_not_updated_for_a_targeted_historical_recovery(tmp_path, monkeypatch):
+    from collect import press_pending_tombstones as tombstones
+    outputs = tmp_path / "outputs"
+    outputs.mkdir()
+    source, target = outputs / "press_refresh_20261012", outputs / "press_refresh_20261013"
+    seal(source, SOURCES)
+    monkeypatch.setattr(press, "ROOT", str(tmp_path))
+    monkeypatch.setattr(tombstones, "update", lambda *a, **k: pytest.fail("ledger update called"))
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: SOURCES)
+    monkeypatch.setattr(press, "find_rscript", lambda: "fixture-rscript")
+
+    def child(command, cwd):
+        seal_historical(target, source)
+        return 0
+
+    fake_popen(monkeypatch, child)
+    assert press.main(["--run-root", str(target), "--retry-from", str(source)]) == 0
+
+
+def test_interrupt_kills_the_collector_process_tree_and_reraises(monkeypatch):
+    taskkills = []
+
+    def interrupted(command, cwd):
+        raise KeyboardInterrupt
+
+    popen = fake_popen(monkeypatch, interrupted)
+    popen.kills = []
+    popen.kill = lambda self: self.kills.append(self.pid)
+    monkeypatch.setattr(press.subprocess, "run",
+                        lambda *args, **kwargs: taskkills.append((args, kwargs)))
+    with pytest.raises(KeyboardInterrupt):
+        press.run_collector(["fixture-rscript"], ".")
+    if press.os.name == "nt":
+        assert [call[0][0] for call in taskkills] == [["taskkill", "/PID", "4242", "/T", "/F"]]
+        assert taskkills[0][1]["timeout"] == 60
+    else:
+        assert popen.kills == [4242] and not taskkills
+
+
+@pytest.mark.parametrize("content", ["{not json", "[1, 2]", "null", '"text"'])
+def test_corrupt_or_non_object_existing_receipt_is_refused_with_a_clear_message(
+        tmp_path, monkeypatch, content):
+    source, target = tmp_path / "prior", tmp_path / "repair"
+    seal(source, SOURCES)
+    target.mkdir()
+    (target / "press_network_retry_receipt.json").write_text(content)
+    monkeypatch.setattr(press, "collector_source_hashes", lambda: SOURCES)
+    fake_popen(monkeypatch, lambda command, cwd: pytest.fail("collector launched"))
+    with pytest.raises(ValueError, match="refusing historical body recovery: existing receipt"):
+        press.main(["--run-root", str(target), "--retry-from", str(source)])
+    assert (target / "press_network_retry_receipt.json").read_text() == content
+
+
+@pytest.mark.parametrize("content", [[], "text",
+                                     {"historical_inventory_source": "oops",
+                                      "mode": "historical_body_recovery"},
+                                     {"historical_inventory_source": ["x"]}])
+def test_non_object_receipt_or_inventory_source_is_not_a_historical_recovery(tmp_path, content):
+    source, target = tmp_path / "prior", tmp_path / "repair"
+    seal(source, SOURCES)
+    seal(target, SOURCES)
+    (target / "press_network_retry_receipt.json").write_text(json.dumps(content))
+    assert press.historical_recovery_run(target, SOURCES, source) is None

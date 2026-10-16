@@ -73,9 +73,11 @@ if n_unresolved:
           ', '.join(r['row_id'] for r in rows if r.get('resolution') == 'unresolved'))
 
 if '--write' in sys.argv:
-    with io.open(SHEET, 'w', encoding='utf-8-sig', newline='') as f:
+    tmp = SHEET + '.tmp'
+    with io.open(tmp, 'w', encoding='utf-8-sig', newline='') as f:
         w = csv.DictWriter(f, fieldnames=fieldnames); w.writeheader()
         for r in rows: w.writerow(r)
+    os.replace(tmp, SHEET)
     print('wrote %s' % SHEET)
 else:
     print('DRY RUN — rerun with --write to save.')

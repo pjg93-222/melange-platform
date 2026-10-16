@@ -149,6 +149,21 @@ test_that("the manifest is checked against the platform the library was built fo
   expect_true(all(v$ok))
 })
 
+test_that("relabelling the Built OS word cannot skip the hash check when R's own platform has a recorded entry", {
+  tmp <- file.path(tempdir(), "rlib_relabel"); unlink(tmp, recursive = TRUE); dir.create(tmp)
+  file.copy(file.path(rf_rlib_dir(), "sandwich"), tmp, recursive = TRUE)
+  man <- file.path(tempdir(), "rlib_relabel_manifest.json"); unlink(man)
+  rf_record_rlib_platform(target = tmp, packages = "sandwich", manifest_path = man)
+  expect_true(all(rf_verify_rlib(tmp, man)$ok))
+  m <- jsonlite::fromJSON(man, simplifyVector = FALSE)
+  b <- m$packages$sandwich$platforms[[RF_PLATFORM()]]$built
+  m$packages$sandwich$platforms[[RF_PLATFORM()]]$built <- sub("; (windows|unix)$", if (grepl("; windows$", b)) "; unix" else "; windows", b)
+  rf_write_json_atomic(m, man)
+  v <- rf_verify_rlib(tmp, man)                                      # the entry now names the other OS, but it is still R's own platform's entry
+  expect_identical(unique(v$status), "unrecorded_platform")
+  expect_false(any(v$ok))
+})
+
 test_that("rf_rng.R is the byte copy of the SGS numpy-stream port", {
   expect_identical(rf_sha256(file.path(.RF_HOME, "R", "rf_rng.R")), RF$RNG_SHA256)
   # zlib.crc32(b"abc") == 891568578

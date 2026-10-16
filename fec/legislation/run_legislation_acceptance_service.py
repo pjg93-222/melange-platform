@@ -311,10 +311,27 @@ class ServiceLock:
         stale_id = sha256_bytes(canonical_bytes(stale_body))
         stale_path = self.state_dir / "stale_locks" / f"{stale_id}.json"
         immutable_write(stale_path, canonical_bytes(stale_body))
+        # Atomic move, not unlink: only the rename winner may publish; a racing
+        # same-host starter gets FileNotFoundError and treats the lock as contended.
+        moved = stale_path.parent / f"{stale_id}.{uuid.uuid4().hex}.lock"
         try:
-            self.path.unlink()
+            os.rename(self.path, moved)
+        except FileNotFoundError as error:
+            raise ServiceError("acceptance-service writer lock is already held") from error
         except OSError as error:
             raise ServiceError(f"could not reclaim diagnosed stale lock: {error}") from error
+        try:
+            moved_owner = read_json(moved)
+        except ServiceError:
+            moved_owner = None
+        if moved_owner != prior:
+            # We moved a lock someone else published after our read; put it back.
+            try:
+                os.link(moved, self.path)
+                moved.unlink()
+            except OSError:
+                pass
+            raise ServiceError("acceptance-service writer lock is already held")
         self._publish()
         return self
 

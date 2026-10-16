@@ -126,6 +126,9 @@ def plan_rows(rows, known, allow_unverified, out_dir, archive):
     return planned, skipped
 
 
+FETCH_TIMEOUT_S = 3600  # per-item yt-dlp bound; a hung download counts as failed
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="Fail-closed hearings media fetch planner (dry-run by default).")
@@ -171,6 +174,7 @@ def main(argv=None):
         print("PLAN %-24s %s" % (item["package"], item["url"]))
         print("     cmd: %r" % (item["cmd"],))
 
+    failed = []
     if dry_run:
         print("DRY-RUN: %d planned, %d skipped; nothing fetched, nothing written."
               % (len(planned), len(skipped)))
@@ -180,14 +184,22 @@ def main(argv=None):
         for item in planned:
             os.makedirs(os.path.join(args.out_dir, item["package"]), exist_ok=True)
             print("FETCH %s" % item["package"])
-            rc = subprocess.call(item["cmd"])
+            try:
+                rc = subprocess.run(item["cmd"], timeout=FETCH_TIMEOUT_S).returncode
+            except subprocess.TimeoutExpired:
+                print("ERROR: yt-dlp timed out after %ds for %s (continuing; archive keeps "
+                      "completed downloads safe)" % (FETCH_TIMEOUT_S, item["package"]))
+                failed.append(item["package"])
+                continue
             if rc != 0:
                 print("ERROR: yt-dlp exited %d for %s (continuing; archive keeps "
                       "completed downloads safe)" % (rc, item["package"]))
-        print("FETCH DONE: %d attempted, %d skipped." % (len(planned), len(skipped)))
-    return {"dry_run": dry_run, "planned": planned, "skipped": skipped}
+                failed.append(item["package"])
+        print("FETCH DONE: %d attempted, %d skipped, %d failed."
+              % (len(planned), len(skipped), len(failed)))
+    return {"dry_run": dry_run, "planned": planned, "skipped": skipped, "failed": failed}
 
 
 if __name__ == "__main__":
     result = main()
-    sys.exit(0)
+    sys.exit(1 if result["failed"] else 0)

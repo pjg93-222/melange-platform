@@ -75,14 +75,18 @@ class _PublicOnlyRedirects(urllib.request.HTTPRedirectHandler):
 
 _opener = urllib.request.build_opener(_PublicOnlyRedirects)
 
+_MAX_NO_BODY_ATTEMPTS = 3    # a fetched-but-bodyless page is terminal fetched_no_body after this many reads
 done = set()
+no_body_attempts = {}
 if os.path.exists(CACHE):
     for ln in open(CACHE, encoding='utf-8'):
         try:
             row = json.loads(ln)
             if (len((row.get('text') or '').split()) >= 20 or
-                    row.get('classification') == 'out_of_scope_nonarticle_video'):
+                    row.get('classification') in ('out_of_scope_nonarticle_video', 'fetched_no_body')):
                 done.add(row['url'])
+            elif row.get('no_body'):
+                no_body_attempts[row['url']] = max(no_body_attempts.get(row['url'], 0), int(row.get('attempts') or 1))
         except Exception: pass
 arts = list(csv.DictReader(io.open(os.path.join(MB_DRAFT, 'cu_press_stance_tone.csv'), encoding='utf-8-sig', newline='')))
 todo = [r for r in arts if (r.get('url') or '').strip() and (r.get('url') or '').strip() not in done]
@@ -102,14 +106,27 @@ class _NoArticleBody(ValueError):
     Only this failure may be classified terminal; a transport failure must stay retryable."""
 
 
+if os.path.exists(CACHE) and os.path.getsize(CACHE):
+    with open(CACHE, 'rb+') as _f:    # a torn last line must not glue onto the first row appended below
+        _f.seek(-1, 2)
+        if _f.read(1) != b'\n':
+            _f.write(b'\n')
 cf = io.open(CACHE, 'a', encoding='utf-8')
 ok = fail = 0
+_MAX_BODY = 8_000_000
 for i, r in enumerate(todo):
     u = (r.get('url') or '').strip()
     try:
         _require_public(u)
         with _opener.open(urllib.request.Request(u, headers=UA), timeout=25) as resp:
-            body = extract(resp.read().decode('utf-8', 'replace'))
+            raw = resp.read(_MAX_BODY + 1)
+            if len(raw) > _MAX_BODY:
+                raise ValueError('response too large')    # stays live_retry_failed, i.e. retryable
+            try:
+                page = raw.decode(resp.headers.get_content_charset() or 'utf-8', 'replace')
+            except LookupError:
+                page = raw.decode('utf-8', 'replace')
+            body = extract(page)
         if len(body.split()) < 20:
             raise _NoArticleBody('HTTP response contained no extractable article body')
         cf.write(json.dumps({'url': u, 'text': body, 'n': len(body)}, ensure_ascii=True) + '\n')
@@ -118,19 +135,30 @@ for i, r in enumerate(todo):
         # The terminal classification is what audit_collection.audit_press counts as RESOLVED and
         # what the resume set at the top of this file treats as permanently done, so a DNS/429/
         # timeout failure must never earn it -- only a page we read and found bodyless.
-        classification = (
-            'out_of_scope_nonarticle_video'
-            if isinstance(e, _NoArticleBody) and re.search(r'/(?:news/)?videos?/watch/', u, flags=re.I)
-            else 'live_retry_failed'
-        )
-        cf.write(json.dumps({
+        no_body = isinstance(e, _NoArticleBody)
+        attempts = 0
+        if no_body:    # only reads that returned a bodyless page count; transport failures never do
+            attempts = no_body_attempts.get(u, 0) + 1
+            no_body_attempts[u] = attempts
+        if no_body and re.search(r'/(?:news/)?videos?/watch/', u, flags=re.I):
+            classification = 'out_of_scope_nonarticle_video'
+        elif no_body and attempts >= _MAX_NO_BODY_ATTEMPTS:
+            classification = 'fetched_no_body'
+        else:
+            classification = 'live_retry_failed'
+        row_out = {
             'url': u,
             'text': '',
             'err': str(e)[:80],
             'classification': classification,
             'attempted_at': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        }, ensure_ascii=True) + '\n')
-        fail += 1
+        }
+        if no_body:
+            row_out['no_body'] = True
+            row_out['attempts'] = attempts
+        cf.write(json.dumps(row_out, ensure_ascii=True) + '\n')
+        if classification == 'live_retry_failed':    # terminal classifications no longer force exit 2
+            fail += 1
     if (i + 1) % 100 == 0:
         cf.flush(); print('  %d/%d (ok %d, fail %d)' % (i + 1, len(todo), ok, fail), flush=True)
     time.sleep(0.5)

@@ -1460,7 +1460,12 @@ def build_prefill(
             "scoring_authority": False,
             "sync_or_promotion_performed": False,
         }
-        write_json(current_path, pointer)
+        tmp_pointer = current_path.with_name(f".{current_path.name}.{os.getpid()}.tmp")
+        try:
+            write_json(tmp_pointer, pointer)
+            os.replace(tmp_pointer, current_path)
+        finally:
+            tmp_pointer.unlink(missing_ok=True)
     return out_dir, result, created
 
 

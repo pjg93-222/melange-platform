@@ -11,6 +11,8 @@ import sys
 import openpyxl
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'app'))
+from runtime_paths import resolve_receipt
 
 
 def sha(path):
@@ -146,7 +148,7 @@ def payload_audit(path):
         top_congress=[key for key,value in ordered if value['office'] in ('H','S')][:100]
         result['congress_rank_filter'].append({'cycle':cycle,'congress_in_first_100_all_offices':len(top_all),
             'congress_available_up_to_100':len(top_congress),'omitted_by_filter_order':[key for key in top_congress if key not in top_all]})
-    database=Path(meta['database_path'])
+    database=resolve_receipt(meta['database_path'])
     if database.exists():
         connection=sqlite3.connect(database.as_uri()+'?mode=ro',uri=True)
         try:

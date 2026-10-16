@@ -480,7 +480,7 @@
     const outcomes = [
       ['PAC giving', panelPopulation(data) ? `The ${panelPopulation(data).count} PACs of the published panel cohort: own giving to House and Senate candidates, beside ` + generalName(data) + '. Never added.'
         : 'The roster companies\' PACs\' own giving to House and Senate candidates, beside ' + generalName(data) + '. Never added.', h => pacCellV2(h.pac, h.horizon === 'current_remainder')],
-      ...chambers.map(chamber => [chamber + ' candidate mix', 'Republican share of two-party candidate giving, on two bases: employees and roster PACs.', h => shareCellV2(h.shares[chamber], h.horizon === 'current_remainder', chamber)]),
+      ...chambers.map(chamber => [chamber + ' candidate mix', 'Republican share of two-party candidate giving, on two bases: included receipts to House/Senate candidates (all funding sources except non-giving) and roster PACs.', h => shareCellV2(h.shares[chamber], h.horizon === 'current_remainder', chamber)]),
       ['Lobbying (Melange LDA)', 'Annual level: outside-firm fees beside in-house expenses, never summed.', h => lobbyCellV2(h.lobbying)]
     ];
     for (const [title, description, renderCell] of outcomes) {
@@ -1062,7 +1062,7 @@
   // Either way a row whose DRAWN 95% share interval leaves 0-100% (a linear share model on a thin base) is not clipped: the warning line SHARE_WIDE_TEXT says so.
   // (The model objects still carry `chips`: the flags, as data. paintWarnings prints them as plain text; nothing is drawn as a chip.)
   // Where the bars are conditioned, the tooltips print the change actually drawn next to the model's own (unconditioned) change and label the latter as such.
-  const BASES = [['employee_candidate', 'Employees'], ['pac_candidate', 'Company PACs']];
+  const BASES = [['employee_candidate', 'Candidate receipts'], ['pac_candidate', 'Company PACs']];
   const basisOf = (share, id) => share && Array.isArray(share.bases) ? share.bases.find(b => b.id === id) || null : null;
   const TERM_NAMES = {Pres: 'presidential or midterm cycle', G_prior: 'prior-cycle growth', G_current: 'cycle growth', Forecast: 'expected control', RMajNow: 'control before the election'};
   const termName = term => TERM_NAMES[term] || term;
@@ -1086,8 +1086,9 @@
   // The tooltip of one bar: what the bar says, where it comes from, and what to watch. The slope rule, the anchor's reason, the control input and the
   // coefficient interval are printed with the rest of the numbers in "Sources and notes".
   function mixTip(chamber, label, s0, b0, b1, curPeriod, nextPeriod, usd) {
-    const lines = [H(`${chamber} · ${b0.label || label}`)], seenRD = o => `R ${usd(o.R_real_2025 != null ? o.R_real_2025 : o.R)} · D ${usd(o.D_real_2025 != null ? o.D_real_2025 : o.D)}${o.face_value ? ' (face value)' : ''}`;
+    const lines = [H(`${chamber} · ${b0.id === 'employee_candidate' ? 'Included receipts to House/Senate candidates; excludes non-giving' : b0.label || label}`)], seenRD = o => `R ${usd(o.R_real_2025 != null ? o.R_real_2025 : o.R)} · D ${usd(o.D_real_2025 != null ? o.D_real_2025 : o.D)}${o.face_value ? ' (face value)' : ''}`;
     if (b0.population) lines.push(R('Population', b0.population.label));          // the credit unions' company PACs: the published panel's 16-PAC cohort, as on the dollars chart
+    if (b0.id === 'employee_candidate') lines.push(N('Included receipts to House/Senate candidates; excludes non-giving. This receipt view includes all funding sources; funding identity is not necessarily verified.'));
     const alloc = allocationOf(b0);
     if (b0.status === 'ready') {
       if (alloc) {

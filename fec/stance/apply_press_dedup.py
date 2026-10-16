@@ -5,6 +5,15 @@ rows (which double-count against the legislative pillar), using the EXACT run_st
 mean of per-release press_value, categories split on ';'). Writes via Excel COM so the Blended Model formulas
 recalc -> ranks update. Backs up the workbook first."""
 import csv, collections, sys, shutil, os, datetime, unicodedata, re
+# RETIRED GUARD (mirrors apply_press_overrides.py, Durbin-canary incident 2026-07-16): the COM re-flow below rebuilds
+# 'Press Release - Raw' from Draft Systems' cu_press_stance_tone.csv, which is FROZEN at 2026-06-30. It ignores the
+# media blend, the stack labels and the press_stance_overrides ledger, so running it flattens the live blended press cells.
+if os.environ.get('APPLY_PRESS_DEDUP_LEGACY') != '1':
+    raise SystemExit('RETIRED RE-FLOW: this script\'s workbook rewrite uses the frozen 2026-06-30 press basis '
+                     'and corrupts the live press pillar (Durbin canary incident 2026-07-16).\n'
+                     'The LIVE press producer is fec/stance/build_media_blend.py (with press_stance_stack.py and the '
+                     'press_stance_overrides.json ledger), run by the chain. Set APPLY_PRESS_DEDUP_LEGACY=1 '
+                     'only if you truly intend the legacy COM re-flow.')
 import win32com.client as win32
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 B = MB_ROOT

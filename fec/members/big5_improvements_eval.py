@@ -91,7 +91,7 @@ for m in C:
             rows.append((m, g, ci, k))
 con.close()
 cache = {}
-for ln in open(B + r'\big5_llm_cache_%s.jsonl' % _mk, encoding='utf-8'):
+for ln in open(B + r'\data\members\big5_llm_cache_%s.jsonl' % _mk, encoding='utf-8'):
     try:
         d = json.loads(ln); cache[d['k']] = d['out']
     except Exception: pass

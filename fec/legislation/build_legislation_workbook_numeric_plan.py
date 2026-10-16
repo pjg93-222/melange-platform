@@ -891,6 +891,24 @@ def normalize_resolved_efficiency_slots(
             "approved 17-slot layout does not match the explicit CU Tax "
             "treatment"
         )
+    if treatment["selected_treatment"] == CU_TAX_MERGE_NAMED_SLOT:
+        target_slot = next(
+            slot
+            for slot in result
+            if slot["column"] == treatment["merge_target_column"]
+        )
+        if target_slot["categories"] != [
+            treatment["merge_target_category"],
+            CU_TAX_CATEGORY,
+        ] or target_slot["aggregation"] != "mean" or any(
+            len(slot["categories"]) > 1 or CU_TAX_CATEGORY in slot["categories"]
+            for slot in result
+            if slot is not target_slot
+        ):
+            raise NumericPlanError(
+                "CU Tax merge must land in the approved named slot "
+                f"{treatment['merge_target_column']} and nowhere else"
+            )
     expected_merges = (
         1
         if treatment["selected_treatment"] == CU_TAX_MERGE_NAMED_SLOT
@@ -1081,6 +1099,10 @@ def accepted_events(
         congress = int(match.group(1))
         if row.get("congress") != congress:
             raise NumericPlanError(f"accepted row {index} Congress mismatch")
+        if congress not in EXPECTED_DECAY:
+            raise NumericPlanError(
+                f"accepted row {index} Congress out of decay scope"
+            )
         if row.get("decay_weight") != EXPECTED_DECAY[congress]:
             raise NumericPlanError(f"accepted row {index} decay mismatch")
         if "measure_weight" not in row or "effective_weight" not in row:
@@ -1695,7 +1717,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             baseline_manifest=args.baseline_manifest,
         )
         atomic_json(out, plan)
-    except (NumericPlanError, OSError, ValueError) as exc:
+    except (
+        NumericPlanError,
+        OSError,
+        ValueError,
+        KeyError,
+        TypeError,
+        AttributeError,
+        csv.Error,
+    ) as exc:
         try:
             out = validate_out(args.out)
             atomic_json(

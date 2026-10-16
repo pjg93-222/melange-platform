@@ -71,6 +71,14 @@ class FoldRefused(RuntimeError):
     """The fold declined to touch the baseline.  Never partially applied."""
 
 
+class RunInputRefused(FoldRefused):
+    """The refusal is about THIS run's own inputs (receipt, evidence, index delta).
+
+    The baseline and the fold receipt are not at fault, so a sweep may name the run and go on to the
+    next one.  Every other FoldRefused (baseline missing, empty, schema drift, a row-count decrease
+    after a restore, an unreadable fold receipt) is an integrity alarm and must stop the sweep."""
+
+
 def index_key(value):
     """Canonical URL identity, matching ``canonical_url()`` in refresh_press_delta.R.
 
@@ -162,11 +170,11 @@ def fetched_keys(path, min_body_words=MIN_BODY_WORDS):
         reader = csv.DictReader(handle)
         names = reader.fieldnames or []
         if "url" not in names:
-            raise FoldRefused("fetched-body evidence has no url column: %s" % path)
+            raise RunInputRefused("fetched-body evidence has no url column: %s" % path)
         has_body = "body" in names
         has_count = "body_word_count" in names
         if not (has_body or has_count):
-            raise FoldRefused(
+            raise RunInputRefused(
                 "fetched-body evidence has neither body nor body_word_count: %s" % path)
         for row in reader:
             raw_url = (row.get("url") or "").strip()
@@ -183,7 +191,7 @@ def fetched_keys(path, min_body_words=MIN_BODY_WORDS):
                 if raw:
                     try:
                         words = int(float(raw))
-                    except ValueError:
+                    except (ValueError, OverflowError):     # "nan" / "inf" parse but cannot int()
                         words = None
             if words is None:
                 words = len((row.get("body") or "").split()) if has_body else 0
@@ -200,7 +208,7 @@ def _candidate_rows(path):
     with _open_csv(path) as handle:
         reader = csv.DictReader(handle)
         if "url" not in (reader.fieldnames or []):
-            raise FoldRefused("index delta has no url column: %s" % path)
+            raise RunInputRefused("index delta has no url column: %s" % path)
         for row in reader:
             yield row
 
@@ -291,29 +299,42 @@ def _load_receipt(receipt_path):
     # file (crash, OneDrive conflict copy, a transient AV/indexer PermissionError) is exactly that
     # case; refuse it the way audit_collection.py:1174 refuses its own unreadable gate receipt.
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
         raise FoldRefused("fold receipt exists but is unreadable: %s" % path) from exc
+    if not isinstance(document, dict):
+        raise FoldRefused("fold receipt is not a JSON object: %s" % path)
+    return document
 
 
-def folded_run_names(receipt_path=None):
-    """Runs whose fold is DONE.  A NO_OP entry is deliberately excluded: it records only that a
-    run contributed no rows at the time it was examined, which happens whenever its bodies have
-    not landed in press_delta_fulltext.csv yet (the press_fetched_manifest recovery lands them
-    later).  Counting NO_OP as done makes both fold_pending and fold_promoted skip that run
-    forever, so its rows can never enter the baseline.  Re-examining a NO_OP run is local file
-    reads only -- no network, no baseline write."""
-    receipt = _load_receipt(receipt_path or DEFAULT_RECEIPT)
-    names = set()
+def _done_names(receipt):
+    """Runs a receipt document records as DONE.
+
+    ``folded_runs`` is the never-truncated list; ``history`` is capped at HISTORY_LIMIT, so it only
+    adds the entries of a receipt written before ``folded_runs`` existed.  A NO_OP entry counts only
+    when it is ``complete``: every candidate already had a stored body, so there is nothing left to
+    land.  An incomplete NO_OP recorded only that the run contributed no rows at the time it was
+    examined, which happens whenever its bodies have not landed in press_delta_fulltext.csv yet
+    (the press_fetched_manifest recovery lands them later); counting it would skip that run forever."""
+    names = {str(name) for name in receipt.get("folded_runs") or [] if name}
     for entry in receipt.get("history") or []:
         name = (entry or {}).get("source_run")
-        if name and (entry or {}).get("status") != "NO_OP":
+        if name and ((entry or {}).get("status") != "NO_OP" or (entry or {}).get("complete")):
             names.add(str(name))
     return names
 
 
+def folded_run_names(receipt_path=None):
+    """Runs whose fold is DONE -- see ``_done_names``.  Re-examining any other run is local file
+    reads only -- no network, no baseline write."""
+    return _done_names(_load_receipt(receipt_path or DEFAULT_RECEIPT))
+
+
 def _write_receipt(receipt_path, payload):
     previous = _load_receipt(receipt_path)
+    complete = (payload["status"] == "FOLDED"
+                or (payload["status"] == "NO_OP"
+                    and payload.get("candidates_without_stored_body") == 0))
     history = list(previous.get("history") or [])
     history.append({
         "source_run": payload["source_run"],
@@ -321,9 +342,17 @@ def _write_receipt(receipt_path, payload):
         "status": payload["status"],
         "rows_added": payload["rows_added"],
         "rows_after": payload["rows_after"],
+        "complete": complete,
     })
+    done = _done_names(previous)
+    if complete:
+        done.add(str(payload["source_run"]))
     payload = dict(payload)
     payload["history"] = history[-HISTORY_LIMIT:]
+    payload["folded_runs"] = sorted(done)
+    for key in ("skipped_uninspectable", "skipped_uninspectable_at"):
+        if key in previous:                 # owned by record_skipped_uninspectable, not by a fold
+            payload[key] = previous[key]
     atomic_json(receipt_path, payload)
     return payload
 
@@ -350,12 +379,13 @@ def record_skipped_uninspectable(receipt_path, entries):
 
 def fold_run(run_root, baseline_path=None, receipt_path=None, fetched_manifest=None,
              index_source=None, require_receipt=True, keep_backups=DEFAULT_KEEP_BACKUPS,
-             min_body_words=MIN_BODY_WORDS, write_receipt=True):
+             min_body_words=MIN_BODY_WORDS, write_receipt=True, verdict=None):
     """Fold one completed run's fetched rows into the baseline.
 
     Returns the fold receipt payload.  Raises :class:`FoldRefused` without
     touching the baseline when the run is unproven or the baseline is not the
-    shape this fold knows how to extend.
+    shape this fold knows how to extend.  ``verdict`` is a ``(completed_at,
+    receipt)`` the caller already established; ``valid_run`` is then not asked.
     """
     run_root = Path(run_root)
     baseline_path = Path(baseline_path or DEFAULT_BASELINE)
@@ -363,9 +393,10 @@ def fold_run(run_root, baseline_path=None, receipt_path=None, fetched_manifest=N
     if not baseline_path.is_file():
         raise FoldRefused("press baseline not found: %s" % baseline_path)
 
-    verdict = valid_run(run_root)
+    if verdict is None:
+        verdict = valid_run(run_root)
     if verdict is None and require_receipt:
-        raise FoldRefused(
+        raise RunInputRefused(
             "run has no valid live-network receipt, refusing to fold: %s" % run_root)
     retry_path = run_root / "press_network_retry_receipt.json"
     receipt_sha = sha256_file(retry_path) if retry_path.is_file() else None
@@ -374,10 +405,10 @@ def fold_run(run_root, baseline_path=None, receipt_path=None, fetched_manifest=N
     evidence_path = Path(fetched_manifest) if fetched_manifest else (
         run_root / "press_delta_fulltext.csv")
     if not evidence_path.is_file():
-        raise FoldRefused("fetched-body evidence not found: %s" % evidence_path)
+        raise RunInputRefused("fetched-body evidence not found: %s" % evidence_path)
     index_path = Path(index_source) if index_source else run_root / "press_url_delta.csv"
     if not index_path.is_file():
-        raise FoldRefused("index delta not found: %s" % index_path)
+        raise RunInputRefused("index delta not found: %s" % index_path)
 
     stored = fetched_keys(evidence_path, min_body_words)
     existing, rows_before = scan_baseline(baseline_path)

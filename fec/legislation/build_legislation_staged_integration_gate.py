@@ -536,7 +536,7 @@ def _derive_ndjson_distinct_field_count(
 def _json_pointer(path: Path, pointer: str) -> Any:
     try:
         document: Any = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         raise DerivationFailure(f"{path.name}: unreadable JSON: {exc}") from exc
     for token in pointer.split("/"):
         if not token:
@@ -620,7 +620,7 @@ def _derive_assertions(
             continue
         try:
             value = DERIVATION_METHODS[method](path, params)
-        except (DerivationFailure, OSError, KeyError, TypeError) as exc:
+        except (DerivationFailure, OSError, KeyError, TypeError, ValueError) as exc:
             not_derived.append(name)
             errors.append(
                 f"{gate_id}: assertion {name} could not be derived from "

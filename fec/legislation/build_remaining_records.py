@@ -14,8 +14,11 @@ sees only outstanding work, starts fetching immediately, and its progress
 counter means "remaining work done" rather than "records scanned".
 
 Safety: read-only with respect to collected evidence. A candidate is considered
-done only when BOTH its receipt and its page body exist -- the same condition the
-collector itself requires -- so nothing can be skipped on a half-written pair.
+done only when its page body exists and its receipt parses as an accepted
+receipt for the expected /text URL. This is a cheap subset of the collector's
+resume check (no decompression, so no body sha256/byte_length or html_file
+comparison): it never drops a record the collector would re-fetch for status or
+URL reasons, but a body corrupted after acceptance is not caught here.
 """
 from __future__ import annotations
 
@@ -52,14 +55,28 @@ def main() -> int:
         except json.JSONDecodeError:
             remaining.append(line)
             continue
+        if not isinstance(rec, dict):
+            remaining.append(line)
+            continue
         parts = (str(rec.get("congress")), str(rec.get("type")), str(rec.get("number")))
         r = receipts.joinpath(*parts) / "receipt.json"
         h = html.joinpath(*parts) / "page.html.gz"
-        # Both must exist: the collector treats a receipt without its body as
-        # not-collected and would re-fetch it, so this must agree exactly.
+        # Body must exist and the receipt must be accepted for the expected
+        # URL; anything unparseable stays in remaining.
         if r.is_file() and h.is_file():
-            done += 1
-            continue
+            try:
+                prior = json.loads(r.read_text("utf8"))
+            except (OSError, ValueError):
+                prior = None
+            expected = str(rec.get("canonical_url") or "").rstrip("/") + "/text"
+            if (
+                isinstance(prior, dict)
+                and prior.get("status") == "accepted"
+                and rec.get("canonical_url")
+                and prior.get("expected_url") == expected
+            ):
+                done += 1
+                continue
         remaining.append(line)
 
     tmp = emit.with_suffix(emit.suffix + ".tmp")

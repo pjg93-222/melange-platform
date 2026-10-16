@@ -19,12 +19,13 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 from typing import Any, Iterable
 
 try:
-    from lane_file_io import open_ndjson
+    from lane_file_io import atomic_write_bytes, open_ndjson
 except ImportError:  # pragma: no cover - package import path
-    from fec.lane_file_io import open_ndjson
+    from fec.lane_file_io import atomic_write_bytes, open_ndjson
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -474,245 +475,249 @@ def build_sidecar(
 
         tmp_dir = out_root / f".{sidecar_id}.tmp.{os.getpid()}"
         tmp_dir.mkdir(parents=True, exist_ok=False)
-        metadata_rows: list[dict[str, Any]] = []
-        edge_rows: list[dict[str, Any]] = []
-        aggregate_roles = {
-            "Sponsor": 0,
-            "Original Cosponsor": 0,
-            "Later Cosponsor": 0,
-            "withdrawn": 0,
-            "unresolved_role": 0,
-        }
-        for key in sorted(task_keys):
-            receipt = receipt_by_key[key]
-            parsed_path = require_file_item(
-                {
-                    "path": receipt.get("parsed_path"),
-                    "sha256": receipt.get("parsed_sha256"),
-                },
-                f"parsed receipt {key}",
-            )
-            parsed = read_json(parsed_path)
-            if parsed.get("canonical_key") != key:
-                raise ContractError(f"Parsed identity mismatch for {key}")
-            candidate = candidates[key]
-            titles = parsed.get("titles") or []
-            summaries = parsed.get("summaries") or []
-            official_title, official_title_type = select_official_title(titles)
-            summary, selected_summary = select_summary(summaries)
-            counts = role_counts(parsed)
-            for name, count in counts.items():
-                aggregate_roles[name] += count
-            provenance = parsed.get("provenance") or {}
-            sponsors = [
-                {
-                    "bioguide_id": row.get("bioguide_id"),
-                    "full_name": row.get("full_name"),
-                    "relationship_role": row.get("relationship_role"),
-                    "relationship_status": row.get("relationship_status"),
-                    "role_provenance": row.get("role_provenance"),
-                    "source_url": provenance.get("source_url"),
-                }
-                for row in parsed.get("sponsors", [])
-            ]
-            metadata_rows.append(
-                {
-                    "canonical_key": key,
-                    "official_title": official_title,
-                    "official_title_type": official_title_type,
-                    "official_title_selection_rule": (
-                        "prefer_official_title_as_introduced_then_official_"
-                        "title_then_display_title_then_short_title"
-                    ),
-                    "all_official_titles": titles,
-                    "summary": summary,
-                    "summary_source": selected_summary,
-                    "summary_selection_rule": (
-                        "latest_nonempty_official_summary_by_update_action_version"
-                    ),
-                    "canonical_url": candidate.get("canonical_url"),
-                    "official_source_url": provenance.get("source_url"),
-                    "official_source_sha256": provenance.get("source_sha256"),
-                    "parsed_evidence_sha256": receipt.get("parsed_sha256"),
-                    "relationship_role_counts": counts,
-                    "official_sponsors": sponsors,
-                    "relationship_evidence_available": True,
-                    "relationship_evidence_scope": "review_prefill_only",
-                    "membership_disposition_authority": False,
-                    "ratification_authority": False,
-                    "scoring_authority": False,
-                }
-            )
-            for relationship in [
-                *parsed.get("sponsors", []),
-                *parsed.get("cosponsors", []),
-            ]:
-                edge_rows.append(
-                    make_edge(candidate, parsed, relationship)
-                )
-
-        expected_roles = completeness.get("relationship_counts") or {}
-        comparisons = {
-            "Sponsor": "sponsor_relationships",
-            "Original Cosponsor": "original_cosponsor_relationships",
-            "Later Cosponsor": "later_cosponsor_relationships",
-            "withdrawn": "withdrawn_relationships",
-            "unresolved_role": "unresolved_role_relationships",
-        }
-        for actual_name, expected_name in comparisons.items():
-            if aggregate_roles[actual_name] != expected_roles.get(expected_name):
-                raise ContractError(
-                    f"Role count drift for {actual_name}: "
-                    f"{aggregate_roles[actual_name]} != "
-                    f"{expected_roles.get(expected_name)}"
-                )
-
-        edge_rows.sort(
-            key=lambda row: (
-                row["canonical_key"],
-                row["role"],
-                row.get("bioguide_id") or "",
-                row.get("relationship_status") or "",
-                row.get("sponsorship_date") or "",
-            )
-        )
-        metadata_rows.sort(key=lambda row: row["canonical_key"])
-
-        unresolved_rows = [
-            {
-                "canonical_key": key,
-                "disposition": (
-                    "retained_unresolved_no_standalone_top_level_package"
-                ),
-                "reason": (
-                    "Nested amendments have no supported standalone GovInfo "
-                    "BILLSTATUS package in this adapter."
-                ),
-                "candidate_retained": True,
-                "absence_is_neutral": True,
-                "membership_disposition_authority": False,
-                "ratification_authority": False,
-                "scoring_authority": False,
-                "plan_sha256": bindings["snapshot_plan_sha256"],
+        try:
+            metadata_rows: list[dict[str, Any]] = []
+            edge_rows: list[dict[str, Any]] = []
+            aggregate_roles = {
+                "Sponsor": 0,
+                "Original Cosponsor": 0,
+                "Later Cosponsor": 0,
+                "withdrawn": 0,
+                "unresolved_role": 0,
             }
-            for key in sorted(unsupported_keys)
-        ]
-
-        metadata_path = tmp_dir / "measure_metadata.ndjson"
-        edges_path = tmp_dir / "member_measure_edges.ndjson"
-        unresolved_path = (
-            tmp_dir / "relationship_verification_ledger.ndjson"
-        )
-        gaps_path = tmp_dir / "source_gap_ledger.ndjson"
-        metadata_count = write_ndjson(metadata_path, metadata_rows)
-        edge_count = write_ndjson(edges_path, edge_rows)
-        unresolved_count = write_ndjson(unresolved_path, unresolved_rows)
-
-        def all_gap_rows() -> Iterable[dict[str, Any]]:
-            for label, item in sorted(completeness["outputs"].items()):
-                source_path = require_file_item(
-                    item, f"completeness output {label}"
+            for key in sorted(task_keys):
+                receipt = receipt_by_key[key]
+                parsed_path = require_file_item(
+                    {
+                        "path": receipt.get("parsed_path"),
+                        "sha256": receipt.get("parsed_sha256"),
+                    },
+                    f"parsed receipt {key}",
                 )
-                for row in iter_ndjson(source_path):
-                    yield {
-                        **row,
-                        "source_gap_ledger": label,
-                        "source_gap_ledger_sha256": item["sha256"],
-                        "candidate_retained": True,
-                        "absence_is_neutral": True,
+                parsed = read_json(parsed_path)
+                if parsed.get("canonical_key") != key:
+                    raise ContractError(f"Parsed identity mismatch for {key}")
+                candidate = candidates[key]
+                titles = parsed.get("titles") or []
+                summaries = parsed.get("summaries") or []
+                official_title, official_title_type = select_official_title(titles)
+                summary, selected_summary = select_summary(summaries)
+                counts = role_counts(parsed)
+                for name, count in counts.items():
+                    aggregate_roles[name] += count
+                provenance = parsed.get("provenance") or {}
+                sponsors = [
+                    {
+                        "bioguide_id": row.get("bioguide_id"),
+                        "full_name": row.get("full_name"),
+                        "relationship_role": row.get("relationship_role"),
+                        "relationship_status": row.get("relationship_status"),
+                        "role_provenance": row.get("role_provenance"),
+                        "source_url": provenance.get("source_url"),
+                    }
+                    for row in parsed.get("sponsors", [])
+                ]
+                metadata_rows.append(
+                    {
+                        "canonical_key": key,
+                        "official_title": official_title,
+                        "official_title_type": official_title_type,
+                        "official_title_selection_rule": (
+                            "prefer_official_title_as_introduced_then_official_"
+                            "title_then_display_title_then_short_title"
+                        ),
+                        "all_official_titles": titles,
+                        "summary": summary,
+                        "summary_source": selected_summary,
+                        "summary_selection_rule": (
+                            "latest_nonempty_official_summary_by_update_action_version"
+                        ),
+                        "canonical_url": candidate.get("canonical_url"),
+                        "official_source_url": provenance.get("source_url"),
+                        "official_source_sha256": provenance.get("source_sha256"),
+                        "parsed_evidence_sha256": receipt.get("parsed_sha256"),
+                        "relationship_role_counts": counts,
+                        "official_sponsors": sponsors,
+                        "relationship_evidence_available": True,
+                        "relationship_evidence_scope": "review_prefill_only",
                         "membership_disposition_authority": False,
                         "ratification_authority": False,
                         "scoring_authority": False,
                     }
+                )
+                for relationship in [
+                    *parsed.get("sponsors", []),
+                    *parsed.get("cosponsors", []),
+                ]:
+                    edge_rows.append(
+                        make_edge(candidate, parsed, relationship)
+                    )
 
-        gap_count = write_ndjson(gaps_path, all_gap_rows())
-        if gap_count != completeness["gap_ledger_counts"]["all_visible_gaps"]:
-            raise ContractError("Sidecar gap ledger is not lossless")
+            expected_roles = completeness.get("relationship_counts") or {}
+            comparisons = {
+                "Sponsor": "sponsor_relationships",
+                "Original Cosponsor": "original_cosponsor_relationships",
+                "Later Cosponsor": "later_cosponsor_relationships",
+                "withdrawn": "withdrawn_relationships",
+                "unresolved_role": "unresolved_role_relationships",
+            }
+            for actual_name, expected_name in comparisons.items():
+                if aggregate_roles[actual_name] != expected_roles.get(expected_name):
+                    raise ContractError(
+                        f"Role count drift for {actual_name}: "
+                        f"{aggregate_roles[actual_name]} != "
+                        f"{expected_roles.get(expected_name)}"
+                    )
 
-        outputs = {
-            "edges": file_item(edges_path, record_count=edge_count),
-            "verification_ledger": file_item(
-                unresolved_path, record_count=unresolved_count
-            ),
-            "measure_metadata": file_item(
-                metadata_path, record_count=metadata_count
-            ),
-            "source_gap_ledger": file_item(
-                gaps_path, record_count=gap_count
-            ),
-        }
-        # The files are about to move atomically from the private build
-        # directory to the immutable content-addressed directory.  Bind the
-        # manifest to those final locations while retaining hashes computed
-        # from the exact bytes being moved.
-        for item in outputs.values():
-            item["path"] = str((out_dir / Path(item["path"]).name).resolve())
-        manifest = {
-            "schema": "congress-sponsorship-enrichment-manifest-v1",
-            "adapter_schema": SCHEMA,
-            "status": "complete",
-            "sidecar_id": sidecar_id,
-            "snapshot_only": True,
-            "partial_discovery_snapshot": True,
-            "official_source_only": True,
-            "primary_source": (
-                "U.S. Government Publishing Office / Congress.gov BILLSTATUS"
-            ),
-            "review_prefill_only": True,
-            "production_write_performed": False,
-            "sync_or_promotion_performed": False,
-            "candidate_creation_performed": False,
-            "semantic_exclusion_performed": False,
-            "ratified_decision_performed": False,
-            "automatic_scoring_performed": False,
-            "membership_disposition_authority": False,
-            "ratification_authority": False,
-            "scoring_authority": False,
-            "absence_is_neutral": True,
-            "acceptance_passed": False,
-            "all_relationships_reconciled": False,
-            "top_level_relationship_evidence_complete": True,
-            "amendment_relationship_support": False,
-            "bindings": {
-                **bindings,
-                "snapshot_plan": file_item(plan_path),
-                "worker_manifest": file_item(worker_path),
-                "completeness_audit": file_item(completeness_path),
-                "advanced_search_candidate_corpus": file_item(candidate_file),
-                "completeness_gap_sources": completeness["outputs"],
-            },
-            "selected_record_count": len(candidates),
-            "top_level_metadata_count": metadata_count,
-            "edge_count": edge_count,
-            "edge_counts": {
-                "sponsors": aggregate_roles["Sponsor"],
-                "original_cosponsors": aggregate_roles[
-                    "Original Cosponsor"
-                ],
-                "later_cosponsors": aggregate_roles["Later Cosponsor"],
-                "withdrawn_cosponsors": aggregate_roles["withdrawn"],
-            },
-            "unresolved_measure_count": unresolved_count,
-            "visible_gap_count": gap_count,
-            "edges_file": edges_path.name,
-            "edges_sha256": outputs["edges"]["sha256"],
-            "verification_ledger_file": unresolved_path.name,
-            "verification_ledger_sha256": outputs[
-                "verification_ledger"
-            ]["sha256"],
-            "measure_metadata_file": metadata_path.name,
-            "measure_metadata_sha256": outputs[
-                "measure_metadata"
-            ]["sha256"],
-            "source_gap_ledger_file": gaps_path.name,
-            "source_gap_ledger_sha256": outputs[
-                "source_gap_ledger"
-            ]["sha256"],
-            "outputs": outputs,
-        }
-        write_json(tmp_dir / "manifest.json", manifest)
-        out_root.mkdir(parents=True, exist_ok=True)
-        tmp_dir.rename(out_dir)
+            edge_rows.sort(
+                key=lambda row: (
+                    row["canonical_key"],
+                    row["role"],
+                    row.get("bioguide_id") or "",
+                    row.get("relationship_status") or "",
+                    row.get("sponsorship_date") or "",
+                )
+            )
+            metadata_rows.sort(key=lambda row: row["canonical_key"])
+
+            unresolved_rows = [
+                {
+                    "canonical_key": key,
+                    "disposition": (
+                        "retained_unresolved_no_standalone_top_level_package"
+                    ),
+                    "reason": (
+                        "Nested amendments have no supported standalone GovInfo "
+                        "BILLSTATUS package in this adapter."
+                    ),
+                    "candidate_retained": True,
+                    "absence_is_neutral": True,
+                    "membership_disposition_authority": False,
+                    "ratification_authority": False,
+                    "scoring_authority": False,
+                    "plan_sha256": bindings["snapshot_plan_sha256"],
+                }
+                for key in sorted(unsupported_keys)
+            ]
+
+            metadata_path = tmp_dir / "measure_metadata.ndjson"
+            edges_path = tmp_dir / "member_measure_edges.ndjson"
+            unresolved_path = (
+                tmp_dir / "relationship_verification_ledger.ndjson"
+            )
+            gaps_path = tmp_dir / "source_gap_ledger.ndjson"
+            metadata_count = write_ndjson(metadata_path, metadata_rows)
+            edge_count = write_ndjson(edges_path, edge_rows)
+            unresolved_count = write_ndjson(unresolved_path, unresolved_rows)
+
+            def all_gap_rows() -> Iterable[dict[str, Any]]:
+                for label, item in sorted(completeness["outputs"].items()):
+                    source_path = require_file_item(
+                        item, f"completeness output {label}"
+                    )
+                    for row in iter_ndjson(source_path):
+                        yield {
+                            **row,
+                            "source_gap_ledger": label,
+                            "source_gap_ledger_sha256": item["sha256"],
+                            "candidate_retained": True,
+                            "absence_is_neutral": True,
+                            "membership_disposition_authority": False,
+                            "ratification_authority": False,
+                            "scoring_authority": False,
+                        }
+
+            gap_count = write_ndjson(gaps_path, all_gap_rows())
+            if gap_count != completeness["gap_ledger_counts"]["all_visible_gaps"]:
+                raise ContractError("Sidecar gap ledger is not lossless")
+
+            outputs = {
+                "edges": file_item(edges_path, record_count=edge_count),
+                "verification_ledger": file_item(
+                    unresolved_path, record_count=unresolved_count
+                ),
+                "measure_metadata": file_item(
+                    metadata_path, record_count=metadata_count
+                ),
+                "source_gap_ledger": file_item(
+                    gaps_path, record_count=gap_count
+                ),
+            }
+            # The files are about to move atomically from the private build
+            # directory to the immutable content-addressed directory.  Bind the
+            # manifest to those final locations while retaining hashes computed
+            # from the exact bytes being moved.
+            for item in outputs.values():
+                item["path"] = str((out_dir / Path(item["path"]).name).resolve())
+            manifest = {
+                "schema": "congress-sponsorship-enrichment-manifest-v1",
+                "adapter_schema": SCHEMA,
+                "status": "complete",
+                "sidecar_id": sidecar_id,
+                "snapshot_only": True,
+                "partial_discovery_snapshot": True,
+                "official_source_only": True,
+                "primary_source": (
+                    "U.S. Government Publishing Office / Congress.gov BILLSTATUS"
+                ),
+                "review_prefill_only": True,
+                "production_write_performed": False,
+                "sync_or_promotion_performed": False,
+                "candidate_creation_performed": False,
+                "semantic_exclusion_performed": False,
+                "ratified_decision_performed": False,
+                "automatic_scoring_performed": False,
+                "membership_disposition_authority": False,
+                "ratification_authority": False,
+                "scoring_authority": False,
+                "absence_is_neutral": True,
+                "acceptance_passed": False,
+                "all_relationships_reconciled": False,
+                "top_level_relationship_evidence_complete": True,
+                "amendment_relationship_support": False,
+                "bindings": {
+                    **bindings,
+                    "snapshot_plan": file_item(plan_path),
+                    "worker_manifest": file_item(worker_path),
+                    "completeness_audit": file_item(completeness_path),
+                    "advanced_search_candidate_corpus": file_item(candidate_file),
+                    "completeness_gap_sources": completeness["outputs"],
+                },
+                "selected_record_count": len(candidates),
+                "top_level_metadata_count": metadata_count,
+                "edge_count": edge_count,
+                "edge_counts": {
+                    "sponsors": aggregate_roles["Sponsor"],
+                    "original_cosponsors": aggregate_roles[
+                        "Original Cosponsor"
+                    ],
+                    "later_cosponsors": aggregate_roles["Later Cosponsor"],
+                    "withdrawn_cosponsors": aggregate_roles["withdrawn"],
+                },
+                "unresolved_measure_count": unresolved_count,
+                "visible_gap_count": gap_count,
+                "edges_file": edges_path.name,
+                "edges_sha256": outputs["edges"]["sha256"],
+                "verification_ledger_file": unresolved_path.name,
+                "verification_ledger_sha256": outputs[
+                    "verification_ledger"
+                ]["sha256"],
+                "measure_metadata_file": metadata_path.name,
+                "measure_metadata_sha256": outputs[
+                    "measure_metadata"
+                ]["sha256"],
+                "source_gap_ledger_file": gaps_path.name,
+                "source_gap_ledger_sha256": outputs[
+                    "source_gap_ledger"
+                ]["sha256"],
+                "outputs": outputs,
+            }
+            write_json(tmp_dir / "manifest.json", manifest)
+            out_root.mkdir(parents=True, exist_ok=True)
+            tmp_dir.rename(out_dir)
+        except BaseException:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            raise
         created = True
 
     if pointer_path is not None:

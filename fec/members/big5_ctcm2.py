@@ -60,9 +60,12 @@ M ~~ 0*F_ES
 df['behav_ES_placeholder'] = ((lambda s: (s - s.mean()) / (s.std(ddof=1) or 1))(
     pd.Series({m: -(BD.get(m, {}).get('dominance_z') or 0.0) for m in df.index})))
 model = semopy.Model(DESC)
+fit_ok = False
 try:
-    model.fit(df)
+    res = model.fit(df)
+    fit_ok = bool(getattr(res, 'success', False))
 except Exception as e:
+    fit_ok = False
     print('fit error:', str(e)[:120])
 ins = model.inspect()
 heywood = any(r['op'] == '~~' and r['lval'] == r['rval'] and float(r['Estimate']) < -1e-6 for _, r in ins.iterrows())
@@ -94,11 +97,14 @@ except Exception as e:
     print('predict/eval error:', str(e)[:120]); aes = disc = rC = 9; conv = False
 print('\n===== CTCM2 latent results (n=%d) =====' % len(df))
 print('  latent A-ES |r| = %.3f | discriminant mean = %.3f | C vs votes = %+.3f' % (aes, disc, rC))
+conv = conv and fit_ok
 print('  Heywood: %s | negative on-trait loadings: %s | converged: %s' % (heywood, neg_load or 'none', conv))
 bars = [('latent A-ES <= 0.50', aes <= 0.50, '%.3f' % aes),
         ('latent C vs votes >= +0.15', rC >= 0.15, '%+.3f' % rC),
         ('latent discriminant <= 0.30', disc <= 0.30, '%.3f' % disc),
-        ('no Heywood, loadings positive, converged', (not heywood) and not neg_load and conv, 'ok' if not (heywood or neg_load) else str(neg_load))]
+        ('no Heywood, loadings positive, converged', (not heywood) and not neg_load and conv, 'ok' if not (heywood or neg_load or not conv) else
+         '; '.join((['Heywood'] if heywood else []) + (['negative loadings: %s' % neg_load] if neg_load else [])
+                   + ([] if conv else ['not converged'])))]
 for nm, hit, det in bars: print('  BAR %-32s %s (%s)' % (nm, 'CLEAR' if hit else 'MISS', det))
 ok = all(b[1] for b in bars)
 if ok and '--go' in sys.argv:

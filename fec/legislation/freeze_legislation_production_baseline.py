@@ -248,10 +248,18 @@ def main() -> int:
             )
         print("baseline already frozen and byte-identical:", manifest_path)
         return 0
-    manifest_path.write_text(
-        json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    fd, temporary_name = tempfile.mkstemp(
+        prefix=manifest_path.name + ".", suffix=".writing", dir=str(out),
     )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
+            handle.write(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, manifest_path)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
     print(
         "production baseline frozen: %d files, %d missing named artifacts"
         % (len(receipts), len(missing))

@@ -66,7 +66,7 @@ def evaluate(completion_receipt: Path, output: Path) -> dict:
                     raise ValueError("Resolved directory interval lacks exact support")
 
     release = json.loads(Path(receipt["inputs"]["release"]["path"]).read_bytes())
-    expected_release = set()
+    expected_release, release_dates, release_decisions = set(), {}, {}
     for binding in release.get("identity_bindings", []):
         if binding.get("kind") != "covered_politico":
             continue
@@ -74,8 +74,17 @@ def evaluate(completion_receipt: Path, output: Path) -> dict:
             if (item.get("covered_dates", {}).get("status") == "MISSING_DATE_BOUND"
                     and item.get("dates_from_directory_only") and len(item.get("directory_dates") or ()) == 2):
                 expected_release.add(item["clause_id"])
+                release_dates.setdefault(item["clause_id"], set()).add(tuple(item["directory_dates"]))
+                release_decisions.setdefault(item["clause_id"], set()).add(binding.get("decision_id"))
     if {row["clause_id"] for row in release_rows} != expected_release:
         raise ValueError("Accepted release clause queue is not an exact partition")
+    for row in release_rows:
+        if not set(row["binding_decision_ids"]) <= release_decisions[row["clause_id"]]:
+            raise ValueError("Release binding decision not in release identity_bindings")
+        if row["status"] == "RESOLVED_ACCEPTED_LDA_POLITICO_INTERVAL" and (
+                len(release_dates[row["clause_id"]]) != 1
+                or next(iter(release_dates[row["clause_id"]])) != tuple(row["interval"])):
+            raise ValueError("Resolved release interval lacks exact support")
 
     historical_binding = receipt["inputs"].get("historical_holdings")
     if historical_binding:

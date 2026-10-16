@@ -2,8 +2,10 @@
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
+import tempfile
 
 from .reconcile_held_evidence import packed, sha
 
@@ -41,7 +43,13 @@ def run(refinements,output):
         'source_ledger_sha256':source['source_ledger_sha256'],'builder_sha256':sha(Path(__file__)),
         'counts':dict(counts),'adjudications':results,'production_activated':False,
         'policy':'Dates apply only to the preserved source clause. Structured title, employer and identity remain unresolved.'}
-    output.write_text(json.dumps(result,indent=2),encoding='utf8')
+    fd,name=tempfile.mkstemp(prefix=output.name+'.',suffix='.candidate',dir=output.parent)
+    os.close(fd)
+    try:
+        Path(name).write_text(json.dumps(result,indent=2),encoding='utf8')
+        os.replace(name,output)
+    finally:
+        if os.path.exists(name):os.unlink(name)
     print(packed({'status':'PASS','counts':dict(counts)}),flush=True)
     return result
 

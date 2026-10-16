@@ -336,7 +336,7 @@ def validate_decision(value, key, texts, categories):
     if value['disposition'] != 'hold' and value['confidence'] != 'high':
         raise BelowHighConfidence(value['confidence'])
     seen = set()
-    for row in value.get('categories', []):
+    for row in value.get('categories') or []:
         if row.get('category') not in categories or row['category'] in seen:
             raise ValueError('unknown or duplicate scoring category')
         seen.add(row['category'])
@@ -345,12 +345,12 @@ def validate_decision(value, key, texts, categories):
         quote = row.get('quote') or ''
         if len(quote) < 20 or quote not in texts.get(row.get('source_url'), ''):
             raise ValueError('category evidence quote is not in the supplied official document')
-        if len(row.get('rationale','')) < 30:
+        if len(row.get('rationale') or '') < 30:
             raise ValueError('category direction lacks a substantive rationale')
     if value['disposition'] == 'include' and (not seen or value.get('beneficiary_class') not in SA.CLASSES):
         raise ValueError('included measure lacks complete scoring inputs')
     if value['disposition'] == 'exclude':
-        if len(value.get('exclusion_quote','')) < 20 or value['exclusion_quote'] not in texts.get(value.get('exclusion_source_url'), ''):
+        if len(value.get('exclusion_quote') or '') < 20 or value['exclusion_quote'] not in texts.get(value.get('exclusion_source_url'), ''):
             raise ValueError('exclusion needs affirmative official evidence, not absence')
     # Last, so every existing rejection keeps its precedence. Reused (reusable_decision), fresh (classify) and
     # published (sentinel_admissions.load) decisions all pass through here.

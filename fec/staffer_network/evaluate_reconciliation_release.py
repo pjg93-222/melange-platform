@@ -82,15 +82,16 @@ def run(candidate,repo,output):
     for ident in sample:
         target=canonical(ident);a=neighbors(before,ident);b=neighbors(after,target)
         for other,edge in b.items():
-            assert edge['continuous_employment_asserted'] is False
-            assert edge['personal_familiarity_established'] is False
+            if edge['continuous_employment_asserted'] is not False:raise ValueError(f'continuous_employment_asserted failed for {target}/{other}')
+            if edge['personal_familiarity_established'] is not False:raise ValueError(f'personal_familiarity_established failed for {target}/{other}')
             if edge.get('observed_periods'):
-                assert len({(p['start'],p['end_exclusive']) for p in edge['observed_periods']})==edge['observed_period_count']
-            if edge['relationship']=='shared_client_period':assert edge['via_organization']
+                if len({(p['start'],p['end_exclusive']) for p in edge['observed_periods']})!=edge['observed_period_count']:raise ValueError(f'observed_period_count failed for {target}/{other}')
+            if edge['relationship']=='shared_client_period' and not edge['via_organization']:raise ValueError(f'shared_client_period via_organization failed for {target}/{other}')
             classes[edge['relationship']]+=1
         for other in sorted(b)[:3]:
-            reverse=neighbors(after,other)[target]
-            assert (reverse['cost'],reverse['relationship'],reverse.get('observed_period_count'))==(b[other]['cost'],b[other]['relationship'],b[other].get('observed_period_count'))
+            reverse=neighbors(after,other).get(target)
+            if reverse is None:raise ValueError(f'Reverse edge missing for {target}/{other}')
+            if (reverse['cost'],reverse['relationship'],reverse.get('observed_period_count'))!=(b[other]['cost'],b[other]['relationship'],b[other].get('observed_period_count')):raise ValueError(f'reverse-edge symmetry failed for {target}/{other}')
         rows.append({'source_id':ident,'canonical_id':target,'label':after_nodes[target]['label'],'before':len(a),'after':len(b)})
         print(json.dumps(rows[-1]),flush=True)
     k_neighbors=neighbors(after,k)

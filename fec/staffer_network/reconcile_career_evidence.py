@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sqlite3
 
+from fec.lane_file_io import atomic_write_bytes
 from fec.staffer_network.reconcile_held_evidence import (
     connect, digest, interval, norm, office, packed, rows, sha, title,
 )
@@ -49,7 +50,7 @@ def run(directory, data, repo, as_of):
     counts=Counter()
     # Import canonical organization display labels from the complete held catalog.
     catalog=data/'live_catalog/source_catalog_v1.sqlite'
-    with sqlite3.connect(catalog.as_uri()+'?mode=ro',uri=True) as source:
+    with sqlite3.connect(catalog.resolve().as_uri()+'?mode=ro',uri=True) as source:
         lsorgs=dict(source.execute("SELECT id,label FROM entities WHERE kind='organization'"))
     # Exact existing reporting periods are identity corroboration, never job dates.
     index=repo/'audits/staffer_live_runtime/lda_activity_v2.sqlite'
@@ -147,7 +148,7 @@ def run(directory, data, repo, as_of):
              'inputs':{'builder_sha256':sha(Path(__file__)),'history_candidates_sha256':sha(candidatepath)}}
     db.execute('INSERT INTO stage VALUES(?,?,?)',('career_reconciliation','PASS',packed(receipt)))
     db.commit();db.execute('PRAGMA wal_checkpoint(TRUNCATE)');db.close()
-    (directory/'career_reconciliation.json').write_text(json.dumps(receipt,indent=2),encoding='utf8')
+    atomic_write_bytes(directory/'career_reconciliation.json',json.dumps(receipt,indent=2).encode('utf8'))
     print(packed(receipt),flush=True)
     return receipt
 

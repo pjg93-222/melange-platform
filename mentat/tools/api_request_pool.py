@@ -13,6 +13,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, build_opener, HTTPRedirectHandler
 from urllib.error import HTTPError
 from email.utils import parsedate_to_datetime
+from api_request_budget import budget_aliases, budget_id, ensure_schema, legacy_budget_paths, reserve
 
 ENDPOINT = 'https://api.open.fec.gov/v1/schedules/schedule_a/'
 # A 403 carrying one of these codes condemns the key itself, never the query,
@@ -61,9 +62,11 @@ def cooldown_seconds(headers, fallback=60):
 
 
 class RequestPool:
-    def __init__(self, keys, budget_path, workers, *, transport=request, cap=1000, window=3600, quarantine=True):
+    def __init__(self, keys, budget_path, workers, *, transport=request, cap=1000, window=3600, quarantine=True, legacy_paths=()):
         self.keys = list(dict.fromkeys(keys))
-        self.ids = ['openfec:sha256:'+hashlib.sha256(k.encode()).hexdigest()[:12] for k in self.keys]
+        self.ids = [budget_id(key) for key in self.keys]
+        self.aliases = [budget_aliases(key) for key in self.keys]
+        self.legacy_paths = tuple(legacy_paths)
         self.budget_path = str(budget_path)
         self.cap, self.window = cap, window
         self.transport = transport
@@ -82,7 +85,7 @@ class RequestPool:
         self.executor = ThreadPoolExecutor(max_workers=max(1,len(self.keys)), thread_name_prefix='mentat-fetch')
         with closing(sqlite3.connect(self.budget_path)) as db, db:
             db.execute('PRAGMA journal_mode=WAL')
-            db.execute('CREATE TABLE IF NOT EXISTS api_request_budget (budget_id TEXT PRIMARY KEY, window_started_epoch REAL NOT NULL, requests_used INTEGER NOT NULL DEFAULT 0)')
+            ensure_schema(db)
         self.server = None
         self.token = secrets.token_urlsafe(32)
 
@@ -120,15 +123,12 @@ class RequestPool:
             self.stopped=True;self.condition.notify_all()
 
     def reserve(self, index, now):
-        # Same durable per-key budget as R: the reservation commits before HTTP.
-        with closing(sqlite3.connect(self.budget_path, timeout=60)) as db, db:
-            db.execute('BEGIN IMMEDIATE')
-            row=db.execute('SELECT window_started_epoch,requests_used FROM api_request_budget WHERE budget_id=?',(self.ids[index],)).fetchone()
-            start,used=row if row and now-row[0]<self.window else (now,0)
-            if used>=self.cap:
-                self.cooldown[index]=start+self.window;return False
-            db.execute('INSERT INTO api_request_budget VALUES (?,?,?) ON CONFLICT(budget_id) DO UPDATE SET window_started_epoch=excluded.window_started_epoch, requests_used=excluded.requests_used',(self.ids[index],start,used+1))
-            return True
+        # Imports and admission share one durable write lease before HTTP.
+        result = reserve(self.budget_path, self.ids[index], aliases=self.aliases[index],
+                         legacy_paths=self.legacy_paths, now=now, cap=self.cap, window=self.window)
+        if not result['admitted']:
+            self.cooldown[index] = result['window_started_epoch'] + self.window
+        return result['admitted']
 
     def acquire(self, lane):
         """Reserve a healthy key, or None once the pool stops or runs out of keys."""
@@ -222,6 +222,43 @@ class RequestPool:
         self.executor.shutdown(wait=True)
 
 
+class RemoteRequestPool:
+    """Read-only descriptor for one Windows-owned pool; never opens a ledger."""
+    def __init__(self, path, keys):
+        from pathlib import Path
+        import re
+        value = json.loads(Path(path).read_text(encoding='utf-8'))
+        expected = [budget_id(key) for key in dict.fromkeys(keys)]
+        match = re.fullmatch(r'http://127[.]0[.]0[.]1:([0-9]+)/batch', str(value.get('url', '')))
+        token = value.get('token')
+        if (value.get('schema') != 'mentat-request-pool-v1' or value.get('scope') != 'schedule_a_batch_only'
+                or value.get('endpoint') != ENDPOINT or not match or not 0 < int(match[1]) <= 65535
+                or not isinstance(token, str) or not re.fullmatch(r'[A-Za-z0-9_-]{32,}', token)
+                or value.get('key_ids') != expected or type(value.get('width')) is not int
+                or value['width'] != len(expected) or not expected):
+            raise ValueError('Host request-pool descriptor or key-slot order is invalid; collection refused.')
+        self.keys = list(dict.fromkeys(keys))
+        self.url = value['url'].replace('127.0.0.1', 'host.docker.internal', 1)
+        self.token = token
+        self.width = value['width']
+
+    def start(self):
+        return self.url
+
+    def snapshot(self):
+        return dict(active_workers=None, requested_workers=self.width, queued_requests=None,
+                    completed_requests=None, peak_active_workers=None, assisted_lanes=None,
+                    quarantined_keys=None, healthy_keys=None, reissued_requests=None,
+                    scheduling='windows_host_request_pool', counters_available=False)
+
+    def stop(self):
+        # The container owns dispatch only. Owner stopfile/PID controls the host.
+        return None
+
+    def close(self):
+        return None
+
+
 def main():
     import argparse
     import ctypes
@@ -248,7 +285,7 @@ def main():
     def write(path,value):
         temporary=path.with_suffix('.pending')
         temporary.write_text(json.dumps(value),encoding='utf-8');temporary.replace(path)
-    pool=RequestPool(keys,args.budget_database,args.workers)
+    pool=RequestPool(keys,args.budget_database,args.workers,legacy_paths=legacy_budget_paths())
     try:
         url=pool.start()
         write(config,{'schema':'mentat-request-pool-v1','url':url,'token':pool.token,'width':len(keys)})

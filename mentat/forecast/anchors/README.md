@@ -17,7 +17,7 @@ Output: `mentat\state\giving-anchors\giving-anchors-v1.json` and `giving-anchors
 | Input | Where | Used for |
 |---|---|---|
 | Published workbook | report directory (`config/report-directory.json` or `MENTAT_REPORT_DIRECTORY`) | its sha256 is the freshness key |
-| Contribution-analytics index | `state/contribution-analytics/*.sqlite`, the newest whose `provenance.workbook_sha256` equals the workbook's | general giving (`receipt_cents`, the workbook's Analysis Amount, less the non_giving receipts: see the first rule below), funding-source split, employees' D/R by cycle |
+| Contribution-analytics index | `state/contribution-analytics/*.sqlite`, the newest whose `provenance.workbook_sha256` equals the workbook's | general giving (`receipt_cents`, the workbook's Analysis Amount, less the non_giving receipts: see the first rule below), funding-source split, included-receipt D/R by cycle |
 | Pinned source database | `.cache/...` (registry globs), the file whose sha256 equals the index's `database_sha256` | FEC `recipient_committee_type` (H / S) joined on sub_id; the collection date (`MAX(scraped_at)`); work-unit progress |
 | FEC pas2 / cn / cm bulk files | `inputs/active_fec_sources.json` -> `fec_beneficiary/pas2YY`, `fec_beneficiary/cnYY`, `fec_committee_master/cmYY` | the roster companies' PACs' own giving to House / Senate candidates (D-049 `count_latest`) |
 | Melange LDA | `%LOCALAPPDATA%\Melange\lda_rebuild\derived\sector_spend\sector_spend.csv` | `income_total` and `expenses_total`, never summed; bank TOTAL for banks |
@@ -30,10 +30,14 @@ against the shared schema and invariants; an invalid build leaves the previous s
 
 ## Rules it implements
 
+The command-line builder emits flushed JSON stage start/finish/failure records to stdout, including elapsed time. Per-industry workbook, index selection, pinned-source hashing, collection date, index aggregation and progress reads are separately timed. This diagnoses a timeout without changing its deadline, retry policy or any model gate; library calls remain quiet unless `progress=True`.
+
+The legacy `employee_candidate` contract key names included receipts to House/Senate candidates across all funding sources except `non_giving`; it does not certify employee-only giving or verified funding identity. Relevant conflicting committee types make this candidate basis unavailable, with signed/gross exposure in its reason; general giving retains the money.
+
 * **Non-giving receipts are left out of the forecast** (owner ruling 2026-10-01, forecast-integrity decision D4 option b). Receipts that Mentat's accounting
   engine buckets as `non_giving` (the index's `funding_source` is the engine's bucket; the FEC records them as interest, refunds, insurance claims, loans)
   are in the workbook's Analysis Amount but are not giving. In the forecast only, `mentat_sources.FORECAST_EXCLUDED_FUNDING_SOURCES` (`{"non_giving"}`) leaves
-  them out of (1) each cycle's `general_giving.cycles`, (2) the monthly `observed` cuts and the observed-to-date amounts, and (3) the House / Senate employee
+  them out of (1) each cycle's `general_giving.cycles`, (2) the monthly `observed` cuts and the observed-to-date amounts, and (3) the House / Senate included-receipt
   `candidate_receipts` (cycles, observed cuts, thin-base flags). The workbook, the index and every money-collection view are untouched.
   `general_giving.by_funding_source` stays the full split of the Analysis Amount; `general_giving.excluded_non_giving` and `candidate_receipts.excluded_non_giving`
   report what was left out, per cycle (levels + excluded = the published Analysis Amount), and the industry flag prints the amounts. The index's own
@@ -102,6 +106,6 @@ unavailable). The calculator reads them through the same code path as the credit
 written by the same `build_panel_cohort_split.py` (it now writes and `--check`s both) from the partisan-dollar lane's ledgers, with the same to-the-cent reconciliation against the panel: the
 2023-24 total $7,834,150 and the observed $4,427,500 to the cut 2026-09-26 (D + R + other / unknown recipients + the lane's unresolved-office pool). One of the cohort's 8 ids (C00377044) has no
 row in either ledger; the file lists it in `silent_committees`. The chamber split itself needs a House / Senate share model, which Telecom does not have of its own (registry `withheld_by_model.control`: no B09 recipient capture in the
-refit). Since the owner ruling of 2026-10-09 (option A) it is SCORED on the pooled share models every industry uses (`POOLED_SHARE_SCORED` in `app/giving_forecast.py`): the employees' basis divides
+refit). Since the owner ruling of 2026-10-09 (option A) it is SCORED on the pooled share models every industry uses (`POOLED_SHARE_SCORED` in `app/giving_forecast.py`): the included-receipt basis divides
 Telecom's Mentat candidate receipts, the company-PAC basis this cohort's D / R; the pooled coefficients, the pooled residual variance and the reference level of the sector term (the models are
 applied as a change from the anchor cycle, so Intercept and the industry terms are 0 in it) are all that is used, and the Methods fold says so.

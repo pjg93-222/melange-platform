@@ -960,6 +960,8 @@ def make_row(
         and scoring_category
         and historical_scoring_authorized
     )
+    if congress not in DECAY_WEIGHT:
+        raise GenerationGateError(f"no DECAY_WEIGHT entry for Congress {congress}")
     decay = DECAY_WEIGHT[congress]
     measure_factor = measure_weight(measure_key)
     effective_weight = round(decay * measure_factor, 12)

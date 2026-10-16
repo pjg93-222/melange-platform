@@ -68,6 +68,21 @@ CATEGORY_ID_ALIASES = {
     "ncua_budget_share_insurance_fund": "ncua_budget_share_insurance",
     "telephone_consumer_protection_act_issues": "telephone_consumer_protection_act",
 }
+# Every bundle file this class reads must be listed (and so hash-verified) in
+# the manifest; a file the manifest omits would otherwise be consumed unchecked.
+REQUIRED_BUNDLE_FILES = (
+    "query_guard_registry_v2.json",
+    "acu_category_registry.json",
+    "amendment_content_v2.ndjson",
+    "amendment_review_queue.ndjson",
+    "floor_speech_rescue_310.json",
+    "parent_titles.json",
+    "press_text_cache.jsonl",
+    "press_stance_final.csv",
+    "press_amendment_pairs.json",
+    "manual_bill_evidence.pre_adjudication.csv",
+    "acu_letters_snapshot_20260725.json",
+)
 
 
 class OriginalMethodEvidenceError(RuntimeError):
@@ -188,6 +203,11 @@ class OriginalMethodEvidence:
                 "role": declared.get("role"),
                 "records": declared.get("records"),
             }
+        missing = [n for n in REQUIRED_BUNDLE_FILES if n not in self.file_receipts]
+        if missing:
+            raise OriginalMethodEvidenceError(
+                f"manifest omits required bundle files: {', '.join(missing)}"
+            )
 
         guards = read_json(self.root / "query_guard_registry_v2.json")
         north_star = read_json(self.root / "acu_category_registry.json")

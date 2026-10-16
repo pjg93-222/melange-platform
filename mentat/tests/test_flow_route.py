@@ -969,5 +969,117 @@ class Route(unittest.TestCase):
         self.assertEqual((status, body['reason'], body['reconciliation']['equal']), (409, 'reconciliation', False))
 
 
+class CommitteeNames(unittest.TestCase):
+    """B4 (lane Z, 2026-10-15): a committee reached only as a recipient is named from the FEC committee master
+    on disk, never by its bare ID and never by a name made up for it. Nothing is fetched."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp = tempfile.TemporaryDirectory()
+        cls.master = Path(cls.temp.name) / 'master'
+        (cls.master / 'cm26').mkdir(parents=True)
+        (cls.master / 'cm26' / 'cm.txt').write_text(
+            f'{ONWARD_ID}|ONWARD POLITICAL ACTION COMMITTEE|TREASURER, A|1 MAIN ST||CITY|DC|20001|B|Q||M|C||\n'
+            'C90000099|SOMEONE ELSE PAC|T|1 MAIN ST||CITY|DC|20001|B|Q||M|C||\n', encoding='ascii')
+        cls.saved = flow_data.MASTER_ROOT
+        flow_data.MASTER_ROOT = cls.master
+
+    @classmethod
+    def tearDownClass(cls):
+        flow_data.MASTER_ROOT = cls.saved
+        cls.temp.cleanup()
+
+    def test_names_come_from_the_saved_data_first_then_the_master_and_otherwise_none_is_made_up(self):
+        names = flow_data.Names({'C90000010': 'FILED NAME PAC', 'C90000011': 'C90000011'})
+        self.assertEqual(flow_data.committee_label(names, 'C90000010'), 'Filed Name PAC')
+        self.assertEqual(flow_data.committee_label(names, ONWARD_ID), 'Onward Political Action Committee')     # master
+        self.assertEqual(names.get(ONWARD_ID), 'ONWARD POLITICAL ACTION COMMITTEE')
+        # An ID the ledger fell back to is no name; with none on file anywhere it is "Unnamed committee".
+        for ident in ('C90000011', 'C90000012'):
+            self.assertFalse(names.named(ident))
+            self.assertEqual(flow_data.committee_label(names, ident), 'Unnamed committee')
+            self.assertEqual(flow_data.committee_tag(names, ident), f'Unnamed committee {ident}')
+            self.assertEqual(flow_data.unnamed_fields(names, ident), {'unnamed': True})
+        self.assertEqual(flow_data.unnamed_fields(names, ONWARD_ID), {})
+
+    def test_the_flow_says_where_money_went_by_name_and_by_ID_when_there_is_no_name(self):
+        def stub_text(directory, with_name):
+            folder = Path(directory) / 'flow-fixture'
+            write_fixture(directory)
+            evidence = json.loads((folder / 'evidence.json').read_text(encoding='ascii'))
+            evidence['transfers'] = [{'destination': ONWARD_ID, 'destination_name': 'ONWARD PAC'}] if with_name else []
+            (folder / 'evidence.json').write_text(json.dumps(evidence), encoding='ascii')
+            flow_data._CACHE.clear()
+            body = produce(directory)
+            return by_id(body)[f'stub:onward:committee:{BRIDGE_ID}:{ONWARD_ID}']['label']
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(stub_text(directory, True), 'passed to Onward PAC', 'the saved data\'s own name wins')
+            self.assertEqual(stub_text(directory, False), 'passed to Onward Political Action Committee', 'the master names it')
+            flow_data.MASTER_ROOT = Path(directory) / 'no-master'
+            try:
+                flow_data._CACHE.clear()
+                text = stub_text(directory, False)
+            finally:
+                flow_data.MASTER_ROOT = self.master
+            self.assertEqual(text, f'passed to Unnamed committee {ONWARD_ID}')
+            self.assertNotIn('ONWARD', text.upper().replace(ONWARD_ID, ''), 'no name was made up')
+        flow_data._CACHE.clear()
+
+    def test_a_committee_is_named_from_the_master_file_of_the_flows_cycle_then_the_newest(self):
+        """657 committee IDs differ between cm22 and cm26 (C00728980 is "TIPPINGPOINT 2020", then "DEMOCRACY SOLVES
+        IT"): the flow of a cycle names a committee as that cycle's file does, and falls back to the newest file."""
+        with tempfile.TemporaryDirectory() as directory:
+            master = Path(directory)
+            line = '{}|{}|T|1 MAIN ST||CITY|DC|20001|B|Q||M|C||\n'
+            for folder, text in (('cm22', line.format('C00728980', 'TIPPINGPOINT 2020')),
+                                 ('cm24', line.format('C00728980', 'IN BETWEEN')),
+                                 ('cm26', line.format('C00728980', 'DEMOCRACY SOLVES IT')
+                                  + line.format('C90000077', 'ONLY IN THE NEWEST'))):
+                (master / folder).mkdir()
+                (master / folder / 'cm.txt').write_text(text, encoding='ascii')
+            flow_data.MASTER_ROOT = master
+            try:
+                for cycle, name, year in ((2022, 'TIPPINGPOINT 2020', '2022'), ('2022', 'TIPPINGPOINT 2020', '2022'),
+                                          (2024, 'IN BETWEEN', '2024'), (2026, 'DEMOCRACY SOLVES IT', '2026'),
+                                          (2028, 'DEMOCRACY SOLVES IT', '2026'), (None, 'DEMOCRACY SOLVES IT', '2026')):
+                    names = flow_data.Names({}, cycle=cycle)
+                    self.assertEqual((names.get('C00728980'), names.master_year('C00728980')), (name, year), cycle)
+                    self.assertEqual(flow_data.master_fields(names, 'C00728980'), {'name_master': year})
+                # A committee the cycle's file does not name still gets the newest file's name, and says which year.
+                names = flow_data.Names({}, cycle=2022)
+                self.assertEqual((names.get('C90000077'), names.master_year('C90000077')), ('ONLY IN THE NEWEST', '2026'))
+                # The saved filings' own name wins over any file, and then no year is claimed.
+                filed = flow_data.Names({'C00728980': 'FILED NAME'}, cycle=2022)
+                self.assertEqual((filed.get('C00728980'), filed.master_year('C00728980')), ('FILED NAME', ''))
+                self.assertEqual(flow_data.master_fields(filed, 'C00728980'), {})
+                # No name anywhere: nothing is made up and no year is claimed.
+                self.assertEqual(flow_data.master_fields(names, 'C90000555'), {})
+            finally:
+                flow_data.MASTER_ROOT = self.master
+
+    def test_a_flow_asks_for_the_names_of_its_own_cycle_and_marks_a_master_name_on_the_node(self):
+        with tempfile.TemporaryDirectory() as directory:
+            master = Path(directory) / 'master'
+            for folder, name in (('cm24', 'BRIDGE PAC IN 2024'), ('cm26', 'BRIDGE PAC IN 2026')):
+                (master / folder).mkdir(parents=True)
+                (master / folder / 'cm.txt').write_text(f'{BRIDGE_ID}|{name}|T|1 MAIN ST||CITY|DC|20001|B|Q||M|C||\n', encoding='ascii')
+            units = fixture_units()
+            units[1]['totals']['committee_name'] = BRIDGE_ID           # the saved filings give the bridge no name
+            write_fixture(directory, units)
+            asked = []
+            real = flow_data.committee_names
+            flow_data.MASTER_ROOT = master
+            flow_data._CACHE.clear()
+            try:
+                with patch.object(flow_data, 'committee_names', side_effect=lambda cycle=None: (asked.append(cycle), real(cycle))[1]):
+                    node = by_id(produce(directory))['committee:' + BRIDGE_ID]
+            finally:
+                flow_data.MASTER_ROOT = self.master
+                flow_data._CACHE.clear()
+            self.assertIn('2024', [str(cycle) for cycle in asked])
+            self.assertEqual((node['name_as_filed'], node['name_master']), ('BRIDGE PAC IN 2024', '2024'))
+            self.assertNotIn('unnamed', node)
+
+
 if __name__ == '__main__':
     unittest.main()

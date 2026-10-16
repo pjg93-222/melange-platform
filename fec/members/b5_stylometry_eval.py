@@ -42,7 +42,7 @@ def featurize(text):
     # MATTR-50 type-token
     W = 50
     if n >= W:
-        rat = [len(set(words[i:i + W])) / W for i in range(0, n - W, W)]
+        rat = [len(set(words[i:i + W])) / W for i in range(0, n - W, W)] or [len(set(words[:W])) / W]   # n == W: empty range -> single window (window bound left as-is; B6 look consumed)
         f.append(sum(rat) / len(rat))
     else:
         f.append(len(set(words)) / n)

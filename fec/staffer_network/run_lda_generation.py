@@ -124,7 +124,7 @@ def run(args: argparse.Namespace) -> int:
         })
         _write_status(status_path, state)
         return 0
-    except Exception as exc:
+    except BaseException as exc:
         try:
             legacy_after = sweep_tree_inventory(legacy_root, expected_years=args.legacy_years)
         except Exception as inventory_exc:  # pragma: no cover - catastrophic local failure
@@ -134,9 +134,11 @@ def run(args: argparse.Namespace) -> int:
             "completed_at": _now(),
             "current_year": None,
             "legacy_inventory_after": legacy_after,
-            "error": str(exc),
+            "error": str(exc) or type(exc).__name__,
         })
         _write_status(status_path, state)
+        if not isinstance(exc, Exception):
+            raise
         return 2
 
 

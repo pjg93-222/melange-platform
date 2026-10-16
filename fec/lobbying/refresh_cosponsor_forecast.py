@@ -69,6 +69,7 @@ DIAL = 'COSPONSOR_FORECAST_REFRESH'
 REPORT_NAME = 'cosponsor_forecast_report.json'
 SCORES_NAME = 'cosponsor_scores.csv'
 _STREAM_CHUNK = 1024 * 1024
+_FORECASTER_TIMEOUT_S = 3 * 3600   # ~16 min normally; a hang becomes a FAILED receipt
 
 
 def default_out_dir():
@@ -93,15 +94,17 @@ def report_path_for(out_dir):
 
 
 def load_report(out_dir):
-    """Return the parsed report, or None when it is absent/unreadable."""
+    """Return the parsed report, or None when it is absent/unreadable/not a JSON object."""
     path = report_path_for(out_dir)
     if not os.path.exists(path):
         return None
     try:
         with open(path, 'r', encoding='utf-8') as handle:
-            return json.load(handle)
+            report = json.load(handle)
     except (OSError, ValueError):
         return None
+    # Only a JSON object can be a report; anything else takes the 'report missing' path.
+    return report if isinstance(report, dict) else None
 
 
 def sha256_file(path):
@@ -126,7 +129,9 @@ def normalize_inputs(report):
     is also accepted so a future shape change degrades into a working gate rather
     than a silent empty one.
     """
-    provenance = (report or {}).get('provenance') or {}
+    provenance = (report or {}).get('provenance')
+    if not isinstance(provenance, dict):
+        provenance = {}
     raw = provenance.get('every_input_sha256')
     inputs = {}
     if isinstance(raw, dict):
@@ -144,7 +149,9 @@ def normalize_inputs(report):
 
 def billstatus_dirs(report):
     """Directories holding the BILLSTATUS archives the report actually read."""
-    provenance = (report or {}).get('provenance') or {}
+    provenance = (report or {}).get('provenance')
+    if not isinstance(provenance, dict):
+        provenance = {}
     dirs = []
     seen = set()
     for entry in provenance.get('billstatus') or []:
@@ -164,7 +171,7 @@ def billstatus_dirs(report):
     return dirs
 
 
-def compare_inputs(report):
+def compare_inputs(report, out_dir=None):
     """THE shared freshness comparison. Used by the chain gate AND audit_full.py.
 
     Returns a dict with:
@@ -174,15 +181,22 @@ def compare_inputs(report):
       new_zips  BILLSTATUS-*.zip present on disk but absent from the report
       agrees    True only when all three lists are empty
     A report of ``None`` yields ``agrees=False`` with an explicit reason, so an
-    absent report can never read as "nothing to do".
+    absent report can never read as "nothing to do".  A report that records no
+    input hashes also yields ``agrees=False``: an empty comparison proves nothing.
+    When ``out_dir`` is given, a missing ``cosponsor_scores.csv`` there counts as
+    ``missing`` too, so a deleted scores file triggers a rebuild.
     """
-    if report is None:
+    if not isinstance(report, dict):
         return {'inputs': [], 'changed': [], 'missing': [], 'new_zips': [],
                 'billstatus_dirs': [], 'agrees': False, 'report_present': False,
                 'reasons': ['report missing']}
 
     recorded = normalize_inputs(report)
     inputs, changed, missing = [], [], []
+    if out_dir is not None:
+        scores_path = os.path.join(out_dir, SCORES_NAME)
+        if not os.path.exists(scores_path):
+            missing.append(scores_path)
     for path, report_sha in recorded.items():
         if os.path.exists(path):
             try:
@@ -212,6 +226,9 @@ def compare_inputs(report):
                 new_zips.append(os.path.abspath(found))
 
     reasons = []
+    if not recorded:
+        reasons.append('report records no input hashes '
+                       '(provenance.every_input_sha256 empty or unrecognised)')
     if missing:
         reasons.append('%d recorded input(s) missing from disk' % len(missing))
     if changed:
@@ -224,7 +241,7 @@ def compare_inputs(report):
         'missing': missing,
         'new_zips': new_zips,
         'billstatus_dirs': dirs,
-        'agrees': not (changed or missing or new_zips),
+        'agrees': bool(recorded) and not (changed or missing or new_zips),
         'report_present': True,
         'reasons': reasons,
     }
@@ -239,7 +256,7 @@ def freshness_detail(comparison, limit=5):
              + [('changed', path) for path in comparison['changed']]
              + [('unlisted-archive', path) for path in comparison['new_zips']])
     if not items:
-        return ''
+        return '; '.join(comparison.get('reasons') or [])
     head = '; '.join('%s %s' % (kind, path) for kind, path in items[:limit])
     more = len(items) - limit
     return head + (' (+%d more)' % more if more > 0 else '')
@@ -262,19 +279,36 @@ def dial_is_on(environ=None):
     return str(environ.get(DIAL, '0')).strip() == '1'
 
 
+def _as_text(value):
+    if isinstance(value, bytes):
+        return value.decode('utf-8', errors='replace')
+    return value or ''
+
+
 def _default_runner(cmd, log_path):
     """Run the forecaster, tee-ing its output to ``log_path``. Returns the exit code."""
-    completed = subprocess.run(cmd, capture_output=True, text=True,
-                               encoding='utf-8', errors='replace')
+    timed_out = None
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True,
+                                   encoding='utf-8', errors='replace',
+                                   timeout=_FORECASTER_TIMEOUT_S)
+        stdout, stderr, returncode = completed.stdout, completed.stderr, completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        timed_out = exc
+        stdout, stderr, returncode = exc.stdout, exc.stderr, None
     try:
         os.makedirs(os.path.dirname(log_path), exist_ok=True)
         with open(log_path, 'w', encoding='utf-8', newline='\n') as handle:
             handle.write('$ %s\n' % ' '.join(cmd))
-            handle.write('--- stdout ---\n%s\n' % (completed.stdout or ''))
-            handle.write('--- stderr ---\n%s\n' % (completed.stderr or ''))
+            if timed_out is not None:
+                handle.write('--- TIMEOUT after %s s ---\n' % _FORECASTER_TIMEOUT_S)
+            handle.write('--- stdout ---\n%s\n' % _as_text(stdout))
+            handle.write('--- stderr ---\n%s\n' % _as_text(stderr))
     except OSError:
         pass
-    return completed.returncode
+    if timed_out is not None:
+        raise timed_out   # run() turns any exception into a FAILED receipt
+    return returncode
 
 
 def _promote(staging, out_dir):
@@ -290,21 +324,26 @@ def _promote(staging, out_dir):
     stage_scores = os.path.join(staging, SCORES_NAME)
     prev_report, prev_scores = prod_report + '.previous', prod_scores + '.previous'
     saved = []
+    published = []
     try:
         for live, previous in ((prod_report, prev_report), (prod_scores, prev_scores)):
             if os.path.exists(live):
                 os.replace(live, previous)
                 saved.append((live, previous))
         os.replace(stage_report, prod_report)
+        published.append(prod_report)
         os.replace(stage_scores, prod_scores)
+        published.append(prod_scores)
     except Exception:
-        # Undo: drop anything we managed to publish, then move the saved bytes back.
-        for live, previous in saved:
+        # Undo: drop anything we managed to publish (whether or not a .previous
+        # existed), then move the saved bytes back.
+        for live in published:
             try:
                 if os.path.exists(live):
                     os.unlink(live)
             except OSError:
                 pass
+        for live, previous in saved:
             try:
                 os.replace(previous, live)
             except OSError:
@@ -388,7 +427,7 @@ def run(argv=None, runner=None, environ=None):
         run_id=run_id, source='cosponsor-forecast-refresh', stage='gate')
 
     report = load_report(out_dir)
-    comparison = compare_inputs(report)
+    comparison = compare_inputs(report, out_dir)
     reasons = list(comparison['reasons'])
     if args.force:
         reasons.append('--force')

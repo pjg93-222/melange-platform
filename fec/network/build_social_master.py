@@ -15,7 +15,7 @@ sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import pandas as pd
 M=MB_ROOT
 sys.path.insert(0,M+r'\fec')
-from network.process_quorum import CU_TERMS   # single relevance vocabulary, kept in sync with quorum_query.txt
+from network.cu_terms import CU_TERMS   # single relevance vocabulary, kept in sync with quorum_query.txt
 from collect.tweet_collector import bluesky_post_url, verified_bluesky_handle
 DOCMAP={'Tweet':'x','Facebook Post':'facebook','Truth Social Post':'truthsocial'}
 q=pd.read_csv(M+r'\data\stance\quorum_member_tweets.csv',dtype=str)
@@ -54,13 +54,13 @@ for bg,dt,tx,rp,pid in rows:
                  'original_post_uri':rp or pid})
 b=pd.DataFrame(brec)
 if len(b):
+    b['stance']='';b['stance_margin']=''
     ri=b[b['rel']==1].index
     if len(ri):
         pred=clf.predict(['target: Credit Unions (direct). speaker: member. '+t[:1500] for t in b.loc[ri,'text']])
         import numpy as np
         dec=clf.decision_function(['target: Credit Unions (direct). speaker: member. '+t[:1500] for t in b.loc[ri,'text']])
         marg=(np.sort(dec,axis=1)[:,-1]-np.sort(dec,axis=1)[:,-2]) if getattr(dec,'ndim',1)>1 else abs(dec)
-        b['stance']='';b['stance_margin']=''
         b.loc[ri,'stance']=pred; b.loc[ri,'stance_margin']=['%.3f'%float(x) for x in marg]
     bc=b[b['rel']==1][list(qc.columns)]
 else:

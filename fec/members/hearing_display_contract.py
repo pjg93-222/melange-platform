@@ -40,7 +40,11 @@ def load_optional(artifact_path=DEFAULT_ARTIFACT, receipt_path=DEFAULT_RECEIPT, 
         artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
         receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         expires = datetime.fromisoformat(str(receipt["expires_at"]).replace("Z", "+00:00"))
+        artifact_sha = sha256_file(artifact_path)
     except (OSError, ValueError, KeyError, TypeError):
+        return None
+    if (not isinstance(artifact, dict) or not isinstance(receipt, dict)
+            or not isinstance(receipt.get("coverage"), dict)):
         return None
     now = now or datetime.now(timezone.utc)
     if expires.tzinfo is None:
@@ -49,8 +53,8 @@ def load_optional(artifact_path=DEFAULT_ARTIFACT, receipt_path=DEFAULT_RECEIPT, 
             or receipt.get("schema") != RECEIPT_SCHEMA
             or receipt.get("status") != "ACCEPTED"
             or receipt.get("attribution_contract") != ATTRIBUTION_CONTRACT
-            or (receipt.get("coverage") or {}).get("status") != "COMPLETE_TO_DECLARED_CEILING"
-            or sha256_file(artifact_path) != receipt.get("artifact_sha256")
+            or receipt["coverage"].get("status") != "COMPLETE_TO_DECLARED_CEILING"
+            or artifact_sha != receipt.get("artifact_sha256")
             or expires.astimezone(timezone.utc) <= now.astimezone(timezone.utc)):
         return None
     if not isinstance(artifact.get("members"), dict) or not isinstance(artifact.get("appearances"), list):

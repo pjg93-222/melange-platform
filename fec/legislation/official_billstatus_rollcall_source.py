@@ -187,7 +187,11 @@ def _bill_candidates(root: ET.Element) -> list[ET.Element]:
         if node is not root and _normalized_tag(node) != "bill":
             continue
         direct_names = {_normalized_tag(child) for child in list(node)}
-        if {"congress", "billtype", "billnumber"}.issubset(direct_names):
+        if {"congress", "billtype", "billnumber"}.issubset(direct_names) or {
+            "congress",
+            "type",
+            "number",
+        }.issubset(direct_names):
             candidates.append(node)
     return candidates
 
@@ -195,8 +199,8 @@ def _bill_candidates(root: ET.Element) -> list[ET.Element]:
 def _bill_identity(node: ET.Element) -> BillStatusIdentity:
     return _identity(
         _direct_text(node, "congress"),
-        _direct_text(node, "billType", "measureType"),
-        _direct_text(node, "billNumber", "measureNumber"),
+        _direct_text(node, "billType", "measureType", "type"),
+        _direct_text(node, "billNumber", "measureNumber", "number"),
     )
 
 

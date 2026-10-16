@@ -114,6 +114,7 @@ $python = Resolve-MentatPython -ExplicitPath $PythonPath
 if ($null -eq $python) { throw 'No Python interpreter was found for the compute wrapper.' }
 $jobTool = Join-Path $PSScriptRoot 'compute_job.py'
 $secretTool = Join-Path $PSScriptRoot 'compute_secrets.py'
+$hostPoolTool = Join-Path $PSScriptRoot 'api_host_pool.py'
 
 $listing = Invoke-Native $python.Path @($jobTool, 'jobs') -StdoutOnly
 if ($listing.Code -ne 0) { Stop-Refused 'compute_job.py jobs failed.' 2 }
@@ -185,6 +186,8 @@ try { $lockStream = [IO.File]::Open((Join-Path $lockDirectory "$Job.lock"), 'Ope
 catch [IO.IOException] { Stop-Refused "Another run of $Job holds its lock." 75 }
 
 $staged = $false
+$hostPool = $null
+$hostPoolDirectory = $null
 $code = 1
 $problems = @()
 try {
@@ -209,6 +212,18 @@ try {
     if ($stage.Code -ne 0) { $code = 2; $problems += 'The FEC keys could not be staged (no enabled key, or the DPAPI store is unreadable).'; break }
     $staged = $true
     $hosts['FEC_KEYS_FILE'] = ConvertTo-Slash (($stage.Output | ConvertFrom-Json).path)
+  }
+  if ($Job -eq 'collect-fanout') {
+    $sourceIndex = [Array]::IndexOf($JobArgs, '--source-database')
+    if ($sourceIndex -lt 0 -or $sourceIndex + 1 -ge $JobArgs.Length) { $code = 2; $problems += 'Host pool requires an explicit job source database.'; break }
+    $hostPoolDirectory = Split-Path -Parent $hosts['FEC_KEYS_FILE']
+    $brokerArguments = @($hostPoolTool, '--run-directory', $hostPoolDirectory, '--watch-pid', [string]$PID, '--source-database', $JobArgs[$sourceIndex + 1], '--project-root', $projectRoot)
+    $hostPool = Start-Process -FilePath $python.Path -ArgumentList (($brokerArguments | ForEach-Object { Format-Argument $_ }) -join ' ') -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $hostPoolDirectory 'host-pool.out.log') -RedirectStandardError (Join-Path $hostPoolDirectory 'host-pool.err.log')
+    $hostPoolConfig = Join-Path $hostPoolDirectory 'request-pool.json'
+    $brokerDeadline = (Get-Date).AddSeconds(15)
+    while (-not (Test-Path -LiteralPath $hostPoolConfig -PathType Leaf) -and -not $hostPool.HasExited -and (Get-Date) -lt $brokerDeadline) { Start-Sleep -Milliseconds 100 }
+    if (-not (Test-Path -LiteralPath $hostPoolConfig -PathType Leaf)) { $code = 2; $problems += 'Host request pool did not become ready; collection refused.'; break }
+    $hosts['REQUEST_POOL_CONFIG_FILE'] = ConvertTo-Slash $hostPoolConfig
   }
   foreach ($name in $hosts.Keys) { [Environment]::SetEnvironmentVariable($name, [string]$hosts[$name], 'Process') }
   $composeArguments = @($composeArguments | ForEach-Object { Format-Argument $_ })
@@ -236,6 +251,10 @@ try {
 }
 catch { $code = 1; $problems += "wrapper error: $_" }
 finally {
+  if ($hostPool) {
+    try { [IO.File]::WriteAllBytes((Join-Path $hostPoolDirectory 'owner.stop'), [byte[]]@()) } catch { $code = 1; $problems += 'Host pool owner stopfile could not be written.' }
+    if (-not $hostPool.WaitForExit(150000)) { $code = 1; $problems += 'Owned host pool did not stop cleanly; secret cleanup may be incomplete.'; $hostPool.Kill(); $null = $hostPool.WaitForExit(10000) }
+  }
   if ($staged) {
     $wiped = Invoke-Native $python.Path @($secretTool, 'wipe', '--run-id', $RunId) -StdoutOnly
     if ($wiped.Code -ne 0) { $code = 1; $problems += 'THE KEY FILE COULD NOT BE WIPED; delete the folder under %LOCALAPPDATA%\Melange\compute\run\ by hand.' }

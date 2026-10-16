@@ -19,7 +19,7 @@ import sys
 import wave
 
 from collect.press_receipt import ReceiptTimestampError, parse_receipt_timestamp
-from paths import MELANGE_DATA, ROOT, stored_name, to_host, today
+from paths import MELANGE_DATA, ROOT, stored_name, to_host, to_stored, today
 
 # Of the inputs a local-youtube verification receipt declares, these are the ones
 # that decide WHO a voice belongs to.  A change to any of them voids the
@@ -106,7 +106,12 @@ def verified_local_youtube_rows() -> set[tuple]:
         set(speech_root.glob("local_youtube_exact_window_verification*_v1.receipt.json"))
     )
     for receipt_path in receipt_paths:
-        receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+        try:
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(receipt, dict):
+            continue
         if (
             receipt.get("schema") != "local-youtube-exact-window-verification-receipt-v1"
             or receipt.get("status") != "PASS"
@@ -124,6 +129,8 @@ def verified_local_youtube_rows() -> set[tuple]:
         # identity is unaffected by this: each tuple below still has to match on wav
         # path, member, video, both bounds and the wav hash.
         inputs = receipt.get("inputs") or {}
+        if not isinstance(inputs, dict) or not isinstance(receipt.get("output"), dict):
+            continue
         identity_inputs = [inputs.get(name) for name in IDENTITY_CRITICAL_INPUTS]
         if not all(isinstance(item, dict) for item in identity_inputs):
             continue
@@ -139,12 +146,17 @@ def verified_local_youtube_rows() -> set[tuple]:
         for row in read_jsonl_strict(output):
             if row.get("status") != "PASS_EXACT_WINDOW" or row.get("final_identity_acceptance") is not True:
                 continue
+            try:
+                start_sec = round(float(row.get("start_sec")), 6)
+                end_sec = round(float(row.get("end_sec")), 6)
+            except (TypeError, ValueError):
+                continue
             verified.add((
                 str(Path(to_host(str(row.get("out_wav") or ""))).resolve()),
                 row.get("member"),
                 str(row.get("video_id")),
-                round(float(row.get("start_sec")), 6),
-                round(float(row.get("end_sec")), 6),
+                start_sec,
+                end_sec,
                 row.get("wav_sha256"),
             ))
     return verified
@@ -213,6 +225,9 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
     source_hours = 0.0
     for row in source_rows:
         date = row.get("date")
+        if not isinstance(date, str):
+            errors.append("manifest row without a string date: %r" % (date,))
+            continue
         paths = {
             "broadcastevents_sha256": root / "broadcastevents" / (date + ".json"),
             "transcript_sha256": root / "transcripts" / (date + ".json"),
@@ -231,11 +246,15 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
             if not payload.lstrip().startswith(b"WEBVTT"):
                 errors.append("VTT header mismatch for %s" % date)
         if paths["wav_sha256"].is_file():
-            channels, rate, width, frames = wav_facts(paths["wav_sha256"])
-            if (channels, rate, width) != (1, 16000, 2):
-                errors.append("source WAV contract mismatch for %s" % date)
-            source_hours += frames / float(rate) / 3600.0
-            source_durations[date] = frames / float(rate)
+            try:
+                channels, rate, width, frames = wav_facts(paths["wav_sha256"])
+            except (wave.Error, EOFError, OSError):
+                errors.append("unreadable source WAV for %s" % date)
+            else:
+                if (channels, rate, width) != (1, 16000, 2):
+                    errors.append("source WAV contract mismatch for %s" % date)
+                source_hours += frames / float(rate) / 3600.0
+                source_durations[date] = frames / float(rate)
 
     all_clips = read_jsonl_strict(clip_manifest)
     all_errors = []
@@ -257,7 +276,11 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
             continue
         if not row.get("sha256") or sha256(path) != row["sha256"]:
             all_errors.append("accepted clip hash mismatch: %s" % path)
-        channels, rate, width, frames, computed_rms = wav_facts_and_rms(path)
+        try:
+            channels, rate, width, frames, computed_rms = wav_facts_and_rms(path)
+        except (wave.Error, EOFError, OSError):
+            all_errors.append("unreadable accepted clip: %s" % path)
+            continue
         clip_audio_facts[str(path)] = (channels, rate, width, frames, computed_rms)
         if (channels, rate, width) != (1, 16000, 2):
             all_errors.append("accepted clip WAV contract mismatch: %s" % path)
@@ -293,6 +316,9 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
             continue
         if not row.get("sha256") or sha256(path) != row["sha256"]:
             errors.append("clip hash mismatch: %s" % path)
+        if str(path) not in clip_audio_facts:
+            errors.append("clip audio facts unavailable: %s" % path)
+            continue
         channels, rate, width, frames, computed_rms = clip_audio_facts[str(path)]
         if (channels, rate, width) != (1, 16000, 2):
             errors.append("clip WAV contract mismatch: %s" % path)
@@ -314,7 +340,11 @@ def audit_house(root: Path, clip_manifest: Path, roster_path: Path):
     surnames = surname_index(roster_path.resolve())
     expected = set()
     for source_date in source_dates:
-        transcript_path = root / "transcripts" / (source_date + ".json")
+        transcript_path = root / "transcripts" / (str(source_date) + ".json")
+        if (not isinstance(source_date, str) or source_date not in source_durations
+                or not transcript_path.is_file()):
+            errors.append("eligible spans not reconstructable for %s" % source_date)
+            continue
         transcript_rows = json.loads(transcript_path.read_text(encoding="utf-8-sig"))
         for ordinal, member, _label, _text, _start, _end in eligible_spans(
             transcript_rows, surnames, source_durations[source_date]
@@ -1063,6 +1093,8 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
     else:
         try:
             retry_receipt = json.loads(retry_receipt_path.read_text(encoding="utf-8"))
+            if not isinstance(retry_receipt, dict):
+                raise ValueError("retry receipt is not an object")
             parse_receipt_timestamp(retry_receipt.get("completed_at"))
             from collect.build_press_engine_feed import ReceiptRejected, validate_body_completion
             completion_valid = True
@@ -1107,6 +1139,8 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
             )
         except (OSError, ValueError, TypeError, ReceiptTimestampError, json.JSONDecodeError):
             retry_receipt_valid = False
+            if not isinstance(retry_receipt, dict):
+                retry_receipt = {}
         if not retry_receipt_valid:
             errors.append("live-network press retry receipt is invalid or mismatched")
     exhausted_network_failures = [
@@ -1167,13 +1201,13 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
     ceiling = today()
     for row in frames["dated"]:
         try:
-            value = date.fromisoformat(row.get("date_final", ""))
-        except ValueError:
+            value = date.fromisoformat(str(row.get("date_final") or ""))
+        except (TypeError, ValueError):
             errors.append("invalid dated date: %r" % row.get("date_final"))
             continue
         if not floor <= value <= ceiling:
             errors.append("dated article outside audited window: %s" % value)
-    if any(row.get("date_final", "").strip() for row in frames["undated"]):
+    if any(str(row.get("date_final") or "").strip() for row in frames["undated"]):
         errors.append("undated artifact contains a populated date")
     if not set(turns["scored"]).issubset(dated):
         errors.append("scored URLs are not a subset of dated articles")
@@ -1280,7 +1314,7 @@ def main(argv=None) -> int:
         present_sources = [
             name for name in press_source_names if name not in missing_press_sources
         ]
-        inputs = {"press_delta_root": str(args.press_delta_root.resolve())}
+        inputs = {"press_delta_root": to_stored(str(args.press_delta_root.resolve()))}
         if retry_receipt_name in present_sources:
             inputs["press_retry_receipt_sha256"] = sha256(
                 args.press_delta_root / retry_receipt_name)
@@ -1322,7 +1356,7 @@ def main(argv=None) -> int:
             "press delta sources changed while the collection audit was running"
         )
     press_inputs = {
-        "press_delta_root": str(args.press_delta_root.resolve()),
+        "press_delta_root": to_stored(str(args.press_delta_root.resolve())),
         "press_retry_receipt_sha256": press_hashes_after[
             "press_network_retry_receipt.json"
         ],

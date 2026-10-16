@@ -113,21 +113,46 @@ def write_json_atomic(path: Path, value: Any) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _event_identity(event: dict[str, Any]) -> dict[str, Any]:
+    # Stable fields only: timestamp_utc, summary, current and junk_count change
+    # on every run, so comparing whole events could never match on a rerun.
+    return {
+        "kind": event.get("kind"),
+        "input": event.get("input"),
+        "decision_id": (event.get("output") or {}).get("decision_id"),
+    }
+
+
 def write_event(events_root: Path, sequence: int, event: dict[str, Any]) -> Path:
     events_root.mkdir(parents=True, exist_ok=True)
     event_path = events_root / f"{sequence:04d}-{event['kind']}.json"
     if event_path.exists():
         existing = json.loads(event_path.read_text(encoding="utf-8"))
-        if canonical_sha256(existing) != canonical_sha256(event):
+        if canonical_sha256(_event_identity(existing)) != canonical_sha256(
+            _event_identity(event)
+        ):
             raise junk.JunkPileError(
                 f"refusing to overwrite different culling event: {event_path}"
             )
         return event_path
-    with event_path.open("x", encoding="utf-8", newline="\n") as handle:
-        json.dump(event, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
+    # Temp file + os.link: the final name appears fully written or not at all,
+    # and an existing event is never replaced.
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{event_path.name}.", suffix=".tmp", dir=events_root
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+            json.dump(event, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        try:
+            os.link(temporary, event_path)
+        except FileExistsError:
+            pass  # lost a race; the next run compares identity against it
+    finally:
+        temporary.unlink(missing_ok=True)
     return event_path
 
 
@@ -362,8 +387,12 @@ def import_rows(
     }
     processed = len(state["exclusions"])
 
-    for source_index, row in enumerate(rows, 1):
+    # Gate every row before the first append, so a late failure cannot leave a
+    # partial import in the append-only ledger.
+    for row in rows:
         validate_row(row, evidence_index)
+
+    for source_index, row in enumerate(rows, 1):
         source_line = row.pop("_source_line_number")
         membership_id = f"{row['canonical_key']}::{row['query_id']}"
         if not membership_id.startswith(f"{row['canonical_key']}::"):

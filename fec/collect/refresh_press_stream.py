@@ -38,9 +38,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from collect.build_press_engine_feed import (
     valid_run, validate_body_completion, REQUIRED_RUN_FILES, ReceiptRejected,
 )
-from collect.press_baseline_fold import (
-    DEFAULT_BASELINE, DEFAULT_RECEIPT, fold_pending,
-)
+from collect.press_baseline_fold import DEFAULT_BASELINE, DEFAULT_RECEIPT
 from paths import ROOT
 
 
@@ -65,10 +63,20 @@ def current_source_run(run_root, expected):
     if result[1].get("collector_sources_sha256") != expected:
         print("press receipt predates current collector sources; retrying failed/empty checkpoints")
         return None
-    if result[1].get("status") != "PASS" or result[1].get("pending_body_urls") != 0:
-        print("press receipt does not prove complete body attempts; resuming pending work")
-        return None
-    return result
+    receipt = result[1]
+    if receipt.get("status") == "PARTIAL":
+        # valid_run only returns a PARTIAL receipt when pending_is_tombstoned_only excused every
+        # pending row, so this is a run the walk has given up on, not unfinished work.  Re-walking
+        # would only reseal it, and a reseal of a run already in the ledger forces a full rebuild.
+        count = receipt.get("pending_body_urls")
+        if type(count) is int and count > 0:
+            print("press receipt is PARTIAL but all %d pending body URL(s) are tombstoned; "
+                  "not repeating the same-day walk" % count)
+            return result
+    elif receipt.get("status") == "PASS" and receipt.get("pending_body_urls") == 0:
+        return result
+    print("press receipt does not prove complete body attempts; resuming pending work")
+    return None
 
 
 def historical_recovery_run(run_root, expected, source_root):
@@ -78,7 +86,9 @@ def historical_recovery_run(run_root, expected, source_root):
         if not all((run_root / name).is_file() for name in REQUIRED_RUN_FILES):
             return None
         receipt = json.loads((run_root / "press_network_retry_receipt.json").read_text(encoding="utf-8"))
-        source = receipt.get("historical_inventory_source") or {}
+        source = receipt.get("historical_inventory_source") if isinstance(receipt, dict) else None
+        if not isinstance(source, dict):
+            return None
         if (receipt.get("mode") != "historical_body_recovery"
                 or receipt.get("inventory_freshness") != "historical"
                 or receipt.get("collector_sources_sha256") != expected
@@ -112,37 +122,56 @@ def find_rscript():
     return str(sorted(candidates)[-1])
 
 
-def fold_completed_runs(args, when):
-    """Fold every sealed-but-unfolded run into the production baseline.
-
-    Never raises.  See the module docstring for why this is non-fatal.
-    """
-    if not args.fold:
-        print("press baseline fold OFF at %s (set PRESS_BASELINE_FOLD=1 to enable "
-              "incremental collection)" % when)
-        return []
+def kill_process_tree(process):
+    """Best effort: end the child and everything it spawned (Rscript's workers)."""
+    if os.name == "nt":
+        try:
+            subprocess.run(["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                           capture_output=True, check=False, timeout=60)
+            return
+        except (OSError, subprocess.SubprocessError):
+            pass
     try:
-        results = fold_pending(
-            outputs_root=args.outputs_root, baseline_path=args.baseline,
-            receipt_path=args.fold_receipt, skip_errors=True)
+        process.kill()
+    except OSError:
+        pass
+
+
+def run_collector(command, cwd):
+    """Run the R collector to completion and return its exit code.
+
+    Deliberately no timeout here: the caller bounds the step and its own taskkill /T already ends
+    Rscript.  This only covers Ctrl-C or any other BaseException raised in THIS process, which
+    would otherwise leave the child running and still writing the run root.
+    """
+    process = subprocess.Popen(command, cwd=cwd)
+    try:
+        return process.wait()
+    except BaseException:
+        kill_process_tree(process)
+        raise
+
+
+def update_tombstone_ledger(run_root):
+    """Persist the per-step pending-deferral streak once a live walk has sealed.  Never raises.
+
+    The live ledger only folds ROOT/outputs, so any other run root (a test's tmp run) is left
+    alone.  Validators replay the ledger in memory, so a failed persist never changes a verdict.
+    """
+    if Path(run_root).resolve().parent != (Path(ROOT) / "outputs").resolve():
+        return
+    try:
+        from collect.press_pending_tombstones import (
+            tombstoned_keys, tombstoned_members, update,
+        )
+        document = update()
+        print("press tombstone ledger updated: %d sealed run(s) counted, %d URL(s) and %d "
+              "member(s) tombstoned"
+              % (len(document.get("runs_seen") or []), len(tombstoned_keys(document)),
+                 len(tombstoned_members(document))))
     except Exception as error:                           # noqa: BLE001
-        print("PRESS BASELINE FOLD SKIPPED at %s (non-fatal): %s: %s"
-              % (when, type(error).__name__, error))
-        return []
-    if not results:
-        print("press baseline fold at %s: nothing pending" % when)
-        return results
-    for payload in results:
-        if payload.get("status") == "REFUSED":
-            print("PRESS BASELINE FOLD REFUSED at %s for %s (non-fatal, will retry): %s"
-                  % (when, payload["source_run"], payload.get("error")))
-            continue
-        print("press baseline fold at %s: %s %s +%d rows (%s -> %s), "
-              "%s candidate(s) had no stored body"
-              % (when, payload["source_run"], payload["status"], payload["rows_added"],
-                 payload["rows_before"], payload["rows_after"],
-                 payload["candidates_without_stored_body"]))
-    return results
+        print("press tombstone ledger update skipped (non-fatal): %s: %s"
+              % (type(error).__name__, error))
 
 
 def main(argv=None):
@@ -200,7 +229,15 @@ def main(argv=None):
             raise ValueError("historical body recovery requires a separate target run")
         existing_path = run_root / "press_network_retry_receipt.json"
         if existing_path.is_file():
-            existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            try:
+                existing = json.loads(existing_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                raise ValueError("refusing historical body recovery: existing receipt %s is unreadable "
+                                 "or corrupt (%s); inspect or remove it deliberately"
+                                 % (existing_path, error)) from error
+            if not isinstance(existing, dict):
+                raise ValueError("refusing historical body recovery: existing receipt %s is not a JSON "
+                                 "object; inspect or remove it deliberately" % existing_path)
             if existing.get("mode") == "live_network_retry":
                 raise ValueError("historical body recovery cannot replace a fresh-inventory run")
         if historical_recovery_run(run_root, sources, args.retry_from):
@@ -214,11 +251,15 @@ def main(argv=None):
                str(args.workers), str(args.max_delta)]
     if args.retry_from:
         command += ["--retry-from", str(args.retry_from.resolve())]
-    run = subprocess.run(command, cwd=ROOT)
-    if run.returncode:
-        return run.returncode
-    if collector_source_hashes() != sources:
-        raise RuntimeError("press collector source changed during collection; clean retry required")
+    code = run_collector(command, ROOT)
+    if code in (0, 3):
+        # 3 is the walk's own PARTIAL seal, so a source edit during it must be refused too.
+        if collector_source_hashes() != sources:
+            raise RuntimeError("press collector source changed during collection; clean retry required")
+        if not args.retry_from:
+            update_tombstone_ledger(run_root)
+    if code:
+        return code
     if args.retry_from:
         if historical_recovery_run(run_root, sources, args.retry_from) is None:
             raise RuntimeError("targeted recovery lacks a hash-bound historical completion receipt")

@@ -9,6 +9,7 @@ checked; this keeps the dependency-free subset fail closed.
 from __future__ import annotations
 
 from datetime import date, datetime
+import json
 import math
 import re
 from typing import Any, Mapping
@@ -84,9 +85,21 @@ def _is_type(value: Any, type_name: str) -> bool:
         return (
             isinstance(value, (int, float))
             and not isinstance(value, bool)
-            and math.isfinite(value)
+            and not (isinstance(value, float) and not math.isfinite(value))
         )
     raise SchemaValidationError(f"unsupported schema type: {type_name}")
+
+
+def _json_equal(a: Any, b: Any) -> bool:
+    """JSON equality: bool never equals a number; containers compare recursively."""
+
+    if isinstance(a, bool) or isinstance(b, bool):
+        return type(a) is type(b) and a == b
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b))
+    if isinstance(a, Mapping) and isinstance(b, Mapping):
+        return a.keys() == b.keys() and all(_json_equal(a[k], b[k]) for k in a)
+    return a == b
 
 
 def _check_format(value: str, format_name: str, path: str) -> None:
@@ -126,9 +139,9 @@ def validate_instance(
     if not _schema_checked:
         validate_schema_definition(schema)
 
-    if "const" in schema and value != schema["const"]:
+    if "const" in schema and not _json_equal(value, schema["const"]):
         raise SchemaValidationError(f"{path}: value does not match const")
-    if "enum" in schema and value not in schema["enum"]:
+    if "enum" in schema and not any(_json_equal(value, c) for c in schema["enum"]):
         raise SchemaValidationError(f"{path}: value not in enum")
     for child in schema.get("allOf", []):
         validate_instance(value, child, path, _schema_checked=True)
@@ -190,7 +203,7 @@ def validate_instance(
         if maximum_items is not None and len(value) > maximum_items:
             raise SchemaValidationError(f"{path}: more than {maximum_items} items")
         if schema.get("uniqueItems"):
-            fingerprints = [repr(item) for item in value]
+            fingerprints = [json.dumps(item, sort_keys=True) for item in value]
             if len(fingerprints) != len(set(fingerprints)):
                 raise SchemaValidationError(f"{path}: items are not unique")
         item_schema = schema.get("items")
@@ -215,7 +228,7 @@ def validate_instance(
             _check_format(value, format_name, path)
 
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if not math.isfinite(value):
+        if isinstance(value, float) and not math.isfinite(value):
             raise SchemaValidationError(f"{path}: number must be finite")
         minimum = schema.get("minimum")
         if minimum is not None and value < minimum:

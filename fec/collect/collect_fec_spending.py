@@ -422,6 +422,8 @@ def _load_legislators(path):
                 )
         for row_number, row in enumerate(reader, start=2):
             bioguide = _text(row.get("bioguide_id"))
+            if not bioguide:
+                continue
             for candidate_id in _candidate_ids(row.get("fec_ids")):
                 prior = fec_to_bioguide.get(candidate_id)
                 if prior and prior != bioguide:
@@ -429,8 +431,7 @@ def _load_legislators(path):
                         f"legislators.csv row {row_number}: candidate id "
                         f"{candidate_id} maps to both {prior} and {bioguide}"
                     )
-                if bioguide:
-                    fec_to_bioguide[candidate_id] = bioguide
+                fec_to_bioguide[candidate_id] = bioguide
     if not fec_to_bioguide:
         raise IngestError(
             f"legislators.csv yielded 0 fec-id-to-bioguide pairs: {path}"
@@ -557,10 +558,12 @@ def _committee_category_lookups(committee_map):
         by_cycle[(cycle, committee_id)] = categories
         by_committee.setdefault(committee_id, set()).update(categories)
         cycles_by_committee.setdefault(committee_id, set()).add(cycle)
-    multi_cycle_category = sum(
-        len(categories) > 1 and len(cycles_by_committee[committee_id]) > 1
-        for committee_id, categories in by_committee.items()
-    )
+    multi_cycle_category = {
+        committee_id
+        for committee_id, cycles in cycles_by_committee.items()
+        if len({frozenset(by_cycle[(cycle, committee_id)]) for cycle in cycles})
+        > 1
+    }
     return by_cycle, by_committee, multi_cycle_category
 
 
@@ -909,6 +912,8 @@ def _new_receipt():
         "ambiguous_multi_candidate_rows": 0,
         "map_rows_blank_committee_id": 0,
         "eligible_rows_blank_committee_id": 0,
+        "eligible_rows_unmapped_committee": 0,
+        "eligible_unmapped_committee_dollars": ZERO,
         "assoc_sum": ZERO,
         "assoc_authoritative_total": ZERO,
         "assoc_authoritative_available": True,
@@ -924,7 +929,7 @@ def _new_receipt():
         "n_negative_bucket_values": 0,
         "conduit_with_direction_dollars": ZERO,
         "trade_category_cycle_fallbacks": 0,
-        "committees_with_multi_cycle_category": 0,
+        "committees_with_multi_cycle_category": set(),
         "negative_count": 0,
         "negative_sum": ZERO,
         "dates": set(),
@@ -983,7 +988,11 @@ def _load_reconciliation(
         None,
     )
     if overview_name is None:
-        return {"status": "unavailable"}, None
+        raise IngestError(
+            f"{workbook_name}: no overview sheet "
+            f"({' or '.join(OVERVIEW_SHEETS)}); cannot reconcile against "
+            f"Total Giving"
+        )
     ws = workbook[overview_name]
     positions = _headers(
         ws,
@@ -1151,9 +1160,9 @@ def _process_workbook(path, industry, side, fec_to_bioguide):
         receipt["trade_category_cycle_fallbacks"] = associated_stats[
             "trade_category_cycle_fallbacks"
         ]
-        receipt["committees_with_multi_cycle_category"] = associated_stats[
-            "committees_with_multi_cycle_category"
-        ]
+        receipt["committees_with_multi_cycle_category"].update(
+            associated_stats["committees_with_multi_cycle_category"]
+        )
 
         member_aggregates = {}
         total_aggregates = {}
@@ -1261,6 +1270,14 @@ def _process_workbook(path, industry, side, fec_to_bioguide):
                 eligible = category_key in {"candidate", "leadership pac"}
                 if eligible and not committee_id:
                     receipt["eligible_rows_blank_committee_id"] += 1
+                elif (
+                    eligible
+                    and (cycle, committee_id) not in committee_map
+                ):
+                    receipt["eligible_rows_unmapped_committee"] += 1
+                    receipt["eligible_unmapped_committee_dollars"] += (
+                        normalized_amount
+                    )
                 map_entry = (
                     committee_map.get((cycle, committee_id))
                     if committee_id
@@ -1396,13 +1413,13 @@ def _merge_receipts(receipts):
             "ambiguous_multi_candidate_rows",
             "map_rows_blank_committee_id",
             "eligible_rows_blank_committee_id",
+            "eligible_rows_unmapped_committee",
             "n_industry_view_rows",
             "bridge_keys_checked",
             "n_mixed_direction_rows",
             "n_negative_bridge_rows",
             "n_negative_bucket_values",
             "trade_category_cycle_fallbacks",
-            "committees_with_multi_cycle_category",
             "negative_count",
         ):
             merged[key] += receipt[key]
@@ -1410,6 +1427,7 @@ def _merge_receipts(receipts):
             "direct_dollars",
             "sponsor_dollars",
             "unattributed_dollars",
+            "eligible_unmapped_committee_dollars",
             "assoc_sum",
             "assoc_authoritative_total",
             "conduit_with_direction_dollars",
@@ -1426,6 +1444,7 @@ def _merge_receipts(receipts):
             "assoc_sitting_bioguides",
             "assoc_nonmember_candidate_ids",
             "assoc_company_values",
+            "committees_with_multi_cycle_category",
         ):
             merged[key].update(receipt[key])
         merged["assoc_authoritative_available"] = (
@@ -1478,6 +1497,12 @@ def _finalize_receipt(receipt):
         "eligible_rows_blank_committee_id": receipt[
             "eligible_rows_blank_committee_id"
         ],
+        "eligible_rows_unmapped_committee": receipt[
+            "eligible_rows_unmapped_committee"
+        ],
+        "eligible_unmapped_committee_dollars": _money_number(
+            receipt["eligible_unmapped_committee_dollars"]
+        ),
         "assoc_sum": _money_number(receipt["assoc_sum"]),
         "fanout_ratio": fanout_ratio,
         "n_industry_view_rows": receipt["n_industry_view_rows"],
@@ -1500,9 +1525,9 @@ def _finalize_receipt(receipt):
         "trade_category_cycle_fallbacks": receipt[
             "trade_category_cycle_fallbacks"
         ],
-        "committees_with_multi_cycle_category": receipt[
-            "committees_with_multi_cycle_category"
-        ],
+        "committees_with_multi_cycle_category": len(
+            receipt["committees_with_multi_cycle_category"]
+        ),
         "negative_amount_rows": {
             "count": receipt["negative_count"],
             "sum": _money_number(receipt["negative_sum"]),
@@ -1655,9 +1680,14 @@ def _run(args):
                 specification["side"],
                 fec_to_bioguide,
             )
-        finally:
+        except Exception as exc:
             if _file_md5(path) != starting_md5:
-                raise IngestError(f"input changed mid-run: {path}")
+                raise IngestError(
+                    f"input changed mid-run: {path} (while processing: {exc})"
+                ) from exc
+            raise
+        if _file_md5(path) != starting_md5:
+            raise IngestError(f"input changed mid-run: {path}")
         inventory["md5"] = starting_md5
         workbook_manifest[industry] = inventory
         all_member_aggregates.update(member_aggregates)

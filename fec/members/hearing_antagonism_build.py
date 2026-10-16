@@ -69,7 +69,8 @@ PROC = re.compile(r"reclaim\w+ my time|regular order|point of order|regain my ti
 
 # Administration party by date (for the hostile-witness POLITICAL control: opposing-admin grilling =
 # constituent-grievance performance, not disposition).
-ADMIN = [('2017-01-20', '2021-01-20', 'R'), ('2021-01-20', '2025-01-20', 'D')]
+ADMIN = [('2017-01-20', '2021-01-20', 'R'), ('2021-01-20', '2025-01-20', 'D'),
+         ('2025-01-20', '2029-01-20', 'R')]
 def admin_party(date):
     for a, b, p in ADMIN:
         if a <= date < b: return p

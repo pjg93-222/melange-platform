@@ -827,6 +827,322 @@ class OddYearTests(unittest.TestCase):
         self.assertEqual(agg['cycles']['2024'], 1504900)                                          # the blank-dated receipt is still in the cycle total
 
 
+class ZeroCycleGuardTests(unittest.TestCase):
+    """Existing zero-valued cycles are evidence; missing cycles are not invented."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.world = World(self.tmp.name)
+
+    def edit_index(self, *, absent=False, manifest_delta=0):
+        db = sqlite3.connect(self.world.index)
+        try:
+            if absent:
+                db.execute("DELETE FROM facts WHERE cycle='2021-2022'")
+            else:
+                db.execute("UPDATE facts SET receipt_cents=0 WHERE cycle='2021-2022'")
+            manifest = json.loads(db.execute("SELECT value FROM metadata WHERE key='manifest'").fetchone()[0])
+            if absent:
+                del manifest['receipt_cycles']['2021-2022']
+            else:
+                manifest['receipt_cycles']['2021-2022'] = manifest_delta
+            db.execute("UPDATE metadata SET value=? WHERE key='manifest'", (json.dumps(manifest),))
+            db.commit()
+        finally:
+            db.close()
+
+    def side(self):
+        ctx = dict(project_root=self.world.project, report_dir=self.world.report,
+                   index_dir=self.world.project / ms.STATE_INDEX_DIR, hashes={})
+        return bga.mentat_side(self.world.registry['industries'][0], ctx)
+
+    def test_a_valid_all_zero_cycle_survives_aggregation_and_the_manifest_guard(self):
+        self.edit_index()
+        agg = self.side()['agg']
+        self.assertEqual(agg['analysis_cycles']['2022'], 0)
+        self.assertEqual(agg['cycles']['2022'], 0)
+        self.assertEqual(agg['excluded']['2022'], 0)
+        self.assertEqual(agg['analysis_cycles']['2026'], 280000)
+
+    def test_an_absent_cycle_is_not_created_as_a_proven_zero(self):
+        self.edit_index(absent=True)
+        agg = self.side()['agg']
+        for measure in ('analysis_cycles', 'cycles', 'excluded'):
+            self.assertNotIn('2022', agg[measure])
+
+    def test_a_nonzero_manifest_claim_for_the_zero_cycle_is_still_refused(self):
+        self.edit_index(manifest_delta=1)
+        with self.assertRaisesRegex(bga.Unavailable, 'not trustworthy'):
+            self.side()
+
+
+class MissingEvidenceTests(unittest.TestCase):
+    def test_blank_and_null_index_dates_keep_cycle_money_outside_observed_cuts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            world = World(tmp)
+            db = sqlite3.connect(world.index)
+            try:
+                db.execute("UPDATE facts SET date='' WHERE source_id='11'")
+                db.execute("UPDATE facts SET date=NULL WHERE source_id='12'")
+                db.commit()
+            finally:
+                db.close()
+            cuts = ['2025-03-31', '2026-06-30']
+            agg = ms.index_aggregates(world.index, world.source_db, 2026, cuts)
+            self.assertEqual(agg['analysis_cycles']['2026'], 280000)
+            self.assertEqual(agg['cycles']['2026'], 280000)
+            self.assertEqual(agg['general_cuts'], [('2025-03-31', 0), ('2026-06-30', 130000)])
+            early, june = [blocks for _, blocks in agg['candidate_cuts']]
+            self.assertEqual(sum(early[ch][p] for ch in ('House', 'Senate') for p in ('D', 'R', 'other')), 0)
+            self.assertEqual(june['House']['D'], 70000)
+            self.assertEqual(june['House']['R'], 0)
+            self.assertEqual(june['Senate']['R'], 60000)
+            self.assertEqual(agg['candidates']['2026']['House']['D'], 100000)
+            self.assertEqual(agg['candidates']['2026']['House']['R'], 40000)
+
+    def test_pas2_dates_require_a_real_calendar_day(self):
+        cases = {'02292024': '2024-02-29', '01012026': '2026-01-01',
+                 '12312026': '2026-12-31', '02292026': '', '02302026': '',
+                 '04312026': '', '13012026': '', '00012026': '',
+                 '01002026': '', '01010000': '', '1012026': '', '': ''}
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(fec_pas2.iso(value), expected)
+
+    def test_impossible_pas2_date_keeps_cycle_dollars_but_not_an_observed_cut(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'itpas2.txt'
+            write_text(path, [pas2_line('C00000001', '24K', 1000, 'H2AA00001', '02302026', 'U1', 1, 9001),
+                              pas2_line('C00000001', '24K', 200, 'H2AA00001', '03152026', 'U2', 1, 9002)])
+            block = fec_pas2.aggregate_file(path, '26', {('H2AA00001', '26'): 'DEM'},
+                {'C00000001': ['x']}, {'x': ['2026-02-28', '2026-03-31']})['x']
+            self.assertEqual(block['totals']['all_recipients'], 120000)
+            self.assertEqual(block['cuts']['2026-02-28']['all_recipients'], 0)
+            self.assertEqual(block['cuts']['2026-03-31']['all_recipients'], 20000)
+            self.assertEqual(block['undated_cents'], 100000)
+
+    def test_missing_pas2_amount_is_refused_instead_of_invented_zero(self):
+        for amount in ('', '   '):
+            with self.subTest(amount=amount), tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / 'itpas2.txt'
+                write_text(path, [pas2_line('C00000001', '24K', amount, 'H2AA00001', '03152026', 'A1', 1, 9001)])
+                with self.assertRaisesRegex(ValueError, 'missing TRANSACTION_AMT'):
+                    fec_pas2.aggregate_file(path, '26', {}, {'C00000001': ['x']})
+
+    def test_explicit_zero_and_signed_refund_keep_the_existing_amount_arithmetic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'itpas2.txt'
+            write_text(path, [pas2_line('C00000001', '24K', 0, 'H2AA00001', '03152026', 'A0', 1, 9000),
+                              pas2_line('C00000001', '24K', -100, 'H2AA00001', '03152026', 'A1', 1, 9001),
+                              pas2_line('C00000001', '24K', 200, 'H2AA00001', '03152026', 'A2', 1, 9002)])
+            block = fec_pas2.aggregate_file(path, '26', {('H2AA00001', '26'): 'DEM'}, {'C00000001': ['x']})['x']
+            self.assertEqual(block['totals']['all_recipients'], 10000)
+            self.assertEqual(block['totals']['House']['D'], 10000)
+
+
+class WorkProgressTests(unittest.TestCase):
+    ROWS = [(2026, 1, 1, 'parent', 'Fixture', 'employer', 10),
+            (2026, 1, 0, 'parent::window::01', 'Fixture', 'employer', 4),
+            (2026, 1, 0, 'parent::window::02', 'Fixture', 'employer', 6)]
+
+    def counts(self, rows, cycle=2026, legacy=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'source.sqlite'
+            db = sqlite3.connect(path)
+            try:
+                columns = 'cycle INTEGER, fetched_complete INTEGER, stored_complete INTEGER'
+                if not legacy:
+                    columns += ', unit_id TEXT, company TEXT, kind TEXT, rows_seen INTEGER'
+                db.execute('CREATE TABLE api_work_progress(' + columns + ')')
+                db.executemany('INSERT INTO api_work_progress VALUES (' + ','.join('?' for _ in rows[0]) + ')', rows)
+                db.commit()
+            finally:
+                db.close()
+            return ms.work_progress(path, cycle)
+
+    def test_verified_window_children_are_stored_once_by_the_exact_parent(self):
+        self.assertEqual(self.counts(self.ROWS), {'fetched_complete': 1, 'stored_complete': 1, 'units': 1})
+
+    def test_orphan_mismatch_unstored_parent_and_partial_children_stay_visible(self):
+        cases = {'orphan': self.ROWS[1:],
+                 'different_rows': [self.ROWS[0][:-1] + (11,), *self.ROWS[1:]],
+                 'unstored_parent': [(2026, 1, 0, *self.ROWS[0][3:]), *self.ROWS[1:]],
+                 'partial_child': [self.ROWS[0], (2026, 0, 0, *self.ROWS[1][3:]), self.ROWS[2]],
+                 'null_child': [self.ROWS[0], (2026, None, 0, *self.ROWS[1][3:]), self.ROWS[2]],
+                 'null_child_count': [self.ROWS[0], self.ROWS[1][:-1] + (None,), self.ROWS[2][:-1] + (10,)],
+                 'invalid_child_count': [self.ROWS[0], self.ROWS[1][:-1] + ('invalid',), self.ROWS[2][:-1] + (10,)],
+                 'negative_child_count': [self.ROWS[0], self.ROWS[1][:-1] + (-4,), self.ROWS[2][:-1] + (14,)],
+                 'noninteger_child_count': [self.ROWS[0], self.ROWS[1][:-1] + (4.5,), self.ROWS[2][:-1] + (5.5,)],
+                 'null_parent_count': [self.ROWS[0][:-1] + (None,), *self.ROWS[1:]],
+                 'invalid_parent_count': [self.ROWS[0][:-1] + ('invalid',), *self.ROWS[1:]],
+                 'negative_parent_count': [self.ROWS[0][:-1] + (-10,), *self.ROWS[1:]]}
+        for label, rows in cases.items():
+            with self.subTest(label=label):
+                self.assertEqual(self.counts(rows)['units'], len(rows))
+
+    def test_a_parent_does_not_cover_children_of_another_company_kind_or_cycle(self):
+        for position, value in ((4, 'Other company'), (5, 'corporate'), (0, 2024)):
+            rows = [self.ROWS[0]]
+            for source in self.ROWS[1:]:
+                child = list(source)
+                child[position] = value
+                rows.append(tuple(child))
+            with self.subTest(position=position):
+                cycle = 2024 if position == 0 else 2026
+                self.assertEqual(self.counts(rows, cycle)['units'], 2 if cycle == 2024 else 3)
+
+    def test_legacy_three_column_progress_keeps_its_existing_counts(self):
+        self.assertEqual(self.counts([(2026, 1, 1), (2026, 1, 0)], legacy=True),
+                         {'fetched_complete': 2, 'stored_complete': 1, 'units': 2})
+
+    def test_an_incomplete_counter_is_not_labeled_as_proof_of_low_giving(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap, _ = World(tmp).build()
+            flags = ' '.join(snap['industries']['commercial_banks']['coverage']['flags'])
+            self.assertNotIn('probably low', flags)
+            self.assertIn('do not establish literal-query or whole-industry coverage', flags)
+
+
+class CandidateConflictTests(unittest.TestCase):
+    def world(self, base, extras):
+        class ConflictWorld(World):
+            def _source_db(self):
+                super()._source_db()
+                db = sqlite3.connect(self.source_db)
+                try:
+                    db.executemany('INSERT INTO corporate_giving VALUES (?,?,?,?)',
+                        [(sid, kind, self.SCRAPED, 'Banking') for sid, kind in extras])
+                    db.commit()
+                finally:
+                    db.close()
+                self.db_sha = ms.sha256_file(self.source_db)
+        return ConflictWorld(base)
+
+    def test_relevant_conflict_withholds_candidate_basis_and_preserves_all_general_money(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as control:
+            world = self.world(tmp, [(1, 'S'), (7, 'S')])
+            before = ms.sha256_file(world.source_db)
+            snap, _ = world.build()
+            expected, _ = World(control).build()
+            ind = snap['industries']['commercial_banks']
+            candidate = ind['candidate_receipts']
+            self.assertEqual(ind['general_giving'], expected['industries']['commercial_banks']['general_giving'])
+            self.assertEqual(ind['pac_to_candidates'], expected['industries']['commercial_banks']['pac_to_candidates'])
+            self.assertEqual(candidate['status'], 'unavailable')
+            self.assertEqual(ind['status']['candidate_receipts'], 'unavailable')
+            self.assertEqual((candidate['cycles'], candidate['observed'], candidate['thin_base']), ({}, [], {}))
+            self.assertIn('2 included receipts', candidate['reason'])
+            self.assertIn('$950.00 net', candidate['reason'])
+            self.assertIn('$1,050.00 gross', candidate['reason'])
+            self.assertEqual(contract.validate_kind(snap, 'anchors') or contract.check_anchor_invariants(snap), [])
+            self.assertEqual(ms.sha256_file(world.source_db), before)
+
+    def test_a_house_type_competing_with_a_non_candidate_type_is_not_silently_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snap, _ = self.world(tmp, [(1, 'P')]).build()
+            self.assertEqual(snap['industries']['commercial_banks']['candidate_receipts']['status'], 'unavailable')
+
+    def test_unrelated_zero_non_giving_and_non_candidate_conflicts_do_not_hold_the_basis(self):
+        for extra in ([(900, 'H'), (900, 'S')], [(9, 'S')], [(8, 'S')], [(5, 'Q')]):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as control:
+                snap, _ = self.world(tmp, extra).build()
+                expected, _ = World(control).build()
+                candidate = snap['industries']['commercial_banks']['candidate_receipts']
+                self.assertEqual(candidate['status'], 'ready')
+                self.assertEqual(candidate['cycles'], expected['industries']['commercial_banks']['candidate_receipts']['cycles'])
+                self.assertFalse(any('conflicting recipient' in flag for flag in snap['industries']['commercial_banks']['flags']))
+
+    def test_repeated_agreeing_type_does_not_multiply_or_withhold_receipts(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as control:
+            snap, _ = self.world(tmp, [(1, 'H')]).build()
+            expected, _ = World(control).build()
+            self.assertEqual(snap['industries']['commercial_banks']['candidate_receipts'],
+                             expected['industries']['commercial_banks']['candidate_receipts'])
+
+    def test_all_funding_sources_except_non_giving_keep_the_same_receipt_basis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            world = World(tmp)
+            db = sqlite3.connect(world.index)
+            try:
+                db.execute("UPDATE facts SET funding_source='organization_unverified' WHERE source_id='1'")
+                db.commit()
+            finally:
+                db.close()
+            snap, _ = world.build()
+            candidate = snap['industries']['commercial_banks']['candidate_receipts']
+            self.assertEqual(candidate['cycles']['2024']['House']['D'], 950.0)
+            self.assertIn('all funding sources', candidate['basis'])
+            self.assertIn('funding identity is not necessarily verified', candidate['basis'])
+            self.assertNotIn("Employees'", candidate['basis'])
+
+
+class TelemetryTests(unittest.TestCase):
+    def test_progress_is_flushed_before_the_event_filesystem_is_touched(self):
+        with patch.object(bga.glassbox, 'emit', return_value=None) as event, patch('builtins.print') as output:
+            def check_order(*args, **kwargs):
+                self.assertTrue(output.called)
+                self.assertTrue(output.call_args.kwargs['flush'])
+            event.side_effect = check_order
+            run = bga.glassbox.Run('fixture', progress=True)
+            run.start('start')
+            run.stage_start('read')
+            run.stage_finish('read')
+            run.finish('done')
+            rows = [json.loads(call.args[0]) for call in output.call_args_list]
+            self.assertEqual([row['kind'] for row in rows], ['run.start', 'stage.start', 'stage.finish', 'run.finish'])
+            self.assertTrue(all(row['elapsed_seconds'] >= 0 for row in rows))
+            self.assertTrue(all(row['duration_ms'] >= 0 for row in rows if row['kind'].endswith('finish')))
+
+    def test_library_calls_remain_quiet_and_failed_active_stages_are_closed(self):
+        with patch.object(bga.glassbox, 'emit', return_value=None) as event, patch('builtins.print') as output:
+            run = bga.glassbox.Run('fixture')
+            run.start('start'); run.stage_start('outer'); run.stage_start('inner'); run.fail('failure')
+            self.assertFalse(output.called)
+            finishes = [(call.args[0], call.args[1], call.args[2]) for call in event.call_args_list][-3:]
+            self.assertEqual(finishes, [('stage.finish', 'failed', 'inner'), ('stage.finish', 'failed', 'outer'), ('run.finish', 'failed', 'failure')])
+
+    def test_each_saved_input_read_has_a_named_start_and_finish_without_changing_the_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            world = World(tmp)
+            ctx = dict(project_root=world.project, report_dir=world.report, index_dir=world.project / ms.STATE_INDEX_DIR, hashes={})
+            expected = bga.mentat_side(world.registry['industries'][0], ctx)
+            with patch.object(bga.glassbox, 'emit', return_value=None), patch('builtins.print') as output:
+                ctx['run'] = bga.glassbox.Run('fixture', progress=True); ctx['run'].start('fixture')
+                actual = bga.mentat_side(world.registry['industries'][0], ctx)
+            self.assertEqual(actual, expected)
+            rows = [json.loads(call.args[0]) for call in output.call_args_list]
+            names = [row['stage'] for row in rows if row['kind']=='stage.start']
+            self.assertEqual([name.rsplit(':', 1)[-1] for name in names], ['workbook_hash', 'index_selection', 'source_db_hash', 'collection_date', 'index_aggregation', 'work_progress'])
+            self.assertEqual(names, [row['stage'] for row in rows if row['kind']=='stage.finish'])
+
+    def test_a_failed_input_stage_and_bad_registry_produce_a_flushed_failure(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(bga.glassbox, 'emit', return_value=None), patch('builtins.print') as output:
+            world = World(tmp)
+            run = bga.glassbox.Run('fixture', progress=True); run.start('fixture')
+            ctx = dict(project_root=world.project, report_dir=world.report, index_dir=world.project / ms.STATE_INDEX_DIR, hashes={}, run=run)
+            with patch.object(ms, 'find_source_db', side_effect=ValueError('fixture refusal')):
+                with self.assertRaisesRegex(ValueError, 'fixture refusal'):
+                    bga.mentat_side(world.registry['industries'][0], ctx)
+            rows = [json.loads(call.args[0]) for call in output.call_args_list]
+            self.assertEqual((rows[-1]['kind'], rows[-1]['status']), ('stage.finish', 'failed'))
+            self.assertTrue(rows[-1]['stage'].endswith(':source_db_hash'))
+            output.reset_mock()
+            with self.assertRaises(FileNotFoundError):
+                bga.run_build(world.project, registry_path=world.base/'absent.json', progress=True)
+            rows = [json.loads(call.args[0]) for call in output.call_args_list]
+            self.assertEqual((rows[0]['kind'], rows[-1]['kind'], rows[-1]['status']), ('run.start', 'run.finish', 'failed'))
+
+    def test_the_cli_enables_progress_but_check_retains_its_single_json_document(self):
+        with patch.object(bga, 'run_build', return_value=(Path('fixture'), {'snapshot_sha256':'0'*64}, {'industries':{}, 'unavailable':{}})) as build, patch('builtins.print'):
+            self.assertEqual(bga.main(['--project-root','.']), 0)
+            self.assertTrue(build.call_args.kwargs['progress'])
+        with patch.object(bga, 'check_fresh', return_value={'fixture':'fresh'}), patch('builtins.print') as output:
+            self.assertEqual(bga.main(['--check','--project-root','.','--report-directory','.']), 0)
+            self.assertEqual(len(output.call_args_list), 1)
+            self.assertEqual(json.loads(output.call_args.args[0]), {'fixture':'fresh'})
+
+
 class PartsTests(unittest.TestCase):
     def test_an_undated_fec_row_is_in_the_cycle_total_and_in_no_observed_cut(self):
         with tempfile.TemporaryDirectory() as tmp:

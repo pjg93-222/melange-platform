@@ -1806,10 +1806,19 @@ completed_scrape_checkpoint <- function(
   if (!nzchar(resume_after)) {
     return(NULL)
   }
+  # Pre-migration callers have no verification stamp; preserve positive
+  # resume points while treating their zero checkpoints as unverified.
+  zero_verified_column <- if ("zero_verified" %in%
+      DBI::dbListFields(connection, "scrape_progress")) {
+    "zero_verified"
+  } else {
+    "0 AS zero_verified"
+  }
   progress <- data.table::as.data.table(DBI::dbGetQuery(
     connection,
     paste(
-      "SELECT last_page, records_total, updated_at FROM scrape_progress",
+    "SELECT last_page, records_total, updated_at,",
+    zero_verified_column, "FROM scrape_progress",
       "WHERE company = ? AND cycle = ? AND variant_set = ?",
       "AND updated_at >= ?"
     ),
@@ -1821,6 +1830,12 @@ completed_scrape_checkpoint <- function(
     )
   ))
   if (!nrow(progress)) {
+    return(NULL)
+  }
+  # A legacy empty checkpoint does not prove the query was empty.
+  # Nonzero legacy checkpoints retain their existing resume behavior.
+  if (isTRUE(as.integer(progress$records_total[[1L]]) == 0L) &&
+      !isTRUE(as.integer(progress$zero_verified[[1L]]) == 1L)) {
     return(NULL)
   }
   final_page <- max(
@@ -1898,6 +1913,7 @@ collect_employer_set <- function(
     match_overrides <- company_match_overrides_data(connection)
   }
   fec_walk_variant_set(
+    evidence_connection = connection,
     session = session,
     company = company,
     cycle = cycle,
@@ -3070,6 +3086,7 @@ collect_contributor_name_pass <- function(
       probe_processed <- FALSE
       executed <- executed + 1L
       probe <- fec_walk_variant_set(
+        evidence_connection = connection,
         session = session,
         company = company,
         cycle = cycle,
@@ -3153,6 +3170,7 @@ collect_contributor_name_pass <- function(
       }
       executed <- executed + 1L
       result <- fec_walk_variant_set(
+        evidence_connection = connection,
         session = session,
         company = company,
         cycle = cycle,
@@ -3295,6 +3313,7 @@ collect_company_contributor_pass <- function(
     }
     executed <- executed + 1L
     result <- fec_walk_variant_set(
+      evidence_connection = connection,
       session = session,
       company = company,
       cycle = cycle,

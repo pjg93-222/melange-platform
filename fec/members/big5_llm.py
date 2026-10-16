@@ -241,6 +241,8 @@ print('chunks to score: %d (%d members with any genre coverage)' % (
 
 if '--limit' in sys.argv:
     items = items[:int(sys.argv[sys.argv.index('--limit') + 1])]
+    OUT = OUT.replace('.json', '_limit.json')   # smoke run: z-scored within a tiny pool; never overwrite the production artifact
+    print('--limit: writing to %s; production artifact untouched' % OUT)
 cache = {}
 if os.path.exists(CACHE):
     for ln in open(CACHE, encoding='utf-8'):

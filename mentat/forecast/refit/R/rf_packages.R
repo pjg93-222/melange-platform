@@ -71,7 +71,7 @@ rf_record_rlib_platform <- function(target = rf_rlib_dir(), packages = RF_VENDOR
 }
 
 # Verification table per recorded file: package, file, expected, actual, status in ok / mismatch / missing / unrecorded_platform,
-# and ok (TRUE when the file matches, or when the platform has no recorded hashes and only the version can be checked).
+# and ok (TRUE when the file matches, or when no hashes are recorded for the library's Built OS nor for R's own platform and only the version can be checked).
 rf_verify_rlib <- function(target = rf_rlib_dir(), manifest_path = rf_rlib_manifest_path()) {
   man <- jsonlite::fromJSON(manifest_path, simplifyVector = FALSE)$packages
   rows <- list()
@@ -83,7 +83,7 @@ rf_verify_rlib <- function(target = rf_rlib_dir(), manifest_path = rf_rlib_manif
     have <- if (here) rf_rlib_hash_tree(file.path(target, p)) else character()
     if (is.null(ent)) {
       rows[[length(rows) + 1L]] <- data.frame(package = p, file = "DESCRIPTION (Version)", expected = man[[p]]$version, actual = ver,
-                                              status = "unrecorded_platform", ok = identical(ver, man[[p]]$version), stringsAsFactors = FALSE)
+                                              status = "unrecorded_platform", ok = identical(ver, man[[p]]$version) && is.null(man[[p]]$platforms[[RF_PLATFORM()]]), stringsAsFactors = FALSE)
       next
     }
     for (f in names(ent$files)) {

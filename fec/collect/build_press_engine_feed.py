@@ -47,30 +47,59 @@ def read_csv(path):
         return list(csv.DictReader(handle))
 
 
-def atomic_csv(path, fields, rows):
+def _tmp(path):
+    path = Path(path)
+    return path.with_name(path.name + ".%d.tmp" % os.getpid())
+
+
+def _discard(*paths):
+    for path in paths:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+
+
+def _rel(path):
+    """``path`` relative to ROOT in posix form; a path on another drive has no relative form, so it stays absolute."""
+    try:
+        return os.path.relpath(path, ROOT).replace("\\", "/")
+    except ValueError:
+        return Path(path).resolve().as_posix()
+
+
+# replace=False writes only the tmp file and returns its path, so a caller can hash every
+# output, then os.replace them together; the default replaces at once.
+def atomic_csv(path, fields, rows, replace=True):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
+    tmp = _tmp(path)
     with io.open(tmp, "w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader(); writer.writerows(rows)
+    if not replace:
+        return tmp
     os.replace(tmp, path)
 
 
-def atomic_json(path, payload):
+def atomic_json(path, payload, replace=True):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
+    tmp = _tmp(path)
     with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
+    if not replace:
+        return tmp
     os.replace(tmp, path)
 
 
-def atomic_jsonl(path, rows):
+def atomic_jsonl(path, rows, replace=True):
     path = Path(path); path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".%d.tmp" % os.getpid())
+    tmp = _tmp(path)
     with io.open(tmp, "w", encoding="utf-8", newline='\r\n') as handle:
         for row in rows:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
+    if not replace:
+        return tmp
     os.replace(tmp, path)
 
 
@@ -158,14 +187,18 @@ def validate_body_completion(path, receipt, *, require_complete=False):
                 raise ValueError("inconsistent revisit counts or bounds")
         except (OSError, ValueError) as exc:
             raise ReceiptRejected("BODY_ATTEMPT_LEDGER_MISMATCH", str(exc)) from exc
-    if receipt.get("schema_version", 0) >= 2:
+    schema_version = receipt.get("schema_version", 0)
+    if type(schema_version) is not int:
+        raise ReceiptRejected("RECEIPT_SCHEMA_VERSION_INVALID", "schema_version=%r" % (schema_version,))
+    if schema_version >= 2:
         coverage_path = Path(path) / "press_official_coverage.json"
         historical_path = Path(path) / "press_historical_maintenance.csv"
         try:
             if receipt.get("official_coverage_sha256") != sha256_file(coverage_path):
                 raise ValueError("official coverage artifact hash does not match")
             coverage = json.loads(coverage_path.read_text(encoding="utf-8"))
-            if (coverage.get("schema") != "official-current-inventory-snapshot-v1"
+            if (not isinstance(coverage, dict)
+                    or coverage.get("schema") != "official-current-inventory-snapshot-v1"
                     or type(coverage.get("member_count")) is not int
                     or type(coverage.get("current_url_count")) is not int
                     or not isinstance(coverage.get("members"), list)
@@ -195,6 +228,8 @@ def validate_body_completion(path, receipt, *, require_complete=False):
                         or len(proof["current_url_set_sha256"]) != 64):
                     raise ValueError("invalid official current URL-set hash")
                 complete = proof.get("completeness") or {}
+                if not isinstance(complete, dict):
+                    raise ValueError("official coverage completeness is not an object")
                 if not all(complete.get(name) is True for name in (
                         "pagination_complete", "date_order_verified", "identity_complete")):
                     raise ValueError("official coverage completeness flag is false")
@@ -252,7 +287,8 @@ def validate_body_completion(path, receipt, *, require_complete=False):
                     or receipt["historical_maintenance_selected"] > len(historical)
                     or receipt["historical_maintenance_selected"] > receipt.get("revisit_selected_urls", -1)):
                 raise ValueError("historical maintenance counts are inconsistent")
-        except (OSError, UnicodeError, ValueError, TypeError, json.JSONDecodeError, csv.Error) as exc:
+        except (OSError, UnicodeError, ValueError, TypeError, AttributeError,
+                json.JSONDecodeError, csv.Error) as exc:
             raise ReceiptRejected("OFFICIAL_COVERAGE_PROOF_MISMATCH", str(exc)) from exc
     return completion
 
@@ -378,10 +414,12 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
     if not intake_receipt_path.is_file():
         raise RuntimeError("collection intake receipt is required before press feed publication")
     intake = json.loads(intake_receipt_path.read_text(encoding="utf-8"))
-    if (intake.get("schema") != "collection-intake-receipt-v1" or
+    if (not isinstance(intake, dict) or intake.get("schema") != "collection-intake-receipt-v1" or
             intake.get("status") != "ACCEPTED"):
         raise RuntimeError("collection intake receipt is not an accepted gate receipt")
     intake_inputs = intake.get("inputs") or {}
+    if not isinstance(intake_inputs, dict):
+        raise RuntimeError("collection intake receipt lacks the audited press delta root")
     retry_path = root / "press_network_retry_receipt.json"
     retry_sha256 = sha256_file(retry_path)
     try:
@@ -392,7 +430,8 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
         raise RuntimeError("press feed source does not match the collection intake audit")
     if intake_inputs.get("press_retry_receipt_sha256") != retry_sha256:
         raise RuntimeError("press retry receipt is not hash-bound to the collection intake audit")
-    if (intake.get("press_delta") or {}).get("live_network_retry_receipt_valid") is not True:
+    press_delta = intake.get("press_delta") or {}
+    if not isinstance(press_delta, dict) or press_delta.get("live_network_retry_receipt_valid") is not True:
         raise RuntimeError("collection intake did not accept the press retry receipt")
     source_names = (
         "press_delta_scored.csv", "press_delta_host_articles.csv",
@@ -402,6 +441,8 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
     if intake_inputs.get("press_source_sha256") != source_sha256:
         raise RuntimeError("press feed sources are not hash-bound to the collection intake audit")
     retry = json.loads(retry_path.read_text(encoding="utf-8"))
+    if not isinstance(retry, dict):
+        raise RuntimeError("collection intake did not accept the press retry receipt")
     hosts = read_csv(root / "press_delta_host_articles.csv")
     mentions = read_csv(root / "press_delta_article_mentions.csv")
     scored = read_csv(root / "press_delta_scored.csv")
@@ -457,39 +498,47 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
     if {name: sha256_file(root / name) for name in source_names} != source_sha256:
         raise RuntimeError("press feed sources changed while the feed was being built")
 
-    atomic_csv(tone_output, TONE_FIELDS, tone)
-    atomic_jsonl(fulltext_output, fulltext)
-    atomic_jsonl(mentions_output, typed_mentions)
-    receipt = {
-        "schema": "press-refresh-engine-feed-v1", "status": "ACTIVE_TYPED_SUPPLEMENT",
-        "generated_at": datetime.now(timezone.utc).isoformat(), "source_run": str(root.resolve()),
-        "source_retry_completed_at": retry.get("completed_at"),
-        "collection_intake": {
-            "path": str(intake_receipt_path.resolve()),
-            "sha256": sha256_file(intake_receipt_path),
-            "generated_at": intake.get("generated_at"),
-        },
-        "contract": {
-            "scored_host_articles_enter_press_stance": True,
-            "official_mentions_enter_press_stance": False,
-            "official_mentions_enter_speech_turns": False,
-            "official_mentions_are_reference_discovery_only": True,
-            "historical_corpus_precedence_on_exact_collision": True,
-        },
-        "counts": {"tone_rows": len(tone), "fulltext_rows": len(fulltext),
-                   "official_mentions": len(typed_mentions),
-                   "official_mentions_with_unique_host_member": host_resolved},
-        "source_sha256": {
-            **source_sha256,
-            "press_network_retry_receipt.json": retry_sha256,
-        },
-        "outputs_sha256": {
-            os.path.relpath(tone_output, ROOT).replace("\\", "/"): sha256_file(tone_output),
-            os.path.relpath(fulltext_output, ROOT).replace("\\", "/"): sha256_file(fulltext_output),
-            os.path.relpath(mentions_output, ROOT).replace("\\", "/"): sha256_file(mentions_output),
-        },
-    }
-    atomic_json(receipt_output, receipt)
+    # Stage every file, hash the staged bytes, then replace the outputs and the receipt last,
+    # so a crash cannot leave new outputs beside the previous generation's receipt.
+    finals = (tone_output, fulltext_output, mentions_output, receipt_output)
+    try:
+        tone_tmp = atomic_csv(tone_output, TONE_FIELDS, tone, replace=False)
+        fulltext_tmp = atomic_jsonl(fulltext_output, fulltext, replace=False)
+        mentions_tmp = atomic_jsonl(mentions_output, typed_mentions, replace=False)
+        receipt = {
+            "schema": "press-refresh-engine-feed-v1", "status": "ACTIVE_TYPED_SUPPLEMENT",
+            "generated_at": datetime.now(timezone.utc).isoformat(), "source_run": str(root.resolve()),
+            "source_retry_completed_at": retry.get("completed_at"),
+            "collection_intake": {
+                "path": str(intake_receipt_path.resolve()),
+                "sha256": sha256_file(intake_receipt_path),
+                "generated_at": intake.get("generated_at"),
+            },
+            "contract": {
+                "scored_host_articles_enter_press_stance": True,
+                "official_mentions_enter_press_stance": False,
+                "official_mentions_enter_speech_turns": False,
+                "official_mentions_are_reference_discovery_only": True,
+                "historical_corpus_precedence_on_exact_collision": True,
+            },
+            "counts": {"tone_rows": len(tone), "fulltext_rows": len(fulltext),
+                       "official_mentions": len(typed_mentions),
+                       "official_mentions_with_unique_host_member": host_resolved},
+            "source_sha256": {
+                **source_sha256,
+                "press_network_retry_receipt.json": retry_sha256,
+            },
+            "outputs_sha256": {
+                _rel(tone_output): sha256_file(tone_tmp),
+                _rel(fulltext_output): sha256_file(fulltext_tmp),
+                _rel(mentions_output): sha256_file(mentions_tmp),
+            },
+        }
+        atomic_json(receipt_output, receipt, replace=False)
+        for final in finals:
+            os.replace(_tmp(final), final)
+    finally:
+        _discard(*(_tmp(final) for final in finals))
     return receipt
 
 
@@ -508,7 +557,8 @@ def _accepted_intake_receipts(current_receipt, receipt_dir):
             document = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise RuntimeError("accepted press receipt is unreadable: %s" % path) from exc
-        if (document.get("schema") != "collection-intake-receipt-v1"
+        if (not isinstance(document, dict)
+                or document.get("schema") != "collection-intake-receipt-v1"
                 or document.get("status") != "ACCEPTED"):
             if path == current_receipt:
                 raise RuntimeError("collection intake receipt is not an accepted gate receipt")
@@ -535,6 +585,8 @@ def _accepted_intake_receipts(current_receipt, receipt_dir):
         retry_path = root / "press_network_retry_receipt.json"
         try:
             retry = json.loads(retry_path.read_text(encoding="utf-8"))
+            if not isinstance(retry, dict):
+                raise ValueError("completion receipt is not an object")
             completed = parse_receipt_timestamp(retry.get("completed_at"))
         except (OSError, ValueError, ReceiptTimestampError) as exc:
             raise RuntimeError("accepted press run has an unreadable completion receipt: %s" % root) from exc
@@ -606,45 +658,51 @@ def build_cumulative(tone_output, fulltext_output, mentions_output, receipt_outp
     tone = list(tone_by_key.values())
     fulltext = list(fulltext_by_key.values())
     mentions = list(mentions_by_key.values())
-    atomic_csv(tone_output, TONE_FIELDS, tone)
-    atomic_jsonl(fulltext_output, fulltext)
-    atomic_jsonl(mentions_output, mentions)
-    receipt = {
-        "schema": "press-refresh-engine-feed-v1",
-        "status": "ACTIVE_TYPED_SUPPLEMENT",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "promotion_mode": "CUMULATIVE_ACCEPTED_RUN_LEDGER",
-        "accepted_runs": ledger,
-        "contract": {
-            "scored_host_articles_enter_press_stance": True,
-            "official_mentions_enter_press_stance": False,
-            "official_mentions_enter_speech_turns": False,
-            "official_mentions_are_reference_discovery_only": True,
-            "historical_corpus_precedence_on_exact_collision": True,
-            "accepted_runs_are_cumulative": True,
-            "earliest_accepted_run_wins_exact_refresh_collision": True,
-        },
-        "counts": {
-            "accepted_runs": len(ledger),
-            "tone_rows": len(tone),
-            "fulltext_rows": len(fulltext),
-            "official_mentions": len(mentions),
-        },
-        "outputs": {
-            "tone": {"path": str(Path(tone_output).resolve()),
-                     "sha256": sha256_file(tone_output)},
-            "fulltext": {"path": str(Path(fulltext_output).resolve()),
-                         "sha256": sha256_file(fulltext_output)},
-            "mentions": {"path": str(Path(mentions_output).resolve()),
-                         "sha256": sha256_file(mentions_output)},
-        },
-        "outputs_sha256": {
-            os.path.relpath(tone_output, ROOT).replace("\\", "/"): sha256_file(tone_output),
-            os.path.relpath(fulltext_output, ROOT).replace("\\", "/"): sha256_file(fulltext_output),
-            os.path.relpath(mentions_output, ROOT).replace("\\", "/"): sha256_file(mentions_output),
-        },
-    }
-    atomic_json(receipt_output, receipt)
+    # Stage, hash the staged bytes, replace the outputs, receipt last (see build()).
+    finals = (tone_output, fulltext_output, mentions_output, receipt_output)
+    try:
+        tone_tmp = atomic_csv(tone_output, TONE_FIELDS, tone, replace=False)
+        fulltext_tmp = atomic_jsonl(fulltext_output, fulltext, replace=False)
+        mentions_tmp = atomic_jsonl(mentions_output, mentions, replace=False)
+        tone_sha, fulltext_sha, mentions_sha = (
+            sha256_file(tone_tmp), sha256_file(fulltext_tmp), sha256_file(mentions_tmp))
+        receipt = {
+            "schema": "press-refresh-engine-feed-v1",
+            "status": "ACTIVE_TYPED_SUPPLEMENT",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "promotion_mode": "CUMULATIVE_ACCEPTED_RUN_LEDGER",
+            "accepted_runs": ledger,
+            "contract": {
+                "scored_host_articles_enter_press_stance": True,
+                "official_mentions_enter_press_stance": False,
+                "official_mentions_enter_speech_turns": False,
+                "official_mentions_are_reference_discovery_only": True,
+                "historical_corpus_precedence_on_exact_collision": True,
+                "accepted_runs_are_cumulative": True,
+                "earliest_accepted_run_wins_exact_refresh_collision": True,
+            },
+            "counts": {
+                "accepted_runs": len(ledger),
+                "tone_rows": len(tone),
+                "fulltext_rows": len(fulltext),
+                "official_mentions": len(mentions),
+            },
+            "outputs": {
+                "tone": {"path": str(Path(tone_output).resolve()), "sha256": tone_sha},
+                "fulltext": {"path": str(Path(fulltext_output).resolve()), "sha256": fulltext_sha},
+                "mentions": {"path": str(Path(mentions_output).resolve()), "sha256": mentions_sha},
+            },
+            "outputs_sha256": {
+                _rel(tone_output): tone_sha,
+                _rel(fulltext_output): fulltext_sha,
+                _rel(mentions_output): mentions_sha,
+            },
+        }
+        atomic_json(receipt_output, receipt, replace=False)
+        for final in finals:
+            os.replace(_tmp(final), final)
+    finally:
+        _discard(*(_tmp(final) for final in finals))
     return receipt
 
 

@@ -40,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA = "legislation-membership-triage-v1"
 MACHINE_REVIEWER = "deterministic legislation membership triage assistant"
 MACHINE_STATE = "machine_proposed"
+# Allowlist; same set the culling contract uses (legislation_culling_integration_contract.py).
+RATIFIED_STATES = {"human_ratified", "reverified_preexisting_project_decision"}
 GENERIC_TOKENS = {
     "a",
     "an",
@@ -228,8 +230,7 @@ def is_ratified(row: dict[str, Any]) -> bool:
     state = normalize(row.get("adjudication_state")).casefold()
     return (
         disposition in {"include", "exclude_false_positive"}
-        and bool(state)
-        and state != MACHINE_STATE
+        and state in RATIFIED_STATES
         and bool(normalize(row.get("reviewer")))
     )
 

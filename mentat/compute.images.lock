@@ -1,5 +1,5 @@
 {
-  "_note": "The compute-mentat image the Windows wrapper (tools/run_job.ps1) runs, by digest only. compute-images.yml (platform repo) pushes ghcr.io/pjg93-222/compute-mentat and uploads digests.json after its smoke test, SBOM and images gate pass: copy that digest here in a reviewed commit. A tag is never accepted. Empty until the first CI build.",
+  "_note": "The compute-mentat image the Windows wrapper (tools/run_job.ps1) runs, by digest only. compute-images.yml (platform repo) pushes ghcr.io/pjg93-222/compute-mentat and uploads digests.json after its smoke test, SBOM and images gate pass: copy that digest here in a reviewed commit. A tag is never accepted. Recorded from the CI build of release 2026.10.13.3 (digests.json of the compute-images run 38508846613, platform commit b59388afc).",
   "image": "ghcr.io/pjg93-222/compute-mentat",
-  "digest": null
+  "digest": "sha256:906fa9959877ad3afe610199532885d523849aab9feb115bf26f8a75a089dda5"
 }

@@ -1038,7 +1038,7 @@ def _verify_sqlite_schema(connection):
     return {table: sorted(columns) for table, columns in required.items()}
 
 
-def _bluesky_documents(path):
+def _bluesky_documents(path, roster_members=None):
     if not os.path.isfile(path):
         return _skipped("bluesky", "social database absent", [path])
     connection = _sqlite_connection(path)
@@ -1055,6 +1055,21 @@ def _bluesky_documents(path):
             "AND instr(m.bluesky, ?) = 0",
             (UNVERIFIED_MARKER,),
         ).fetchone()[0]
+        counted_members = connection.execute(
+            "SELECT COUNT(DISTINCT p.bioguide) FROM posts p JOIN members m "
+            "ON m.bioguide=p.bioguide WHERE p.platform='bluesky' "
+            "AND trim(coalesce(m.bluesky,''))<>'' AND instr(m.bluesky, ?) = 0 "
+            "AND substr(p.created_at,1,10)>=?",
+            (UNVERIFIED_MARKER, GLOBAL_DATE_FLOOR),
+        ).fetchone()[0]
+        collected_posters = connection.execute(
+            "SELECT COUNT(DISTINCT bioguide) FROM posts WHERE platform='bluesky'"
+        ).fetchone()[0]
+        verified_handles = connection.execute(
+            "SELECT COUNT(*) FROM members WHERE trim(coalesce(bluesky,''))<>'' "
+            "AND instr(bluesky, ?) = 0",
+            (UNVERIFIED_MARKER,),
+        ).fetchone()[0]
     except sqlite3.Error as exc:
         raise OrgMentionsError(f"cannot inspect Bluesky inputs: {exc}") from exc
     finally:
@@ -1067,10 +1082,10 @@ def _bluesky_documents(path):
         "verified_only": True, "date_window": {"min": None, "max": None},
         "global_date_floor": GLOBAL_DATE_FLOOR, "schemas": schemas,
         "coverage": {
-            "counted_members": 33,
-            "collected_posters": 134,
-            "verified_handles": 335,
-            "roster_members": 533,
+            "counted_members": int(counted_members),
+            "collected_posters": int(collected_posters),
+            "verified_handles": int(verified_handles),
+            "roster_members": roster_members,
         },
     }
 
@@ -1545,7 +1560,7 @@ def build_payload(
             "tweet": tweet_source,
             "floor": floor_source,
             "interview": interview_source,
-            "bluesky": _bluesky_documents(paths["social_db"]),
+            "bluesky": _bluesky_documents(paths["social_db"], len(members)),
             "x": _x_documents(paths["x_catalog"], members),
         }
         for channel in CHANNELS:

@@ -2,8 +2,10 @@
 import argparse
 from collections import Counter, defaultdict
 import json
+import os
 from pathlib import Path
 import sqlite3
+import tempfile
 
 from .reconcile_held_evidence import digest, norm, office, packed, rows, sha, title
 from .operational_spine import profile_current_roles, role_state
@@ -74,7 +76,13 @@ def run(ledger,spine,crosswalk,output):
         'inputs':{name:{'path':str(path),'sha256':hashes[name]} for name,path in [('ledger',ledger),('spine',spine),('crosswalk',crosswalk)]},
         'builder_sha256':sha(Path(__file__)),'production_activated':False,
         'policy':'Identity binding only. Politico supplies roles and dates. Quorum service dates are not inferred; ambiguous reverse mappings stay held.'}
-    output.write_text(json.dumps(result,indent=2),encoding='utf8')
+    fd,name=tempfile.mkstemp(prefix=output.name+'.',suffix='.candidate',dir=output.parent)
+    os.close(fd)
+    try:
+        Path(name).write_text(json.dumps(result,indent=2),encoding='utf8')
+        os.replace(name,output)
+    finally:
+        if os.path.exists(name):os.unlink(name)
     print(packed({'status':'PASS','counts':dict(counts)}),flush=True);return result
 
 

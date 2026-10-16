@@ -10,11 +10,16 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import gzip
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
 
 from .reconcile_held_evidence import sha
+try:
+    from fec.lane_file_io import atomic_write_bytes
+except ImportError:  # pragma: no cover - fec dir itself on sys.path
+    from lane_file_io import atomic_write_bytes
 
 
 IDENTITY_HOLD = 'HELD_UNRESOLVED_SOURCE_IDENTITY'
@@ -175,10 +180,11 @@ def build(base, review, completion, partial, output):
         'inputs': [{'path': str(path.resolve()), 'sha256': sha(path)}
             for path in (base, review, completion, partial)],
     }
-    receipt_path.write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf8')
+    receipt_bytes = (json.dumps(receipt, indent=2) + '\n').encode('utf8')
+    atomic_write_bytes(receipt_path, receipt_bytes)
     release['reviewed_statement_integration'] = {
         'path': str(receipt_path.resolve()),
-        'sha256': sha(receipt_path),
+        'sha256': hashlib.sha256(receipt_bytes).hexdigest(),
         'counts': counts,
         'observations_added': added,
         'all_bounded_residuals_resolved': True,
@@ -186,7 +192,7 @@ def build(base, review, completion, partial, output):
     }
     release['status'] = 'CANDIDATE'
     release.pop('validation', None)
-    output.write_text(json.dumps(release, indent=2) + '\n', encoding='utf8')
+    atomic_write_bytes(output, (json.dumps(release, indent=2) + '\n').encode('utf8'))
     return receipt
 
 

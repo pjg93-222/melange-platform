@@ -31,7 +31,7 @@ Rules (each one is a test in fec/tests/collect/test_import_mentat_money.py):
 from pathlib import Path
 import sys, os
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-import argparse, hashlib, json, re
+import argparse, hashlib, json, math, re
 from datetime import date, datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 from paths import ROOT
@@ -46,6 +46,7 @@ CHANNELS = ('corporate', 'chief', 'middle', 'employee', 'own_lpac')
 CONDUITS = {'C00401224': 'ActBlue', 'C00694323': 'WinRed'}   # D-132
 CANDIDATE_LINKS = {'Principal campaign committee', 'Authorized candidate committee'}
 OWN_LPAC_LINK = 'Leadership PAC linked to candidate'          # FEC ccl leadership list
+_UNKEYED = object()   # add() default: "no key", distinct from a None/blank key
 DEADLINES = ((1, 31), (4, 15), (7, 15), (10, 15))             # 52 U.S.C. 30104(a) quarterly; re-verify on the day relied on
 # PM-A4 (decision B, 2026-10-11): Mentat's counting is frozen and unchanged; Melange records the
 # H3 bitcoin double count and never consumes it (FAIRSHAKE is a super PAC; Crypto is context only).
@@ -124,8 +125,13 @@ def pac44_companies(groups, affiliations_path, supplement_path):
     return {k: sorted(v) for k, v in out.items()}
 
 
-def project_book(rf_rows, sponsor_rows, cand_map, roster_bios, pac44):
-    """One book's Recipient Facts -> (members, accounting). members: {bio: {cycle: {channel: $}}}."""
+class GivingInvalid(ValueError):
+    """A Recipient Facts `Giving` cell that is not a finite number: the book is dropped, the run is not."""
+
+
+def project_book(rf_rows, sponsor_rows, cand_map, roster_bios, pac44, stats=None):
+    """One book's Recipient Facts -> (members, accounting). members: {bio: {cycle: {channel: $}}}.
+    A blank Giving counts as $0 (tallied in stats['n_blank_giving']); a non-numeric one raises GivingInvalid."""
     links = {}
     for r in sponsor_rows:
         text = ' '.join(str(v) for v in r.values() if v is not None).lower()
@@ -134,15 +140,28 @@ def project_book(rf_rows, sponsor_rows, cand_map, roster_bios, pac44):
         links.setdefault((r.get('Election Cycle'), r.get('Committee ID'), r.get('Relationship')), set()).add(r.get('Candidate ID'))
     members, acct = {}, {}
 
-    def add(bucket, cycle, amount, key=None):
-        b = acct.setdefault(cycle, {}).setdefault(bucket, {} if key else 0.0)
-        if key:
+    def add(bucket, cycle, amount, key=_UNKEYED):
+        keyed = key is not _UNKEYED   # a None/blank id is still a keyed bucket: never mix float and dict, never a None dict key
+        b = acct.setdefault(cycle, {}).setdefault(bucket, {} if keyed else 0.0)
+        if keyed:
+            key = '(blank)' if key in (None, '') else key
             b[key] = round(b.get(key, 0.0) + amount, 2)
         else:
             acct[cycle][bucket] = round(b + amount, 2)
 
-    for r in rf_rows:
-        cycle, cid, amount = r.get('Election Cycle'), r.get('Committee ID'), float(r.get('Giving') or 0)
+    for n, r in enumerate(rf_rows, 1):
+        cycle, cid, raw = r.get('Election Cycle'), r.get('Committee ID'), r.get('Giving')
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            amount = 0.0
+            if stats is not None:
+                stats['n_blank_giving'] = stats.get('n_blank_giving', 0) + 1
+        else:
+            try:
+                amount = float(raw)
+                if not math.isfinite(amount):
+                    raise ValueError
+            except (TypeError, ValueError):
+                raise GivingInvalid('Recipient Facts data row %d (cycle %r, committee %r): non-numeric Giving %r' % (n, cycle, cid, raw))
         tier, category = r.get('Contributor Tier'), r.get('Recipient Category')
         if tier not in TIER_CHANNEL:
             raise ValueError('Recipient Facts: unknown contributor tier %r' % tier)
@@ -244,8 +263,13 @@ def build(root, today, grace, dirs, mentat_inputs):
                          cycles=json.loads(about.get('Cycles') or '[]'))
             if status != 'ok':
                 continue
-            book_members, acct = project_book(sheet_rows(wb, 'Recipient Facts'), list(sheet_rows(wb, 'Committee Sponsors')),
-                                              cand_map, roster_bios, pac44)
+            stats = {'n_blank_giving': 0}
+            try:
+                book_members, acct = project_book(sheet_rows(wb, 'Recipient Facts'), list(sheet_rows(wb, 'Committee Sponsors')),
+                                                  cand_map, roster_bios, pac44, stats)
+            except GivingInvalid as e:
+                entry.update(status='mentat_giving_invalid', giving_error=str(e)); continue
+            entry['n_blank_giving'] = stats['n_blank_giving']
         finally:
             wb.close()
         entry['accounting'] = acct

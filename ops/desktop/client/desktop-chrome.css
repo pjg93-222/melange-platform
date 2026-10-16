@@ -1,0 +1,21 @@
+/* Shared desktop access/settings/admin tokens. Keep app workspaces unchanged. */
+:root{color-scheme:light;--desktop-bg:#FCF7F4;--desktop-paper:#F7EDE4;--desktop-panel:#FFFFFF;--desktop-text:#342649;--desktop-muted:#62596E;--desktop-accent:#57447B;--desktop-amber:#ECA91C;--desktop-healthy:#327A7A;--desktop-selection:#EDE7F1;--desktop-border:#D8D9E6;--desktop-control-border:#8E819B;--desktop-warning:#7B4E12;--desktop-danger:#922D2A;--desktop-radius:8px;--desktop-heading-font:Georgia,"Times New Roman",serif;font:15px/1.5 Aptos,Arial,system-ui,sans-serif;background:var(--desktop-bg);color:var(--desktop-text)}
+body[data-app=terrier]{--desktop-heading-font:Geist,"Segoe UI",system-ui,sans-serif;font-family:Geist,"Segoe UI",system-ui,sans-serif}
+*{box-sizing:border-box}body{margin:0;background:var(--desktop-bg);color:var(--desktop-text)}
+[hidden]{display:none!important}
+main{width:min(100%,760px);margin:0 auto;padding:32px}
+.app-header{display:flex;align-items:center;gap:16px;margin-bottom:24px}.app-logo{width:56px;height:56px;object-fit:contain;flex:0 0 auto}
+.eyebrow{font-size:12px;letter-spacing:.12em;font-weight:600;color:var(--desktop-muted);margin:0 0 4px}
+h1{font-family:var(--desktop-heading-font);font-size:32px;line-height:1.2;font-weight:600;margin:0}h2{font-size:18px;line-height:1.4;font-weight:600;margin:0 0 16px}p{margin:0 0 16px}
+.description,.details{color:var(--desktop-muted)}
+.panel,section,form{background:var(--desktop-panel);border:1px solid var(--desktop-border);border-radius:var(--desktop-radius);padding:24px;margin:24px 0}
+label{display:block;font-weight:600;margin:16px 0 8px}label:first-child{margin-top:0}
+button,input,textarea,select{font:inherit;border:1px solid var(--desktop-control-border);border-radius:6px;min-height:44px}
+input,textarea,select{background:var(--desktop-panel);color:var(--desktop-text);padding:10px 12px;max-width:100%}input,textarea{width:100%}textarea{resize:vertical}
+button{background:var(--desktop-accent);border-color:var(--desktop-accent);color:#FFFFFF;font-weight:600;padding:10px 16px;margin:8px 8px 0 0;cursor:pointer}
+button.secondary{background:transparent;border-color:var(--desktop-control-border);color:var(--desktop-text)}button:hover:not(:disabled){filter:brightness(1.08)}button:disabled{opacity:.55;cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid var(--desktop-accent);outline-offset:3px;box-shadow:0 0 0 2px var(--desktop-amber)}
+.hint,.footer,.account{font-size:14px;color:var(--desktop-muted)}.hint{margin:8px 0 0}.account{overflow-wrap:anywhere}.footer{border-top:1px solid var(--desktop-border);padding-top:24px;margin-top:32px}
+.notice{border-left:3px solid var(--desktop-warning);padding-left:12px}.error{color:var(--desktop-danger)}#status{min-height:24px;color:var(--desktop-muted);overflow-wrap:anywhere}
+@media(max-width:520px){main{padding:24px 16px}.panel,section,form{padding:16px}.app-header{gap:12px}.app-logo{width:48px;height:48px}h1{font-size:26px}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}

@@ -267,8 +267,14 @@ def _post_json(fields, attempts=7):
     for attempt in range(attempts):
         try:
             with urllib.request.urlopen(request, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
+                payload = json.loads(response.read().decode("utf-8"))
+            if isinstance(payload, dict) and payload.get("error"):
+                raise RuntimeError("Wikipedia API error: %s" % (payload["error"],))
+            return payload
         except Exception as exc:  # network failures are retried, then fail loudly
+            if (isinstance(exc, urllib.error.HTTPError)
+                    and exc.code != 429 and exc.code < 500):
+                raise  # permanent client error: retrying cannot help
             last = exc
             if attempt + 1 < attempts:
                 retry_after = 0
@@ -369,6 +375,16 @@ def _discover_missing_title(member):
     return candidates[0] if len(candidates) == 1 else ""
 
 
+_STRICT = False  # set by main(); build() refuses to write a partial full-roster artifact
+
+
+def _missing_error(missing):
+    return RuntimeError(
+        "Wikipedia full-roster refresh left %d member(s) missing: %s"
+        % (len(missing), ", ".join(missing[:10]))
+    )
+
+
 def build(member_filter=None):
     roster = load_roster()
     if member_filter:
@@ -435,6 +451,8 @@ def build(member_filter=None):
         },
         "members": members,
     }
+    if _STRICT and not member_filter and artifact["coverage"]["missing"]:
+        raise _missing_error(artifact["coverage"]["missing"])  # keep last good artifact
     dump_atomic(artifact, OUT, ensure_ascii=False, separators=(",", ":"))
     print(
         "WIKIPEDIA BIOGRAPHIES: %d/%d summarized; %d missing; wrote %s"
@@ -452,15 +470,13 @@ def main():
         help="require an OK, revision-bound biography for every current-roster member",
     )
     args = parser.parse_args()
+    global _STRICT
+    _STRICT = args.strict
     artifact = build(args.member)
     if not args.member and artifact["coverage"]["rows"] != artifact["coverage"]["roster_members"]:
         raise RuntimeError("Wikipedia artifact does not account for the full current roster")
     if not args.member and args.strict and artifact["coverage"]["missing"]:
-        raise RuntimeError(
-            "Wikipedia full-roster refresh left %d member(s) missing: %s"
-            % (len(artifact["coverage"]["missing"]),
-               ", ".join(artifact["coverage"]["missing"][:10]))
-        )
+        raise _missing_error(artifact["coverage"]["missing"])
 
 
 if __name__ == "__main__":

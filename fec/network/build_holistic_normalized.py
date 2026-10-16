@@ -171,7 +171,6 @@ def normalize(edges, chamber, anchor=0.1333, do_volume=False, do_chamber=True, c
     k = (anchor / med) if med > 0 else 1.0
     w3 = {e: w * k for e, w in w2.items()}
     rep.update({'median_before_rescale': med, 'rescale_k': k, 'anchor': anchor,
-                'effective_kernel_constant': 6.0,
                 'median_after': statistics.median([w for w in w3.values() if w > 0]) if vals else 0.0})
     return w3, rep
 
@@ -217,8 +216,10 @@ def main():
     pr.append(['source_bioguide', 'target_bioguide', 'weight', 'layer'])
     for (a, b), w in sorted(norm.items()): pr.append([a, b, round(w, 8), 'cosponsor'])
     pr.append([]); pr.append(['built', datetime.datetime.now().isoformat(), 'base', os.path.basename(src)])
-    pr.append(['policy', 'volume-normalized w/sqrt(Out_u*In_v); chamber strata equalized; '
-                         'rescaled to median %.4f (effective kernel constant 6/k)' % d['anchor']])
+    pr.append(['policy', '%s; %s; per-member tie-mass cap %.2fx median; rescaled to median %.4f (k=%.4g)'
+               % ('volume-normalized w/sqrt(Out_u*In_v)' if d['volume'] else 'no per-edge volume normalization',
+                  'chamber strata equalized' if d['chamber'] else 'no chamber normalization',
+                  d['cap'], d['anchor'], rep['rescale_k'])])
     wb.save(out)
 
     man = {'built_utc': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),

@@ -334,7 +334,7 @@ rf_v2_anchor_contract <- function() {
        share = list(models = list("control_House", "control_Senate"), change = "pp", anchor_cycle_rule = "by_industry_chamber",
                     anchor_options = list(list(id = "previous_cycle", cycle_offset = 2L, chained = TRUE, label = "Mentat's previous cycle; the next cycle is chained through the open cycle"),
                                           list(id = "same_phase", cycle_offset = 4L, chained = FALSE, label = "Mentat's cycle of the same phase (presidential or midterm); one step each, no chaining")),
-                    bases = list(list(id = "employee_candidate", anchor = "candidate_receipts.cycles[A]", label = "Employees' included giving to candidate committees"),
+                    bases = list(list(id = "employee_candidate", anchor = "candidate_receipts.cycles[A]", label = "Included receipts to House/Senate candidates across all funding sources except non-giving; funding identity is not necessarily verified"),
                                  list(id = "pac_candidate", anchor = "pac_to_candidates.cycles[A]", label = "Roster PACs' own giving to candidates")),
                     remainder_total_rule = "projected measure x previous-cycle candidate share of that measure"),
        lobbying = list(model = "lobby_model.log_refit", change = "relative_log", anchor_year_rule = "latest_complete_year",

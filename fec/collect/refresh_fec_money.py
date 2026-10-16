@@ -7,7 +7,7 @@ independent expenditures are outside this existing measurement's scope.
 from pathlib import Path
 import sys, os
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import argparse, ast, csv, json, re, hashlib, urllib.request, urllib.parse, urllib.error, time
+import argparse, ast, csv, json, re, hashlib, urllib.request, urllib.parse, urllib.error, time, http.client, socket
 from datetime import datetime, timezone, date
 from decimal import Decimal
 from collections import defaultdict
@@ -138,7 +138,8 @@ def project(roster,totals,receipts,candidates):
         row['receipts']=round(receipts.get(bio,Decimal(0)))
         row['money_source_status']='VERIFIED_OPENFEC_CURRENT_CYCLE'
         result.append(row)
-    pool={g:sum(row[g] for row in result) or 1 for g in ('cu','banks','finserv')}
+    # Stale values retained on UNRESOLVED rows are excluded from the normalization pool.
+    pool={g:sum(row[g] for row in result if not row['money_source_status'].startswith('UNRESOLVED')) or 1 for g in ('cu','banks','finserv')}
     for row in result:
         total=sum(row[g] for g in pool);row['total']=total
         row['saturation']=round(100*total/row['receipts'],2) if row['receipts']>=100000 else None
@@ -164,13 +165,19 @@ def main(argv=None):
     key=os.environ.get('FEC_API_KEY')
     if not key: key=json.loads(a.key_file.read_text(encoding='utf-8'))['data_gov']['keys'][0]
     run=root/'data/money/fec_generations'/now.strftime('%Y%m%dT%H%M%S%fZ');run.mkdir(parents=True)
-    policy=root/'fec/attic/full_congestion.py';mapping=root/'fec/legislators.csv';roster_path=root/'data/engine/congestion.json'
-    groups=committee_policy(policy);candidates=candidate_map(mapping)
-    roster=json.loads(roster_path.read_text(encoding='utf-8'));roster_bios={r['bioguide'] for r in roster}
-    candidates={c:b for c,b in candidates.items() if b in roster_bios}
-    dependencies={str(x):digest(x) for x in (policy,mapping,roster_path)};sources=[];requests=0
-    cache=root/'data/money/fec_page_cache';cache.mkdir(parents=True,exist_ok=True)
-    cache_hits=0
+    sources=[];requests=0;cache_hits=0
+    def fail(exc):
+        # URLs contain no key; no authentication material enters a receipt.
+        dump_atomic({'status':'FAIL','checked_at':now.isoformat(),'error':str(exc),'sources':sources},str(run/'receipt.json'))
+        print(type(exc).__name__,str(exc));return 1
+    try:
+        policy=root/'fec/attic/full_congestion.py';mapping=root/'fec/legislators.csv';roster_path=root/'data/engine/congestion.json'
+        groups=committee_policy(policy);candidates=candidate_map(mapping)
+        roster=json.loads(roster_path.read_text(encoding='utf-8'));roster_bios={r['bioguide'] for r in roster}
+        candidates={c:b for c,b in candidates.items() if b in roster_bios}
+        dependencies={str(x):digest(x) for x in (policy,mapping,roster_path)}
+        cache=root/'data/money/fec_page_cache';cache.mkdir(parents=True,exist_ok=True)
+    except Exception as exc: return fail(exc)
     def pages(endpoint,parameters,cursor=False):
         nonlocal requests,cache_hits
         params=list(parameters)+[('per_page',100)];seen=set();page=1
@@ -179,9 +186,11 @@ def main(argv=None):
             if requests>900: raise ValueError('FEC refresh request budget reached; last-good retained')
             url='https://api.open.fec.gov/v1/'+endpoint+'/?'+urllib.parse.urlencode(params)
             cache_key=hashlib.sha256(url.encode()).hexdigest();cached=cache/(cache_key+'.json');meta=cache/(cache_key+'.receipt.json')
-            cached_meta=json.loads(meta.read_text(encoding='utf-8')) if meta.exists() else {}
-            age=(now-datetime.fromisoformat(cached_meta.get('checked_at','2000-01-01T00:00:00+00:00'))).total_seconds()
-            cache_used=cached.exists() and 0<=age<=86400 and cached_meta.get('sha256')==digest(cached)
+            try:
+                cached_meta=json.loads(meta.read_text(encoding='utf-8')) if meta.exists() else {}
+                age=(now-datetime.fromisoformat(cached_meta.get('checked_at','2000-01-01T00:00:00+00:00'))).total_seconds()
+                cache_used=cached.exists() and 0<=age<=86400 and cached_meta.get('sha256')==digest(cached)
+            except (ValueError,TypeError,AttributeError,OSError): cache_used=False  # corrupt/odd cache receipt = miss
             if cache_used:
                 raw=cached.read_bytes();cache_hits+=1
             else:
@@ -192,12 +201,20 @@ def main(argv=None):
                             raw=response.read(15000001)
                         break
                     except urllib.error.HTTPError as exc:
-                        if exc.code!=429: raise
-                        retry=exc.headers.get('Retry-After') or '60'
-                        if attempt==5 or not retry.isdigit() or int(retry)>300:
-                            raise RuntimeError('OpenFEC rate limit; retry after '+retry+'; verified pages retained') from None
-                        print('OpenFEC quota reset wait:',retry,'seconds',flush=True)
-                        time.sleep(max(1,int(retry)))
+                        if exc.code==429:
+                            retry=exc.headers.get('Retry-After') or '60';exc.close()
+                            if attempt==5 or not retry.isdigit() or int(retry)>300:
+                                raise RuntimeError('OpenFEC rate limit; retry after '+retry+'; verified pages retained') from None
+                            print('OpenFEC quota reset wait:',retry,'seconds',flush=True)
+                            time.sleep(max(1,int(retry)))
+                        elif 500<=exc.code<600 and attempt<5:
+                            exc.close();wait=min(60,2**attempt*5)
+                            print('OpenFEC HTTP',exc.code,'retry in',wait,'seconds',flush=True);time.sleep(wait)
+                        else: raise
+                    except (urllib.error.URLError,TimeoutError,socket.timeout,ConnectionError,http.client.HTTPException) as exc:
+                        if attempt==5: raise
+                        wait=min(60,2**attempt*5)
+                        print('OpenFEC',type(exc).__name__,'retry in',wait,'seconds',flush=True);time.sleep(wait)
             if len(raw)>15000000: raise ValueError('FEC page exceeds envelope')
             document=json.loads(raw)
             if not isinstance(document.get('results'),list) or not isinstance(document.get('pagination'),dict):
@@ -213,6 +230,8 @@ def main(argv=None):
             if cursor:
                 indexes=pagination.get('last_indexes')
                 if not indexes: break
+                if any(v is None for v in indexes.values()):
+                    raise ValueError('FEC cursor has a null sort value; refusing to paginate; last-good retained')
                 token=json.dumps(indexes,sort_keys=True)
                 if token in seen: raise ValueError('FEC pagination did not advance')
                 seen.add(token)
@@ -246,15 +265,14 @@ def main(argv=None):
                  'output':{'path':str(output),'sha256':digest(output)},'rejections':rejected,
                  'unresolved_members':[r['member'] for r in result if r['money_source_status'].startswith('UNRESOLVED')],
                  'counts':{'transactions':len(transactions),'pages':requests,'cache_hits':cache_hits,'members':len(result)},
-                 'totals':{g:sum(r[g] for r in result) for g in groups.values()}}
+                 'totals':{g:sum(r[g] for r in result if not r['money_source_status'].startswith('UNRESOLVED')) for g in groups.values()},
+                 'totals_unresolved_stale':{g:sum(r[g] for r in result if r['money_source_status'].startswith('UNRESOLVED')) for g in groups.values()},
+                 'n_unresolved':sum(1 for r in result if r['money_source_status'].startswith('UNRESOLVED'))}
         dump_atomic(receipt,str(run/'receipt.json'))
         if not a.no_install: dump_atomic(receipt,str(root/'data/money/fec_refresh_current.json'))
         print(json.dumps({k:v for k,v in receipt.items() if k not in ('sources','dependencies')}))
         return 0
-    except Exception as exc:
-        # URLs contain no key; no authentication material enters a receipt.
-        dump_atomic({'status':'FAIL','checked_at':now.isoformat(),'error':str(exc),'sources':sources},str(run/'receipt.json'))
-        print(type(exc).__name__,str(exc));return 1
+    except Exception as exc: return fail(exc)
 
 
 if __name__=='__main__': raise SystemExit(main())

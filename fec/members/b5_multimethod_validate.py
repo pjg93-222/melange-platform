@@ -212,7 +212,16 @@ def build_package_cache():
         print('  %s transformed' % rep, flush=True)
         for i, pair in enumerate(pairs):
             arrays['%s|%s|%s' % (rep, pair[0], pair[1])] = transformed[i]
-    np.savez_compressed(CACHE, **arrays)
+    tmp_cache = CACHE[:-4] + '.tmp.npz'
+    try:
+        np.savez_compressed(tmp_cache, **arrays)
+        os.replace(tmp_cache, CACHE)
+    except BaseException:
+        try:
+            os.remove(tmp_cache)
+        except OSError:
+            pass
+        raise
     meta = {
         'basis': 'LSA-256 TF-IDF word 1-2gram, one full-corpus unsupervised basis',
         'genres': list(GENRES), 'pairs': ['%s|%s' % p for p in pairs],
@@ -298,7 +307,7 @@ def raw_a_halves():
 
 
 def n_channels(e_row):
-    path = os.path.join(AN.SC, 'interview_n_affective.json')
+    path = AN.AFF_INPUT
     if not os.path.exists(path):
         raise RuntimeError('independent LLM affect channel missing: ' + path)
     llm_raw = json.load(open(path, encoding='utf-8'))

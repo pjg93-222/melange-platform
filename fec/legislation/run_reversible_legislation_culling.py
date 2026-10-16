@@ -611,7 +611,13 @@ def _classify_memberships(
         try:
             validate_candidate_evidence(candidate_evidence)
             evidence_validation[key] = (True, None)
-        except (CullingContractError, TypeError, ValueError) as exc:
+        except (
+            CullingContractError,
+            TypeError,
+            ValueError,
+            LookupError,
+            AttributeError,
+        ) as exc:
             evidence_validation[key] = (False, str(exc))
 
     # The discovered membership universe is the authority.  Candidate evidence
@@ -658,6 +664,7 @@ def _classify_memberships(
             candidate_evidence is not None
             and decision is not None
             and not mismatched
+            and evidence_validation[key][0]
             and membership_is_finalizable(decision, candidate_evidence)
         )
         if decision is not None and not finalizable:

@@ -69,10 +69,13 @@ def _worker(args):
             for filename in params[:2]:
                 if not within(Path(filename).resolve(),output):
                     raise PermissionError('Allocation replay blocked move outside shadow output')
-        elif event in ('os.remove','os.rmdir','os.mkdir'):
-            if not within(Path(params[0]).resolve(),output):
+        elif event in ('os.remove','os.rmdir','os.mkdir','os.truncate','os.chmod','os.utime'):
+            if isinstance(params[0],(str,bytes,os.PathLike)) and not within(Path(os.fsdecode(params[0])).resolve(),output):
                 raise PermissionError('Allocation replay blocked filesystem mutation outside shadow output')
-        elif event in ('subprocess.Popen','os.system'):
+        elif event in ('os.link','os.symlink'):
+            if not within(Path(os.fsdecode(params[1])).resolve(),output):
+                raise PermissionError('Allocation replay blocked link outside shadow output')
+        elif event in ('subprocess.Popen','os.system','os.exec','os.posix_spawn','os.spawn','os.startfile'):
             raise PermissionError('Nested process execution is not allowed in allocation replay')
 
     sys.addaudithook(audit)
@@ -88,7 +91,9 @@ def _worker(args):
     import moneyball_core as mc
     original_state = mc.primacy_engine_state
     original_dump = mc.dump_atomic
+    original_dials = getattr(mc,'write_engine_dials',None)
     calls = []
+    sidecars = []
 
     def tier_state(roster=None):
         names = list(roster if roster is not None else mc.members())
@@ -108,7 +113,13 @@ def _worker(args):
     names = {'flip':'per_topic_flip.py', 'coalition':'per_topic_coalition.py'}
     expected = {'flip':'per_topic_alloc.json','coalition':'per_topic_coalition.json'}
 
+    sidecar_name = Path(expected[args.engine]).stem+'.dials.json'
+
     def dump(document,path,**kwargs):
+        if Path(path).name == sidecar_name and Path(path).parent == output:
+            original_dump(document,str(path),**kwargs)
+            sidecars.append(str(path))
+            return
         if Path(path).name != expected[args.engine]:
             raise PermissionError('Unrecognized allocation output: '+str(path))
         target = output/expected[args.engine]
@@ -117,6 +128,13 @@ def _worker(args):
 
     mc.primacy_engine_state = tier_state
     mc.dump_atomic = dump
+
+    def write_dials(artifact_path,sidecar_path=None):
+        # The native call hashes the SOURCE artifact path; point it at the replayed artifact instead.
+        return original_dials(str(output/expected[args.engine]),str(output/sidecar_name))
+
+    if original_dials:
+        mc.write_engine_dials = write_dials
     script = source/'fec'/'engine'/names[args.engine]
     sys.argv = [str(script)]
     runpy.run_path(str(script),run_name='__main__')
@@ -131,6 +149,7 @@ def _worker(args):
                'board_source_sha256':board['source_sha256'],'board_file_sha256':_sha(args.board),
                'source_root':str(source),'source_hashes':final,'source_unchanged':True,
                'output_sha256':{path:_sha(path) for path in calls},
+               'sidecar_sha256':{path:_sha(path) for path in sidecars},
                'replay_implementation_sha256':_sha(__file__),
                'scope':'Native current-network allocation with frozen current nonlegislative inputs; only the tier/priority authority changes. Historical results do not recreate historical networks or budgets.',
                'environment':{key:os.environ.get(key) for key in ('NET_CONFIG','PRIMACY_BOARD','SEED','MC','HALFF','RECEPT_LAYER','IMPUTE_IND0','BRIDGE','PERS_NONE','COMPET_MULT','COMPET_SRC')},
@@ -181,10 +200,14 @@ def main(argv=None):
     output.mkdir(parents=True,exist_ok=True)
     command=[sys.executable,str(Path(__file__).resolve()),*(list(argv) if argv is not None else sys.argv[1:]),'--worker']
     with open(output/'stdout.log','w',encoding='utf-8') as stdout, open(output/'stderr.log','w',encoding='utf-8') as stderr:
-        result=subprocess.run(command,stdout=stdout,stderr=stderr)
-    if result.returncode:
+        try:
+            code=subprocess.run(command,stdout=stdout,stderr=stderr,timeout=float(os.environ.get('REPLAY_TIMEOUT_S','3600'))).returncode
+        except subprocess.TimeoutExpired:
+            code=1
+            stderr.write('Allocation replay timed out'+chr(10))
+    if code:
         print((output/'stderr.log').read_text(encoding='utf-8')[-3000:],file=sys.stderr)
-    return result.returncode
+    return code
 
 
 if __name__=='__main__':

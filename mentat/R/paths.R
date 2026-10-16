@@ -70,6 +70,77 @@ mentat_report_directory <- function(project_root = NULL) {
   normalizePath(configured, winslash = "/", mustWork = TRUE)
 }
 
+mentat_api_budget_policy <- function(project_root = NULL) {
+  project_root <- project_root %||% get0("MENTAT_PROJECT_ROOT", inherits = TRUE,
+    ifnotfound = NULL) %||% mentat_project_root()
+  require_package("jsonlite")
+  value <- jsonlite::fromJSON(file.path(project_root, "tools", "api_budget_policy.json"))
+  valid_parts <- function(parts) is.character(parts) && length(parts) > 0L &&
+    all(!is.na(parts) & nzchar(parts) & !parts %in% c(".", "..") &
+      !grepl("[/\\\\:]", parts))
+  if (!identical(as.integer(value$schema_version), 1L) ||
+      !identical(value$host_root_environment, "LOCALAPPDATA") ||
+      !valid_parts(value$host_relative_path) ||
+      !valid_parts(value$legacy_project_relative_path)) {
+    stop("Invalid API budget path policy.", call. = FALSE)
+  }
+  value
+}
+
+mentat_api_budget_path <- function(project_root = NULL) {
+  configured <- trimws(Sys.getenv("MENTAT_API_BUDGET_DB", unset = ""))
+  absolute <- function(path) grepl("^(?:[A-Za-z]:[/\\\\]|/|\\\\\\\\)", path, perl = TRUE)
+  if (nzchar(configured)) {
+    if (!absolute(configured)) stop("MENTAT_API_BUDGET_DB must be an absolute path.", call. = FALSE)
+    return(normalizePath(configured, winslash = "/", mustWork = FALSE))
+  }
+  value <- mentat_api_budget_policy(project_root)
+  host <- trimws(Sys.getenv(value$host_root_environment, unset = ""))
+  if (!nzchar(host) || !absolute(host)) {
+    stop("Set MENTAT_API_BUDGET_DB or an absolute LOCALAPPDATA host root.", call. = FALSE)
+  }
+  normalizePath(do.call(file.path, as.list(c(host, value$host_relative_path))),
+    winslash = "/", mustWork = FALSE)
+}
+
+mentat_api_budget_legacy_paths <- function(project_root = NULL) {
+  project_root <- project_root %||% get0("MENTAT_PROJECT_ROOT", inherits = TRUE,
+    ifnotfound = NULL) %||% mentat_project_root()
+  value <- mentat_api_budget_policy(project_root)
+  configured <- trimws(Sys.getenv("MENTAT_API_BUDGET_IMPORTS", unset = ""))
+  imports <- if (nzchar(configured)) jsonlite::fromJSON(configured) else character()
+  if (is.list(imports) && !length(imports)) imports <- character()
+  if (!is.character(imports) || anyNA(imports) || any(!grepl(
+      "^(?:[A-Za-z]:[/\\\\]|/|\\\\\\\\)", imports, perl = TRUE))) {
+    stop("MENTAT_API_BUDGET_IMPORTS must list explicit absolute ledger paths.", call. = FALSE)
+  }
+  legacy <- do.call(file.path, as.list(c(project_root, value$legacy_project_relative_path)))
+  unique(vapply(c(legacy, imports), normalizePath, character(1L), winslash = "/", mustWork = FALSE))
+}
+
+mentat_api_budget_connect <- function(path = mentat_api_budget_path(), readonly = FALSE) {
+  require_package("DBI"); require_package("RSQLite")
+  if (!readonly && !dir.exists(dirname(path)) && !dir.create(dirname(path), recursive = TRUE)) {
+    stop("Could not create the persistent API budget directory.", call. = FALSE)
+  }
+  connection <- DBI::dbConnect(RSQLite::SQLite(), dbname = path,
+    flags = if (readonly) RSQLite::SQLITE_RO else RSQLite::SQLITE_RWC)
+  DBI::dbExecute(connection, "PRAGMA busy_timeout=60000")
+  ok <- FALSE
+  on.exit(if (!ok) DBI::dbDisconnect(connection), add = TRUE)
+  if (readonly) {
+    DBI::dbExecute(connection, "PRAGMA query_only=ON")
+  } else {
+    mode <- DBI::dbGetQuery(connection, "PRAGMA journal_mode=WAL")[[1L]][[1L]]
+    if (!identical(tolower(as.character(mode)), "wal")) {
+      stop("SQLite refused WAL mode for persistent API budget database.", call. = FALSE)
+    }
+    DBI::dbExecute(connection, "PRAGMA synchronous=FULL")
+  }
+  ok <- TRUE
+  connection
+}
+
 mentat_bulk_dir <- function(data_root = mentat_default_data_root()) {
   configured <- trimws(Sys.getenv("MENTAT_BULK_DIR", unset = ""))
   root <- if (nzchar(configured)) configured else file.path(data_root, "bulk")

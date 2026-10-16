@@ -22,13 +22,15 @@ Writes stance_dynamics.json + stance_imputation_proposals.csv."""
 import csv, json, sys, collections, datetime, glob, os
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
-SRC=MB_DRAFT+r'\cu_press_stance_tone.csv'
+from press_stream import load_tone_rows   # historical + audited refresh rows (same merge the production press stack reads)
 WIN=int(os.environ.get('SD_WINDOW','91'))    # days/window; their 28d resolved granularity-vs-sparsity for tweets, quarters do for press
-rows=list(csv.DictReader(open(SRC,encoding='utf-8-sig')))
+rows=load_tone_rows()
 def pdate(r):
     d=(r.get('date') or '').strip()
     if not d or d.upper()=='NA': return None
-    try: mm,dd,yy=d.split('/'); return datetime.date(int(yy),int(mm),int(dd))
+    try:
+        if '/' in d: mm,dd,yy=d.split('/'); return datetime.date(int(yy),int(mm),int(dd))   # historical m/d/yyyy
+        return datetime.date.fromisoformat(d[:10])                                          # refresh yyyy-mm-dd
     except Exception: return None
 def cats_of(r):
     c=(r.get('categories') or '').strip()
@@ -146,14 +148,17 @@ for m in members:
                           'evidence_neighbors':len(vals),
                           'provenance':'network-imputed (Zhou-Elejalde silent-actor collaborative filtering) — PROPOSAL ONLY, user adjudicates'})
 import io
-with io.open(B+r'\data\stance\stance_imputation_proposals.csv','w',encoding='utf-8-sig',newline='') as f:
+from moneyball_core import dump_atomic
+_PROP=B+r'\data\stance\stance_imputation_proposals.csv'
+with io.open(_PROP+'.tmp','w',encoding='utf-8-sig',newline='') as f:
     w=csv.DictWriter(f,fieldnames=['member','issue','proposed_tier','est_score','evidence_neighbors','provenance'])
     w.writeheader(); w.writerows(props)
+os.replace(_PROP+'.tmp',_PROP)
 print('\nSILENT-MEMBER PROPOSALS: %d (member,issue) cells with >=3 informative neighbors -> stance_imputation_proposals.csv'%len(props))
 print('  masking validation on %d known cells: sign agreement %.0f%% (their kappa-style sanity check)'%(tot2,100*agree/max(1,tot2)))
-json.dump({'window_days':WIN,'windows':NW,'static_band':round(BAND,4),'flip_curves':flips,
+dump_atomic({'window_days':WIN,'windows':NW,'static_band':round(BAND,4),'flip_curves':flips,
            'co_movement':{'same':same,'opposite':diff},
            'members_tracked':len(traj),'proposals':len(props),
            'masking_validation':{'n':tot2,'sign_agreement':round(agree/max(1,tot2),3)}},
-          open(B+r'\data\stance\stance_dynamics.json','w'),indent=1)
+          B+r'\data\stance\stance_dynamics.json',indent=1)
 print('wrote stance_dynamics.json')

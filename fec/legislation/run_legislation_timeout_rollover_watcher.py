@@ -27,6 +27,9 @@ DEFAULT_STATE_DIR = (
 LOCK_SCHEMA = "legislation-timeout-rollover-watcher-lock-v1"
 PID_SCHEMA = "legislation-timeout-rollover-watcher-pid-v1"
 HEARTBEAT_SCHEMA = "legislation-timeout-rollover-watcher-heartbeat-v1"
+# Must stay above the helper's own 7200 s stage timeout.
+HELPER_TIMEOUT_SECONDS = 6 * 3600
+STILL_ACTIVE = 259
 
 
 class WatcherError(ValueError):
@@ -80,6 +83,14 @@ def process_identity(pid: int) -> str | None:
         if not handle:
             return None
         try:
+            exit_code = ctypes.c_uint32()
+            if (
+                not ctypes.windll.kernel32.GetExitCodeProcess(
+                    handle, ctypes.byref(exit_code)
+                )
+                or exit_code.value != STILL_ACTIVE
+            ):
+                return None
             creation = ctypes.c_uint64()
             exit_time = ctypes.c_uint64()
             kernel = ctypes.c_uint64()
@@ -321,6 +332,8 @@ def run_watcher(
     atomic_json(pid_path, pid_receipt)
     sequence = 0
     exit_action = "EXIT_WATCHER_ERROR"
+    failed_sha: str | None = None
+    failed_exit: int | None = None
     try:
         while True:
             sequence += 1
@@ -365,22 +378,37 @@ def run_watcher(
             )
             helper_exit = None
             helper_output = None
-            if action == "RUN_ROLLOVER":
-                completed = subprocess.run(
-                    [
-                        sys.executable,
-                        str(Path(ROLLOVER.__file__).resolve()),
-                        "--check",
-                    ],
-                    cwd=ROOT,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-                helper_exit = completed.returncode
-                helper_output = (
-                    (completed.stdout or "") + (completed.stderr or "")
-                ).strip()
+            if action == "RUN_ROLLOVER" and selected_sha == failed_sha:
+                # Same selection already failed; wait for a new manifest.
+                action = "ROLLOVER_BLOCKED_AWAITING_NEW_SELECTION"
+                helper_exit = failed_exit
+            elif action == "RUN_ROLLOVER":
+                try:
+                    completed = subprocess.run(
+                        [
+                            sys.executable,
+                            str(Path(ROLLOVER.__file__).resolve()),
+                            "--check",
+                        ],
+                        cwd=ROOT,
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                        timeout=HELPER_TIMEOUT_SECONDS,
+                    )
+                    helper_exit = completed.returncode
+                    out, err = completed.stdout, completed.stderr
+                except subprocess.TimeoutExpired as exc:
+                    helper_exit = 2
+                    out, err = exc.stdout, exc.stderr
+                    out, err = (
+                        x.decode("utf-8", "replace")
+                        if isinstance(x, bytes)
+                        else x
+                        for x in (out, err)
+                    )
+                    err = (err or "") + "\nhelper timed out"
+                helper_output = ((out or "") + (err or "")).strip()
                 if helper_exit == 0:
                     applied_sha = applied_manifest_sha256()
                     if applied_sha != selected_sha:
@@ -392,6 +420,11 @@ def run_watcher(
                     "ROLLOVER_APPLIED"
                     if helper_exit == 0
                     else "ROLLOVER_BLOCKED_RETRY_PENDING"
+                )
+                failed_sha, failed_exit = (
+                    (None, None)
+                    if helper_exit == 0
+                    else (selected_sha, helper_exit)
                 )
             atomic_json(
                 heartbeat_path,

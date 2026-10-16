@@ -89,3 +89,10 @@ def test_capacity_share_audit_accepts_zero_funding_and_rejects_wrong_normalizati
     assert capacity_share_errors(rows)==[]
     rows[0].update(cu_adj=60,banks_adj=40)
     assert capacity_share_errors(rows)==['A cu','A banks']
+    from decimal import Decimal as D
+    roster=[{'member':'A','bioguide':'A000001','cu':0,'banks':0,'finserv':0,'receipts':0},
+            {'member':'B','bioguide':'B000001','cu':100,'banks':0,'finserv':0,'receipts':0},
+            {'member':'C','bioguide':'C000001','cu':0,'banks':0,'finserv':0,'receipts':0}]
+    out=project(roster,{'A000001':{'cu':D(100),'banks':D(100)},'C000001':{'banks':D(100)}},{},{'H0AA00001':'A000001','H0CC00001':'C000001'})
+    assert out[1]['money_source_status'].startswith('UNRESOLVED') and out[1]['cu']==100
+    assert capacity_share_errors(out)==[]

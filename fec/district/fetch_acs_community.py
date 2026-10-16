@@ -287,6 +287,18 @@ def _download(url, path, force):
                 raise OSError('empty response')
             os.replace(part, path)
             return 'downloaded'
+        except urllib.error.HTTPError as exc:
+            try:
+                os.remove(part)
+            except FileNotFoundError:
+                pass
+            if 400 <= exc.code < 500 and exc.code not in (408, 429):
+                raise SystemExit('download failed for %s: %s' % (url, exc))
+            failure = exc
+            if attempt + 1 < DOWNLOAD_ATTEMPTS:
+                delay = RETRY_BASE_SECONDS * (attempt + 1)
+                print('!! retry in %d seconds: %s' % (delay, exc))
+                time.sleep(delay)
         except Exception as exc:
             failure = exc
             try:

@@ -302,7 +302,8 @@ def validate_output(
                 raise SayDoError(f"advancement-rate floor violated for {name}")
         elif not isinstance(rate, (int, float)) or not 0 <= rate <= 1:
             raise SayDoError(f"invalid advancement rate for {name}")
-        if round(row["say_z"] - row["do_z"], 3) != row["gap"]:
+        # say_z, do_z and gap are each rounded to 3 dp independently.
+        if abs((row["say_z"] - row["do_z"]) - row["gap"]) > 0.0015 + 1e-9:
             raise SayDoError(f"gap identity failed for {name}")
         expected_quadrant = (
             "talker"
@@ -311,7 +312,12 @@ def validate_output(
             if row["gap"] <= -1.0
             else "aligned"
         )
-        if quadrant != expected_quadrant:
+        # The producer assigns the quadrant from the raw gap, so at the
+        # rounded +/-1.0 boundary either adjacent quadrant is legitimate.
+        accepted = {expected_quadrant}
+        if abs(abs(row["gap"]) - 1.0) <= 0.0005:
+            accepted |= {"aligned", "talker" if row["gap"] > 0 else "doer"}
+        if quadrant not in accepted:
             raise SayDoError(f"quadrant threshold failed for {name}")
     return {"members": len(members), **counts}
 
@@ -462,11 +468,15 @@ def run_pass(
     if require_first_receipt:
         first = read_object(safe_child(run_dir, FIRST_RECEIPT))
         first_copy = safe_child(run_dir, FIRST_COPY)
+        first_declared = first.get("declared_output") or {}
         if (
-            first.get("pass") != "first"
+            first.get("schema") != SCHEMA
+            or first.get("status") != "PASS"
+            or str(first.get("generation_id") or "").casefold() != generation_id
+            or first.get("pass") != "first"
+            or not isinstance(first_declared, dict)
             or not first_copy.is_file()
-            or first.get("declared_output", {}).get("sha256")
-            != sha256_file(first_copy)
+            or first_declared.get("sha256") != sha256_file(first_copy)
         ):
             raise SayDoError("first-pass receipt/copy is stale or incomplete")
     execution, execution_hashes = run_producer_twice(

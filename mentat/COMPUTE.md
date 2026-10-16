@@ -20,6 +20,9 @@ Not covered, on purpose: the industry report build (PowerShell 5.1 orchestrators
 tasks M2-c and M2-d), the console prewarm, the figure PNG export and the analytics index (console-side), and the manual ingest and
 model-freeze tools. The only PowerShell this lane needs is the Windows wrapper `tools/run_job.ps1`; the image has no PowerShell.
 
+`anchors` inputs: the container requires Melange's `sector_spend.csv` and `fullscope_receipts.json` (`%LOCALAPPDATA%\Melange\lda_rebuild\derived\sector_spend\` and `...\derived\`) to exist, because
+they are bind mounts with `create_host_path: false`. A missing file fails the container; the Windows `build_lda` wrote "unavailable" and carried on.
+
 ## Files
 
 | File | Role |
@@ -100,6 +103,61 @@ python tools\compute_parity.py compare A1 D:\parity\B --mask mask.json --map C:/
 
 Frozen inputs, one heavy job at a time, and the cut-over criterion (three passing runs, Paul accepts the explanation report) are the
 design's section 4. Anchors and the refit `detect` mode are the first candidates; `refit parity` already ran once on a Linux pod.
+
+## Collector parity (D-180)
+
+The two collectors (`collect-fanout`, `pac-evidence`) read the live FEC API, which answers differently at different moments (F7), so two
+live runs prove nothing. The layer records the web traffic of one Windows run (R0) and feeds the same answers to every later run of the
+unchanged job. It is wrapper, environment and proxy only: `R/collect.R`, `R/schema.R`, `inputs/fec_receipt_rules.json`,
+`tools/pac_evidence.py`, `tools/cross_reference_engine.py`, the money logic in `app/flow_data.py` and `METHODOLOGY.md` are not touched, and
+neither are production `run_job.ps1` and `compute.compose.yaml` (a test pins that they never mention the replay file or a proxy variable).
+
+How: the clients already honour `HTTPS_PROXY` / `NO_PROXY` / `SSL_CERT_FILE` (R on Windows also needs `CURL_SSL_BACKEND=openssl` +
+`CURL_CA_BUNDLE`; `http_replay.py` sets all of them), so a loopback forward proxy serves the cassette. Melange's `ops/compute/http_replay.py`
+is used byte for byte (its sha256 is in every replay report). Only `api.open.fec.gov` is fetched; the key travels in `X-Api-Key`, which the
+cassette stores as `REDACTED`, so a replay with a dummy key matches the same cassette entry.
+
+| File | Role |
+|---|---|
+| `tools/replay_proxy.py` | `mint` (host: CA + leaf for api.open.fec.gov, CA key never written), `record` (stock `http_replay` classes, proxy timeout 150 s because the request pool waits 120 s, `--secret-file`), `replay` (stdlib stand-in for the CA class, because the image has no `cryptography`; `--allow-unused`). Writes `REPLAY_REPORT` JSON: http_replay sha256, cassette digest, served, misses, unused, served per request key, refused TLS hosts. Exit: the child's if nonzero, else 3 on a miss. |
+| `tools/replay_parity.py` | `snapshot`, `record`, `replay --side` A1, A2 or B, `judge`, `status`, `--plan` (prints the commands and variable names, runs nothing). |
+| `compute.replay.yaml` | The second `-f` file, container side B only: network none, networks reset, cassette / tls / `http_replay.py` read-only and never created by Docker, the dummy keys secret (`REPLAY_KEYS_FILE`), `http_replay.py` mounted at `/melange-replay/ops/compute/` (three levels deep: it takes `parents[2]` of its own path), `collect-fanout` gets a scratch `.cache`. |
+
+Root `%LOCALAPPDATA%\Mentat\replay\<job>\<snapshot>\` (`MENTAT_REPLAY_ROOT` overrides; owner-only like the key folders): `snapshot.json`,
+`cassette\`, `tls\`, `inputs\`, `keys\` (the dummy keys), `reports\`, and `runs\R0|A1|A2|B` (each run's work folder, moved there after it ends; every
+run uses the same `<snapshot>\work` path so path-valued fields agree). Outputs and receipts go only to scratch, never the live tree.
+
+```powershell
+$env:MELANGE_HTTP_REPLAY = '<path to Melange ops\compute\http_replay.py>'      # default: the live Melange tree, or /melange-replay/... in the container
+python tools\replay_parity.py snapshot --job pac-evidence --snapshot S1 -- --committees C00000059 --cycles 2024 --company "Hallmark Cards" --max-units 1 --output {work}/evidence
+python tools\replay_parity.py record  --job pac-evidence --snapshot S1       # R0, live: real key quota
+python tools\replay_parity.py replay  --job pac-evidence --snapshot S1 --side A1
+python tools\replay_parity.py replay  --job pac-evidence --snapshot S1 --side A2
+python tools\replay_parity.py replay  --job pac-evidence --snapshot S1 --side B     # the container; needs a digest in compute.images.lock
+python tools\replay_parity.py judge   --job pac-evidence --snapshot S1
+python tools\replay_parity.py status  --job pac-evidence
+```
+
+Record safety: `record` refuses while an `api_company_cycle_fanout.py` is running (shared key quota), stages the keys with `compute_secrets.py`
+and wipes them in `finally`, and afterwards rescans the cassette for every key in the store, disabled ones included; a cassette holding any is
+marked dirty and no replay will use it. Replays use dummy keys (`replay-dummy-0001`, ... as many as the recording had). `collect-fanout`
+replays pin `--budget-database` (in scratch) and `--initial-workers / --max-parallel / --max-lane-ceiling / --pool-width / --recovery-workers W
+--memory-per-lane-mb 640 --concurrency-per-key 8` so two runs schedule alike.
+
+The judge (`reports\judge.json`, one gate per line): A1 against A2 builds the noise mask (`compute_parity.variance`). A masked place whose
+column or leaf name says money (`amount|total|receipt|disburs|expend|cash|count|sum|cents|rank|percentil|threshold`) is allowed only if A1 and A2
+hold the same values there, as a multiset. Never masked: per SQLite / CSV table the row count, the exact Decimal sum of each protected column and
+an order-independent multiset digest of the protected projection; per JSON protected leaf the same, by index-free path. They must be equal across
+A1, A2 and B, and R0 against A1. Also required: zero misses and refused hosts everywhere, equal served counts per request across A1, A2 and B,
+the cassette and `http_replay.py` unchanged, every run on the same Mentat commit and image digest, `compute_job.py verify` passing on every
+receipt, and (with B) `compute_parity compare` of A1 against B with the work folder mapped to the container mount. `.csv.gz` / `.jsonl.gz` outputs
+are read for the protected groups; any other opaque file that differs between A1 and A2 fails the guard.
+
+The streak (`status`) counts consecutive passes on distinct snapshots with the same image digest and Mentat commit and a B run; a failure or a
+code change resets it. Three are the cut-over criterion above. Limits: a client that ignores the proxy variables would go live during a Windows
+replay (the container has no network, so B cannot); the cassette digest trusts body file names (content-addressed); a chunked request body and
+HTTP/2 are not supported by `http_replay.py`; on Python 3.13 hosts record needs a CA with key identifiers (`mint` adds them; the stock throwaway
+CA used by `record` does not).
 
 ## Blocked
 

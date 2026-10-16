@@ -91,10 +91,20 @@ def parse_bill(text):
     return None
 
 
+def _norm_title(text):
+    return re.sub(r'\W+', ' ', str(text or '')).casefold().strip()
+
+
 def load_area_bills():
-    """(area, congress) -> set of (type_token, number), from bills_audit.csv."""
+    """(area, congress) -> set of (type_token, number), from bills_audit.csv.
+
+    Also returns multi_titles: (type_token, number, congress) -> {normalised audit titles} for rows
+    listing MORE than one Congress. Bill numbers reset every Congress, so such a row only names the
+    same bill in each Congress if the BILLSTATUS titles agree; build() drops the cells that do not.
+    """
     path = os.path.join(B, 'bills_audit.csv')
     area_bills = collections.defaultdict(set)
+    multi_titles = collections.defaultdict(set)
     rows = unparsed = unmapped = 0
     with open(path, encoding='utf-8-sig', errors='replace', newline='') as fh:
         for row in csv.DictReader(fh):
@@ -105,17 +115,20 @@ def load_area_bills():
             key = parse_bill(row.get('bill'))
             if key is None:
                 unparsed += 1; continue
-            for token in re.split(r'[;,|/\s]+', str(row.get('congresses') or '')):
-                if token.strip().isdigit():
-                    congress = int(token.strip())
-                    if congress in CONGRESSES:
-                        area_bills[(area, congress)].add(key)
-    return area_bills, {'audit_rows': rows, 'unmapped_section': unmapped,
+            tokens = [t.strip() for t in re.split(r'[;,|/\s]+', str(row.get('congresses') or ''))
+                      if t.strip().isdigit()]
+            for token in tokens:
+                congress = int(token)
+                if congress in CONGRESSES:
+                    area_bills[(area, congress)].add(key)
+                    if len(tokens) > 1:
+                        multi_titles[key + (congress,)].add(_norm_title(row.get('title')))
+    return area_bills, multi_titles, {'audit_rows': rows, 'unmapped_section': unmapped,
                         'unparseable_bill': unparsed}
 
 
 def load_rosters(wanted):
-    """(type,number,congress) -> (sponsor_bioguide, frozenset(cosponsor_bioguides)).
+    """(type,number,congress) -> (sponsor_bioguide, frozenset(cosponsor_bioguides), frozenset(normalised titles)).
 
     Opens only the archive members we actually need. Reuses the shipped BILLSTATUS parser.
     """
@@ -141,13 +154,14 @@ def load_rosters(wanted):
                 if info is None:
                     missing.append((token, number, congress)); continue
                 with archive.open(info, 'r') as stream:
-                    sponsor, cosponsors, _titles = _bill_metadata_for_member(stream, name, info.filename)
-                out[(token, number, congress)] = (sponsor, frozenset(cosponsors))
+                    sponsor, cosponsors, titles = _bill_metadata_for_member(stream, name, info.filename)
+                out[(token, number, congress)] = (sponsor, frozenset(cosponsors),
+                                                  frozenset(_norm_title(t) for t in titles))
     return out, missing
 
 
 def load_service():
-    """bioguide -> {congress: chamber}, from Voteview HSall."""
+    """bioguide -> {congress: {chambers}}, from Voteview HSall (a mid-Congress mover has both)."""
     path = os.path.join(B, 'votes', 'HSall_members.csv')
     service = collections.defaultdict(dict)
     if not os.path.exists(path):
@@ -164,7 +178,7 @@ def load_service():
             except (TypeError, ValueError, KeyError):
                 continue
             if congress in CONGRESSES:
-                service[bioguide][congress] = chamber
+                service[bioguide].setdefault(congress, set()).add(chamber)
     return service
 
 
@@ -174,7 +188,7 @@ def build():
     members = sorted(m['member'] for m in cong)
     bio = {m['member']: (m.get('bioguide') or '') for m in cong}
 
-    area_bills, audit_receipt = load_area_bills()
+    area_bills, multi_titles, audit_receipt = load_area_bills()
     wanted = {(token, number, congress)
               for (_area, congress), keys in area_bills.items()
               for token, number in keys}
@@ -193,6 +207,7 @@ def build():
     sig = {n: [0] * len(cats) for n in members}
     opp = {n: [0] * len(cats) for n in members}
 
+    title_dropped = set()
     for (area, congress), keys in sorted(area_bills.items()):
         j = ai.get(area)
         if j is None:
@@ -201,17 +216,24 @@ def build():
             roster = rosters.get((token, number, congress))
             if roster is None:
                 continue                                  # unresolved bill is no one's opportunity
-            sponsor, cosponsors = roster
+            sponsor, cosponsors, titles = roster
+            wanted_titles = multi_titles.get((token, number, congress))
+            if wanted_titles and not (wanted_titles & titles):
+                title_dropped.add((token, number, congress))   # same number, different bill that Congress
+                continue
             bill_chamber = 'House' if token in HOUSE_TYPES else 'Senate'
             for n in members:
                 b = bio[n]
-                if not b or service.get(b, {}).get(congress) != bill_chamber:
+                if not b or bill_chamber not in service.get(b, {}).get(congress, ()):
                     continue                              # not serving, or wrong chamber
                 if b == sponsor:
                     continue                              # you cannot cosponsor your own bill
                 opp[n][j] += 1
                 if b in cosponsors:
                     sig[n][j] += 1
+
+    audit_receipt['title_mismatch_dropped'] = len(title_dropped)
+    print('multi-Congress audit cells dropped on BILLSTATUS title mismatch: %d' % len(title_dropped))
 
     # area base rate p_A = all signatures / all opportunities in that area (the shrinkage target)
     base = []

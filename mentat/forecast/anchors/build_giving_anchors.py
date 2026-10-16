@@ -4,10 +4,10 @@
 
 Owner rulings of 2026-09-30 implemented here: the forecast applies to MENTAT data (levels always from Mentat; OpenSecrets only estimated the
 relationships); PAC shown as (1) the roster companies' PACs' own giving to candidates (FEC pas2, D-049) and (2) Mentat general giving (the
-workbook's included Analysis Amount, less the non_giving receipts: see the 2026-10-01 ruling below); shares on the employee and PAC bases;
+workbook's included Analysis Amount, less the non_giving receipts: see the 2026-10-01 ruling below); shares on the included-receipt and PAC bases;
 Melange LDA levels, both series; coverage end by rule; thin-base flags; Community Banks separate; auto has no Mentat data and no entry.
 Owner ruling of 2026-10-01 (D4, option b), in the FORECAST only: receipts the accounting engine buckets as non_giving (FEC-reported interest, refunds,
-insurance claims, loans) are left out of the general-giving levels, the monthly observed cuts and the employee House / Senate candidate bases
+insurance claims, loans) are left out of the general-giving levels, the monthly observed cuts and the included-receipt House / Senate candidate bases
 (mentat_sources.FORECAST_EXCLUDED_FUNDING_SOURCES); each block reports what was left out (`excluded_non_giving`, per cycle). The workbook is untouched.
 
 READ-ONLY toward everything but its own two output files. SQLite files are opened immutable; FEC files and the LDA / CPI inputs are only read;
@@ -117,27 +117,41 @@ def default_output_dir(project_root):
 # the Mentat side of one industry
 # ---------------------------------------------------------------------------------------------------------------------------------
 def mentat_side(spec, ctx):
+    run = ctx.get('run')
+    def read_step(name, operation):
+        stage = 'mentat:' + spec['id'] + ':' + name
+        if run:
+            run.stage_start(stage)
+        try:
+            value = operation()
+        except Exception as error:
+            if run:
+                run.stage_finish(stage, type(error).__name__ + ': ' + str(error), status='failed')
+            raise
+        if run:
+            run.stage_finish(stage)
+        return value
     workbook = ctx['report_dir'] / spec['workbook']
     if not workbook.is_file():
         raise Unavailable('The published workbook ' + spec['workbook'] + ' is not in the report directory.')
-    workbook_sha = ms.sha256_file(workbook)
-    found = ms.find_index(ctx['index_dir'], workbook_sha)
+    workbook_sha = read_step('workbook_hash', lambda: ms.sha256_file(workbook))
+    found = read_step('index_selection', lambda: ms.find_index(ctx['index_dir'], workbook_sha))
     if found is None:
         raise Unavailable('No contribution-analytics index matches the published workbook (sha256 ' + workbook_sha[:8] + '). Open the industry in the console so its index is built, then rebuild the anchors.')
     index_path, manifest = found
     prov = manifest['provenance']
-    source = ms.find_source_db(ctx['project_root'], spec['source_db_candidates'], prov['database_sha256'], ctx['hashes'])
+    source = read_step('source_db_hash', lambda: ms.find_source_db(ctx['project_root'], spec['source_db_candidates'], prov['database_sha256'], ctx['hashes']))
     if source is None:
         raise Unavailable('The pinned source database (sha256 ' + str(prov['database_sha256'])[:8] + ') was not found under the Mentat project folder.')
-    collected = ms.collection_date(source, spec['mentat_dataset'])
+    collected = read_step('collection_date', lambda: ms.collection_date(source, spec['mentat_dataset']))
     open_cycle = int(collected[:4]) + int(collected[:4]) % 2
     cov = coverage_rule.coverage(collected, spec.get('coverage_cut_back'))
     cuts = fec_pas2.month_ends(open_cycle - 1, cov['coverage_end'])
-    agg = ms.index_aggregates(index_path, source, open_cycle, cuts)
+    agg = read_step('index_aggregation', lambda: ms.index_aggregates(index_path, source, open_cycle, cuts))
     expected = {k.split('-')[-1]: v for k, v in manifest['receipt_cycles'].items()}
     if agg['analysis_cycles'] != expected:       # the manifest records the Analysis Amount BEFORE the forecast's non_giving exclusion (agg['cycles'] is after it)
         raise Unavailable('The index receipt totals differ from its own manifest; the index is not trustworthy.')
-    progress = ms.work_progress(source, open_cycle)
+    progress = read_step('work_progress', lambda: ms.work_progress(source, open_cycle))
     return dict(workbook=workbook, workbook_sha=workbook_sha, index_path=index_path, manifest=manifest, source=source,
                 collected=collected, open_cycle=open_cycle, cov=cov, cuts=cuts, agg=agg, progress=progress)
 
@@ -151,7 +165,7 @@ def _thin(cycles, threshold):
 
 
 def general_and_candidates(side, threshold):
-    """The general-giving and employee-candidate blocks on the FORECAST basis: receipts whose funding source is in ms.FORECAST_EXCLUDED_FUNDING_SOURCES (the
+    """The general-giving and candidate-receipt blocks on the FORECAST basis: receipts whose funding source is in ms.FORECAST_EXCLUDED_FUNDING_SOURCES (the
     accounting engine's non_giving bucket; owner ruling 2026-10-01) are left out of the levels, the observed cuts and the candidate bases. `by_funding_source`
     stays the full split of the Analysis Amount, and `excluded_non_giving` reports what was left out, so cycles + excluded = the published Analysis Amount."""
     agg = side['agg']
@@ -169,13 +183,18 @@ def general_and_candidates(side, threshold):
     cycles = {cy: _chambers(blocks) for cy, blocks in sorted(agg['candidates'].items())}
     candidates = {
         'status': 'ready', 'reason': None,
-        'basis': 'Employees\' included giving to House (committee type H) and Senate (S) candidate committees: the index joined to the pinned source '
+        'basis': 'Included receipts to House (committee type H) and Senate (S) candidate committees, across all funding sources; funding identity is not necessarily verified. The index is joined to the pinned source '
                  'database on sub_id; party D / R from the index, anything else "other"; presidential (P) committees excluded; receipts the accounting '
                  'engine buckets as non_giving left out (owner ruling 2026-10-01)',
         'cycles': cycles, 'observed': [dict(through=cut, **_chambers(blocks)) for cut, blocks in agg['candidate_cuts']],
         'thin_base': _thin(cycles, threshold),
         'excluded_funding_sources': left_out,
         'excluded_non_giving': {cy: _chambers(blocks) for cy, blocks in sorted(agg['candidates_excluded'].items())}}
+    if agg['type_conflicts']:
+        exposure = agg['type_conflict_exposure']
+        reason = (f"{exposure['rows']} included receipts ({_usd(exposure['net_cents'])} net; {_usd(exposure['gross_cents'])} gross) have conflicting recipient committee types involving House or Senate. "
+                  'The candidate-receipt basis is unavailable; general giving retains every amount. Resolve the source conflict before using a chamber split.')
+        candidates.update(status='unavailable', reason=reason, cycles={}, observed=[], thin_base={}, excluded_non_giving={})
     return general, candidates
 
 
@@ -320,7 +339,8 @@ def industry_flags(spec, side, pac_note, cpi_multipliers):
     progress = side['progress']
     if progress and progress['stored_complete'] < progress['units']:
         coverage_flags.append(f"{progress['stored_complete']} of {progress['units']} {side['open_cycle']} collection work units are stored_complete "
-                              f"({progress['fetched_complete']} fetched) in the collection database's own progress table; the observed total is probably low.")
+                              f"({progress['fetched_complete']} fetched) in the collection database's own progress table; incomplete work-unit storage needs inspection. "
+                              "These counters do not establish literal-query or whole-industry coverage.")
     if side['agg']['after_cut']:
         coverage_flags.append('Included receipts dated after the coverage end ($' + format(dollars(side['agg']['after_cut']), ',.2f') +
                               ') are not observed; they stay in the remainder window.')
@@ -332,10 +352,10 @@ def industry_flags(spec, side, pac_note, cpi_multipliers):
     if left_out:
         flags.append("Excluded from the forecast (owner ruling 2026-10-01): receipts Mentat's accounting engine marks non-giving - FEC-reported interest, refunds, "
                      'insurance claims and loans - ' + '; '.join(f'{_usd(v)} in {_cycle_label(cy, side["open_cycle"])}' for cy, v in sorted(left_out.items())) +
-                     ". They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and employee House and Senate "
+                     ". They stay in the published workbook's Analysis Amount; the general-giving levels, observed amounts and included-receipt House and Senate "
                      'candidate bases of this forecast leave them out.')
     if side['agg']['type_conflicts']:
-        flags.append(f"{side['agg']['type_conflicts']} sub_ids carry conflicting recipient committee types in the pinned source database.")
+        flags.append(f"{side['agg']['type_conflicts']} forecast-counted index facts have conflicting recipient committee types involving House or Senate; the candidate-receipt basis is unavailable.")
     if side['agg']['unmatched'][0]:
         flags.append(f"{side['agg']['unmatched'][0]} included facts (${format(dollars(side['agg']['unmatched'][1]), ',.2f')}) have no source row and are outside the chamber split.")
     if pac_note:
@@ -371,7 +391,7 @@ def build_snapshot(project_root, registry, options):
         inputs.append({'role': 'lda_receipts', 'path': str(receipts), 'sha256': ms.sha256_file(receipts)})
     done('inputs')
 
-    ctx = dict(project_root=project_root, report_dir=options['report_dir'], index_dir=project_root / ms.STATE_INDEX_DIR, hashes={})
+    ctx = dict(project_root=project_root, report_dir=options['report_dir'], index_dir=project_root / ms.STATE_INDEX_DIR, hashes={}, run=run)
     sides, unavailable = {}, {}
     for spec in specs:
         stage('mentat:' + spec['id'], 'Reading the index of ' + spec['mentat_dataset'])
@@ -528,14 +548,14 @@ def check_fresh(snapshot_path, project_root, report_dir):
     return out
 
 
-def run_build(project_root, output_dir=None, only=None, registry_path=None, fec=None, lda_csv=None, controls=None, report_dir=None, run_id=None, lda_receipts=None):
+def run_build(project_root, output_dir=None, only=None, registry_path=None, fec=None, lda_csv=None, controls=None, report_dir=None, run_id=None, lda_receipts=None, progress=False):
     started = time.time()
     project_root = Path(project_root)
-    registry = read_json(registry_path or HERE / 'registry.json')
     output_dir = Path(output_dir) if output_dir else default_output_dir(project_root)
-    run = glassbox.Run(run_id or 'giving-anchors-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+    run = glassbox.Run(run_id or 'giving-anchors-' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ'), progress=progress)
     run.start('Building the Giving Forecast anchor snapshot', 'project ' + str(project_root))
     try:
+        registry = read_json(registry_path or HERE / 'registry.json')
         options = dict(report_dir=Path(report_dir) if report_dir else report_directory(project_root), fec_root=fec_root(project_root, fec),
                        lda_csv=lda_csv or default_lda_csv(), controls=Path(controls) if controls else default_controls(project_root), only=only, run=run,
                        lda_receipts=lda_receipts)
@@ -577,7 +597,7 @@ def main(argv=None):
         return 0 if all(v == 'fresh' for v in result.values()) else 2
     try:
         final, receipt, snapshot = run_build(args.project_root, args.output_dir, args.industry, args.registry, args.fec_root, args.lda_csv, args.controls,
-                                             args.report_directory)
+                                             args.report_directory, progress=True)
     except Exception as error:  # the message is the diagnosis; the previous snapshot is untouched
         print('FAILED: ' + str(error), file=sys.stderr)
         return 1

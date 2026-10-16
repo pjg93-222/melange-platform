@@ -304,6 +304,19 @@ def parse_rpm(value):
     return rpm
 
 
+def checked_rpm(environ):
+    """Return (rpm, authentication_mode), refusing rates above the official limit."""
+    rpm = parse_rpm(environ.get("LDA_RPM", "15"))
+    authentication_mode = "registered" if environ.get("LDA_API_KEY") else "anonymous"
+    official_limit = 120 if authentication_mode == "registered" else 15
+    if rpm > official_limit:
+        raise IngestError(
+            f"LDA_RPM {rpm} exceeds the official {authentication_mode} limit "
+            f"of {official_limit}/minute"
+        )
+    return rpm, authentication_mode
+
+
 class RequestPacer:
     """Sleep the configured interval between every outbound request."""
 
@@ -661,7 +674,7 @@ def _run_worklist(paths, worklist_path, environ):
     worklist, worklist_md5 = load_worklist(
         worklist_path, legacy_default_year=2021 if legacy_default else None
     )
-    rpm = parse_rpm(environ.get("LDA_RPM", "15"))
+    rpm, _authentication_mode = checked_rpm(environ)
     manifest_path = worklist_manifest_path(paths, worklist_path)
     previous_manifest = load_manifest(manifest_path)
     legacy_manifest = None
@@ -785,14 +798,7 @@ def _sweep_directory(paths, filing_year, generation_root=None):
 
 
 def _run_sweep(paths, filing_year, environ, generation_root=None):
-    rpm = parse_rpm(environ.get("LDA_RPM", "15"))
-    authentication_mode = "registered" if environ.get("LDA_API_KEY") else "anonymous"
-    official_limit = 120 if authentication_mode == "registered" else 15
-    if rpm > official_limit:
-        raise IngestError(
-            f"LDA_RPM {rpm} exceeds the official {authentication_mode} limit "
-            f"of {official_limit}/minute"
-        )
+    rpm, authentication_mode = checked_rpm(environ)
     pacer = RequestPacer(rpm)
     headers = _headers(environ)
     opener = build_url_opener()

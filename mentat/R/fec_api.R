@@ -22,35 +22,45 @@ fec_api_key <- function(value = Sys.getenv("FEC_API_KEY", unset = "")) {
   key
 }
 
-# The persistent request budget is governed PER API KEY, not per database.
-# api.data.gov enforces its hourly cap per registered key, so workers holding
-# distinct keys are independent even when they share one database and industry.
-# Keying the budget row by a derived id is what makes that parallelism real: a
-# single hardcoded id collapses every worker onto one shared 1,000/hr bucket,
-# which silently caps an N-key fan-out at 1x. The key is never stored - only a
-# non-reversible polynomial digest of it.
+# The runtime identity matches Python's shared request pool. Explicit function
+# arguments remain available to offline fixtures; an inherited override must
+# identify the same key and is normalized to the existing 12-hex identity.
 fec_api_budget_id <- function(
   api_key = Sys.getenv("FEC_API_KEY", unset = ""),
   configured = Sys.getenv("MENTAT_API_BUDGET_ID", unset = "")
 ) {
+  inherited <- missing(configured)
   configured <- trimws(configured)
+  key <- trimws(api_key)
   if (nzchar(configured)) {
     if (!grepl("^openfec:sha256:[0-9a-f]{12,64}$", configured, perl = TRUE)) {
-      stop(
-        "MENTAT_API_BUDGET_ID must be an openfec:sha256:<hex> identifier.",
-        call. = FALSE
-      )
+      stop("MENTAT_API_BUDGET_ID must be an openfec:sha256:<hex> identifier.", call. = FALSE)
     }
-    return(configured)
+    if (!inherited) return(configured)
   }
-  key <- trimws(api_key)
-  if (!nzchar(key)) return("openfec")
-  codes <- utf8ToInt(key)
-  digest <- 0
-  for (code in codes) {
-    digest <- (digest * 31 + code) %% 1000003
+  if (!nzchar(key)) {
+    if (nzchar(configured)) return(configured)
+    return("openfec")
   }
-  paste0("openfec:", format(digest, scientific = FALSE))
+  require_package("digest")
+  hash <- digest::digest(enc2utf8(key), algo = "sha256", serialize = FALSE)
+  if (nzchar(configured) && !startsWith(hash, sub("^openfec:sha256:", "", configured))) {
+    stop("MENTAT_API_BUDGET_ID does not match this API key; admission refused.", call. = FALSE)
+  }
+  paste0("openfec:sha256:", substr(hash, 1L, 12L))
+}
+
+fec_api_legacy_budget_id <- function(api_key) {
+  value <- 0
+  for (code in utf8ToInt(trimws(api_key))) value <- (value * 31 + code) %% 1000003
+  paste0("openfec:", format(value, scientific = FALSE))
+}
+
+fec_api_budget_aliases <- function(api_key) {
+  require_package("digest")
+  hash <- digest::digest(enc2utf8(trimws(api_key)), algo = "sha256", serialize = FALSE)
+  unique(c("openfec", fec_api_legacy_budget_id(api_key),
+    paste0("openfec:sha256:", substring(hash, 1L, 12L:64L))))
 }
 
 fec_api_concurrency <- function(
@@ -94,67 +104,118 @@ fec_api_budget_exhausted <- function(used, requested, cap) {
   )
 }
 
+fec_api_budget_schema <- function(connection) {
+  DBI::dbExecute(connection, paste(
+    "CREATE TABLE IF NOT EXISTS api_request_budget (budget_id TEXT PRIMARY KEY,",
+    "window_started_epoch REAL NOT NULL, requests_used INTEGER NOT NULL DEFAULT 0)"))
+  DBI::dbExecute(connection, paste(
+    "CREATE TABLE IF NOT EXISTS api_request_budget_imports (",
+    "budget_id TEXT NOT NULL, source_id TEXT NOT NULL, source_budget_id TEXT NOT NULL,",
+    "source_window_started_epoch REAL NOT NULL, adopted_requests INTEGER NOT NULL,",
+    "PRIMARY KEY(budget_id,source_id,source_budget_id,source_window_started_epoch))"))
+  invisible(NULL)
+}
+
+fec_api_budget_counter <- function(start, used) {
+  valid <- is.numeric(start) && length(start) == 1L && is.finite(start) && start >= 0 &&
+    is.numeric(used) && length(used) == 1L && is.finite(used) && used >= 0 &&
+    used == floor(used) && used <= .Machine$integer.max
+  if (!isTRUE(valid)) stop("API budget ledger contains invalid usage evidence; admission refused.", call. = FALSE)
+  list(start = as.numeric(start), used = as.numeric(used))
+}
+
+fec_api_budget_source_id <- function(connection) {
+  path <- DBI::dbGetInfo(connection)$dbname
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (identical(.Platform$OS.type, "windows")) path <- tolower(path)
+  digest::digest(enc2utf8(paste0("file:", path)), algo = "sha256", serialize = FALSE)
+}
+
+fec_api_budget_source_rows <- function(connection, ids) {
+  if (!DBI::dbExistsTable(connection, "api_request_budget") || !length(ids)) return(data.frame())
+  DBI::dbGetQuery(connection, paste0(
+    "SELECT budget_id,window_started_epoch,requests_used FROM api_request_budget WHERE budget_id IN (",
+    paste(rep("?", length(ids)), collapse = ","), ")"), params = as.list(ids))
+}
+
 fec_api_budget_reserve <- function(
   connection,
   requests,
   cap = FEC_API_HOURLY_REQUEST_CAP,
   now = as.numeric(Sys.time()),
-  budget_id = fec_api_budget_id()
+  budget_id = fec_api_budget_id(),
+  legacy_ids = character(),
+  legacy_sources = list()
 ) {
-  requests <- as.integer(requests)
-  if (length(requests) != 1L || is.na(requests) || requests < 0L) {
-    stop("FEC API budget reservation must be a nonnegative integer.", call. = FALSE)
+  if (!is.numeric(requests) || length(requests) != 1L || !is.finite(requests) ||
+      requests < 0 || requests != floor(requests) || requests > .Machine$integer.max ||
+      !is.numeric(cap) || length(cap) != 1L || !is.finite(cap) || cap < 1 || cap != floor(cap) ||
+      !is.numeric(now) || length(now) != 1L || !is.finite(now) || now < 0) {
+    stop("Invalid API budget reservation.", call. = FALSE)
   }
-  # A deferred transaction lets concurrent readers both reach the later write;
-  # SQLite cannot safely wait while upgrading both read locks, so one lane gets
-  # SQLITE_BUSY immediately despite busy_timeout. BEGIN IMMEDIATE serializes
-  # that upgrade before the read. This transaction contains SQLite work only
-  # and is committed before the caller performs any API request.
+  # The shared write lease covers legacy high-water imports AND admission. The
+  # legacy rows are never deleted or rewritten; a later increase is charged on
+  # the next reservation. This transaction finishes before any HTTP request.
   DBI::dbExecute(connection, "BEGIN IMMEDIATE")
   transaction_open <- TRUE
-  on.exit(
-    if (transaction_open) try(DBI::dbRollback(connection), silent = TRUE),
-    add = TRUE
-  )
-  row <- DBI::dbGetQuery(
-    connection,
-    paste(
-      "SELECT window_started_epoch, requests_used FROM api_request_budget",
-      "WHERE budget_id=?"
-    ),
-    params = list(budget_id)
-  )
-  if (!nrow(row) || now - row$window_started_epoch[[1L]] >=
-      FEC_API_BUDGET_WINDOW_SECONDS) {
-    started <- now
-    used <- 0L
-  } else {
-    started <- as.numeric(row$window_started_epoch[[1L]])
-    used <- as.integer(row$requests_used[[1L]])
+  on.exit(if (transaction_open) try(DBI::dbRollback(connection), silent = TRUE), add = TRUE)
+  fec_api_budget_schema(connection)
+  row <- DBI::dbGetQuery(connection, paste(
+    "SELECT window_started_epoch,requests_used FROM api_request_budget WHERE budget_id=?"),
+    params = list(budget_id))
+  started <- NA_real_
+  used <- 0
+  if (nrow(row)) {
+    value <- fec_api_budget_counter(row$window_started_epoch[[1L]], row$requests_used[[1L]])
+    if (now - value$start < FEC_API_BUDGET_WINDOW_SECONDS) {
+      started <- value$start; used <- value$used
+    }
   }
-  if (used + requests > as.integer(cap)) {
-    stop(fec_api_budget_exhausted(used, requests, cap))
+  ids <- unique(c(budget_id, legacy_ids))
+  origin <- fec_api_budget_source_id(connection)
+  sources <- c(list(connection), legacy_sources)
+  for (source in sources) {
+    own_connection <- inherits(source, "DBIConnection")
+    if (!own_connection && !file.exists(source)) next
+    current <- if (own_connection) source else mentat_api_budget_connect(source, readonly = TRUE)
+    tryCatch({
+      source_id <- fec_api_budget_source_id(current)
+      own <- identical(source_id, origin)
+      for (index in seq_len(nrow(values <- fec_api_budget_source_rows(current, ids)))) {
+        old_id <- as.character(values$budget_id[[index]])
+        if (own && identical(old_id, budget_id)) next
+        value <- fec_api_budget_counter(values$window_started_epoch[[index]], values$requests_used[[index]])
+        if (now - value$start >= FEC_API_BUDGET_WINDOW_SECONDS) next
+        previous <- DBI::dbGetQuery(connection, paste(
+          "SELECT adopted_requests FROM api_request_budget_imports WHERE budget_id=? AND source_id=?",
+          "AND source_budget_id=? AND source_window_started_epoch=?"),
+          params = list(budget_id, source_id, old_id, value$start))
+        adopted <- if (nrow(previous)) fec_api_budget_counter(value$start, previous$adopted_requests[[1L]])$used else 0
+        delta <- max(0, value$used - adopted)
+        if (delta > 0) {
+          used <- used + delta
+          started <- if (is.na(started)) value$start else max(started, value$start)
+        }
+        DBI::dbExecute(connection, paste(
+          "INSERT INTO api_request_budget_imports VALUES (?,?,?,?,?)",
+          "ON CONFLICT(budget_id,source_id,source_budget_id,source_window_started_epoch) DO UPDATE SET",
+          "adopted_requests=MAX(adopted_requests,excluded.adopted_requests)"),
+          params = list(budget_id, source_id, old_id, value$start, max(adopted, value$used)))
+      }
+    }, finally = if (!own_connection) DBI::dbDisconnect(current))
   }
-  used <- used + requests
-  DBI::dbExecute(
-    connection,
-    paste(
-      "INSERT INTO api_request_budget",
-      "(budget_id, window_started_epoch, requests_used) VALUES (?, ?, ?)",
-      "ON CONFLICT(budget_id) DO UPDATE SET",
-      "window_started_epoch=excluded.window_started_epoch,",
-      "requests_used=excluded.requests_used"
-    ),
-    params = list(budget_id, started, used)
-  )
-  status <- list(
-    requests_used = used,
-    requests_remaining = as.integer(cap) - used,
-    window_started_epoch = started
-  )
+  if (is.na(started)) started <- now
+  admitted <- requests == 0 || used + requests <= cap
+  if (admitted) used <- used + requests
+  DBI::dbExecute(connection, paste(
+    "INSERT INTO api_request_budget VALUES (?,?,?) ON CONFLICT(budget_id) DO UPDATE SET",
+    "window_started_epoch=excluded.window_started_epoch,requests_used=excluded.requests_used"),
+    params = list(budget_id, started, used))
+  # Persist migration evidence even when the next HTTP request is refused.
   DBI::dbCommit(connection)
   transaction_open <- FALSE
-  status
+  if (!admitted) stop(fec_api_budget_exhausted(used, requests, cap))
+  list(requests_used = used, requests_remaining = max(0, cap - used), window_started_epoch = started)
 }
 
 fec_api_budget_status <- function(
@@ -163,21 +224,15 @@ fec_api_budget_status <- function(
   now = as.numeric(Sys.time()),
   budget_id = fec_api_budget_id()
 ) {
-  row <- DBI::dbGetQuery(
-    connection,
-    paste(
-      "SELECT window_started_epoch, requests_used FROM api_request_budget",
-      "WHERE budget_id=?"
-    ),
-    params = list(budget_id)
-  )
-  active <- nrow(row) &&
-    now - row$window_started_epoch[[1L]] < FEC_API_BUDGET_WINDOW_SECONDS
-  used <- if (active) as.integer(row$requests_used[[1L]]) else 0L
-  list(
-    requests_used = used,
-    requests_remaining = as.integer(cap) - used
-  )
+  row <- DBI::dbGetQuery(connection, paste(
+    "SELECT window_started_epoch,requests_used FROM api_request_budget WHERE budget_id=?"),
+    params = list(budget_id))
+  used <- 0
+  if (nrow(row)) {
+    value <- fec_api_budget_counter(row$window_started_epoch[[1L]], row$requests_used[[1L]])
+    if (now - value$start < FEC_API_BUDGET_WINDOW_SECONDS) used <- value$used
+  }
+  list(requests_used = used, requests_remaining = max(0, cap - used))
 }
 
 fec_api_query_pairs <- function(params) {
@@ -415,18 +470,63 @@ fec_api_curl_transport <- function(specs, api_key, concurrency) {
   results
 }
 
+fec_api_remote_pool <- function() {
+  mode <- Sys.getenv("MENTAT_REQUEST_POOL_REMOTE", unset = "")
+  if (!mode %in% c("", "0", "1")) stop("Invalid request pool mode.", call. = FALSE)
+  if (!identical(mode, "1")) return(FALSE)
+  url <- Sys.getenv("MENTAT_REQUEST_POOL_URL", unset = "")
+  token <- Sys.getenv("MENTAT_REQUEST_POOL_TOKEN", unset = "")
+  if (!grepl("^http://host[.]docker[.]internal:[0-9]+/batch$", url) ||
+      !grepl("^[A-Za-z0-9_-]{32,}$", token)) {
+    stop("Host request pool is unavailable or invalid; no local fallback is allowed.", call. = FALSE)
+  }
+  port <- suppressWarnings(as.integer(sub("^http://host[.]docker[.]internal:([0-9]+)/batch$", "\\1", url)))
+  if (is.na(port) || port < 1L || port > 65535L) stop("Invalid host request pool port.", call. = FALSE)
+  TRUE
+}
+
+fec_api_run_budget <- function(connection, api_key, budget_connection = NULL) {
+  validate_count <- function(count) {
+    if (!is.numeric(count) || length(count) != 1L || !is.finite(count) || count < 0 ||
+        count != floor(count) || count > .Machine$integer.max) stop("Invalid API request count.", call. = FALSE)
+  }
+  if (fec_api_remote_pool()) {
+    return(list(reserve = function(count) { validate_count(count); invisible(NULL) },
+      status = function() list(requests_used = NA_integer_, requests_remaining = NA_integer_),
+      close = function() invisible(NULL)))
+  }
+  own <- is.null(budget_connection)
+  if (own) budget_connection <- mentat_api_budget_connect()
+  ok <- FALSE
+  on.exit(if (own && !ok) DBI::dbDisconnect(budget_connection), add = TRUE)
+  fec_api_budget_schema(budget_connection)
+  sources <- c(list(connection), as.list(mentat_api_budget_legacy_paths()))
+  identity <- fec_api_budget_id(api_key)
+  result <- list(reserve = function(count) {
+    validate_count(count)
+    fec_api_budget_reserve(budget_connection,
+      if (nzchar(Sys.getenv("MENTAT_REQUEST_POOL_URL", ""))) 0L else count,
+      budget_id = identity, legacy_ids = fec_api_budget_aliases(api_key), legacy_sources = sources)
+  }, status = function() fec_api_budget_status(budget_connection, budget_id = identity),
+  close = function() if (own) DBI::dbDisconnect(budget_connection) else invisible(NULL))
+  ok <- TRUE
+  result
+}
+
 fec_api_default_transport <- function(specs, api_key, concurrency) {
   if (!length(specs)) return(list())
   pool_url <- Sys.getenv("MENTAT_REQUEST_POOL_URL", unset = "")
+  if (fec_api_remote_pool() && !nzchar(pool_url)) stop("Host request pool is missing; no local fallback.")
   if (nzchar(pool_url)) {
     require_package("curl")
     require_package("jsonlite")
-    if (!grepl("^http://127[.]0[.]0[.]1:[0-9]+/batch$", pool_url)) stop("Invalid local request pool address.")
+    remote <- fec_api_remote_pool()
+    if (!remote && !grepl("^http://127[.]0[.]0[.]1:[0-9]+/batch$", pool_url)) stop("Invalid local request pool address.")
     handle <- curl::new_handle()
     curl::handle_setheaders(handle, "Content-Type" = "application/json",
       "Authorization" = paste("Bearer", Sys.getenv("MENTAT_REQUEST_POOL_TOKEN")))
     curl::handle_setopt(handle, postfields = jsonlite::toJSON(list(
-      specs = specs, lane = Sys.getenv("MENTAT_REQUEST_POOL_LANE")), auto_unbox = TRUE, digits = NA), timeout = 0)
+      specs = specs, lane = Sys.getenv("MENTAT_REQUEST_POOL_LANE")), auto_unbox = TRUE, digits = NA), timeout = 0, proxy = "")
     response <- curl::curl_fetch_memory(pool_url, handle)
     if (response$status_code != 200L) stop("Local request pool unavailable; checkpoints retained.")
     result <- jsonlite::fromJSON(rawToChar(response$content), simplifyVector = FALSE,
@@ -485,6 +585,7 @@ fec_api_fetch_with_retry <- function(
     batch <- tryCatch(
       transport(specs[pending], api_key, concurrency),
       error = function(condition) {
+        if (inherits(condition, "mentat_evidence_archive_failed")) stop(condition)
         replicate(
           length(pending),
           list(status = 0L, headers = list(), body = ""),
@@ -635,7 +736,7 @@ fec_api_archive_response <- function(connection, spec, response, page = -1L,
     body <- mentat_evidence_json(response$json %||% body %||% list())
   }
   allowed_params <- c("per_page", "two_year_transaction_period", "sort", "contributor_employer",
-    "contributor_name", "min_date", "max_date", "contributor_zip", "contributor_city",
+    "contributor_name", "contributor_id", "min_date", "max_date", "contributor_zip", "contributor_city",
     "contributor_state", "last_index", "last_contribution_receipt_date")
   query <- mentat_evidence_json(list(schema_version = 1L,
     request = list(id = spec$id, url = FEC_API_ENDPOINT,
@@ -666,11 +767,22 @@ fec_api_archiving_transport <- function(connection, transport) {
   function(specs, api_key, concurrency) {
     responses <- transport(specs, api_key, concurrency)
     # Preserve responses before parsing, count validation or retries can fail.
-    DBI::dbWithTransaction(connection, {
-      for (index in seq_along(responses)) {
-        fec_api_archive_response(connection, specs[[index]], responses[[index]])
+    tryCatch(
+      DBI::dbWithTransaction(connection, {
+        for (index in seq_along(responses)) {
+          fec_api_archive_response(connection, specs[[index]], responses[[index]])
+        }
+      }),
+      error = function(condition) {
+        stop(structure(
+          list(message = paste(
+            "FEC API response evidence could not be saved;",
+            "collection stopped before retry or certification."
+          ), call = NULL),
+          class = c("mentat_evidence_archive_failed", "error", "condition")
+        ))
       }
-    })
+    )
     responses
   }
 }
@@ -2512,6 +2624,12 @@ fec_api_store_results <- function(connection, result, lookup_cache = NULL) {
   trusted_by_company <- lookup_cache$trusted_by_company
   for (state_name in state_names) {
     state <- result$units[[state_name]]
+    # A narrower rescue can preserve observations without proving coverage.
+    # Leave its checkpoints and raw archive available for diagnosis.
+    if (identical(state$coverage_verified, FALSE)) {
+      stop("Cannot certify an unverified FEC API query population: ",
+           state_name, call. = FALSE)
+    }
     if (isTRUE(state$stored_complete)) next
     pages <- state$pages
     if (!isTRUE(state$complete)) {
@@ -2864,15 +2982,11 @@ collect_crypto_api <- function(
     fec_api_run_lookups(connection),
     company_filter
   )
-  budget_connection <- budget_connection %||% connection
-  budget_id <- fec_api_budget_id(api_key)
+  run_budget <- fec_api_run_budget(connection, api_key, budget_connection)
+  on.exit(run_budget$close(), add = TRUE)
   requests_reserved_run <- 0L
   reserve_request <- function(count) {
-    if (!nzchar(Sys.getenv("MENTAT_REQUEST_POOL_URL", ""))) fec_api_budget_reserve(
-      budget_connection,
-      count,
-      budget_id = budget_id
-    )
+    run_budget$reserve(count)
     requests_reserved_run <<- requests_reserved_run + as.integer(count)
     invisible(NULL)
   }
@@ -2901,10 +3015,7 @@ collect_crypto_api <- function(
     )
   }
   pause_result <- function(condition, rows = 0L, retries = 0L) {
-    budget <- fec_api_budget_status(
-      budget_connection,
-      budget_id = budget_id
-    )
+    budget <- run_budget$status()
     requests_run <- requests_reserved_run
     cat(sprintf(
       paste0(
@@ -3094,10 +3205,7 @@ collect_crypto_api <- function(
     wall_clock_seconds = unname(wall_clock_seconds)
   )
   fec_api_record_metric(connection, run_id, "collect_total", total_metric)
-  budget <- fec_api_budget_status(
-    budget_connection,
-    budget_id = budget_id
-  )
+  budget <- run_budget$status()
   requests_used_run <- requests_reserved_run
   cat(sprintf(
     paste0(

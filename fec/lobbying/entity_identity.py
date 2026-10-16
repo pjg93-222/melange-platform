@@ -1735,8 +1735,8 @@ def _assert_normalization_agrees():
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from lobbying import sector_spend
-    except ImportError:
-        return None
+    except ImportError as exc:
+        raise EntityIdentityError("cannot import sector_spend to verify normalization agreement") from exc
     probes = (
         "Credit Union National Association, Inc. DBA America's Credit Unions",
         "MD|DC Credit Union Association",

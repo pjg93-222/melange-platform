@@ -2760,8 +2760,8 @@ def write_outputs(out_dir, document, score_rows):
                 }
             )
 
-    _atomic_text(report_path, write_json)
     _atomic_text(score_path, write_csv)
+    _atomic_text(report_path, write_json)
     return report_path, score_path
 
 
@@ -3212,6 +3212,7 @@ def main(argv=None, environ=None):
         builder.IngestError,
         champions.InstrumentError,
         bridge3.IngestError,
+        OSError,
     ) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2

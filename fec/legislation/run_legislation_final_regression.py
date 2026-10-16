@@ -33,6 +33,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+NODE_CHECK_TIMEOUT_SECONDS = 60
+NODE_TEST_TIMEOUT_SECONDS = 1800
+
 
 ROOT = Path(__file__).resolve().parents[2]
 FEC = ROOT / "fec"
@@ -310,15 +313,29 @@ def check_node_sources(node: Path) -> dict[str, Any]:
     )
     failures: list[dict[str, Any]] = []
     for path in paths:
-        completed = subprocess.run(
-            [str(node), "--check", str(path)],
-            cwd=ROOT,
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        try:
+            completed = subprocess.run(
+                [str(node), "--check", str(path)],
+                cwd=ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=NODE_CHECK_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            failures.append(
+                {
+                    "path": path.relative_to(ROOT).as_posix(),
+                    "exit_code": -1,
+                    "output": (
+                        f"TIMEOUT after {NODE_CHECK_TIMEOUT_SECONDS}s: "
+                        "node --check did not finish"
+                    ),
+                }
+            )
+            continue
         if completed.returncode:
             failures.append(
                 {
@@ -346,7 +363,15 @@ def build_python_suite(paths: list[Path]) -> tuple[unittest.TestSuite, dict[str,
         module_name = ".".join(
             path.relative_to(ROOT).with_suffix("").parts
         )
-        module = importlib.import_module(module_name)
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:
+            # An unimportable test module becomes a failing (_FailedTest)
+            # case carrying the traceback, so it is counted and receipted.
+            loaded = unittest.defaultTestLoader.loadTestsFromName(module_name)
+            class_test_count += loaded.countTestCases()
+            suite.addTests(loaded)
+            continue
         loaded = unittest.defaultTestLoader.loadTestsFromModule(module)
         class_test_count += loaded.countTestCases()
         suite.addTests(loaded)
@@ -364,7 +389,10 @@ def build_python_suite(paths: list[Path]) -> tuple[unittest.TestSuite, dict[str,
     }
 
 
-def classify_python_failures(failed_ids: set[str]) -> dict[str, Any]:
+def classify_python_failures(
+    failed_ids: set[str],
+    error_ids: set[str] = frozenset(),
+) -> dict[str, Any]:
     """Split failures into the acceptance allowance and real regressions.
 
     The allowance is matched by exact, module-qualified test id, and its size
@@ -372,9 +400,12 @@ def classify_python_failures(failed_ids: set[str]) -> dict[str, Any]:
     inside it and a STALE entry cannot silently keep absolving nothing.
     """
 
-    observed = set(failed_ids)
+    # Only assertion failures may use the allowance; a test that ERRORS
+    # (crash, ImportError) is always an implementation regression.
+    errored = set(error_ids)
+    observed = set(failed_ids) - errored
     acceptance = sorted(observed & KNOWN_ACCEPTANCE_BLOCKER_TEST_IDS)
-    implementation = sorted(observed - set(acceptance))
+    implementation = sorted((observed | errored) - set(acceptance))
     stale = sorted(KNOWN_ACCEPTANCE_BLOCKER_TEST_IDS - observed)
     allowance_current = (
         len(acceptance) == EXPECTED_ACCEPTANCE_BLOCKER_FAILURE_COUNT
@@ -407,8 +438,10 @@ def run_python_tests(paths: list[Path]) -> dict[str, Any]:
         {"test": test.id(), "traceback": traceback}
         for test, traceback in result.errors
     ]
-    failed_ids = {row["test"] for row in failures + errors}
-    classification = classify_python_failures(failed_ids)
+    classification = classify_python_failures(
+        {row["test"] for row in failures},
+        {row["test"] for row in errors},
+    )
     return {
         "module_count": len(paths),
         "modules": [path.relative_to(ROOT).as_posix() for path in paths],
@@ -453,17 +486,30 @@ def run_node_tests(node: Path, paths: list[Path]) -> dict[str, Any]:
     ).resolve()
     environment = os.environ.copy()
     environment["NODE_PATH"] = str(node_modules)
-    completed = subprocess.run(
-        [str(node), "--test", *(str(path) for path in paths)],
-        cwd=ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        env=environment,
-    )
-    output = (completed.stdout or "") + (completed.stderr or "")
+    try:
+        completed = subprocess.run(
+            [str(node), "--test", *(str(path) for path in paths)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=environment,
+            timeout=NODE_TEST_TIMEOUT_SECONDS,
+        )
+        returncode = completed.returncode
+        output = (completed.stdout or "") + (completed.stderr or "")
+    except subprocess.TimeoutExpired as exc:
+        returncode = -1
+        partial = exc.stdout or b""
+        if isinstance(partial, bytes):
+            partial = partial.decode("utf-8", errors="replace")
+        output = (
+            partial
+            + f"\nTIMEOUT after {NODE_TEST_TIMEOUT_SECONDS}s: "
+            "node --test did not finish\n"
+        )
     matcher = re.search(
         r"official-text matcher behavior:\s*(\d+)\s+PASS",
         output,
@@ -476,13 +522,26 @@ def run_node_tests(node: Path, paths: list[Path]) -> dict[str, Any]:
         ),
         "module_count": len(paths),
         "modules": [path.relative_to(ROOT).as_posix() for path in paths],
-        "exit_code": completed.returncode,
+        "exit_code": returncode,
         "summary": parse_node_summary(output),
         "official_text_matcher_internal_passed": (
             int(matcher.group(1)) if matcher else None
         ),
         "output_tail": output[-20000:],
     }
+
+
+def node_version(node: Path) -> str:
+    try:
+        return subprocess.run(
+            [str(node), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=NODE_CHECK_TIMEOUT_SECONDS,
+        ).stdout.strip()
+    except subprocess.TimeoutExpired:
+        return f"TIMEOUT after {NODE_CHECK_TIMEOUT_SECONDS}s"
 
 
 def input_address(
@@ -537,12 +596,7 @@ def input_address(
         },
         "node": {
             "executable": file_receipt(node),
-            "version": subprocess.run(
-                [str(node), "--version"],
-                check=True,
-                capture_output=True,
-                text=True,
-            ).stdout.strip(),
+            "version": node_version(node),
             "node_modules": str(node_modules),
             "playwright_package": file_receipt(
                 node_modules / "playwright" / "package.json"

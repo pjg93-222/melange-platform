@@ -835,7 +835,7 @@ def _validate_memberships(rows: list[dict[str, Any]], valid_keys: set[str]) -> s
 
 
 def _load_cumulative_base(
-    baseline_dir: Path, out_dir: Path, registry_sha256: str
+    baseline_dir: Path, out_dir: Path, registry_sha256: str, selected_ids: set[str]
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Path, dict[str, Any]]:
     baseline_manifest_path = baseline_dir / "manifest.json"
     baseline_manifest = _read_json(baseline_manifest_path)
@@ -871,6 +871,13 @@ def _load_cumulative_base(
             and (current.get("immutable_baseline") or {}).get("manifest", {}).get("sha256")
             == file_receipt(baseline_manifest_path)["sha256"]
         ):
+            # Records a prior run added were matched only against its own selection;
+            # reusing them under a wider selection would silently skip the new entries.
+            _require(
+                selected_ids.issubset(set(current.get("selected_query_ids") or [])),
+                "prior fallback selection does not cover the current selection; "
+                "rerun with a covering selection or rebuild the fallback output",
+            )
             current_union = current.get("union") or {}
             current_records_path = out_dir / str(current_union.get("records_file") or "")
             current_memberships_path = out_dir / str(current_union.get("memberships_file") or "")
@@ -905,12 +912,13 @@ def _counts(rows: list[dict[str, Any]], field: str) -> dict[str, int]:
     return dict(sorted(Counter(str(row[field]) for row in rows).items()))
 
 
-def _copy_or_extend_support_files(
+def _prepare_support_files(
     *,
     baseline_dir: Path,
     out_dir: Path,
     new_records: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Read and validate every support input so nothing is written before they all load."""
     baseline_gaps_path = baseline_dir / "coverage_gap_ledger.ndjson"
     prior_gaps_path = out_dir / "coverage_gap_ledger.ndjson"
     gaps = _read_ndjson(prior_gaps_path if prior_gaps_path.is_file() else baseline_gaps_path)
@@ -933,13 +941,13 @@ def _copy_or_extend_support_files(
                     "discovery_transport": "official_govinfo_fallback",
                 }
             )
-    gaps_path = out_dir / "coverage_gap_ledger.ndjson"
-    _write_ndjson(gaps_path, gaps)
     exclusion_path = out_dir / "exclusion_ledger.ndjson"
-    baseline_exclusion = baseline_dir / "exclusion_ledger.ndjson"
+    exclusion_body = None
     if not exclusion_path.is_file():
-        _atomic_write(exclusion_path, baseline_exclusion.read_bytes())
-    scope_path = out_dir / "scope_and_exclusion_contract.json"
+        try:
+            exclusion_body = (baseline_dir / "exclusion_ledger.ndjson").read_bytes()
+        except OSError as error:
+            raise FallbackError(f"baseline exclusion ledger unreadable: {error}") from error
     scope = _read_json(baseline_dir / "scope_and_exclusion_contract.json")
     scope["govinfo_security_verification_fallback"] = {
         "purpose": "Fresh bill-ID discovery while Congress.gov Advanced Search is unavailable",
@@ -948,7 +956,17 @@ def _copy_or_extend_support_files(
         "ratification_automatic": False,
         "scoring_automatic": False,
     }
-    _write_json(scope_path, scope)
+    return {"gaps": gaps, "exclusion_body": exclusion_body, "scope": scope}
+
+
+def _copy_or_extend_support_files(*, out_dir: Path, prepared: dict[str, Any]) -> dict[str, Any]:
+    gaps_path = out_dir / "coverage_gap_ledger.ndjson"
+    _write_ndjson(gaps_path, prepared["gaps"])
+    exclusion_path = out_dir / "exclusion_ledger.ndjson"
+    if prepared["exclusion_body"] is not None:
+        _atomic_write(exclusion_path, prepared["exclusion_body"])
+    scope_path = out_dir / "scope_and_exclusion_contract.json"
+    _write_json(scope_path, prepared["scope"])
     return {
         "coverage_gap_ledger": file_receipt(gaps_path),
         "exclusion_ledger": file_receipt(exclusion_path),
@@ -984,7 +1002,7 @@ def run_fallback(
     _require(len(entry_ids) == len(set(entry_ids)), "duplicate registry entry ID")
 
     existing_records, existing_memberships, baseline_manifest_path, baseline_manifest = (
-        _load_cumulative_base(baseline_dir, out_dir, registry_sha256)
+        _load_cumulative_base(baseline_dir, out_dir, registry_sha256, set(entry_ids))
     )
     existing_by_key = _validate_existing_records(existing_records)
     membership_ids = _validate_memberships(existing_memberships, set(existing_by_key))
@@ -1349,14 +1367,20 @@ def run_fallback(
     )
     _validate_memberships(output_memberships, set(output_map))
 
+    prepared_support = _prepare_support_files(
+        baseline_dir=baseline_dir, out_dir=out_dir, new_records=new_records
+    )
     out_dir.mkdir(parents=True, exist_ok=True)
     records_path = out_dir / "congress_advanced_records.ndjson"
     memberships_path = out_dir / "congress_advanced_memberships.ndjson"
+    # The prior manifest's union hashes stop matching once the union files are replaced, so
+    # demote it first: an interrupted run leaves a non-complete manifest, not a drifted one.
+    manifest_path = out_dir / "manifest.json"
+    prior_manifest = _read_json(manifest_path) if manifest_path.is_file() else {"schema": MANIFEST_SCHEMA}
+    _write_json(manifest_path, {**prior_manifest, "status": "in_progress"})
     _write_ndjson(records_path, output_records)
     _write_ndjson(memberships_path, output_memberships)
-    support_receipts = _copy_or_extend_support_files(
-        baseline_dir=baseline_dir, out_dir=out_dir, new_records=new_records
-    )
+    support_receipts = _copy_or_extend_support_files(out_dir=out_dir, prepared=prepared_support)
     browser_failure_receipt = file_receipt(browser_failure_path)
     immutable_manifest_receipt = file_receipt(baseline_manifest_path)
     union = {
@@ -1452,7 +1476,7 @@ def run_fallback(
         "candidate_policy": receipt["candidate_policy"],
         "limitations": receipt["limitations"],
     }
-    _write_json(out_dir / "manifest.json", manifest)
+    _write_json(manifest_path, manifest)
     return manifest
 
 

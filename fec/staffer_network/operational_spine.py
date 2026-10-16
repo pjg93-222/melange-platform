@@ -7,13 +7,16 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+import contextlib
 import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import sqlite3
+import tempfile
 import unicodedata
 
 from fec.surfaces.staffer_connection_facts import employment_dates
@@ -246,8 +249,21 @@ def build(root, output, as_of='2026-09-08'):
         raise ValueError('Detailed spine output must be under the machine-local staffer directory')
     if output.exists():
         raise FileExistsError('Preserve existing generation: ' + str(output))
-    output.mkdir(parents=True)
-    frozen = output / 'inputs'
+    # Build in a sibling staging directory; the final generation appears only once complete.
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix='.spine-staging-', dir=output.parent))
+    try:
+        with contextlib.ExitStack() as stack:
+            receipt = _build_staged(root, output, stage, local, as_of, stack)
+        os.replace(stage, output)
+    except BaseException:
+        shutil.rmtree(stage, ignore_errors=True)
+        raise
+    return receipt
+
+
+def _build_staged(root, output, stage, local, as_of, stack):
+    frozen = stage / 'inputs'
     frozen.mkdir()
     manifest, captured = [], {}
 
@@ -257,7 +273,7 @@ def build(root, output, as_of='2026-09-08'):
             raw = stream.read(prefix) if prefix is not None else stream.read()
         dest = frozen / (key + ''.join(path.suffixes))
         dest.write_bytes(raw)
-        entry = {'id': key, 'path': str(path), 'snapshot': str(dest), 'sha256': sha_bytes(raw), 'bytes': len(raw),
+        entry = {'id': key, 'path': str(path), 'snapshot': str(output / 'inputs' / dest.name), 'sha256': sha_bytes(raw), 'bytes': len(raw),
                  'prefix_bytes': prefix}
         manifest.append(entry)
         captured[key] = raw
@@ -312,8 +328,8 @@ def build(root, output, as_of='2026-09-08'):
     for row in crosswalk:
         candidates[row['quorum_id']].append(row)
 
-    dbpath = output / 'spine.sqlite'
-    db = sqlite3.connect(dbpath)
+    dbpath = stage / 'spine.sqlite'
+    db = stack.enter_context(contextlib.closing(sqlite3.connect(dbpath)))
     writer = SpineWriter(db, aliases)
     for key, path, raw, count in [('politico', proot / 'profiles.ndjson', pb, len(prows)),
                                    ('quorum', corpus / 'quorum_legacy_source_native_seed.ndjson', qb, len(qrows)),
@@ -425,11 +441,11 @@ def build(root, output, as_of='2026-09-08'):
                'counts': counts, 'population_distinct_ids': populations, 'source_dispositions': dispositions,
                'role_states': role_counts, 'bounded_nonintern_source_interval_candidates': temporal,
                'baseline_pinned_person_candidates': baseline['node_universe']['person'],
-               'database': {'path': str(dbpath), 'sha256': sha_file(dbpath)}, 'inputs': manifest,
+               'database': {'path': str(output / 'spine.sqlite'), 'sha256': sha_file(dbpath)}, 'inputs': manifest,
                'identity_quality_status': 'EXISTING_DECISIONS_PRESERVED_NEW_MATCHES_REVIEW_REQUIRED',
                'relationship_quality_status': 'SPINE_ONLY_NO_NEW_RELATIONSHIPS_PROMOTED',
                'build_code_sha256': sha_file(__file__)}
-    (output / 'spine_receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
+    (stage / 'spine_receipt.json').write_text(json.dumps(receipt, indent=2) + '\n', encoding='utf-8')
     return receipt
 
 

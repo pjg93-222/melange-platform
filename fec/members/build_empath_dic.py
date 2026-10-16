@@ -75,9 +75,10 @@ ids = {name: str(i + 1) for i, name in enumerate(sorted(cats))}
 word2ids = {}
 for name, terms in cats.items():
     for t in terms: word2ids.setdefault(t, []).append(ids[name])
-with io.open(outp, 'w', encoding='utf-8', newline='\n') as fh:
+with io.open(outp + '.tmp', 'w', encoding='utf-8', newline='\n') as fh:  # atomic: big5_traits globs liwc/*.dic
     fh.write('%\n')
     for name in sorted(cats): fh.write('%s\t%s\n' % (ids[name], name))
     fh.write('%\n')
     for w in sorted(word2ids): fh.write('%s\t%s\n' % (w, '\t'.join(sorted(word2ids[w]))))
+os.replace(outp + '.tmp', outp)
 print('wrote %s (%d categories, %d distinct terms)' % (outp, len(cats), len(word2ids)))

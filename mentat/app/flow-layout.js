@@ -73,6 +73,8 @@
 
   function sublines(node, stubs, stubValue) {
     const lines = [];
+    // A committee the answer has no name for says so, and its FEC ID is the small line under it (B4).
+    if (node.unnamed && node.committee_id) lines.push(node.committee_id);
     if (node.balance === 'unspent' && (node.held || 0) > 0)
       lines.push(`cash ${short(node.cash || 0)} + ${heldWords(node.held_kinds)} ${short(node.held)}`);
     else if (node.kind === 'donor' && (node.held || 0) > 0)
@@ -108,6 +110,7 @@
   // none is dropped, only moved off the drawing.
   function secondary(node, lines, stubs, stubValue) {
     if (!lines.length) return '';
+    if (node.unnamed && node.committee_id && lines[0] === node.committee_id) return node.committee_id;
     if ((node.balance === 'unspent' || node.kind === 'donor') && (node.held || 0) > 0) return lines[0];
     let best = null;
     for (const stub of stubs) {
@@ -343,6 +346,13 @@
       for (const node of rest) remap.set(node.id, id);
     }
     if (!remap.size) return {nodes, links};
+    return mergeGroups(nodes, links, remap, others);
+  }
+
+  // The merge both rules share (flow_data.group's, and the small-transfers fold below): the nodes in
+  // `remap` become the bucket they map to, a stub follows its committee into the bucket, and the links
+  // that now join the same two nodes become one. Money is only ever added, never recomputed.
+  function mergeGroups(nodes, links, remap, others) {
     const kept = nodes.filter(node => !remap.has(node.id));
     const stubIds = new Map();
     const result = [];
@@ -350,8 +360,7 @@
     for (const node of kept) {
       if (node.stub && remap.has(node.attach)) {
         const attach = remap.get(node.attach);
-        const key = ['return', 'onward', 'return_in'].includes(node.stub)
-          ? `stub:${node.stub}:${attach}:${node.committee_id || node.label}` : `stub:${node.stub}:${attach}:${node.label}`;
+        const key = stubKey(node, attach);
         stubIds.set(node.id, key);
         if (!seen.has(key)) {
           seen.add(key);
@@ -383,6 +392,244 @@
       if (link.date_unverified || entry.date_unverified) entry.date_unverified = true;
     }
     return {nodes: result, links: [...merged.values()]};
+  }
+
+  // The id a stub takes once its committee is inside a bucket (one stub per kind and counterparty).
+  const stubKey = (node, attach) => (['return', 'onward', 'return_in'].includes(node.stub)
+    ? `stub:${node.stub}:${attach}:${node.committee_id || node.label}` : `stub:${node.stub}:${attach}:${node.label}`);
+
+  /* ------------------------------------------------------- arranging for display */
+  // What a view does to an answer before it draws it, and never to its money (lane Z, 2026-10-15):
+  //  - the small transfers of a "Passed to" column (a committee under MIN_SHARE of the column, or at
+  //    nothing) fold into one "Small transfers (n)" node per column;
+  //  - a bucket (Other, Small transfers, a first-recipient group) unfolds in place into its top members
+  //    and a smaller residual bucket.
+  // Both only add up or take apart what the answer already says: a folded bucket's links are the sums
+  // of its members' (mergeGroups), an unfolded one's are the members' own. Unfolding a bucket the
+  // answer built (Other) needs every member's links, which the answer does not carry; they come from
+  // the same query at top=0 (`spec.full`) and are used only if they add up, to the cent, to the links
+  // the bucket has (a bucket whose members do not reconcile is refused, not drawn).
+  const SMALL_STAGE = 2;                                 // "Passed to" and beyond; the first recipients keep their own rule
+  const isServerBucket = node => node.kind === 'bucket' && Array.isArray(node.members) && node.bucket !== 'small'
+    && node.member_count > 1;
+
+  function memberOf(node, cents) {
+    return Object.assign({id: node.id, label: node.label, kind: node.kind, value: dollars(cents === undefined ? valueOf(node) : cents)},
+      node.committee_id ? {committee_id: node.committee_id} : {}, node.unnamed ? {unnamed: true} : {});
+  }
+
+  // Zero and below-MIN_SHARE committees of a column into "Small transfers (n)". `keep` are nodes that must
+  // stay as they are (the members of an unfolded bucket); `open` maps a small bucket's id to how many of
+  // its members to show. Needs measured nodes (vin/vout).
+  function foldSmall(nodes, links, spec) {
+    spec = spec || {};
+    const minShare = spec.minShare === undefined ? MIN_SHARE : spec.minShare;
+    const keep = spec.keep || new Set(), open = spec.open || new Map();
+    const remap = new Map(), others = [], groups = [];
+    const stages = [...new Set(nodes.map(node => node.stage))].filter(stage => stage >= SMALL_STAGE).sort((a, b) => a - b);
+    for (const stage of stages) {
+      const column = nodes.filter(node => node.stage === stage && !node.stub);
+      const floor = column.reduce((sum, node) => sum + valueOf(node), 0) * minShare;
+      if (!(floor > 0)) continue;
+      let small = column.filter(node => node.kind === 'committee' && !node.root && !keep.has(node.id) && valueOf(node) < floor)
+        .sort((a, b) => valueOf(b) - valueOf(a) || byLabel(a, b));
+      const id = `small:${stage}`;
+      let shown = [];
+      if (open.has(id)) { shown = small.slice(0, open.get(id)); small = small.slice(shown.length); }
+      if (small.length < 2) { shown = shown.concat(small); small = []; }
+      if (open.has(id)) groups.push({id, stage, shown: shown.map(node => node.id), residual: small.length > 0});
+      for (const node of shown) node.group = id;
+      if (!small.length) continue;
+      others.push(Object.assign({id, stage, kind: 'bucket', bucket: 'small', label: `Small transfers (${small.length})`,
+        member_count: small.length, members: small.slice(0, 200).map(node => memberOf(node))}, open.has(id) ? {group: id} : {}));
+      for (const node of small) remap.set(node.id, id);
+    }
+    if (!remap.size) return {nodes, links, groups};
+    return Object.assign(mergeGroups(nodes, links, remap, others), {groups});
+  }
+
+  const refusal = (message, detail) => Object.assign(new Error(message), {detail});
+
+  // Unfold one bucket the answer built into its top `count` members and a residual bucket. `U` is the
+  // same query at top=0. Returns {nodes, links, shown} or throws an Error whose message says why not.
+  function expandBucket(P, U, id, count, allowDrop) {
+    const pById = new Map(P.nodes.map(node => [node.id, node]));
+    const bucket = pById.get(id);
+    if (!bucket || !isServerBucket(bucket)) throw new Error('it has no members to unfold');
+    const uNodes = U.nodes.map(node => Object.assign({}, node));
+    const uLinks = U.links.map(link => Object.assign({}, link, {cents: toCents(link.value)})).filter(link => link.cents > 0);
+    const uById = measure(uNodes, uLinks);
+    const buckets = P.nodes.filter(isServerBucket);
+    const category = new Map();                              // the learned rule: which bucket holds a category
+    const listed = new Map();                                // the members each bucket names (at most 200 of them)
+    for (const group of buckets)
+      for (const member of group.members) {
+        listed.set(member.id, group.id);
+        listed.set('committee:' + member.id, group.id);
+        const node = uById.get(member.id) || uById.get('committee:' + member.id);
+        if (node && node.category) category.set(node.category, category.has(node.category) && category.get(node.category) !== group.id ? null : group.id);
+      }
+    const homes = new Map();
+    const home = nodeId => {                                 // the node a full-answer node is drawn as in the grouped answer
+      if (homes.has(nodeId)) return homes.get(nodeId);
+      const node = uById.get(nodeId);
+      let found = null;
+      if (pById.has(nodeId) && !isServerBucket(pById.get(nodeId))) found = nodeId;
+      else if (node && !node.stub && listed.has(nodeId)) found = listed.get(nodeId);
+      else if (node && !node.stub) {
+        const here = buckets.filter(group => group.stage === node.stage);
+        if (here.length === 1) found = here[0].id;
+        else if (here.length > 1 && node.category && category.get(node.category)) found = category.get(node.category);
+      }
+      homes.set(nodeId, found);
+      return found;
+    };
+    const members = uNodes.filter(node => !node.stub && !pById.has(node.id) && home(node.id) === id)
+      .sort((a, b) => valueOf(b) - valueOf(a) || byLabel(a, b));
+    if (members.length < 2) throw new Error('the answer does not carry its members');
+    const mine = nodeId => {                                 // is this full-answer node inside the unfolded bucket
+      const node = uById.get(nodeId);
+      return Boolean(node) && !pById.has(nodeId) && !node.stub && home(nodeId) === id;
+    };
+    const stubOf = nodeId => { const node = uById.get(nodeId); return node && node.stub ? node : null; };
+    const insideStub = stub => mine(stub.attach);
+    // The coarse key of a link: both ends as the grouped answer draws them (the bucket whole).
+    const coarse = nodeId => {
+      const stub = stubOf(nodeId);
+      if (stub) {
+        const at = home(stub.attach);
+        return at === null ? null : (at === stub.attach ? stub.id : stubKey(stub, at));
+      }
+      return home(nodeId);
+    };
+    const keyOf = (source, sink, link) => `${source}\u0000${sink}\u0000${link.kind}\u0000${link.key == null ? '' : link.key}`;
+    const removed = new Map();
+    const inP = nodeId => nodeId === id || (pById.get(nodeId) || {}).attach === id;
+    for (const link of P.links) if (inP(link.source) || inP(link.target)) {
+      const key = keyOf(link.source, link.target, link);
+      removed.set(key, (removed.get(key) || 0) + link.cents);
+    }
+    const added = new Map(), wanted = new Map();
+    for (const link of uLinks) {
+      const touches = mine(link.source) || mine(link.target)
+        || (stubOf(link.source) && insideStub(stubOf(link.source))) || (stubOf(link.target) && insideStub(stubOf(link.target)));
+      if (!touches) continue;
+      const source = coarse(link.source), sink = coarse(link.target);
+      if (source === null || sink === null) {
+        if (allowDrop) continue;                             // an end the grouped answer does not draw (it follows fewer committees)
+        throw refusal('a member’s links lead somewhere the answer does not draw', `${link.source} -> ${link.target}`);
+      }
+      const key = keyOf(source, sink, link);
+      if (!removed.has(key)) {                               // a link the grouped answer does not draw: the industry flow follows
+        if (allowDrop) continue;                             // fewer first recipients at Top N than at top=0 and stops at the group
+        throw refusal('its members have links the group does not', `${source} -> ${sink} (${link.kind})`);
+      }
+      wanted.set(key, (wanted.get(key) || 0) + link.cents);
+      added.set(key, (added.get(key) || []).concat(link));
+    }
+    for (const [key, cents] of removed)
+      if (wanted.get(key) !== cents)
+        throw refusal('its members’ own links are not all in the data', `${key.replace(/\0/g, ' -> ')}: ${wanted.get(key) || 0} of ${cents} cents`);
+    // The top members are ranked by what the grouped answer draws for them (the links kept), not by what the
+    // full answer holds: an answer that follows more committees gives a member money the group never had.
+    const kept = new Map();
+    for (const list of added.values())
+      for (const link of list)
+        for (const [end, side] of [[link.source, 'out'], [link.target, 'in']]) {
+          if (!mine(end)) continue;
+          const entry = kept.get(end) || {in: 0, out: 0};
+          entry[side] += link.cents;
+          kept.set(end, entry);
+        }
+    const worth = node => { const entry = kept.get(node.id); return entry ? Math.max(entry.in, entry.out) : 0; };
+    members.sort((a, b) => worth(b) - worth(a) || byLabel(a, b));
+    let take = Math.max(1, Math.min(count, members.length));
+    if (members.length - take < 2) take = members.length;
+    const shown = new Set(members.slice(0, take).map(node => node.id));
+    const rest = members.slice(take);
+    // Draw it: the top members as they are, the rest as one bucket, every link pointing at the right ones.
+    const draw = nodeId => {
+      if (shown.has(nodeId)) return nodeId;
+      const stub = stubOf(nodeId);
+      if (stub) {
+        if (shown.has(stub.attach)) return nodeId;
+        const at = home(stub.attach);
+        return at === stub.attach ? nodeId : stubKey(stub, at);
+      }
+      return home(nodeId);
+    };
+    const nodes = P.nodes.filter(node => node.id !== id && node.attach !== id)
+      .concat(members.slice(0, take).map(node => Object.assign({}, node, {group: id, stage: bucket.stage})));
+    if (rest.length)
+      nodes.push(Object.assign({}, bucket, {label: `+ ${rest.length} more`, member_count: rest.length, group: id,
+        members: rest.slice(0, 200).map(node => memberOf(node, worth(node)))}));
+    const seen = new Set(nodes.map(node => node.id));
+    const links = P.links.filter(link => !inP(link.source) && !inP(link.target));
+    const byKey = new Map();
+    for (const list of added.values()) for (const link of list) {
+      const source = draw(link.source), sink = draw(link.target);
+      for (const end of [link.source, link.target]) {
+        const stub = stubOf(end);
+        if (!stub || !insideStub(stub)) continue;
+        const stubId = draw(end);
+        if (seen.has(stubId)) continue;
+        seen.add(stubId);
+        const attach = shown.has(stub.attach) ? stub.attach : id;
+        const made = Object.assign({}, stub, {id: stubId, attach, stage: (uById.get(attach) || bucket).stage});
+        if (attach === id) {
+          delete made.carryover; delete made.gate;
+          if (stub.stub === 'external') { delete made.committee_id; delete made.fec_url; }
+        }
+        nodes.push(made);
+      }
+      const key = keyOf(source, sink, link);
+      if (!byKey.has(key)) { byKey.set(key, Object.assign({}, link, {source, target: sink, evidence: (link.evidence || []).slice()})); continue; }
+      const entry = byKey.get(key);
+      entry.cents += link.cents;
+      entry.rows = (entry.rows || 0) + (link.rows || 0);
+      entry.evidence = entry.evidence.concat(link.evidence || []).slice(0, 12);
+      if (entry.committee !== link.committee) delete entry.committee;
+      if (link.date_unverified) entry.date_unverified = true;
+    }
+    return {nodes, links: links.concat([...byKey.values()]), shown: [...shown], residual: rest.length > 0};
+  }
+
+  // The whole arrangement. spec: {small: true, minShare, open: {id: count}, keep: [ids never folded], full: the top=0 answer}. Returns
+  // {payload, groups: [{id, stage, shown, residual}], refused: {id: reason}, needs: [ids waiting for spec.full]}.
+  // The payload has the answer's shape (every node and link carries whole-cent values summing to its links),
+  // so validate() runs on it as on the answer.
+  function arrange(payload, spec) {
+    spec = spec || {};
+    const open = new Map(Object.entries(spec.open || {}).filter(([, count]) => count > 0));
+    const known = new Set(payload.nodes.map(node => node.id));
+    let state = {nodes: payload.nodes.map(node => Object.assign({}, node)),
+      links: payload.links.map(link => Object.assign({}, link, {cents: toCents(link.value)}))
+        .filter(link => known.has(link.source) && known.has(link.target) && link.cents > 0)};
+    // spec.keep: nodes the reader is looking at (the focused committee, a pinned node) are never folded away.
+    const groups = [], refused = {}, details = {}, needs = [], keep = new Set(spec.keep || []);
+    for (const [id, count] of open) {
+      if (id.startsWith('small:') || !state.nodes.some(node => node.id === id)) continue;
+      if (!spec.full) { needs.push(id); continue; }
+      try {
+        const done = expandBucket(state, spec.full, id, count, (payload.root || {}).kind === 'industry');
+        state = {nodes: done.nodes, links: done.links};
+        for (const shown of done.shown) keep.add(shown);
+        const first = state.nodes.find(item => item.group === id);
+        groups.push({id, stage: first ? first.stage : 0, shown: done.shown, residual: done.residual});
+      } catch (error) { refused[id] = error.message; if (error.detail) details[id] = error.detail; }
+    }
+    measure(state.nodes, state.links);
+    if (spec.small) {
+      const folded = foldSmall(state.nodes, state.links, {minShare: spec.minShare, keep,
+        open: new Map([...open].filter(([id]) => id.startsWith('small:')))});
+      state = {nodes: folded.nodes, links: folded.links};
+      groups.push(...folded.groups);
+      measure(state.nodes, state.links);
+    }
+    // Whole-cent values from the links, as the answer carries them.
+    for (const node of state.nodes) { node.value_in = dollars(node.vin); node.value_out = dollars(node.vout); delete node.vin; delete node.vout; }
+    for (const link of state.links) { link.value = dollars(link.cents); delete link.cents; }
+    return {payload: Object.assign({}, payload, {nodes: state.nodes, links: state.links}), groups, refused, details, needs};
   }
 
   /* ----------------------------------------------------------------- order */
@@ -732,7 +979,7 @@
       .sort((a, b) => b.value - a.value).slice(0, limit || 6);
   }
 
-  const api = {validate, group, otherMembers, layout, route, colours, outcomes, largestRoutes, cubicPath, sigmoidPath,
+  const api = {validate, group, otherMembers, arrange, foldSmall, layout, route, colours, outcomes, largestRoutes, cubicPath, sigmoidPath,
     sigmoidPoints,
     toCents, short, sublines, amountOf, MIN_SHARE, LINK_KINDS, NODE_KINDS};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

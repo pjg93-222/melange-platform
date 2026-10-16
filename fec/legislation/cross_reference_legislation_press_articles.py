@@ -19,6 +19,7 @@ import os as _bootstrap_os, sys as _bootstrap_sys; _bootstrap_sys.path.insert(0,
 import argparse
 import hashlib
 import json
+import os
 import re
 from collections import Counter, defaultdict
 from datetime import date, datetime, timezone
@@ -145,21 +146,25 @@ def read_ndjson(path: Path) -> list[dict[str, Any]]:
     ]
 
 
-def write_json(path: Path, value: Any) -> None:
+def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def write_json(path: Path, value: Any) -> None:
+    atomic_write_text(
+        path, json.dumps(value, indent=2, ensure_ascii=False) + "\n"
     )
 
 
 def write_ndjson(path: Path, rows: Iterable[dict[str, Any]]) -> None:
     rows = list(rows)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    atomic_write_text(
+        path,
         "\n".join(json.dumps(row, ensure_ascii=False) for row in rows)
         + ("\n" if rows else ""),
-        encoding="utf-8",
     )
 
 
@@ -797,7 +802,16 @@ def main() -> int:
         if args.out
         else run_dir / "article_cross_reference"
     )
+    trusted_manifest_path = args.trusted_manifest.resolve()
+    try:
+        trusted_manifest_label = str(
+            trusted_manifest_path.relative_to(ROOT)
+        ).replace("\\", "/")
+    except ValueError:
+        trusted_manifest_label = str(trusted_manifest_path).replace("\\", "/")
     discovery_manifest = read_json(run_dir / "manifest.json")
+    # A partial run must not leave a stale manifest beside new evidence files.
+    (out_dir / "manifest.json").unlink(missing_ok=True)
     if discovery_manifest.get("status") != "complete":
         raise RuntimeError("Advanced Search discovery run is not complete")
     registry = read_json(args.registry.resolve())
@@ -1027,9 +1041,7 @@ def main() -> int:
         "schema": "acu-legislation-article-cross-reference-v3",
         "status": "complete",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "trusted_press_manifest": str(
-            args.trusted_manifest.resolve().relative_to(ROOT)
-        ).replace("\\", "/"),
+        "trusted_press_manifest": trusted_manifest_label,
         "trust_cutoff_date": trusted_manifest["trust_cutoff_date"],
         "source_audit": source_audit,
         "discovery_record_count": len(records),

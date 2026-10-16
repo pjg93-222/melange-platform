@@ -24,7 +24,6 @@ import json
 import os
 from pathlib import Path
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -35,6 +34,11 @@ from paths import ROOT as MB_ROOT  # noqa: E402 - audited root-aware contract
 from legislation import run_legislation_network_dependents as network  # noqa: E402
 from legislation import run_legislation_dashboard_member_desk as dashboard  # noqa: E402
 from legislation import run_legislation_say_do_first_pass as say_do_runner  # noqa: E402
+
+try:
+    from lane_file_io import atomic_write_bytes
+except ImportError:  # pragma: no cover - package import path
+    from fec.lane_file_io import atomic_write_bytes
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -232,28 +236,21 @@ def source_receipt(path: Path) -> dict[str, Any]:
 
 
 def atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
     body = (
         json.dumps(
             value, indent=2, sort_keys=True, ensure_ascii=False
         ).encode("utf-8")
         + b"\n"
     )
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
-    temporary.write_bytes(body)
-    os.replace(temporary, path)
+    # fsync + retried replace + temp cleanup live in lane_file_io (OneDrive/AV locks).
+    atomic_write_bytes(path, body)
 
 
 def atomic_copy(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(
-        f".{destination.name}.{os.getpid()}.tmp"
-    )
-    shutil.copyfile(source, temporary)
-    if sha256_file(source) != sha256_file(temporary):
-        temporary.unlink(missing_ok=True)
+    body = source.read_bytes()
+    if sha256_bytes(body) != sha256_file(source):
         raise SecondPassError(f"staged proof copy failed: {source.name}")
-    os.replace(temporary, destination)
+    atomic_write_bytes(destination, body)
 
 
 def ledger_output(
@@ -900,16 +897,21 @@ def prove_say_do_fixed_point(
     probe_lep = probe_dir / "data/members/lep_criterion.json"
     atomic_copy(final_desk, probe_desk)
     atomic_copy(final_lep, probe_lep)
-    expected_inputs = say_do_runner.input_receipts(
-        probe_dir, say_do_runner.DIRECT_INPUTS
-    )
-    execution, execution_stream_hashes = (
-        say_do_runner.run_producer_twice(
-            probe_dir,
-            say_do_runner.PRODUCER,
-            expected_inputs,
+    try:
+        expected_inputs = say_do_runner.input_receipts(
+            probe_dir, say_do_runner.DIRECT_INPUTS
         )
-    )
+        execution, execution_stream_hashes = (
+            say_do_runner.run_producer_twice(
+                probe_dir,
+                say_do_runner.PRODUCER,
+                expected_inputs,
+            )
+        )
+    except say_do_runner.SayDoError as exc:
+        raise SecondPassError(
+            f"say/do fixed-point probe failed: {exc}"
+        ) from exc
     probe_output = probe_dir / say_do_runner.OUTPUT_NAME
     second_sha = str(
         (say_do.get("output") or {}).get("sha256") or ""

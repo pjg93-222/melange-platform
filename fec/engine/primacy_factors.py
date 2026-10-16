@@ -304,6 +304,12 @@ def _cu_tensor_key(bill_key):
     return tuple(parts) if len(parts) == 2 else None
 
 
+def _tensor_position(tag):
+    """True when the declared ACU position lets a CU tensor cell apply."""
+    return str(tag.get('acu_position') or '').strip().upper() in (
+        'SUPPORT', 'OPPOSE')
+
+
 def act_weight(tag, bill_key, cu_cells=None):
     if is_letter(bill_key):
         override = tag.get(LETTER_OVERRIDE_FIELD)
@@ -338,8 +344,7 @@ def act_weight(tag, bill_key, cu_cells=None):
         ACU_RELEVANCE_ACTIVE
         and cu_cells is not None
         and tensor_key in cu_cells
-        and str(tag.get('acu_position') or '').strip().upper()
-        in ('SUPPORT', 'OPPOSE')
+        and _tensor_position(tag)
     ):
         return cu_cells[tensor_key]
     weight = ACT_W[beneficiary_class]
@@ -549,7 +554,7 @@ def main(root='.'):
             if not is_letter(key)
             and not _is_synthetic_cell_class(tags[key]['class'])
             and _cu_tensor_key(key) in cu_cells
-            and str(tags[key].get('acu_position') or '').strip()
+            and _tensor_position(tags[key])
         )
         if ACU_RELEVANCE_ACTIVE else 0
     )
@@ -611,14 +616,8 @@ def main(root='.'):
         output_path = str(require_shadow_path(output_override, shadow_root))
         document = with_realized_results(document, load_shadow_comparison(
             comparison_path, shadow_root=shadow_root))
-    try:
-        from moneyball_core import dump_atomic
-        dump_atomic(document, output_path)
-    except ImportError:
-        with open(
-            output_path, 'w', encoding='utf-8', newline='\r\n'
-        ) as handle:
-            json.dump(document, handle, indent=1, ensure_ascii=False)
+    from moneyball_core import dump_atomic
+    dump_atomic(document, output_path)
     print(
         'primacy_factors: %d members | baseline %.6f | '
         'letter_w %.2f | shrink %.1f | adjudications %d'

@@ -47,7 +47,7 @@ stamped before the rule need no change; a bundle with no `built_at_utc` (schema 
     in-kind, refunds netted, IE excluded) and measure `general_giving` (the console's included receipt amount = workbook Analysis Amount, all channels; since the
     owner ruling of 2026-10-01 the anchors' level leaves out the receipts the accounting engine buckets as non_giving: see "Anchor snapshot v1" below).
   * `share`: `control_House` / `control_Senate` give a **pp change** added to the previous cycle's Mentat R share, on two bases side by
-    side: `employee_candidate` (employees' included giving to candidate committees) and `pac_candidate` (the roster PACs' own giving to candidates).
+    side: `employee_candidate` (included receipts to House/Senate candidates across all funding sources except non-giving; legacy key retained) and `pac_candidate` (the roster PACs' own giving to candidates).
   * `lobbying`: the in-year **nowcast** of the anchors (`lda.series[sid].partial.nowcast`, owner rulings 2026-10-08) carried to the later years; a growth-forecast change that is
     entered moves it by `lobby_model.log_refit` (the relative change of the old calculator, now applied on top of the nowcast). The bands are empirical, not the model's interval:
     the anchors' pooled blind errors of the nowcast (`lda_nowcast_errors`) and, for the years after the nowcast year, `log_refit.persistence` in quadrature. Both LDA series
@@ -140,7 +140,7 @@ the sha256 of the workbook file now published in the report directory.
     the accounting engine buckets as `non_giving`** (the FEC records them as interest, refunds, insurance claims, loans; the workbook still counts them in its
     Analysis Amount). `by_funding_source` stays the full split of the Analysis Amount. Optional `excluded_funding_sources` (the buckets left out) and
     `excluded_non_giving` ({cycle: dollars}) report what was left out: `cycles` + `excluded_non_giving` = the sum of `by_funding_source`, per cycle.
-  * `candidate_receipts`: employees' included giving to House / Senate candidate committees (index joined to the pinned source DB on `sub_id`;
+  * `candidate_receipts`: included receipts to House / Senate candidate committees across all funding sources except non-giving; funding identity is not necessarily verified (index joined to the pinned source DB on `sub_id`;
     `recipient_committee_type` H or S; presidential P excluded), `{D, R, other}` per chamber per cycle; `observed` cuts; `thin_base` flags ($100K of D+R per chamber).
     The same ruling applies: non_giving receipts are out of the cycles, the cuts and the thin-base totals; optional `excluded_funding_sources` and
     `excluded_non_giving` ({cycle: {House, Senate}: {D, R, other}}) report them.

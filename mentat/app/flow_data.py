@@ -39,6 +39,7 @@ from collections import ChainMap, OrderedDict, defaultdict
 import copy
 from datetime import date
 from decimal import Decimal
+from functools import lru_cache
 import json
 import os
 from pathlib import Path
@@ -117,6 +118,91 @@ def _collector():
 
 def name_key(value):
     return ' '.join(re.findall(r'[A-Z0-9]+', str(value or '').upper()))
+
+
+# ------------------------------------------------------------------ committee names (B4, 2026-10-15)
+# A committee reached only as a recipient of a transfer has no summary or snapshot of its own, so the
+# saved data names it by its ID. The FEC committee master on disk (cm*/cm.txt, the file the PAC picker
+# searches) names it; nothing is fetched. A committee with no name anywhere is "Unnamed committee",
+# its ID kept in name_as_filed and on the node (unnamed), never a name made up for it.
+UNNAMED = 'Unnamed committee'
+MASTER_ROOT = None                      # tests point this at a directory of cm*/cm.txt; None = the console's inputs
+
+
+@lru_cache(maxsize=4)
+def _master_file(entry):
+    import pac_flow_access
+    return dict(pac_flow_access._master_names((entry,)))
+
+
+def committee_names(cycle=None):
+    """[(year, {committee ID: name as filed})] from the FEC committee master on disk, in the order a lookup tries
+    them: the file for the flow's cycle first (a committee is renamed from cycle to cycle: C00728980 is
+    "TIPPINGPOINT 2020" in cm22 and "DEMOCRACY SOLVES IT" in cm26), then the newest first; [] when this machine
+    has none. Names only: nothing here is an amount."""
+    import evidence_csv
+    base = Path(MASTER_ROOT) if MASTER_ROOT else evidence_csv.INPUTS / 'fec_committee_master'
+    mine = f'cm{int(cycle) % 100:02d}' if str(cycle or '').isdigit() else ''
+    try:
+        folders = sorted(base.glob('cm*'), reverse=True)
+        folders.sort(key=lambda folder: folder.name != mine)       # stable: the cycle's own file, the rest newest first
+        found = []
+        for folder in folders:
+            path = folder / 'cm.txt'
+            if path.is_file():
+                year = '20' + folder.name[2:] if re.fullmatch(r'cm\d\d', folder.name) else ''
+                found.append((year, _master_file((str(path), path.stat().st_mtime_ns, path.stat().st_size))))
+        return found
+    except OSError:
+        return []
+
+
+class Names(dict):
+    """The names a flow's committees are filed under: the saved data's own first, then the FEC master (the file for
+    `cycle` first). A value equal to the ID is no name (the ledgers fall back to it)."""
+
+    def __init__(self, *args, cycle=None):
+        super().__init__(*args)
+        self.master = committee_names(cycle)
+
+    def _master(self, key):
+        return next(((names[key], year) for year, names in self.master if names.get(key)), (None, ''))
+
+    def get(self, key, default=None):
+        value = dict.get(self, key)
+        if value and value != key:
+            return value
+        return self._master(key)[0] or value or default
+
+    def master_year(self, ident):
+        """The year of the FEC committee master file that names a committee here; '' when the saved data does."""
+        value = dict.get(self, ident)
+        return '' if value and value != ident else self._master(ident)[1]
+
+    def named(self, ident):
+        value = self.get(ident)
+        return bool(value) and value != ident
+
+
+def committee_label(names, ident):
+    """A committee's label: its filed name for display, else 'Unnamed committee' (never an invented name)."""
+    return display_org(names.get(ident), committee=True) if names.named(ident) else UNNAMED
+
+
+def committee_tag(names, ident):
+    """The label inside a sentence: an unnamed committee carries its ID there."""
+    return committee_label(names, ident) if names.named(ident) else f'{UNNAMED} {ident}'
+
+
+def unnamed_fields(names, ident):
+    return {} if names.named(ident) else {'unnamed': True}
+
+
+def master_fields(names, ident):
+    """A committee node whose name is the FEC committee master's says which year's file it comes from (the tooltip
+    says so instead of "As filed")."""
+    year = names.master_year(ident) if names.named(ident) else ''
+    return {'name_master': year} if year else {}
 
 
 SMALL_WORDS = frozenset({'OF', 'AND', 'THE', 'FOR', 'TO', 'IN', 'ON', 'AT', 'BY', 'AN', 'OR', 'A', 'AS'})
@@ -608,7 +694,7 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
                 queue.append(edge['destination'])
     drawn = {ident for ident, level in hop.items() if level <= depth - 2}
     network_ids = {key[1] for key in found['keys'] if key[0] == cycle}
-    names = dict(facts['names'])
+    names = Names(facts['names'], cycle=cycle)
     ledgers = {}
     for key, unit in found['units'].items():
         if key[0] == cycle:
@@ -620,7 +706,10 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
         raise ValueError(f'{committee} has no FEC summary saved for {cycle_label(cycle)}; its flow cannot balance.')
 
     def label(ident):
-        return display_org(names.get(ident, ident), committee=True)
+        return committee_label(names, ident)
+
+    def tag(ident):
+        return committee_tag(names, ident)
 
     graph = Graph()
     stages = [{'index': 0, 'key': 'donors', 'label': 'Received from'},
@@ -663,7 +752,8 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
         node = graph.node('committee:' + ident, stage=1 + hop[ident], label=label(ident), kind='committee',
                           committee_id=ident, name_as_filed=names.get(ident, ident),
                           fec_url=committee_url(ident, cycle), root=ident == committee,
-                          saved=(cycle, ident) in found['units'])
+                          saved=(cycle, ident) in found['units'], **unnamed_fields(names, ident),
+                          **master_fields(names, ident))
         if (cycle, ident) not in found['units']:
             node['unreached'] = facts['gaps'].get((cycle, ident)) or 'no saved snapshot'
         node.update(carryover_of(found, cycle, ident, label))
@@ -711,7 +801,7 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
         graph.link(node['id'], root_node['id'], root_ledger['cash_begin'], 'prior_cash', 0, [],
                    evidence_url=committee_url(committee, cycle))
     for source, item in root_ledger['internal'].items():
-        node = stub('return_in', root_node['id'], source, 'back from ' + label(source))
+        node = stub('return_in', root_node['id'], source, 'back from ' + tag(source))
         graph.link(node['id'], root_node['id'], item['amount'], 'transfer', item['rows'], _records(item['rows']))
 
     # ------------------------------------------------------------ every drawn committee's outflows
@@ -730,9 +820,9 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
             if destination in drawn and hop[destination] == hop[ident] + 1:
                 target = committee_node(destination)
             elif hop.get(destination, hop[ident] + 1) <= hop[ident]:
-                target = stub('return', node['id'], destination, 'returned to ' + label(destination))
+                target = stub('return', node['id'], destination, 'returned to ' + tag(destination))
             else:
-                target = stub('onward', node['id'], destination, 'passed to ' + label(destination), beyond=True,
+                target = stub('onward', node['id'], destination, 'passed to ' + tag(destination), beyond=True,
                               unreached=facts['gaps'].get((cycle, destination))
                               or ('' if (cycle, destination) in found['units'] else 'no saved snapshot'))
             graph.link(node['id'], target['id'], value, 'transfer', rows, _records(rows), committee=ident,
@@ -788,7 +878,7 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
                 if edge['destination'] == ident and edge['source'] in hop and hop[edge['source']] >= hop[ident]:
                     back[edge['source']] += Decimal(str(edge['amount']))
             for source, value in sorted(back.items()):
-                back_stub = stub('return_in', node['id'], source, 'back from ' + label(source))
+                back_stub = stub('return_in', node['id'], source, 'back from ' + tag(source))
                 rows = source_rows.get(source, {}).get(ident, [])
                 graph.link(back_stub['id'], node['id'], value, 'transfer', rows, _records(rows))
             external = item['intake'] - network_in - sum(back.values(), ZERO)
@@ -852,7 +942,7 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
     kept = [ident for ident, parts in kept_parts.items()
             if parts.get('operating', ZERO) + parts.get('cash', ZERO) + parts.get('held', ZERO) > 0]
     if kept:
-        labels = [label(ident) for ident in kept]
+        labels = [tag(ident) for ident in kept]
         text = 'Kept by ' + ' and '.join(labels) if len(labels) <= 2 else f'Kept by {len(labels)} committees'
         if len(labels) <= 2 and len(text) > 30:
             text = 'Kept by ' + ' and '.join(acronym(value) for value in labels)
@@ -882,7 +972,7 @@ def committee_flow(committee, cycle, *, identifier='', depth=DEFAULT_DEPTH, root
     return {'graph': graph, 'found': found, 'ledgers': ledgers, 'root_ledger': root_ledger, 'hop': hop,
             'drawn': drawn, 'names': names, 'facts': facts, 'identifier': identifier, 'stages': stages,
             'last': last, 'cycle': cycle, 'committee': committee, 'root': root, 'parents': parents,
-            'label': label, 'adjustments': adjustments, 'selected': selected, 'activity': activity}
+            'label': label, 'adjustments': adjustments, 'selected': selected, 'activity': activity, 'tag': tag}
 
 
 # ------------------------------------------------------------------ values, checks and grouping
@@ -1238,7 +1328,7 @@ def _link_out(link):
 
 def routes_of(built, limit=10):
     """The largest committee-to-candidate routes, each with the committees it passed through."""
-    graph, parents, label = built['graph'], built['parents'], built['label']
+    graph, parents, label = built['graph'], built['parents'], built.get('tag') or built['label']
     result = []
     for link in graph.links.values():
         target = graph.nodes[link['target']]
@@ -1764,7 +1854,7 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
     transfer_edges = [edge for edge in found['edges'] if edge['cycle'] == cycle and not edge.get('terminal_candidate')]
     pairs = {(edge['source'], edge['destination']) for edge in transfer_edges}
     network_ids = {key[1] for key in found['keys'] if key[0] == cycle}
-    names = {ident: item['label'] for ident, item in info.items()}
+    names = Names({ident: item['label'] for ident, item in info.items()}, cycle=cycle)
     ledgers = {}
     for key, unit in found['units'].items():
         if key[0] == cycle:
@@ -1824,7 +1914,10 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
     traced = {ident for ident in drawn if ledgers.get(ident)}
 
     def label_of(ident):
-        return display_org(names.get(ident, ident), committee=True)
+        return committee_label(names, ident)
+
+    def tag_of(ident):
+        return committee_tag(names, ident)
 
     graph = Graph()
     stages = [{'index': 0, 'key': 'companies', 'label': 'Companies'},
@@ -1851,7 +1944,7 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
         node = graph.node('committee:' + ident, stage=1 + hop[ident], label=label_of(ident), kind='committee',
                           committee_id=ident, name_as_filed=names.get(ident, ident), fec_url=committee_url(ident, cycle),
                           saved=(cycle, ident) in found['units'], category=info.get(ident, {}).get('category', ''),
-                          pooled=True, fixed=True)
+                          pooled=True, fixed=True, **unnamed_fields(names, ident), **master_fields(names, ident))
         if (cycle, ident) not in found['units']:
             node['unreached'] = 'no saved snapshot'
         node.update(carryover_of(found, cycle, ident, label_of))
@@ -1885,7 +1978,7 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
             key, text = CATEGORY_BUCKETS.get(info[ident]['category'], OTHER_COMMITTEES)
             bucket = graph.node(f'bucket:{key}', stage=1, kind='bucket', bucket=key.replace('-', '_'), label=text,
                                 followed=False)
-            grouped[bucket['id']].append({'id': ident, 'label': label_of(ident), 'kind': 'committee',
+            grouped[bucket['id']].append({'id': ident, 'label': tag_of(ident), 'kind': 'committee',
                                           'value': cents(money[ident]['total'])})
             for company, (value, rows_) in sorted(money[ident]['companies'].items()):
                 graph.link(company_node(company)['id'], bucket['id'], value, 'receipt', rows_, _records(rows_),
@@ -1959,9 +2052,9 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
             if destination in drawn and hop[destination] == hop[ident] + 1:
                 target = committee_node(destination)
             elif hop.get(destination, hop[ident] + 1) <= hop[ident]:
-                target = stub('return', node['id'], destination, 'returned to ' + label_of(destination))
+                target = stub('return', node['id'], destination, 'returned to ' + tag_of(destination))
             else:
-                target = stub('onward', node['id'], destination, 'passed to ' + label_of(destination), beyond=True)
+                target = stub('onward', node['id'], destination, 'passed to ' + tag_of(destination), beyond=True)
             graph.link(node['id'], target['id'], value, 'transfer', rows_, _records(rows_), committee=ident,
                        **unverified(rows_, edge))
         spent_candidates = ZERO
@@ -1983,7 +2076,7 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
             if edge['destination'] == ident and edge['source'] in hop and hop[edge['source']] >= hop[ident]:
                 back[edge['source']] += Decimal(str(edge['amount']))
         for source, value in sorted(back.items()):
-            back_stub = stub('return_in', node['id'], source, 'back from ' + label_of(source))
+            back_stub = stub('return_in', node['id'], source, 'back from ' + tag_of(source))
             rows_ = source_rows.get(source, {}).get(ident, [])
             graph.link(back_stub['id'], node['id'], value, 'transfer', rows_, _records(rows_))
         external = item['intake'] - company_in - network_in - sum(back.values(), ZERO)
@@ -2044,7 +2137,7 @@ def industry_flow(label, cycle, paths, *, depth=DEFAULT_DEPTH, top=DEFAULT_TOP, 
     counted = {ident: money[ident]['total'] for ident in drawn if ident in money and money[ident]['basis'] == 'filings'}
     return {'graph': graph, 'found': found, 'rows': rows, 'ledgers': ledgers, 'hop': hop, 'drawn': traced,
             'shown': drawn, 'names': names, 'stages': stages, 'last': last, 'cycle': cycle, 'label': label_of,
-            'parents': parents, 'adjustments': adjustments, 'counted': counted, 'funded': funded, 'facts': facts,
+            'parents': parents, 'tag': tag_of, 'adjustments': adjustments, 'counted': counted, 'funded': funded, 'facts': facts,
             'info': info, 'industry': label, 'workbook_total': sum(funded.values(), ZERO), 'reports': reports,
             'committees': committees, 'followed': followed, 'first': first, 'money': money,
             'refunds_back': refunds_back,

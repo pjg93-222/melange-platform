@@ -465,6 +465,7 @@ def refresh_readiness() -> Path:
         check=False,
         capture_output=True,
         text=True,
+        timeout=1800,
     )
     require(
         completed.returncode in {0, 2},

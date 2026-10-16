@@ -38,6 +38,7 @@ from pathlib import Path
 import re
 import sys
 import tempfile
+import zlib
 from typing import Any, Iterator, Mapping
 
 try:
@@ -230,7 +231,7 @@ def build_full_text(
 
     try:
         body = gzip.decompress(archive_path.read_bytes())
-    except (OSError, EOFError, gzip.BadGzipFile) as error:
+    except (OSError, EOFError, gzip.BadGzipFile, zlib.error) as error:
         return {
             "status": "archive_unreadable",
             "reason": f"{type(error).__name__}: {error}",
@@ -305,7 +306,18 @@ def build_stage(
     actions = billstatus.get("actions") or []
     if not actions:
         return {"status": "missing", "reason": "BillStatus lists no actions"}
-    latest = actions[-1]
+    # BillStatus lists actions newest first, so list position is not recency.
+    latest = max(
+        (row for row in actions if isinstance(row, dict)),
+        key=lambda row: (
+            str(row.get("action_date") or ""),
+            str(row.get("action_time") or ""),
+            -int(row.get("action_index") or 0),
+        ),
+        default=None,
+    )
+    if latest is None:
+        return {"status": "missing", "reason": "BillStatus lists no actions"}
     value = first_text(
         latest.get("action_type"), latest.get("text"), latest.get("action_code")
     )
@@ -337,11 +349,15 @@ def build_relationships(
     original = [
         row
         for row in cosponsors
-        if str(row.get("is_original_cosponsor")).lower() in {"true", "1", "yes"}
+        if isinstance(row, dict) and row.get("original_cosponsor") is True
     ]
+    role_provenance_complete = all(
+        isinstance(row, dict) and row.get("role_provenance_complete") is True
+        for row in [*sponsors, *cosponsors]
+    )
     return {
-        "status": "complete",
-        "role_provenance_complete": True,
+        "status": "complete" if role_provenance_complete else "incomplete",
+        "role_provenance_complete": role_provenance_complete,
         "sponsor_count": len(sponsors),
         "original_cosponsor_count": len(original),
         "cosponsor_count": len(cosponsors),

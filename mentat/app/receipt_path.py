@@ -6,6 +6,7 @@ relative file name, so pathlib cannot find the file, its parent or its place und
 """
 import os
 from pathlib import Path, PureWindowsPath
+from runtime_paths import resolve_receipt
 
 PROJECT = Path(__file__).resolve().parents[1]
 
@@ -17,6 +18,8 @@ def receipt_path(value):
     this checkout is called. On Windows, and for POSIX, relative or drive-less text, the value comes back
     as the Path it always was."""
     text = str(value)
+    if text.startswith('mentat-') or os.environ.get('MENTAT_RECEIPT_ROOTS'):
+        return resolve_receipt(text)
     windows = PureWindowsPath(text)
     if os.name == 'nt' or not windows.drive:
         return Path(text)

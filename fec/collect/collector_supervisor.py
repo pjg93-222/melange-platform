@@ -27,7 +27,7 @@ Each tick:
 Targets are read from data/stance/collector_targets.json (written by the launcher) so the schedule can be
 re-pointed without editing code. Spend note: GATE-2 runs big5_llm --go (approved); the script's
 own cost gate prints first and a dry account stops cleanly (cache preserves paid work)."""
-import os, sys, json, re, subprocess, datetime, time, glob, threading
+import os, sys, json, re, subprocess, datetime, time, glob, threading, traceback
 
 B = MB_ROOT
 FE = os.path.join(B, 'fec')
@@ -93,6 +93,19 @@ GATE_RECEIPT_SCHEMA = 'collector-gate-receipt-v1'
 GATE1_COOLDOWN_S = float(os.environ.get('GATE1_RETRY_COOLDOWN_S', '900'))        # 15 min, first retry
 GATE1_COOLDOWN_MAX_S = float(os.environ.get('GATE1_RETRY_COOLDOWN_MAX_S', '14400'))   # 4 h ceiling
 GATE1_COOLDOWN_SCHEMA = 'collector-gate1-cooldown-v1'
+
+# GATE-2 COOLDOWN + STEP RECEIPTS (2026-10-14, Paul authorized). GATE-2 holds the paid big5 --go, the
+# paid reference --score and the pre-registered ONE-LOOK C retest, and used to re-enter all of them from
+# the top on every 10-minute tick after any later failure. Now: (1) every GATE-2 stop backs off like
+# GATE-1 (15 min doubling, 4 h cap; env GATE2_RETRY_COOLDOWN_S / GATE2_RETRY_COOLDOWN_MAX_S);
+# (2) each completed step is receipted in _gate2_steps_path() and never re-runs; (3) the C retest records a
+# marker BEFORE it launches and is refused forever after. To deliberately redo a step, Paul deletes its
+# entry (or the file); nothing here ever does. The steps file authorizes spend, so an unreadable or
+# wrong-schema file fails CLOSED (the cooldown file fails open, like GATE-1's).
+GATE2_COOLDOWN_S = float(os.environ.get('GATE2_RETRY_COOLDOWN_S', '900'))
+GATE2_COOLDOWN_MAX_S = float(os.environ.get('GATE2_RETRY_COOLDOWN_MAX_S', '14400'))
+GATE2_COOLDOWN_SCHEMA = 'collector-gate2-cooldown-v1'
+GATE2_STEPS_SCHEMA = 'collector-gate2-steps-v1'
 # PER-TARGET REFIRE BACKOFF (review 2026-08-29). The 7-day freshness window above expires EVERY
 # target on the same weekly boundary. A leg that completes without committing its sentinel — the
 # 2026-08-28 dispatch-bug class, where only the cnn branch called _sentinel() — therefore comes up
@@ -194,6 +207,75 @@ def _gate1_clear_cooldown():
         os.remove(_gate1_cooldown_path())
     except OSError:
         pass
+
+def _gate2_steps_path():   # next to PROG_F; resolved late so B can be re-pointed
+    return os.path.join(B, 'data', 'stance', 'collector_gate2_steps.json')
+
+def _atomic_json(path, payload):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temporary = '%s.%d.tmp' % (path, os.getpid())
+    with open(temporary, 'w', encoding='utf-8') as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2, sort_keys=True)
+        handle.write('\n')
+    os.replace(temporary, path)
+
+def _gate2_cooldown_path():
+    return os.path.join(B, 'data', 'engine', 'collector_gate2_cooldown.json')
+
+def _gate2_backoff_seconds(failures):
+    if failures < 1: return 0.0
+    return min(GATE2_COOLDOWN_S * (2 ** min(int(failures) - 1, 20)), GATE2_COOLDOWN_MAX_S)
+
+def _gate2_cooldown_remaining():
+    """(remaining_seconds, consecutive_failures); fails OPEN on any uncertainty, like GATE-1's."""
+    try:
+        state = json.load(open(_gate2_cooldown_path(), encoding='utf-8'))
+        if state.get('schema') != GATE2_COOLDOWN_SCHEMA: return 0.0, 0
+        failures, last = int(state.get('consecutive_failures') or 0), float(state.get('last_failure_at') or 0)
+    except Exception:
+        return 0.0, 0
+    if failures < 1: return 0.0, 0
+    elapsed = time.time() - last
+    if elapsed < 0: return 0.0, failures
+    return max(0.0, _gate2_backoff_seconds(failures) - elapsed), failures
+
+def _gate2_stop(msg):
+    """Log why GATE-2 stopped this tick and start/extend the retry backoff. Always returns None."""
+    _remaining, failures = _gate2_cooldown_remaining()
+    failures += 1
+    wait = _gate2_backoff_seconds(failures)
+    try:
+        _atomic_json(_gate2_cooldown_path(), {'schema': GATE2_COOLDOWN_SCHEMA, 'consecutive_failures': failures,
+                     'last_failure_at': time.time(), 'next_retry_after_s': wait,
+                     'last_failure_utc': datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    except Exception as e:
+        log('  gate2 cooldown marker write failed (%s) — retry pacing degrades to every tick' % str(e)[:60])
+    log('GATE-2 %s; next attempt no sooner than %.0f min from now' % (msg, wait / 60.0))
+
+def _gate2_load():
+    """(state, error). Absent file = fresh state; unreadable/wrong-shaped = error (fail CLOSED)."""
+    try:
+        state = json.load(open(_gate2_steps_path(), encoding='utf-8'))
+    except FileNotFoundError:
+        return {'schema': GATE2_STEPS_SCHEMA, 'steps': {}, 'c_retest': None}, None
+    except Exception as e:
+        return None, 'unreadable (%s)' % str(e)[:60]
+    if not isinstance(state, dict) or state.get('schema') != GATE2_STEPS_SCHEMA or not isinstance(state.get('steps'), dict):
+        return None, 'wrong schema/shape'
+    return state, None
+
+def _gate2_save(state):
+    try:
+        _atomic_json(_gate2_steps_path(), state)
+        return True
+    except Exception as e:
+        log('  GATE-2 receipt write FAILED (%s)' % str(e)[:80])
+        return False
+
+def _gate2_mark(state, name, **extra):
+    """Receipt one completed step. False = could not persist (caller must stop: it would re-run)."""
+    state['steps'][name] = dict(extra, done_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())
+    return _gate2_save(state)
 
 def _refire_state_path():
     return os.path.join(B, 'data', 'engine', 'collector_refire_state.json')
@@ -307,11 +389,19 @@ def leg_db_metric(args):
     except Exception as e:
         log('db metric failed for %s (%s)' % (leg, str(e)[:50])); return -1
 
-def kill_leg(match, token):
+def _leg_args(cmd):
+    """The argument list after fetch_interviews.py in a process command line, or None when the
+    command line is not a fetch_interviews process.  Real lines look like
+    "C:\\...\\python.exe" "C:\\...\\Melange Systems\\fec\\members\\fetch_interviews.py" cnn --since X --until Y
+    -- the script path is quoted and contains spaces, the leg arguments never do."""
+    m = re.search(r'fetch_interviews\.py["\']?(?=\s|$)(.*)', str(cmd or ''))
+    return m.group(1).split() if m else None
+
+def kill_leg(match, tag):
     for p in match:
         try:
             subprocess.run(['taskkill', '/PID', str(p['pid']), '/F', '/T'], capture_output=True, text=True, timeout=30)
-            log('  KILLED wedged pid %d (%s)' % (p['pid'], token))
+            log('  KILLED wedged pid %d (%s)' % (p['pid'], tag))
         except Exception as e:
             log('  kill failed pid %d (%s)' % (p['pid'], str(e)[:40]))
 
@@ -320,7 +410,13 @@ def _load_prog():
     except Exception: return {}
 
 def _save_prog(p):
-    try: json.dump(p, open(PROG_F, 'w', encoding='utf-8'))
+    # tmp + os.replace (same pattern as _refire_save): a crash mid-dump must never leave a truncated
+    # progress file that _load_prog reads as {} and resets every wedge timer.
+    try:
+        temporary = '%s.%d.tmp' % (PROG_F, os.getpid())
+        with open(temporary, 'w', encoding='utf-8') as handle:
+            json.dump(p, handle)
+        os.replace(temporary, PROG_F)
     except Exception: pass
 
 def sentinel_state(tag, window=None):
@@ -386,6 +482,29 @@ def _persist_gate_failure(name, out):
         log('      could not persist failure output (%s)' % str(e)[:80])
         return None
 
+def _run_capped(argv, timeout):
+    """subprocess.run replacement for a CAPPED gate step.  On Windows, run(..., timeout=) kills only
+    the direct child and then waits on communicate() with no bound, so a grandchild that still holds
+    the stdout/stderr pipes hangs the supervisor past its own timeout.  Kill the whole tree with
+    taskkill /T /F, then drain the pipes with a bounded wait.  Raises TimeoutExpired carrying
+    whatever output was captured, so gate_step's existing timeout branch handles it unchanged."""
+    proc = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding='utf-8', errors='replace', cwd=FE)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            subprocess.run(['taskkill', '/PID', str(proc.pid), '/T', '/F'], capture_output=True, timeout=30)
+        except Exception:
+            try: proc.kill()          # taskkill itself unavailable: at least take the direct child
+            except Exception: pass
+        try:
+            stdout, stderr = proc.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            stdout, stderr = '', ''
+        raise subprocess.TimeoutExpired(argv, timeout, output=stdout, stderr=stderr)
+    return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr)
+
 def gate_step(name, script, args, timeout=None):
     """Run one gate step. Accepts absolute script paths (review 2026-07-07: c_prereg_test.py lives at
     the repo ROOT — the old FE-join launched a nonexistent path and the prereg retest silently skipped).
@@ -394,8 +513,11 @@ def gate_step(name, script, args, timeout=None):
     t = time.time()
     spath = script if os.path.isabs(script) else os.path.join(FE, script)
     try:
-        r = subprocess.run([sys.executable, spath] + args,
-                           capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout, cwd=FE)
+        if timeout is None:      # Paul 2026-08-28 "no cap": the uncapped path is the plain run, unchanged
+            r = subprocess.run([sys.executable, spath] + args,
+                               capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=timeout, cwd=FE)
+        else:
+            r = _run_capped([sys.executable, spath] + args, timeout)
         ok = r.returncode == 0
         stdout = r.stdout or ''
         stderr = r.stderr or ''
@@ -406,8 +528,8 @@ def gate_step(name, script, args, timeout=None):
         # money, and run_gates tests it for 'ALL MODULES CLEAN'.  A producer that writes anything at
         # all to stderr on a successful run — a warning, a progress bar, a deprecation notice — could
         # otherwise contribute a stray dollar figure to a spend decision.  Failure output cannot
-        # reach that path: spend_guard's estimate is only acted on after its own dry step, and a
-        # failed dry step that prints no est line already fails closed.
+        # reach that path: spend_guard returns (False, 0.0) on a failed dry step BEFORE it parses
+        # any est line, so a failed step's text is never read as an estimate.
         out = stdout if ok else _joined(stdout, stderr)
     except subprocess.TimeoutExpired as e:
         def _text(value):
@@ -446,6 +568,10 @@ def spend_guard(name, script, base_args, cap_env, cap_default, timeout=None):
     B5_GATE_CAP / REF_GATE_CAP to a dollar figure to restore a ceiling."""
     cap = float(os.environ.get(cap_env, cap_default))
     ok, out = gate_step(name + ' (dry est)', script, base_args, timeout=timeout if timeout is not None else GATE_TIMEOUT)
+    if not ok:
+        # Both paid scripts exit 0 on a dry run ('COST GATE: add --go to spend.' then sys.exit(0)),
+        # so a non-zero dry run is a real failure -- never authorize --go off a failed step's text.
+        log('  %s: dry run failed — failing CLOSED (no spend)' % name); return False, 0.0
     m = re.findall(r'est ~\$([0-9][0-9.,]*)', out)
     if not m:
         log('  %s: no est line found — failing CLOSED (no spend)' % name); return False, 0.0
@@ -498,94 +624,182 @@ def run_gates():
     # Review 2026-07-07 hardening: (a) --batch = flat 50% off, the right mode unattended (fresh-cache
     # est ~$158 batch vs ~$316 standard vs ~$632 if fast-mode ever activates); (b) B5_FAST pinned off;
     # (c) spend guards with env caps fail CLOSED; (d) if the re-score fails or the artifact is not
-    # fresh, ABORT before validate/C-retest — the one-look prereg test must never run on stale data
-    # (gate2.done stays absent, so the next tick retries; big5's cache/PEND make retries cheap).
+    # fresh, ABORT before validate/C-retest — the one-look prereg test must never run on stale data.
+    # 2026-10-14: every stop now backs off (_gate2_stop), every finished step is receipted in
+    # the GATE-2 steps file and skipped on later ticks (no re-paying big5/reference), all prerequisite scripts
+    # must exist BEFORE any paid step, and the C retest runs at most once ever (marker written first).
     if not _gate_receipt_valid('GATE-2'):
+        cooling, consecutive = _gate2_cooldown_remaining()
+        if cooling > 0:
+            log('GATE-2 COOLDOWN: %d consecutive stop(s); %.0f of %.0f backoff minutes remain — NOT '
+                'relaunched this tick' % (consecutive, cooling / 60.0, _gate2_backoff_seconds(consecutive) / 60.0))
+            return
         log('===== GATE-2 (everything-done: re-score + C retest) =====')
+        state, err = _gate2_load()
+        if err:
+            return _gate2_stop('BLOCKED: step receipt file %s %s — refusing to spend' % (_gate2_steps_path(), err))
+        S = state['steps']
         os.environ['B5_FAST'] = '0'   # bulk batch job: never pay the 2x fast-mode premium unattended
         art = os.path.join(B, 'data', 'members', 'big5_llm_opus.json')
-        t_gate = time.time()
-        go, est = spend_guard('big5 re-score', os.path.join('members', 'big5_llm.py'), ['--opus', '--batch'], 'B5_GATE_CAP', 'inf')
-        if not go:
-            log('GATE-2 HALTED at big5 spend guard — nothing spent, retest untouched; will retry next tick'); return
-        ok, out = gate_step('big5 full re-score', os.path.join('members', 'big5_llm.py'), ['--opus', '--batch', '--go'], timeout=GATE_TIMEOUT)
-        fresh = os.path.exists(art) and os.path.getmtime(art) >= t_gate - 60
-        if not (ok and fresh):
-            log('GATE-2 ABORTED: big5 step ok=%s artifact-fresh=%s — retest NOT run (no stale-data look); '
-                'will retry next tick (batch PEND/cache resume, no double-spend)' % (ok, fresh)); return
-        ok_validate, _ = gate_step('validate_big5', os.path.join('members', 'validate_big5.py'),
-                                   [art, '--traits-key', 'traits'], timeout=GATE_TIMEOUT)
-        if not ok_validate:
-            log('GATE-2 INCOMPLETE: validate_big5 failed — prereg retest NOT run, receipt NOT written')
-            return
-        # THE pre-registered C retest (bars locked 2026-07-05) — absolute path: it lives at repo ROOT
-        cpath = os.path.join(B, 'c_prereg_test.py')
-        if os.path.exists(cpath):
-            ok_c, _ = gate_step('C retest (prereg)', cpath, [], timeout=GATE_TIMEOUT)
-        else:
-            ok_c = False
-            log('GATE-2 BLOCKED: c_prereg_test.py not in repo root — receipt NOT written')
-        if not ok_c:
-            return
-        go, est = spend_guard('reference --score', os.path.join('members', 'member_reference_layer.py'), ['--score'], 'REF_GATE_CAP', 'inf')
-        if not go:
-            log('GATE-2 INCOMPLETE: reference spend guard failed — receipt NOT written')
-            return
-        ok_reference, _ = gate_step('reference --score', os.path.join('members', 'member_reference_layer.py'),
-                                    ['--score', '--go'], timeout=GATE_TIMEOUT)
-        if not ok_reference:
-            log('GATE-2 INCOMPLETE: reference --score failed — receipt NOT written')
-            return
-        okco, _ = gate_step('co_appearance', 'co_appearance_layer.py', [], timeout=GATE_TIMEOUT)
-        okmd, _ = gate_step('member desk', os.path.join('surfaces', 'make_member_desk.py'), [], timeout=GATE_TIMEOUT)
-        okcb, _ = gate_step('combined', os.path.join('surfaces', 'make_combined.py'), [], timeout=GATE_TIMEOUT)
-        ok_audit, out = gate_step('audit_full', os.path.join('audit', 'audit_full.py'), [], timeout=GATE_TIMEOUT)
-        # STANDING-DISSENT TOLERANCE (2026-08-28). audit_full exits 1 if ANY check fails
-        # (fec\audit\audit_full.py:2214-2217) and TWO checks are standing, already-adjudicated,
-        # Paul-gated open items: V-1 (:1513) and the legfix5 culling promotion (:1642). Requiring
-        # returncode==0 here therefore made GATE-2 UNPASSABLE: once GATE-1 closed, every 10-minute
-        # tick would re-run the whole gate forever, and each retry re-enters the paid big5 and
-        # reference steps (their caches/PEND make that cheap, not free). weekly_refresh already
-        # makes exactly this judgement for GATE-1; audit_failure_gate.py is the ONE ratified list
-        # and parser both use, and it fails CLOSED — an unreadable report, a count/tally mismatch,
-        # or ANY name outside the ratified two still hard-fails GATE-2 exactly as before.
-        # Sound here for the same reason as in GATE-1: audit_full is the LAST step of this gate, so
-        # every producer above already ran and each one's own flag is in `required` below — a
-        # tolerated audit verdict cannot be masking unrun work. audit_full itself is untouched: it
-        # keeps exiting 1 honestly and the dissent stays visible in the log and the receipt.
-        audit_known_gated = []
-        if not ok_audit:
-            tolerate, names = tolerate_known_gated(out, '', log=log, prefix='  ')
-            if tolerate:
-                audit_known_gated = list(names)
-                ok_audit = True
-                log('  audit_full: %d KNOWN Paul-gated item(s) only — tolerated for gating: %s'
-                    % (len(names), '; '.join(names)))
+        big5 = os.path.join('members', 'big5_llm.py')
+        ref = os.path.join('members', 'member_reference_layer.py')
+        needed = [('big5 re-score', os.path.join(FE, big5)),
+                  ('validate_big5', os.path.join(FE, 'members', 'validate_big5.py')),
+                  ('reference --score', os.path.join(FE, ref)),
+                  ('co_appearance', os.path.join(FE, 'network', 'co_appearance_layer.py')),
+                  ('member desk', os.path.join(FE, 'surfaces', 'make_member_desk.py')),
+                  ('combined', os.path.join(FE, 'surfaces', 'make_combined.py')),
+                  ('audit_full', os.path.join(FE, 'audit', 'audit_full.py'))]
+        if state.get('c_retest') is None:   # a retest already taken never needs its script again
+            needed.append(('C retest', os.path.join(B, 'c_prereg_test.py')))
+        missing = ['%s (%s)' % (n, p) for n, p in needed if n not in S and not os.path.exists(p)]
+        if missing:
+            return _gate2_stop('BLOCKED: prerequisite script(s) missing: %s — nothing spent' % '; '.join(missing))
+        if 'big5 re-score' not in S:
+            t_gate = time.time()
+            go, est = spend_guard('big5 re-score', big5, ['--opus', '--batch'], 'B5_GATE_CAP', 'inf')
+            if not go:
+                return _gate2_stop('HALTED at big5 spend guard — nothing spent, retest untouched')
+            ok, out = gate_step('big5 full re-score', big5, ['--opus', '--batch', '--go'], timeout=GATE_TIMEOUT)
+            fresh = os.path.exists(art) and os.path.getmtime(art) >= t_gate - 60
+            if not (ok and fresh):
+                return _gate2_stop('ABORTED: big5 step ok=%s artifact-fresh=%s — retest NOT run (no stale-data '
+                                   'look); batch PEND/cache resume, no double-spend' % (ok, fresh))
+            if not _gate2_mark(state, 'big5 re-score'):
+                return _gate2_stop('STOPPED: could not persist big5 receipt')
+        if 'validate_big5' not in S:
+            ok_validate, _ = gate_step('validate_big5', os.path.join('members', 'validate_big5.py'),
+                                       [art, '--traits-key', 'traits'], timeout=GATE_TIMEOUT)
+            if not ok_validate:
+                return _gate2_stop('INCOMPLETE: validate_big5 failed — prereg retest NOT run, receipt NOT written')
+            if not _gate2_mark(state, 'validate_big5'):
+                return _gate2_stop('STOPPED: could not persist validate_big5 receipt')
+        # THE pre-registered C retest (bars locked 2026-07-05) — ONE LOOK, ever. The marker is
+        # persisted BEFORE the launch, so a crash, timeout or failing verdict still spends the look.
+        if 'C retest' not in S:
+            taken = state.get('c_retest')
+            if taken is not None and taken.get('ok') is True:
+                if not _gate2_mark(state, 'C retest', recovered_from_marker=True):
+                    return _gate2_stop('STOPPED: could not persist C retest receipt')
+            elif taken is not None:
+                return _gate2_stop('REFUSED: the one-look C retest was already taken (started %s, ok=%s) and '
+                                   'will NEVER re-run; Paul must adjudicate' % (taken.get('started_utc'), taken.get('ok')))
+            else:
+                state['c_retest'] = {'started_utc': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'ok': None}
+                if not _gate2_save(state):
+                    return _gate2_stop('STOPPED: could not persist one-look marker — C retest NOT run')
+                # absolute path: it lives at repo ROOT
+                ok_c, _ = gate_step('C retest (prereg)', os.path.join(B, 'c_prereg_test.py'), [], timeout=GATE_TIMEOUT)
+                state['c_retest'].update(ok=bool(ok_c), finished_utc=datetime.datetime.now(datetime.timezone.utc).isoformat())
+                if not ok_c:
+                    _gate2_save(state)
+                    return _gate2_stop('INCOMPLETE: C retest did not pass — the one look is spent and will not '
+                                       're-run; Paul must adjudicate')
+                if not _gate2_mark(state, 'C retest'):
+                    return _gate2_stop('STOPPED: could not persist C retest receipt')
+        if 'reference --score' not in S:
+            go, est = spend_guard('reference --score', ref, ['--score'], 'REF_GATE_CAP', 'inf')
+            if not go:
+                return _gate2_stop('INCOMPLETE: reference spend guard failed — receipt NOT written')
+            ok_reference, _ = gate_step('reference --score', ref, ['--score', '--go'], timeout=GATE_TIMEOUT)
+            if not ok_reference:
+                return _gate2_stop('INCOMPLETE: reference --score failed — receipt NOT written')
+            if not _gate2_mark(state, 'reference --score'):
+                return _gate2_stop('STOPPED: could not persist reference receipt')
+        failed = []
+        for name, script in (('co_appearance', os.path.join('network', 'co_appearance_layer.py')),
+                             ('member desk', os.path.join('surfaces', 'make_member_desk.py')),
+                             ('combined', os.path.join('surfaces', 'make_combined.py'))):
+            if name in S: continue
+            ok_step, _ = gate_step(name, script, [], timeout=GATE_TIMEOUT)
+            # Stop at the FIRST failed producer: a later step (and audit_full) must never be receipted
+            # on top of a stale upstream output, or a later tick would skip it and pass on stale data.
+            if not ok_step:
+                return _gate2_stop('INCOMPLETE: %s failed — later producers and audit_full NOT run, so none '
+                                   'is receipted on stale upstream output' % name)
+            if not _gate2_mark(state, name):
+                return _gate2_stop('STOPPED: could not persist %s receipt' % name)
+        if 'audit_full' not in S:
+            ok_audit, out = gate_step('audit_full', os.path.join('audit', 'audit_full.py'), [], timeout=GATE_TIMEOUT)
+            # STANDING-DISSENT TOLERANCE (2026-08-28). audit_full exits 1 if ANY check fails
+            # (fec\audit\audit_full.py:2214-2217) and TWO checks are standing, already-adjudicated,
+            # Paul-gated open items: V-1 (:1513) and the legfix5 culling promotion (:1642). Requiring
+            # returncode==0 here therefore made GATE-2 UNPASSABLE: once GATE-1 closed, every 10-minute
+            # tick would re-run the whole gate forever, and each retry re-enters the paid big5 and
+            # reference steps (their caches/PEND make that cheap, not free). weekly_refresh already
+            # makes exactly this judgement for GATE-1; audit_failure_gate.py is the ONE ratified list
+            # and parser both use, and it fails CLOSED — an unreadable report, a count/tally mismatch,
+            # or ANY name outside the ratified two still hard-fails GATE-2 exactly as before.
+            # Sound here for the same reason as in GATE-1: audit_full is the LAST step of this gate, so
+            # every producer above already SUCCEEDED (the loop above stops at the first failed producer, so
+            # audit_full is never run or receipted past one) — a tolerated audit verdict cannot be masking
+            # unrun work. audit_full itself is untouched: it
+            # keeps exiting 1 honestly and the dissent stays visible in the log and the receipt.
+            audit_known_gated = []
+            if not ok_audit:
+                tolerate, names = tolerate_known_gated(out, '', log=log, prefix='  ')
+                if tolerate:
+                    audit_known_gated = list(names)
+                    ok_audit = True
+                    log('  audit_full: %d KNOWN Paul-gated item(s) only — tolerated for gating: %s'
+                        % (len(names), '; '.join(names)))
+            if not ok_audit: failed.append('audit_full')
+            elif not _gate2_mark(state, 'audit_full', known_gated=audit_known_gated, clean='ALL MODULES CLEAN' in out):
+                return _gate2_stop('STOPPED: could not persist audit_full receipt')
         # C-1 (audit 2026-07-08): only mark GATE-2 done (which makes _tick self-unregister the scheduled
-        # task) when the dashboard-producing chain AND the audit actually succeeded. gate_step never raises
-        # -- it returns ok=False on crash/timeout -- so the old UNCONDITIONAL write shipped a half-
-        # regenerated / stale dashboard and unregistered the task even when make_combined/make_member_desk/
-        # co_appearance/audit_full failed. On failure, return WITHOUT the done-flag so the next tick retries;
-        # big5 --batch resumes from cache/PEND (no double-spend) and the freshness guard above prevents any
-        # stale-data re-look.
-        required = {'validate_big5': ok_validate, 'C retest': ok_c, 'reference --score': ok_reference,
-                    'co_appearance': okco, 'member desk': okmd, 'combined': okcb, 'audit_full': ok_audit}
-        failed = [k for k, v in required.items() if not v]
+        # task) when the dashboard-producing chain AND the audit actually succeeded. On failure, return
+        # WITHOUT the done-flag so the next tick retries only the unreceipted steps.
         if failed:
-            log('GATE-2 INCOMPLETE: %s failed -- gate2.done NOT written, self-unregister deferred, will retry next tick' % ', '.join(failed))
-            return
+            return _gate2_stop('INCOMPLETE: %s failed -- gate2.done NOT written, self-unregister deferred' % ', '.join(failed))
+        audit_known_gated = S['audit_full'].get('known_gated') or []
         # The receipt records WHICH standing items were tolerated, so a clean gate and a
         # gate-that-passed-over-known-dissent are never indistinguishable after the fact.
+        required = dict.fromkeys(('validate_big5', 'C retest', 'reference --score', 'co_appearance',
+                                  'member desk', 'combined', 'audit_full'), True)
+        # NOTE: the steps file is deliberately left in place. If Paul deletes the GATE-2 receipt to start a
+        # new cycle he MUST also delete the steps file (keep its c_retest marker -- the one look never
+        # re-runs), or every step is skipped and a COMPLETE receipt is written having run nothing.
         _write_gate_receipt('GATE-2', dict(required, audit_known_gated_failures=audit_known_gated))
+        try: os.remove(_gate2_cooldown_path())
+        except OSError: pass
         legacy = os.path.join(B, 'gate2.done')
         if not os.path.exists(legacy):
             open(legacy, 'w').write(datetime.datetime.now().isoformat())
         log('GATE-2 complete (audit clean=%s%s)'
-            % ('ALL MODULES CLEAN' in out,
+            % (bool(S['audit_full'].get('clean')),
                '; %d known Paul-gated item(s) tolerated' % len(audit_known_gated)
                if audit_known_gated else ''))
 
 LOCK = os.path.join(B, 'collector_supervisor.lock')
+
+def _acquire_lock():
+    """Atomically take LOCK (O_CREAT|O_EXCL).  True = this tick owns it.  A fresh lock, a lock that
+    vanished/was unreadable mid-check, or a lost takeover race all return False (skip the tick)."""
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+    try:
+        fd = os.open(LOCK, flags)
+    except (FileExistsError, PermissionError):    # Windows: a delete-pending lock raises EACCES
+        try:
+            age = time.time() - os.path.getmtime(LOCK)
+        except OSError:
+            log('supervisor lock vanished or unreadable while checking its age — skipping this tick'); return False
+        if age < 5400:
+            log('another supervisor tick active (%.0f min) — skipping' % (age / 60)); return False
+        log('stale lock (%.0f min) — taking over' % (age / 60))
+        # ponytail: two takers can both pass the getmtime check and the second remove() can delete the
+        # first taker's fresh lock (remove-then-O_EXCL narrows the window, it does not close it).
+        # Task Scheduler runs a single instance, so this is accepted; upgrade to msvcrt/portalocker if not.
+        try: os.remove(LOCK)
+        except OSError: pass
+        try:
+            fd = os.open(LOCK, flags)
+        except OSError:                           # FileExistsError: someone else won the takeover
+            log('lost lock takeover race — skipping this tick'); return False
+    try:
+        os.write(fd, str(datetime.datetime.now()).encode('utf-8'))
+    finally:
+        os.close(fd)
+    return True
 
 def main():
     if not os.path.exists(TARGETS_F):
@@ -593,12 +807,8 @@ def main():
     # SINGLE-TICK LOCK (critical: gates run 30-60 min but the schedule fires every 10 — without
     # this a second tick would start a PARALLEL big5 re-score and DOUBLE-SPEND). Stale after 90
     # min so a crashed tick never wedges the loop forever.
-    if os.path.exists(LOCK):
-        age = time.time() - os.path.getmtime(LOCK)
-        if age < 5400:
-            log('another supervisor tick active (%.0f min) — skipping' % (age / 60)); return
-        log('stale lock (%.0f min) — taking over' % (age / 60))
-    open(LOCK, 'w').write(str(datetime.datetime.now()))
+    if not _acquire_lock():
+        return
     # Review 2026-07-07 (S1 double-spend): the old design heartbeat the lock only BETWEEN gate steps,
     # so any single step longer than the 90-min stale window (the batch re-score certainly) had its
     # lock stolen by the next tick MID-STEP -> a second concurrent gate -> double batch submission.
@@ -611,7 +821,13 @@ def main():
             except Exception: pass
     threading.Thread(target=_hb, daemon=True).start()
     try:
-        _tick()
+        try:
+            _tick()
+        except Exception:
+            # Task Scheduler discards stderr, so the supervisor log is the only place a crashed tick
+            # can say why; re-raise so the exit code still reports it.
+            log('TICK CRASHED:\n' + traceback.format_exc())
+            raise
     finally:
         _hb_stop.set()
         try: os.remove(LOCK)
@@ -659,18 +875,30 @@ def _tick():
         now = time.time()
         for tag in pending:
             args = targets[tag]
-            # liveness = a python fetch_interviews process whose command line carries this leg's
-            # distinguishing token (the --until date for the deep backfill, else the leg name)
-            token = args[args.index('--until') + 1] if '--until' in args else args[0]
-            # `token in cmd` is SUBSTRING containment over the whole command line, so a live
-            # `fetch_interviews.py nprfeed` satisfies the `npr` target and a live `cnn --until ...`
-            # satisfies a plain `cnn` target.  A leg that is actually dead then reads ALIVE, is
-            # never relaunched, stays PENDING forever and blocks both gates -- and if the wedge
-            # timer fires, kill_leg terminates the OTHER leg's healthy process.  Match the token as
-            # a whitespace-delimited argument instead.
-            _tokens = lambda cmd: set(str(cmd or '').split())
-            match = [p for p in procs
-                     if 'fetch_interviews' in p['cmd'] and token in _tokens(p['cmd'])]
+            # liveness = a python fetch_interviews process whose argument list (everything after
+            # fetch_interviews.py) EQUALS this leg's configured args exactly.  Substring or
+            # whitespace-token containment is not enough: a live `nprfeed` satisfied the `npr`
+            # target, a live `cnn --until ...` satisfied a plain `cnn` target, and daily_media_refresh's
+            # `fox --strict` satisfied the `fox` target -- so a dead leg read ALIVE and stayed PENDING
+            # forever, and when the wedge timer fired kill_leg terminated the OTHER run's process.
+            # Only an exact-args process is ours (wedge detection and kill_leg touch `match` alone).
+            # A same-leg process with DIFFERENT args is foreign: it is logged, never relaunched over
+            # and never killed.
+            want = [str(a) for a in args]
+            match, foreign = [], []
+            for p in procs:
+                got = _leg_args(p['cmd'])
+                if got is None:
+                    continue
+                if got == want:
+                    match.append(p)
+                elif got and got[:1] == want[:1]:
+                    foreign.append(p)
+            if not match and foreign:
+                log('  %s: running outside the supervisor (pid %s, args %s) — not relaunched, not killed '
+                    '(target stays PENDING)' % (tag, ','.join(str(p['pid']) for p in foreign),
+                                                ' | '.join(' '.join(_leg_args(p['cmd'])) for p in foreign)))
+                continue
             if not match:                                    # dead -> relaunch (original behavior)
                 # RATE LIMIT, NOT A GATE BYPASS. The target stays PENDING either way, so this block
                 # only decides whether we spend another launch on it this tick; the `return` below
@@ -707,7 +935,7 @@ def _tick():
                 stalled = now - prev.get('since', now)
                 if stalled >= STALL_SECONDS:
                     log('  %s WEDGED: flat %.0f min (db %s, cpu %.1f) — kill+relaunch' % (tag, stalled / 60, db, cpu))
-                    kill_leg(match, token); time.sleep(2); launch_detached(args, tag)
+                    kill_leg(match, tag); time.sleep(2); launch_detached(args, tag)
                     prog[tag] = {'pid': 0, 'db': db, 'cpu': 0.0, 'since': now}
                 else:                                        # keep baseline so the timer accumulates
                     log('  %s alive but flat %.0f/%.0f min (watching)' % (tag, stalled / 60, STALL_SECONDS / 60))

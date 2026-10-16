@@ -1680,6 +1680,9 @@ def claim_e7(ctx):
 
 
 def claim_e8(ctx):
+    # Corrupt cache lines carry no "url", so the ACU filter below would drop
+    # them silently; count them across the whole cache first.
+    invalid = sum(1 for row in ctx.press_cache if "_invalid_json_line" in row)
     acu_rows = [
         row
         for row in ctx.press_cache
@@ -1687,11 +1690,7 @@ def claim_e8(ctx):
     ]
     marker_count = 0
     lengths = []
-    invalid = 0
     for row in acu_rows:
-        if "_invalid_json_line" in row:
-            invalid += 1
-            continue
         text = str(row.get("text") or "")
         position = text.find("LOG IN FOR ACCESS")
         if position >= 0:
@@ -1705,6 +1704,7 @@ def claim_e8(ctx):
     flags = (
         scalar_flag(share, 97.7, PERCENT_TOLERANCE_PP),
         "MATCH" if median == 1927 else "DRIFT",
+        DATA_INVALID if invalid else "MATCH",
     )
     return evidence_entry(
         "ACU press cache paywall truncation and median characters before the cut",
@@ -1718,7 +1718,7 @@ def claim_e8(ctx):
             "marker_rows": marker_count,
             "paywall_truncated_pct": compact_number(share),
             "median_chars": median,
-            "invalid_json_lines_in_acu_subset": invalid,
+            "invalid_json_lines_total": invalid,
             "definitional_sensitivity": {
                 "median_1927_scope": (
                     "reproduces only under the audit's verify3.py definition"
@@ -1819,7 +1819,7 @@ def claim_e10(ctx):
         bioguide = name_to_bioguide.get(member, "")
         for category, detail in ctx.vote_lean.get("votes", {}).get(bioguide, {}).items():
             vote_n = number(detail.get("n"))
-            if vote_n < 1:
+            if is_data_invalid(vote_n) or vote_n < 1:
                 continue
             archive_categories = ctx.archive_leg.get(member, {})
             # Absence is a structural "no archive_leg cell" predicate, not a

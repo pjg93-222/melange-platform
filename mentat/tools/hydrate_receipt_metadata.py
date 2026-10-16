@@ -7,11 +7,12 @@ every changed metadata value remain available for review.
 from __future__ import annotations
 
 import argparse
-from contextlib import closing
+from contextlib import closing, ExitStack
 import json
 from pathlib import Path
 import re
 import sqlite3
+from uuid import uuid4
 
 from report_source_guard import atomic, cents, sha, source_sha
 
@@ -98,7 +99,9 @@ def hydrate(database, output, company=None, cycle=None, fetch=False, max_request
     database, output, receipt = prepared['database'], prepared['output'], prepared['receipt']
     original_sha = prepared['source_sha256']
     updated = requests = 0
-    with closing(sqlite3.connect(output)) as connection:
+    accounted = None
+    refusal = None
+    with ExitStack() as resources, closing(sqlite3.connect(output)) as connection:
         connection.row_factory = sqlite3.Row
         wanted = {}
         for table, cycle_field in (('contributions', 'two_year_transaction_period'), ('corporate_giving', 'cycle')):
@@ -126,7 +129,12 @@ def hydrate(database, output, company=None, cycle=None, fetch=False, max_request
         if fetch and wanted:
             if client is None:
                 from pac_evidence import Client
-                client = Client(output.with_suffix('.fec-evidence'))
+                from fec_accounted_client import AccountedTransport, FECAdmissionRefused
+                cache = output.with_suffix('.fec-evidence')
+                accounted = resources.enter_context(AccountedTransport.live(
+                    cache / 'original-http' / uuid4().hex, max_requests,
+                    known_legacy_paths=(database,)))
+                client = Client(cache, key='transport-owned', transport=accounted)
             for identifier, items in list(wanted.items()):
                 if requests >= max_requests:
                     break
@@ -135,7 +143,15 @@ def hydrate(database, output, company=None, cycle=None, fetch=False, max_request
                 stored = items[0][1]
                 period = stored.get('two_year_transaction_period') or stored.get('cycle')
                 endpoint = f'schedules/schedule_a/{identifier}/'
-                data = client.page(endpoint, {'two_year_transaction_period': period})
+                try:
+                    data = client.page(endpoint, {'two_year_transaction_period': period})
+                except ValueError as error:
+                    # Only our finite admission refusal is a resumable stop.
+                    # Storage/parse/identity failures retain their hard refusal.
+                    if accounted is None or not isinstance(error, FECAdmissionRefused):
+                        raise
+                    refusal = str(error)
+                    break
                 requests += 1
                 rows = data.get('results', [])
                 if len(rows) != 1 or str(rows[0].get('sub_id')) != identifier:
@@ -149,7 +165,10 @@ def hydrate(database, output, company=None, cycle=None, fetch=False, max_request
         result = dict(status='complete' if not wanted else 'needs_evidence', source=str(database), output=str(output),
                       source_sha256=original_sha, updated_rows=updated, requests=requests,
                       scope=dict(company=company, cycle=cycle, source_ids=source_ids),
-                      unresolved_source_ids=sorted(wanted), unresolved_count=len(wanted))
+                      unresolved_source_ids=sorted(wanted), unresolved_count=len(wanted),
+                      physical_requests=accounted.http_attempts if accounted is not None else None,
+                      original_http_archive=str(accounted.archive) if accounted is not None else None,
+                      fetch_admission_refusal=refusal)
         connection.commit()
     if source_sha(database) != original_sha:
         raise ValueError('Source changed during metadata recovery')

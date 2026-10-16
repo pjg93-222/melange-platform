@@ -10,24 +10,35 @@ that it does not cry wolf, and that it never blocks:
   * a member in the corpus who has never yielded a row is NEVER_SEEN
   * a healthy member produces no row at all
   * a run directory with no index artifact is skipped, not counted as zero
+  * a run that is not SEALED (receipt missing, no completed_at, or a status other
+    than PASS/PARTIAL) is skipped like a missing index; PARTIAL and legacy
+    status-less receipts still count
+  * one unreadable index is named on stderr and skipped, not fatal
   * with nothing readable at all it says so and exits 1; otherwise always 0
 
 No network, no R, no live tree: runs are directories of CSVs in a temp dir.
 """
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
+import json
 import os
 import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 FEC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, FEC)
 
+from collect import press_zero_row_review  # noqa: E402
 from collect.press_zero_row_review import main, review_rows  # noqa: E402
+
+RECEIPT = "press_network_retry_receipt.json"
+SEALED = {"completed_at": "2026-09-13T12:00:00+00:00", "status": "PARTIAL"}
 
 INDEX_FIELDS = ("title", "url", "date", "bioguide", "member", "chamber", "state", "party")
 BASELINE_FIELDS = ("title", "url", "date", "title_src", "bioguide", "member",
@@ -60,9 +71,17 @@ class ZeroRowReviewTests(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def _run(self, name, rows):
+    def _run(self, name, rows, receipt=SEALED):
+        """A run dir with an index; ``receipt`` is a dict, a raw string, or None for no receipt."""
         _write_csv(os.path.join(self.outputs, name, "press_refreshed_index.csv"),
                    INDEX_FIELDS, rows)
+        path = os.path.join(self.outputs, name, RECEIPT)
+        if receipt is None:
+            if os.path.exists(path):
+                os.remove(path)
+            return
+        with io.open(path, "w", encoding="utf-8") as handle:
+            handle.write(receipt if isinstance(receipt, str) else json.dumps(receipt))
 
     def _baseline(self, entries):
         rows = []
@@ -132,6 +151,65 @@ class ZeroRowReviewTests(unittest.TestCase):
         self._run("press_refresh_20260913", [])
         rows = self._rows()
         self.assertEqual(rows["W000802"]["flag"], "REGRESSED")
+
+    def test_an_unsealed_newest_run_is_ignored(self):
+        # An in-flight walk has a partial index: reading it as "newest" would flag everyone.
+        self._run("press_refresh_20260901",
+                  _member_rows("W000802", "Sheldon Whitehouse", "w.senate.gov", 39))
+        unsealed = {
+            "no receipt": None,
+            "no completed_at": {"started_at": "2026-09-13T11:00:00+00:00", "status": "PARTIAL"},
+            "failed status": {"completed_at": "2026-09-13T12:00:00+00:00", "status": "FAIL"},
+            "torn receipt": '{"completed_at": "2026-09-1',
+            "receipt not a dict": "[1, 2]",
+        }
+        for label, receipt in unsealed.items():
+            with self.subTest(label):
+                self._run("press_refresh_20260913", [], receipt)
+                latest, count, rows = review_rows(self.outputs, self.baseline)
+                self.assertEqual((latest, count), ("press_refresh_20260901", 1))
+                self.assertEqual(rows, [], "the unsealed run must not manufacture a regression")
+
+    def test_a_sealed_partial_and_a_legacy_receipt_both_count(self):
+        # Legacy receipts (0828-0901) carry completed_at but no status; recent runs are PARTIAL.
+        self._run("press_refresh_20260901",
+                  _member_rows("W000802", "Sheldon Whitehouse", "w.senate.gov", 39),
+                  {"completed_at": "2026-09-01T12:00:00+00:00"})
+        self._run("press_refresh_20260913", [])
+        latest, count, rows = review_rows(self.outputs, self.baseline)
+        self.assertEqual((latest, count), ("press_refresh_20260913", 2))
+        self.assertEqual([row["flag"] for row in rows], ["REGRESSED"])
+
+    def test_an_unreadable_index_is_named_and_skipped(self):
+        self._run("press_refresh_20260901",
+                  _member_rows("W000802", "Sheldon Whitehouse", "w.senate.gov", 39))
+        # A sealed run whose index has no bioguide column raises ValueError in read_run_index.
+        _write_csv(os.path.join(self.outputs, "press_refresh_20260906", "press_refreshed_index.csv"),
+                   ("title", "url"), [{"title": "x", "url": "https://x.example/1"}])
+        with io.open(os.path.join(self.outputs, "press_refresh_20260906", RECEIPT), "w") as handle:
+            json.dump(SEALED, handle)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            latest, count, _rows = review_rows(self.outputs, self.baseline)
+        self.assertEqual((latest, count), ("press_refresh_20260901", 1))
+        self.assertIn("skipping press_refresh_20260906:", stderr.getvalue())
+
+    def test_oserror_and_csv_error_are_skipped_too_and_all_unreadable_raises(self):
+        self._run("press_refresh_20260901",
+                  _member_rows("W000802", "Sheldon Whitehouse", "w.senate.gov", 39))
+        self._run("press_refresh_20260906", [])
+        errors = {"press_refresh_20260901": OSError("locked"), "press_refresh_20260906": csv.Error("bad row")}
+
+        def fail(path):
+            raise errors[os.path.basename(os.path.dirname(str(path)))]
+
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            with mock.patch.object(press_zero_row_review, "read_run_index", side_effect=fail):
+                with self.assertRaises(ValueError):
+                    review_rows(self.outputs, self.baseline)
+        self.assertIn("skipping press_refresh_20260901: locked", stderr.getvalue())
+        self.assertIn("skipping press_refresh_20260906: bad row", stderr.getvalue())
 
     def test_main_writes_the_review_and_exits_zero(self):
         self._run("press_refresh_20260901",

@@ -170,8 +170,9 @@ def validate_out(out: Path, inputs: Iterable[Path]) -> Path:
             "--out must be under audits/legfix5 or the system temp directory"
         )
     for input_path in inputs:
-        if resolved == input_path.resolve():
-            raise ScenarioError("--out cannot overwrite an input")
+        resolved_input = input_path.resolve()
+        if resolved == resolved_input or resolved in resolved_input.parents:
+            raise ScenarioError("--out cannot contain or overwrite an input")
     return resolved
 
 

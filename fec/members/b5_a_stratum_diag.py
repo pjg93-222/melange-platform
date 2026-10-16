@@ -78,11 +78,14 @@ def load_docs():
 def write_group(group, feats, pairs, toks):
     npzf, metaf = EMB[group]
     bases = list(feats)
-    np.savez_compressed(npzf, **{'%s|%s|%s' % (b, m, g): feats[b][(m, g)]
-                                 for b in bases for (m, g) in pairs if (m, g) in feats[b]})
-    json.dump({'bases': bases, 'members': sorted({m for m, g in pairs}),
-               'pairs': ['%s|%s' % (m, g) for (m, g) in pairs],
-               'toks': {'%s|%s' % (m, g): toks[(m, g)] for (m, g) in pairs}}, open(metaf, 'w'))
+    tmpnpz = npzf + '.tmp'    # file handle (not a name) so numpy does not append .npz; both files appear only once complete
+    with open(tmpnpz, 'wb') as fh:
+        np.savez_compressed(fh, **{'%s|%s|%s' % (b, m, g): feats[b][(m, g)]
+                                   for b in bases for (m, g) in pairs if (m, g) in feats[b]})
+    _o.replace(tmpnpz, npzf)
+    MC.dump_atomic({'bases': bases, 'members': sorted({m for m, g in pairs}),
+                    'pairs': ['%s|%s' % (m, g) for (m, g) in pairs],
+                    'toks': {'%s|%s' % (m, g): toks[(m, g)] for (m, g) in pairs}}, metaf)
     print('wrote %s (%s)' % (npzf, ', '.join(bases)), flush=True)
 
 def build(group):
@@ -234,7 +237,7 @@ def main():
     print('--- basis: %s (n=%d, stratum n=%d) ---' % (args.basis, n, int(kmask.sum())), flush=True)
     r = diag(args.basis + (' [FRESH]' if args.fresh else ''), X, kmask, seeds)
     if args.out:
-        json.dump(r, open(args.out, 'w'), indent=1)
+        MC.dump_atomic(r, args.out, indent=1)
         print('wrote %s' % args.out, flush=True)
 
 if __name__ == '__main__':

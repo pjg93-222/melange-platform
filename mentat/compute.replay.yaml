@@ -1,0 +1,49 @@
+# B only (D-180): the second -f file after compute.compose.yaml, used by tools/replay_parity.py replay --side B and by nothing else.
+#   docker compose -f compute.compose.yaml -f compute.replay.yaml run --rm --no-deps <job> run <job> --run-id <id> -- <job arguments>
+# Same image, same code tree, same hardening. What changes is where the web comes from: the container has no network at all, and replay_proxy.py
+# stands in front of compute_job.py, answering the collectors' FEC requests from the cassette recorded on Windows (proxy on 127.0.0.1, one
+# throwaway certificate minted on the host, trusted only by the job's own process). The production compose file and run_job.ps1 never mention this.
+# tests/test_replay_compose.py enforces: no network; cassette, tls and http_replay.py read-only and never auto-created; http_replay.py three
+# levels deep (it computes parents[2] of its own path); the keys secret is the dummy file, never FEC_KEYS_FILE; the live .cache is never mounted.
+# Host paths arrive as forward-slash variables from replay_parity.py (REPLAY_CASSETTE_HOST, REPLAY_TLS_HOST, REPLAY_HTTP_REPLAY_HOST, REPLAY_KEYS_FILE,
+# REPLAY_CACHE_HOST), beside the ones compute.compose.yaml asks for (DIGEST, MENTAT_HOST, LOCALAPPDATA_HOST pointing at scratch, GLASSBOX_HOST, and
+# EVIDENCE_HOST or COLLECT_HOST pointing at the snapshot's work folder).
+x-mounts:
+  cassette: &m-cassette {type: bind, source: "${REPLAY_CASSETTE_HOST:?REPLAY_CASSETTE_HOST is the snapshot's cassette folder}", target: /replay/cassette, read_only: true, bind: {create_host_path: false}}
+  tls: &m-tls {type: bind, source: "${REPLAY_TLS_HOST:?REPLAY_TLS_HOST is the snapshot's tls folder (ca.pem, leaf.pem, hosts.txt)}", target: /replay/tls, read_only: true, bind: {create_host_path: false}}
+  http-replay: &m-http-replay {type: bind, source: "${REPLAY_HTTP_REPLAY_HOST:?REPLAY_HTTP_REPLAY_HOST is Melange's ops/compute/http_replay.py}", target: /melange-replay/ops/compute/http_replay.py, read_only: true, bind: {create_host_path: false}}
+
+x-replay: &replay
+  network_mode: none
+  networks: !reset null
+  entrypoint: ["python", "/mentat/mentat/tools/replay_proxy.py", "replay", "/replay/cassette", "--tls", "/replay/tls", "--allow-unused", "--", "python", "/mentat/mentat/tools/compute_job.py"]
+  environment:
+    REPLAY_REPORT: /localappdata/Mentat/compute/receipts/replay-report.json
+
+services:
+  collect-fanout:
+    <<: *replay
+    environment:
+      REPLAY_REPORT: /localappdata/Mentat/compute/receipts/replay-report.json
+      # Offline dummy-key replay uses its existing explicit scratch budget.
+      MENTAT_REQUEST_POOL_CONFIG: ""
+    volumes:
+      - *m-cassette
+      - *m-tls
+      - *m-http-replay
+      # Replaces the live mentat/.cache mount of compute.compose.yaml (same target): a replay never writes the live cache.
+      - {type: bind, source: "${REPLAY_CACHE_HOST:?REPLAY_CACHE_HOST is an empty scratch folder}", target: /mentat/mentat/.cache, bind: {create_host_path: false}}
+
+  pac-evidence:
+    <<: *replay
+    volumes:
+      - *m-cassette
+      - *m-tls
+      - *m-http-replay
+
+# The dummy keys file (replay-dummy-0001, ...; as many as the recording used). Replaces compute.compose.yaml's FEC_KEYS_FILE.
+secrets:
+  fec_api_keys:
+    file: ${REPLAY_KEYS_FILE:?REPLAY_KEYS_FILE is the dummy keys file replay_parity.py writes under the snapshot}
+  fec_request_pool:
+    file: ${REPLAY_KEYS_FILE:?REPLAY_KEYS_FILE is the dummy keys file replay_parity.py writes under the snapshot}

@@ -210,6 +210,52 @@ def test_pinned_old_post_does_not_truncate_current_window(database, monkeypatch)
         assert connection.execute('SELECT COUNT(*) FROM posts').fetchone()[0] == 2
 
 
+def test_x_fetch_follows_next_token_advances_numeric_checkpoint_and_fails_closed_at_cap(database, monkeypatch):
+    monkeypatch.setenv('X_BEARER_TOKEN', 'x')
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE members SET twitter_id='u1' WHERE bioguide='A1'")
+        connection.execute('INSERT INTO fetch_log VALUES(?,?,?,?,?,?)', ('x', 'A1', '500', 'yesterday', 0, 'ok'))
+    tweets = lambda ids: [{'id': str(i), 'text': 't', 'created_at': '2026-10-01T00:00:00Z'} for i in ids]
+    calls = []
+    def get(url):
+        calls.append(url)
+        if 'pagination_token' not in url:
+            return {'data': tweets(range(900, 1000)), 'meta': {'next_token': 'tok+1'}}
+        return {'data': tweets([1000]), 'meta': {}}   # '1000' < '999' as strings
+    monkeypatch.setattr(T, 'get', get)
+    T.fetch_x()
+    assert len(calls) == 2 and 'pagination_token' not in calls[0] and 'pagination_token=tok%2B1' in calls[1]
+    assert all('since_id=500' in url for url in calls)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM posts WHERE platform='x'").fetchone()[0] == 101
+        assert connection.execute("SELECT checkpoint,status FROM fetch_log WHERE platform='x'").fetchone() == ('1000', 'ok')
+    calls.clear()
+    monkeypatch.setattr(T, 'get', lambda url: calls.append(url) or {'data': tweets([2000 + len(calls)]), 'meta': {'next_token': 'more'}})
+    T.fetch_x()   # page cap hit before the checkpoint is reached: keep the old checkpoint, log ERR
+    assert len(calls) == 35
+    with sqlite3.connect(database) as connection:
+        checkpoint, status = connection.execute("SELECT checkpoint,status FROM fetch_log WHERE platform='x'").fetchone()
+    assert checkpoint == '1000' and status.startswith('ERR:')
+
+
+@pytest.mark.parametrize('failure,expected', [('network', None), ('http503', None), ('http429', None), ('http400', 'none-found')])
+def test_discover_writes_none_found_only_when_every_probe_was_definitive(database, monkeypatch, failure, expected):
+    import urllib.error
+    with sqlite3.connect(database) as connection:
+        connection.execute("INSERT INTO members(bioguide,name,bluesky) VALUES('D4','Dee Four',NULL)")
+    errors = {'network': urllib.error.URLError('down'),
+              'http503': urllib.error.HTTPError('u', 503, 'Unavailable', {}, None),
+              'http429': urllib.error.HTTPError('u', 429, 'Too Many', {}, None),
+              'http400': urllib.error.HTTPError('u', 400, 'Bad Request', {}, None)}
+    def get(url, **kwargs):
+        raise errors[failure]
+    monkeypatch.setattr(T, 'get', get)
+    monkeypatch.setattr(T.time, 'sleep', lambda *_: None)
+    T.cmd_discover()
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT bluesky FROM members WHERE bioguide='D4'").fetchone()[0] == expected
+
+
 def test_extraction_checks_registry_instead_of_unverified_marker_inside_post(database, tmp_path):
     roster = tmp_path / 'data/engine/congestion.json'
     roster.parent.mkdir(parents=True)

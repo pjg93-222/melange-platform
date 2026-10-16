@@ -211,11 +211,10 @@ LABEL = re.compile(turn_tags.label_pattern(IV_TURN_TAGS), re.M)
 def parse_turns(text):
     """Split transcript text into (label, speech) turns; build intro alias map for surname labels."""
     turns = []
-    pos = [(m.start(), m.group(1)) for m in LABEL.finditer(text)]
-    for i, (st, lab) in enumerate(pos):
+    pos = [(m.start(), m.group(1), m.end()) for m in LABEL.finditer(text)]
+    for i, (st, lab, me) in enumerate(pos):
         end = pos[i + 1][0] if i + 1 < len(pos) else len(text)
-        sp = text[st:end]
-        sp = sp[sp.index(':') + 1:].strip()
+        sp = text[me:end].strip()   # from the label's own end: a [hh:mm:ss] stamp holds a colon that cutting at the first ':' would hit
         turns.append((lab.strip(), re.sub(r'\s+', ' ', sp)))
     alias = {}; _ambig = set()
     for lab, _ in turns:
@@ -430,11 +429,11 @@ MIXED_LABEL = re.compile(turn_tags.mixed_label_pattern(IV_TURN_TAGS), re.M)   # 
 def parse_turns_mixed(text):
     """PBS-style mixed-case labels ('Rep. Tom Kean:'); same drop-never-guess discipline."""
     turns = []
-    pos = [(m.start(), m.group(1)) for m in MIXED_LABEL.finditer(text)]
+    pos = [(m.start(), m.group(1), m.end()) for m in MIXED_LABEL.finditer(text)]
     out = []
-    for i, (st, lab) in enumerate(pos):
+    for i, (st, lab, me) in enumerate(pos):
         end = pos[i + 1][0] if i + 1 < len(pos) else len(text)
-        sp = text[st:end]; sp = sp[sp.index(':') + 1:].strip()
+        sp = text[me:end].strip()
         m = resolve_full(lab)
         if m:
             sp = scrub(sp)
@@ -581,11 +580,15 @@ def run_pbs(since, until):
         slugs = ['%s-%d-%d-pbs-news-hour-full-episode' % (MONTHS[d.month - 1], d.day, d.year),
                  '%s-%d-%d-pbs-news-weekend-full-episode' % (MONTHS[d.month - 1], d.day, d.year),
                  '%s-%d-%d-pbs-newshour-full-episode' % (MONTHS[d.month - 1], d.day, d.year)]
-        nd = 0; found = False
+        nd = 0; found = False; dfail = 0
         for slug in slugs:
             try:
                 page = get('https://www.pbs.org/newshour/show/' + slug); time.sleep(PAUSE)
-            except Exception:
+            except Exception as ex:
+                # only a hard 404/410 means 'no episode under this slug'; a timeout/5xx/DNS/outage is a FAILURE
+                # (fail closed: --strict must not pass, and the day must stay retryable)
+                if not (isinstance(ex, urllib.error.HTTPError) and ex.code in (404, 410)):
+                    failures += 1; dfail += 1
                 continue
             found = True
             segs = sorted(set(re.findall(r'href="(https://www\.pbs\.org/newshour/show/[a-z0-9\-]+)"', page)))
@@ -604,10 +607,11 @@ def run_pbs(since, until):
                     con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (skey, 'ok', datetime.datetime.now().isoformat()))
                     con.commit()   # short transactions (lock hygiene)
                 except Exception:
-                    failures += 1
+                    failures += 1; dfail += 1
                     continue
             break
-        con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok' if found else 'noep', datetime.datetime.now().isoformat()))
+        # 'partial' (not 'ok') when any fetch failed: only 'ok' days are skipped on later runs (cf. run_cnn)
+        con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'partial' if dfail else 'ok' if found else 'noep', datetime.datetime.now().isoformat()))
         con.commit(); tot += nd
         if found: print('pbs %s: %d member turns (total %d)' % (d.isoformat(), nd, tot), flush=True)
         d += datetime.timedelta(days=1)
@@ -628,7 +632,7 @@ def run_npr(since, until):
             try:
                 idx = get('https://www.npr.org/programs/%s/archive?date=%s' % (prog, d.strftime('%m-%d-%Y'))); time.sleep(PAUSE)
                 links = sorted(set(re.findall(r'href="(https://www\.npr\.org/transcripts/[^"#?]+)"', idx)))
-                nd = 0
+                nd = 0; pfail = 0
                 for u in links:
                     tkey = 'nprtx:' + u.rsplit('/', 1)[-1]
                     if tkey in done: continue
@@ -644,9 +648,9 @@ def run_npr(since, until):
                         con.commit()
                         done.add(tkey)
                     except Exception:
-                        failures += 1
+                        failures += 1; pfail += 1
                         continue
-                con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok', datetime.datetime.now().isoformat()))
+                con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'partial' if pfail else 'ok', datetime.datetime.now().isoformat()))
                 con.commit(); tot += nd
                 if nd: print('npr %s %s: %d member turns (total %d)' % (prog[:14], d.isoformat(), nd, tot), flush=True)
             except Exception as e:
@@ -855,12 +859,12 @@ def run_hewitt():
             accept = {(parts[0][0] + parts[-1][0]).upper(), parts[-1].upper(),
                       (parts[0] + ' ' + parts[-1]).upper()}
             text = strip_tags(page)
-            pos = [(m.start(), m.group(1)) for m in LABEL.finditer(text)]
+            pos = [(m.start(), m.group(1), m.end()) for m in LABEL.finditer(text)]
             rows = []
-            for i2, (st, lab) in enumerate(pos):
+            for i2, (st, lab, me) in enumerate(pos):
                 if lab.split(',')[0].strip() not in accept: continue
                 end = pos[i2 + 1][0] if i2 + 1 < len(pos) else len(text)
-                sp = text[st:end]; sp = scrub(re.sub(r'\s+', ' ', sp[sp.index(':') + 1:].strip()))
+                sp = scrub(re.sub(r'\s+', ' ', text[me:end].strip()))
                 if len(sp.split()) >= 8: rows.append((guest, sp))
             n = store(con, rows, dates.get(u, ''), 'hugh-hewitt', u)
             con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok', datetime.datetime.now().isoformat()))
@@ -903,7 +907,7 @@ def run_msnow():
         try:
             raw = get(url); time.sleep(PAUSE)
         except urllib.error.HTTPError as e:
-            if e.code in (400, 404): break              # past the last page (WP returns 400 rest_post_invalid_page_number)
+            if e.code in (400, 404) and page > 1: break  # past the last page (WP returns 400 rest_post_invalid_page_number); on page 1 it is a removed/renamed endpoint = FAILURE
             failures += 1; consecutive_failures += 1
             print('msnow page %d FAIL %s' % (page, e.code), flush=True); page += 1
             if consecutive_failures >= CONSECUTIVE_FAILURE_CEILING: aborted = True; break
@@ -1162,10 +1166,10 @@ def run_cfr():
             s = norm(m).split()[-1]
             palias[s] = None if s in palias else m
         rows = []
-        pos = [(mm.start(), mm.group(1)) for mm in LABEL.finditer(body)]
-        for i, (st, lab) in enumerate(pos):
+        pos = [(mm.start(), mm.group(1), mm.end()) for mm in LABEL.finditer(body)]
+        for i, (st, lab, me) in enumerate(pos):
             end = pos[i + 1][0] if i + 1 < len(pos) else len(body)
-            sp = body[st:end]; sp = sp[sp.index(':') + 1:].strip()
+            sp = body[me:end].strip()
             m = resolve_full(lab)
             if not m:
                 k = norm(TITLE.sub('', lab.strip())).split()
@@ -1268,15 +1272,17 @@ def run_aei():
             con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)',
                         (key, 'notx' if date else 'nodate', datetime.datetime.now().isoformat()))
             con.commit(); done.add(key); continue
-        rows = []
+        rows = []; pdf_fails = 0
         for pu in pdfs[:2]:
             try:
                 data = get_bytes(pu); time.sleep(AEI_DELAY)
             except Exception:
+                pdf_fails += 1
                 continue
             txt = _pdf_text(data)
             r = parse_turns_mixed(txt) or parse_turns(txt)
             if len(r) > len(rows): rows = r
+        if pdf_fails == len(pdfs[:2]): continue   # every transcript PDF failed: no receipt, the event stays retryable
         n = store(con, rows, date, 'aei', u)
         con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok', datetime.datetime.now().isoformat()))
         con.commit(); done.add(key); tot += n

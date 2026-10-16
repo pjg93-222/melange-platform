@@ -101,7 +101,7 @@ def run(root, key_file, cutoff, years, *, rpm=120, max_in_flight_requests=8):
             state['completed'][window]={'year':year,'kind':kind,'records':count,'comparison':comparison}
             save();print('VERIFIED',window,count,flush=True)
         state['status']='ACQUISITION_PASS';state['current']=None;state['completed_at']=datetime.now(timezone.utc).isoformat()
-    except Exception as exc:
+    except BaseException as exc:
         state['status']='ATTENTION_REQUIRED';state['error']=type(exc).__name__+': '+str(exc)
         raise
     finally:

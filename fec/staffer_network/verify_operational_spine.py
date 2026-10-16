@@ -3,6 +3,16 @@ import hashlib
 import json
 from pathlib import Path
 import sqlite3
+import sys
+
+FEC_ROOT = Path(__file__).resolve().parents[1]
+if str(FEC_ROOT) not in sys.path:
+    sys.path.insert(0, str(FEC_ROOT))
+
+try:
+    from lane_file_io import atomic_write_bytes
+except ImportError:  # pragma: no cover
+    from fec.lane_file_io import atomic_write_bytes
 
 
 def digest(path):
@@ -51,13 +61,14 @@ def verify(directory):
         if hashlib.sha256(row[1].encode()).hexdigest() != row[2]:
             failures.append('source_payload_hash:' + row[0])
     check('source_payload_hashes', not any(f.startswith('source_payload_hash:') for f in failures))
-    check('unique_membership_for_each_source', db.execute('SELECT count(*) FROM memberships').fetchone()[0] == db.execute('SELECT count(*) FROM source_records').fetchone()[0])
+    check('unique_membership_for_each_source', db.execute('SELECT count(*) FROM source_records s LEFT JOIN (SELECT source_record_id, count(*) AS n FROM memberships GROUP BY source_record_id) m ON m.source_record_id=s.id WHERE coalesce(m.n,0)!=1').fetchone()[0] == 0)
+    check('membership_count_equals_source_count', db.execute('SELECT count(*) FROM memberships').fetchone()[0] == db.execute('SELECT count(*) FROM source_records').fetchone()[0])
     db.close()
     result = {'status': 'PASS' if not failures else 'FAIL', 'scope': 'CANDIDATE_SPINE_INTEGRITY_AND_ELIGIBILITY_ONLY',
               'receipt_sha256': digest(receipt_path), 'checks': checks, 'failures': failures,
               'identity_accuracy_calibrated': False, 'new_relationships_validated': False,
               'release_ready': False, 'verifier_sha256': digest(__file__)}
-    (directory / 'spine_verification.json').write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    atomic_write_bytes(directory / 'spine_verification.json', (json.dumps(result, indent=2) + '\n').encode('utf-8'))
     return result
 
 

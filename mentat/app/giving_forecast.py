@@ -22,9 +22,10 @@ from xml.etree import ElementTree as ET
 from zoneinfo import ZoneInfo
 import zipfile
 import zlib
+from runtime_paths import app_data_root, data_root, forecast_data_root
 
-MODEL_FILE = Path(__file__).parent / 'data' / 'giving-models-v1.json'
-MODEL_FILE_V2 = Path(__file__).parent / 'data' / 'giving-models-v2.json'
+MODEL_FILE = app_data_root() / 'giving-models-v1.json'
+MODEL_FILE_V2 = app_data_root() / 'giving-models-v2.json'
 CHAMBERS = ('House', 'Senate')
 
 
@@ -375,7 +376,8 @@ def project(request):
 SLOPE_LABELS = {'R0': 'pooled slope', 'R1': 'industry-specific slope', 'R2': 'partially pooled slope'}
 PAC_MEASURES = (('pac_to_candidates', 'Roster companies\' PACs: own giving to House and Senate candidates'),
                 ('general_giving', 'Mentat general giving (all channels), excluding receipts Mentat marks non-giving (FEC interest, refunds, insurance claims, loans)'))
-SHARE_BASES = (('employee_candidate', 'Employees\' candidate giving'), ('pac_candidate', 'Roster PACs\' candidate giving'))
+# Legacy employee_candidate key retained; D4 includes every funding source except non_giving.
+SHARE_BASES = (('employee_candidate', 'Included receipts to House/Senate candidates; excludes non-giving'), ('pac_candidate', 'Roster PACs\' candidate giving'))
 LOBBY_SERIES = (('income_total', 'Outside-firm fees'), ('expenses_total', 'In-house expenses'))
 SUPPORTED_CONTRACT = dict(pac_measures={'pac_to_candidates', 'general_giving'}, share_bases={'employee_candidate', 'pac_candidate'},
                           lobbying_series={'income_total', 'expenses_total'}, share_anchors={'previous_cycle', 'same_phase'})
@@ -384,7 +386,7 @@ SUPPORTED_CONTRACT = dict(pac_measures={'pac_to_candidates', 'general_giving'}, 
 # same_phase: Mentat cycle A = target cycle - 4, one step each (both anchors are observed Mentat cycles).
 SHARE_ANCHORS = {'previous_cycle': dict(cycle_offset=2, chained=True, label='previous cycle'),
                  'same_phase': dict(cycle_offset=4, chained=False, label='same phase')}
-ANCHOR_FILE = Path(__file__).resolve().parents[1] / 'state' / 'giving-anchors' / 'giving-anchors-v1.json'
+ANCHOR_FILE = data_root() / 'state' / 'giving-anchors' / 'giving-anchors-v1.json'
 CONTRACT_DIR = Path(__file__).resolve().parents[1] / 'forecast' / 'contracts'
 SEATS_TEXT = 'Seat forecasts are evidence only ("no signal"); the calculator uses expected control.'
 # Under the cycle model `growth_pct` is the AVERAGE ANNUAL IBIS-window growth, not the anchor cycle's two-year revenue growth it used to be; the page says which it means.
@@ -674,7 +676,7 @@ def _anchors_status(b, offered):
 # calculator the refit was compared with (`measured`); the error of the model in force comes from the active bundle itself, so the card never states a
 # figure that is not the one being served, and a waiver whose degradation no longer stands is not shown. Display only: no gate, no projection and no
 # number of the model reads any of this.
-WAIVER_FILE = Path(__file__).resolve().parents[1] / 'forecast' / 'refit' / 'registry' / 'gate_waivers.json'
+WAIVER_FILE = forecast_data_root() / 'refit' / 'registry' / 'gate_waivers.json'
 WAIVER_SLACK = 1e-9                  # the refit's own G6 tolerance (RF_G6_SLACK): a difference below it is no degradation
 WAIVER_LABELS = {'control_House': 'House share', 'control_Senate': 'Senate share', 'pac': 'PAC giving', 'lobby': 'Lobbying'}
 
@@ -1248,7 +1250,7 @@ def _v2_basis_totals(ctx, pac, chamber):
 
 
 def _share_block(ctx, bid):
-    """The candidate-giving block a share basis divides: the employees' receipts, or the company PACs' (D-117: the published panel's cohort for an industry on it, else the anchors' roster)."""
+    """The candidate-giving block a share basis divides: the included candidate receipts, or the company PACs' (D-117: the published panel's cohort for an industry on it, else the anchors' roster)."""
     if bid == 'employee_candidate':
         return ctx['snap']['candidate_receipts']
     return (ctx.get('panel') or {}).get('pac_to_candidates') or ctx['snap']['pac_to_candidates']
@@ -1749,14 +1751,14 @@ def _r8(cm, ident, block, mid, open_cycle, anchor_cycle, cut_through, mult, obse
 # party split"). The employees' basis is untouched.
 # Telecom (2026-10-08, coordinator call consistent with D-117): the published panel's 8 telecom PACs, the same code path as the credit unions' 16 (the anchors have no roster PAC for Telecom).
 PANEL_COHORT = {'credit_unions': 'credit_unions', 'telecom': 'telecom'}      # chart industry -> PAC panel sector
-SPLIT_FILE = Path(__file__).resolve().parents[1] / 'forecast' / 'anchors' / 'panel_cohort_split.json'          # the credit unions'; the other cohorts have a file of their own
+SPLIT_FILE = forecast_data_root() / 'anchors' / 'panel_cohort_split.json'          # the credit unions'; the other cohorts have a file of their own
 SPLIT_FILES = {'telecom': SPLIT_FILE.with_name('panel_cohort_split_telecom.json')}
 SPLIT_SCHEMA = 'panel-cohort-party-split-v1'
 PANEL_LABELS = {'credit_unions': 'Credit unions: {n} PACs (published panel cohort)', 'telecom': 'Telecom: {n} PACs (published panel cohort)'}
 PANEL_NAMES = {'credit_unions': 'credit-union', 'telecom': 'Telecom'}
 PANEL_MEASURE_LABEL = 'Panel cohort PACs: own giving to House and Senate candidates'
 ROSTER_LABELS = {'commercial_banks': 'Banks: {n} bank companies'}
-PANEL_NOTICE = ("Company PACs: {label}, observed to {through} (the panel's own date), and so is their party split. General giving and the employees' party split are observed to {general}. "
+PANEL_NOTICE = ("Company PACs: {label}, observed to {through} (the panel's own date), and so is their party split. General giving and the included candidate receipts are observed to {general}. "
                 "The two dates are never mixed in one figure.")
 
 

@@ -33,13 +33,11 @@ STATES=("alabama alaska arizona arkansas california colorado connecticut delawar
 DEMONYMS=("alabamian alaskan arizonan arkansan californian coloradan connecticuter delawarean floridian georgian "
  "hawaiian idahoan illinoisan hoosier iowan kansan kentuckian louisianian mainer marylander "
  "michigander minnesotan mississippian missourian montanan nebraskan nevadan ohioan oklahoman oregonian "
- "pennsylvanian tennessean texan utahn vermonter virginian washingtonian wisconsinite wyomingite "
- "new yorker new jerseyan new mexican north carolinian south carolinian north dakotan south dakotan "
- "rhode islander west virginian new hampshirite bay stater").split("  ")[0].split() + \
+ "pennsylvanian tennessean texan utahn vermonter virginian washingtonian wisconsinite wyomingite").split() + \
  ["new yorker","new jerseyan","new mexican","north carolinian","south carolinian","north dakotan",
-  "south dakotan","rhode islander","west virginian","new hampshirite"]
-TITLE_RE=re.compile(r'\b(senator|congressman|congresswoman|representative|rep\.|sen\.|chairman|chairwoman|'
- r'ranking member|speaker|leader|whip)\b',re.I)
+  "south dakotan","rhode islander","west virginian","new hampshirite","bay stater"]
+TITLE_RE=re.compile(r'\b(?:senator|congressman|congresswoman|representative|chairman|chairwoman|'
+ r'ranking member|speaker|leader|whip)\b|\b(?:rep|sen)\.',re.I)
 PARTY_RE=re.compile(r'\b(republican[s]?|democrat[s]?|democratic|gop)\b',re.I)
 DIST_RE=re.compile(r'\b\d{1,2}(st|nd|rd|th)\s+(congressional\s+)?district\b',re.I)
 def deidentify(text,member):
@@ -60,10 +58,9 @@ def excerpts(con,member,source,k=2,w=EXCERPT_W):
         t=RITUAL.sub(' ',t); ws=t.split()
         if len(ws)>=30: bypkg.setdefault(pkg or '?',[]).extend(ws)
     pkgs=[p for p in bypkg if len(bypkg[p])>=w]
-    if len(pkgs)<1: return None
-    rng=random.Random(SEED+hash(member)%9999)
-    if len(pkgs)>=k: chosen=[pkgs[0],pkgs[-1]] if k==2 else rng.sample(pkgs,k)   # first+last program = max spread
-    else: chosen=pkgs*k
+    if len(pkgs)<k: return None   # need k distinct appearances
+    rng=random.Random(SEED+int(hashlib.md5(member.encode()).hexdigest(),16)%9999)
+    chosen=[pkgs[0],pkgs[-1]] if k==2 else rng.sample(pkgs,k)   # first+last program = max spread
     out=[]
     for i,p in enumerate(chosen[:k]):
         ws=bypkg[p]; start=rng.randrange(0,max(1,len(ws)-w))

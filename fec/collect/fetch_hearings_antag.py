@@ -43,12 +43,18 @@ version and safe to drop once no v1 process is running:
   DELETE FROM cr_fetch_log WHERE key LIKE 'antag:%';
 Resume: cr_fetch_log key 'antag2:<pid>'. Era split unchanged: 2019-2024 HTML parses clean; 2025+
 (119th) is PDF-only stubs and stays DEFERRED to a PDF-parser follow-up.
+Statuses: ok / nopage (HTTP 404/410) / nohtml (zip with no .htm member) are terminal; 'err:*' rows are
+retried. Re-running a package REPLACES its hearing_antag2 rows (same transaction), never appends.
+Exit code 2 = nothing ingested AND >= 3 errors (a total outage); 0 otherwise.
 """
-import sys, os, re, io, time, json, csv, zipfile, sqlite3, datetime, urllib.request, collections
+import sys, os, re, io, time, json, csv, zipfile, sqlite3, datetime, argparse, html, urllib.request, urllib.error, collections
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
-B = r'C:\Users\pgoff\OneDrive\Desktop\Melange Systems'
-_KF = B + r'\fec\govinfo_key.txt'   # live tree; the key is gitignored so it is not in the worktree checkout
-KEY = os.environ.get('GOVINFO_KEY') or (open(_KF).read().strip() if os.path.exists(_KF) else 'DEMO_KEY')
+from paths import ROOT
+from collect import fetch_congressional_record as CR   # roster, resolve, TURN, NONSPK, witness_surnames, chrg_scope
+_KF = os.path.join(ROOT, 'fec', 'govinfo_key.txt')   # the key is gitignored: it lives only in the ROOT tree
+KEY = os.environ.get('GOVINFO_KEY') or (open(_KF, encoding='utf-8-sig').read().strip() if os.path.exists(_KF) else 'DEMO_KEY')
+DB = os.path.join(ROOT, 'social_media.db')
 UA = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) research collector'}
 PAUSE = 1.0
 
@@ -65,42 +71,21 @@ def get(url, binary=False, tries=4, api_key=None):
             with urllib.request.urlopen(urllib.request.Request(_strip_api_key(url), headers=headers), timeout=120) as r:
                 d = r.read(); return d if binary else d.decode('utf-8', 'replace')
         except urllib.error.HTTPError as e:
-            if e.code in (404, 410): raise
+            if e.code in (400, 401, 403, 404, 410): raise   # permanent: a bad key / missing page never heals on retry
             if i == tries - 1: raise
-            time.sleep(4 * (i + 1))
+            time.sleep((30 if e.code == 429 else 4) * (i + 1))   # 429 = govinfo quota, back off long
         except Exception:
             if i == tries - 1: raise
             time.sleep(4 * (i + 1))
 
-# ---- roster + party (inlined; avoids fetch_congressional_record import-time argparse) ----
-C = {m['member']: m for m in json.load(open(B + r'\data\engine\congestion.json'))}
-SFIX = {'jr', 'sr', 'ii', 'iii', 'iv'}
-def surkeys(m):
-    ts = [t for t in m.replace('.', '').split() if t.lower().rstrip(',') not in SFIX]
-    ks = {ts[-1].upper()}
-    if len(ts) >= 3: ks.add((ts[-2] + ' ' + ts[-1]).upper())
-    if len(ts) >= 4: ks.add((ts[-3] + ' ' + ts[-2] + ' ' + ts[-1]).upper())
-    return {re.sub(r"[^A-Z\- ']", '', k) for k in ks}
-ROSTER = collections.defaultdict(list)
-for m in C:
-    ch = (C[m].get('chamber') or '').lower()
-    for k in surkeys(m): ROSTER[(k, ch)].append(m)
-def resolve(sur, chamber=None):
-    sur = re.sub(r"[^A-Z\- ']", '', sur.upper()).strip()
-    for ch in ([chamber] if chamber else ['senate', 'house']):
-        cand = ROSTER.get((sur, ch), [])
-        if len(cand) == 1: return cand[0]
-    return None
+# ---- party (CR carries none); roster / resolve / TURN / NONSPK come from fetch_congressional_record ----
+C = CR.C
 PARTY = {}
-for r in csv.DictReader(open(B + r'\fec\legislators.csv', encoding='utf-8')):
+for r in csv.DictReader(open(os.path.join(ROOT, 'fec', 'legislators.csv'), encoding='utf-8')):
     if r.get('bioguide_id'): PARTY[r['bioguide_id']] = (r.get('party') or '')[:1].upper()
 BIO = {m: C[m].get('bioguide') for m in C}
 def party_of(m): return PARTY.get(BIO.get(m), '?')
 
-TURN = re.compile(r'(?m)^ {0,6}(?:The )?(Mr|Mrs|Ms|Miss|Senator|Chairman|Chairwoman|Chair)\.?[ ]+'
-                  r"([A-Z][A-Za-z'\-]+(?:[ \-][A-Za-z'\-]+){0,2}?)"
-                  r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?[.,] ')
-NONSPK = {'SPEAKER', 'PRESIDENT', 'PRESIDING', 'CLERK', 'ACTING', 'VICE', 'CHAIR', 'CHAIRMAN', 'SECRETARY'}
 FRICTION = re.compile(r'reclaim\w+ my time|regular order|will not yield|decline to yield|point of order|regain my time', re.I)
 YIELDBACK = re.compile(r'yield back|i yield the balance', re.I)
 # GAVEL = routine order enforcement (the chair's job -- within role, never antagonism by itself)
@@ -119,29 +104,28 @@ RELENT = re.compile(r'additional (\d+ )?(second|minute)s?|extra (time|minute)|ti
                     r'without objection[^.]{0,40}(proceed|continue|respond|answer|additional)', re.I)
 ENDDASH = re.compile(r'-{2,}\s*$')
 
-def parse_sequence(txt, chamber=None):
+def parse_sequence(txt, chamber=None, congress=None):
     """chamber = the hearing's own chamber ('house' for hhrg / 'senate' for shrg packages):
     surname resolution is scoped to it (unique-in-chamber or DROP) so a House 'Mr. LEE' can no
     longer bind a Senator — drop-never-guess. A 'Senator X' header overrides the hint (senators
-    do appear in joint/House settings and say so in the title)."""
-    txt = re.sub(r'<[^>]+>', ' ', txt)
-    wit = set()
-    for w in re.findall(r'(?:STATEMENT|TESTIMONY) OF ([A-Z][A-Z .,\'\-]{3,60})', txt):
-        toks = [t.strip('.,') for t in w.split() if t.strip('.,').isalpha()]
-        if toks: wit.add(toks[-1].upper())
-    ms = list(TURN.finditer(txt)); seq = []
+    do appear in joint/House settings and say so in the title). congress (from CR.chrg_scope) gates
+    resolution to members who actually served that Congress; witnesses come from CR.witness_surnames
+    (anchored STATEMENT/TESTIMONY OF header, serving members excluded)."""
+    txt = html.unescape(re.sub(r'<[^>]+>', ' ', txt))
+    wit = CR.witness_surnames(txt, chamber, congress)
+    ms = list(CR.TURN.finditer(txt)); seq = []
     for i, mt in enumerate(ms):
         pre, sur = mt.group(1), mt.group(2)
         role = 'chair' if re.match(r'Chair', pre, re.I) else 'spk'
         seg = txt[mt.end():ms[i + 1].start() if i + 1 < len(ms) else min(len(txt), mt.end() + 20000)]
         segc = re.sub(r'\s+', ' ', re.sub(r'\[\[Page [^\]]+\]\]', '', seg)).strip()
         dash = bool(ENDDASH.search(seg.strip()))
-        if sur.upper().split()[0] in NONSPK and role != 'chair':
+        if sur.upper().split()[0] in CR.NONSPK and role != 'chair':
             seq.append((None, 'other', '?', segc, dash)); continue
-        if sur.upper().split()[-1] in wit:
+        if CR._fold(sur).upper().split()[-1] in wit:   # wit holds FOLDED tokens (accented witness names meet plain labels)
             seq.append((None, 'witness', '?', segc, dash)); continue
         hint = 'senate' if pre.lower().startswith('senator') else chamber
-        who = resolve(sur, hint)
+        who = CR.resolve(sur, mt.group(3), hint, congress)
         seq.append((who, role, party_of(who) if who else '?', segc, dash))
     return seq
 
@@ -170,7 +154,12 @@ def hearing_events(seq):
                 if pdash and pw is not None and pw != who and not (enforce and not blowup):
                     ev[who]['intr'] += 1
                     if ppty in ('D', 'R') and pty in ('D', 'R') and ppty != pty: ev[who]['xparty'] += 1
-                if prole == 'chair' and GAVEL.search(ptext) and not as_chair: ev[who]['defiance'] += 1
+                # defiance = speaking through the chair's gavel: the member the chair just gaveled
+                # (seq[i-2]) continuing, or anyone cutting in on the chair (pdash) -- NOT whoever the
+                # chair merely recognized next ("time has expired. The Chair recognizes Mr. X")
+                if (prole == 'chair' and GAVEL.search(ptext) and not as_chair
+                        and (pdash or (i >= 2 and seq[i - 2][0] is not None and seq[i - 2][0] == who))):
+                    ev[who]['defiance'] += 1
             # procedural-combat phrases from the chair ARE the job unless the turn is a blow-up
             if FRICTION.search(text) and not (as_chair and not blowup): ev[who]['friction'] += 1
             if YIELDBACK.search(text): ev[who]['yieldback'] += 1
@@ -182,7 +171,7 @@ def hearing_events(seq):
     return ev, chair
 
 def db():
-    con = sqlite3.connect(B + r'\social_media.db', timeout=60)
+    con = sqlite3.connect(DB, timeout=60)
     con.execute("CREATE TABLE IF NOT EXISTS hearing_antag2(package TEXT, date TEXT, member TEXT, "
                 "turns INT, chair_turns INT, intr INT, xparty INT, friction INT, defiance INT, yieldback INT, "
                 "chair_enforce INT, chair_relent INT, chair_blowup INT)")
@@ -211,35 +200,38 @@ def commit_retry(con, tries=8):
 
 def run(since, until):
     con = db(); cur = con.cursor()
-    done = {r[0] for r in cur.execute("SELECT key FROM cr_fetch_log WHERE status IN ('ok','nopage')")}
-    pkgs = [p for p in list_packages(since) if since <= p['dateIssued'] <= until]
+    done = {r[0] for r in cur.execute("SELECT key FROM cr_fetch_log WHERE status IN ('ok','nopage','nohtml')")}
+    pkgs = [p for p in list_packages(since) if isinstance(p, dict) and p.get('packageId') and p.get('dateIssued')
+            and since <= p['dateIssued'] <= until]
     todo = [p for p in sorted(pkgs, key=lambda p: p['dateIssued']) if 'antag2:' + p['packageId'] not in done]
     print('HEARINGS(antag2): %d all-committee hearings %s..%s, %d to ingest' % (len(pkgs), since, until, len(todo)), flush=True)
-    tot_ev = 0
+    tot_ev = n_ok = n_err = 0
     for k, p in enumerate(todo):
         pid, date = p['packageId'], p['dateIssued']
         try:
+            congress, scope = CR.chrg_scope(pid)   # ValueError on an unrecognised id -> err row below
+            chamber = scope if scope in ('house', 'senate') else None   # joint -> CR.resolve's union rule
             try:
-                z = zipfile.ZipFile(io.BytesIO(get('https://www.govinfo.gov/content/pkg/%s.zip' % pid, True)))
-                time.sleep(PAUSE)
+                zb = get('https://www.govinfo.gov/content/pkg/%s.zip' % pid, True)
             except urllib.error.HTTPError as e:
-                if e.code in (404, 410):
-                    cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'nopage', datetime.datetime.now().isoformat())); commit_retry(con)
+                if e.code not in (404, 410): raise
+                cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'nopage', datetime.datetime.now().isoformat())); commit_retry(con)
                 continue
-            except Exception as e:
-                cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'err:%s' % str(e)[:60], datetime.datetime.now().isoformat())); commit_retry(con)
+            time.sleep(PAUSE)
+            z = zipfile.ZipFile(io.BytesIO(zb))
+            htms = [n for n in z.namelist() if n.endswith('.htm')]
+            if not htms:   # PDF-only / empty zip: terminal, never a silent 'ok' with zero rows
+                cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'nohtml', datetime.datetime.now().isoformat())); commit_retry(con)
                 continue
             agg = collections.defaultdict(lambda: collections.Counter()); chair = None; named = 0
-            pl = pid.lower()
-            chamber = 'house' if 'hhrg' in pl else ('senate' if 'shrg' in pl else None)
-            for n in z.namelist():
-                if not n.endswith('.htm'): continue
-                seq = parse_sequence(z.read(n).decode('utf-8', 'replace'), chamber)
+            for n in htms:
+                seq = parse_sequence(z.read(n).decode('utf-8', 'replace'), chamber, congress)
                 ev, ch = hearing_events(seq)
                 if ch and not chair: chair = ch
                 for m, c in ev.items():
                     for kk, vv in c.items(): agg[m][kk] += vv
                 named += sum(1 for s in seq if s[0])
+            cur.execute("DELETE FROM hearing_antag2 WHERE package=?", (pid,))   # rerun replaces, never duplicates (same transaction)
             for m, c in agg.items():
                 cur.execute("INSERT INTO hearing_antag2 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (pid, date, m, c['turns'], c['chair_turns'], c['intr'], c['xparty'], c['friction'],
@@ -249,20 +241,28 @@ def run(since, until):
                         (pid, date, (p.get('title') or '')[:200], chair, party_of(chair) if chair else '?', named, len(agg)))
             cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'ok', datetime.datetime.now().isoformat()))
             commit_retry(con)
+            n_ok += 1
         except Exception as e:
-            # ANY per-package failure (bad zip member, transient sqlite lock past retries, parse
-            # surprise) is logged and skipped -- a multi-hour walk must never die on one package
+            # ANY per-package failure (HTTP 5xx, bad zip member, transient sqlite lock past retries, parse
+            # surprise) is logged, counted and skipped -- a multi-hour walk must never die on one package.
+            # rollback FIRST: a half-written package's rows must never ride along with the err row's commit.
+            n_err += 1
             print('  !! %s: %s: %s' % (pid, type(e).__name__, str(e)[:120]), flush=True)
             try:
+                con.rollback()
                 cur.execute("INSERT OR REPLACE INTO cr_fetch_log VALUES(?,?,?)", ('antag2:' + pid, 'err:%s' % str(e)[:60], datetime.datetime.now().isoformat())); commit_retry(con)
             except Exception:
                 pass
             continue
         if k % 50 == 0 or len(agg) > 0:
             print('  [%d/%d] %s %s: %d members, %d antag-events (running %d)' % (k + 1, len(todo), date, pid[:20], len(agg), sum(c['intr'] + c['friction'] + c['defiance'] + c['chair_blowup'] for c in agg.values()), tot_ev), flush=True)
-    con.close(); print('HEARINGS(antag2) done: %d antagonism events across hearings' % tot_ev)
+    con.close()
+    print('HEARINGS(antag2) done: %d antagonism events across hearings; %d packages ingested, %d errors' % (tot_ev, n_ok, n_err))
+    return 2 if (n_err >= 3 and not n_ok) else 0   # total-outage verdict only (same rule as the CREC/CHRG collector)
 
 if __name__ == '__main__':
-    since = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == '--since'), '2023-01-01')
-    until = next((sys.argv[i + 1] for i, a in enumerate(sys.argv) if a == '--until'), datetime.date.today().isoformat())
-    run(since, until)
+    ap = argparse.ArgumentParser(description='All-committee hearing antagonism/defiance collector (hearing_antag2).')
+    ap.add_argument('--since', default='2023-01-01')
+    ap.add_argument('--until', default=datetime.date.today().isoformat())
+    a = ap.parse_args()
+    sys.exit(run(a.since, a.until))

@@ -289,7 +289,7 @@ def atomic_text(path: Path, value: str) -> None:
 def read_object(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8-sig"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         raise NetworkDependentsError(f"invalid JSON object {path}: {exc}") from exc
     if not isinstance(value, dict):
         raise NetworkDependentsError(f"JSON root must be an object: {path}")
@@ -618,6 +618,10 @@ def validate_output(path: Path, logical_name: str) -> None:
             raise NetworkDependentsError("optimizer output schema mismatch")
 
 
+# Per-producer wall-clock ceiling (optimize.py MC=20 is the slowest step).
+STEP_TIMEOUT_SECONDS = 6 * 60 * 60
+
+
 def execute_chain_once(
     run_dir: Path,
     *,
@@ -636,18 +640,31 @@ def execute_chain_once(
                 parents=True, exist_ok=True
             )
         command = [sys.executable, str(step.script), *step.args]
-        completed = subprocess.run(
-            command,
-            cwd=run_dir,
-            env=env,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            capture_output=True,
-            check=False,
-        )
         stdout_path = log_root / f"pass{pass_number}_{index:02d}_{step.name}.stdout.txt"
         stderr_path = log_root / f"pass{pass_number}_{index:02d}_{step.name}.stderr.txt"
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=run_dir,
+                env=env,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                capture_output=True,
+                check=False,
+                timeout=STEP_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired as exc:
+            for log_path, partial in (
+                (stdout_path, exc.stdout),
+                (stderr_path, exc.stderr),
+            ):
+                if isinstance(partial, bytes):
+                    partial = partial.decode("utf-8", errors="replace")
+                atomic_text(log_path, partial or "")
+            raise NetworkDependentsError(
+                f"legacy producer timed out: {step.name}"
+            ) from exc
         atomic_text(stdout_path, completed.stdout)
         atomic_text(stderr_path, completed.stderr)
         if completed.returncode != 0:
@@ -713,7 +730,7 @@ def run_recompute(
     ]
     protected_inputs.extend(
         safe_child(run_dir, item["path"])
-        for item in read_object(prerequisites_path)["upstream_receipts"].values()
+        for item in prerequisite["upstream_receipts"].values()
     )
     input_snapshot = snapshot_files(protected_inputs)
     production_paths = [REPO_ROOT / name for name in OUTPUT_NAMES]

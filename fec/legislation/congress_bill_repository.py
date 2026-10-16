@@ -423,6 +423,8 @@ def seeds_from_member_bundle(bundle: Mapping[str, Any]) -> list[dict[str, Any]]:
 
 
 def validate_repository(repository: Mapping[str, Any]) -> None:
+    if not isinstance(repository, Mapping):
+        raise RepositoryError("repository must be an object")
     if repository.get("schema") != SCHEMA:
         raise RepositoryError("repository schema mismatch")
     bills = repository.get("bills")
@@ -431,7 +433,10 @@ def validate_repository(repository: Mapping[str, Any]) -> None:
     for key, bill in bills.items():
         if not isinstance(bill, Mapping) or bill.get("key") != key:
             raise RepositoryError(f"invalid bill row: {key}")
-        parse_bill_identity(bill.get("display"), bill.get("congress"))
+        try:
+            parse_bill_identity(bill.get("display"), bill.get("congress"))
+        except ValueError as exc:
+            raise RepositoryError(f"invalid bill row: {key}: {exc}") from exc
 
 
 def write_repository_atomic(

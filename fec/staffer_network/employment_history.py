@@ -112,6 +112,9 @@ class CanonicalEmploymentProvenance:
     _episode_bindings: tuple[tuple[str, str, str], ...] = dataclass_field(
         init=False, repr=False
     )
+    _binding_index: dict[str, tuple[str, str]] = dataclass_field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         bindings = _verified_canonical_episode_bindings(
@@ -129,18 +132,23 @@ class CanonicalEmploymentProvenance:
                 )
             ),
         )
+        object.__setattr__(
+            self,
+            "_binding_index",
+            {
+                episode_id: (payload_sha256, source_person_id)
+                for episode_id, payload_sha256, source_person_id
+                in self._episode_bindings
+            },
+        )
 
     def binds(
         self, episode: Mapping[str, Any], lda_source_person_id: str
     ) -> bool:
         episode_id = episode.get("episode_id")
-        bindings = {
-            value_id: (payload_sha256, source_person_id)
-            for value_id, payload_sha256, source_person_id in self._episode_bindings
-        }
         return (
             isinstance(episode_id, str)
-            and bindings.get(episode_id)
+            and self._binding_index.get(episode_id)
             == (
                 hashlib.sha256(canonical_json_bytes(episode)).hexdigest(),
                 lda_source_person_id.strip().casefold(),

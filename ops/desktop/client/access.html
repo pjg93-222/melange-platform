@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Application access</title>
+  <link rel="stylesheet" href="desktop-chrome.css">
+  <link rel="stylesheet" href="access.css">
+</head>
+<body>
+<main>
+  <header class="app-header"><img id="app-logo" class="app-logo" alt="" hidden><div><p class="eyebrow">APPLICATION ACCESS</p><h1 id="app-name">Application access</h1></div></header>
+  <p id="description" class="description">Checking this installation's access.</p>
+  <p id="account" class="account" hidden></p>
+  <p id="notice" class="notice" hidden></p>
+  <form id="request-form" hidden>
+    <label for="display-name">Your name or device label</label>
+    <input id="display-name" name="displayName" type="text" maxlength="160" autocomplete="off" spellcheck="false" required>
+    <p class="hint">The administrator sees this label when reviewing your request.</p>
+    <button id="request-submit" type="submit">Request access</button>
+  </form>
+  <section id="pending-panel" hidden>
+    <p id="request-status"></p>
+    <p id="request-expiry" class="hint"></p>
+    <button id="poll" type="button">Check approval</button>
+  </section>
+  <form id="activation-form" hidden>
+    <label for="activation-key">Administrator approval code</label>
+    <input id="activation-key" type="password" maxlength="86" autocomplete="off" spellcheck="false" required>
+    <p class="hint">Ask the administrator for the one-time code shown on their laptop. Your local password is chosen separately.</p>
+    <button type="submit">Activate this installation</button>
+  </form>
+  <form id="password-form" hidden>
+    <label id="password-label" for="password">Password</label>
+    <input id="password" type="password" maxlength="1024" autocomplete="current-password" required>
+    <div id="confirm-panel" hidden>
+      <label for="password-confirm">Confirm password</label>
+      <input id="password-confirm" type="password" maxlength="1024" autocomplete="new-password">
+      <p class="hint">Use at least 12 characters. This password stays on this computer.</p>
+    </div>
+    <button id="password-submit" type="submit">Sign in</button>
+  </form>
+  <section id="ready-panel" hidden>
+    <button id="open" type="button">Open application</button>
+    <button id="lock" class="secondary" type="button">Lock</button>
+  </section>
+  <button id="retry" class="secondary" type="button" hidden>Check again</button>
+  <p id="status" role="status" aria-live="polite"></p>
+  <p class="footer">Approved installations can work offline. Approval, activity and updates use the configured trusted administrator server.</p>
+</main>
+<script src="access-ui.js"></script>
+</body>
+</html>

@@ -98,15 +98,19 @@ def run():
         if not mem_hint: mem_hint = fn
         member = resolve_member(mem_hint)
         if not date:
-            dm = re.search(r'(\d{4})[-_]?(\d{2})[-_]?(\d{2})', fn); date = '%s-%s-%s' % dm.groups() if dm else datetime.date.today().isoformat()
+            dm = re.search(r'(\d{4})[-_]?(\d{2})[-_]?(\d{2})', fn); date = '%s-%s-%s' % dm.groups() if dm else ''
         if not member:
             print('  ?? %-40s could not resolve member from "%s" -- add to manifest.csv' % (fn[:40], mem_hint[:30])); continue
+        if not date:
+            print('  ?? %-40s no date in manifest or filename -- add date to manifest.csv' % fn[:40]); continue
         rows = [(member, date, 'INTERVIEW', 'cspan-wj', fn, len(t.split()), t) for role, t in turns if role == 'GUEST' and len(t.split()) >= 5]
         # dedup within file
         seen = set(); ins = 0
         for row in rows:
             if row[6] in seen: continue
             seen.add(row[6]); con.execute('INSERT INTO speeches VALUES (?,?,?,?,?,?,?)', row); ins += 1
+        if not ins:
+            con.commit(); print('  ?? %-40s 0 GUEST turns -- not logged, will retry; fix manifest.csv/file' % fn[:40]); continue
         con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok', datetime.datetime.now().isoformat()))
         con.commit(); tot += ins
         print('  %-42s -> %-22s %s: %d GUEST turns' % (fn[:42], member, date, ins))

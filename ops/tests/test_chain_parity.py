@@ -541,6 +541,61 @@ def test_freeze_from_a_list_file(tmp_path, capsys):
                         "--manifest", str(tmp_path / "x.json")]) == 2, bad
 
 
+def test_freeze_list_directory_and_glob_entries_from_repeated_lists(tmp_path):
+    # The 10-14 parity runs stopped on run roots and audit inputs the copy never took (outputs/press_refresh_20260828,
+    # audits/dashboard_repair_20260905/...): a list must be able to name whole directories, and fail when one is absent.
+    src, dest = make_src(tmp_path), tmp_path / "dest"
+    write_tree(src, {"outputs/press_refresh_20260828/press_network_retry_receipt.json": b"{}",
+                     "outputs/press_refresh_20260828/deep/press_delta_scored.csv": b"1\n",
+                     "outputs/press_refresh_20261012/press_network_retry_receipt.json": b"{}",
+                     "outputs/press_refresh_20261012/__pycache__/x.pyc": b"\0",
+                     "outputs/other_run/keep_out.txt": b"n"})
+    one, two = tmp_path / "one.txt", tmp_path / "two.txt"
+    one.write_text("fec/a.py\n", encoding="utf-8")
+    two.write_text("outputs/press_refresh_*/  # every run root\noutputs\\press_refresh_20260828\\\nfec/sub/\n", encoding="utf-8")
+    assert cp.main(["freeze", "--src", str(src), "--dest", str(dest), "--list", str(one), "--list", str(two),
+                    "--exclude", "__pycache__"]) == 0
+    assert set(json.loads((tmp_path / "dest.manifest.json").read_text("utf-8"))) == {
+        "fec/a.py", "fec/sub/b.py",
+        "outputs/press_refresh_20260828/press_network_retry_receipt.json",
+        "outputs/press_refresh_20260828/deep/press_delta_scored.csv",
+        "outputs/press_refresh_20261012/press_network_retry_receipt.json"}
+    for n, bad in enumerate(("outputs/missing_run/", "outputs/press_refresh_2099*/", "fec/a.py/", "../outside/")):
+        two.write_text(bad + "\n", encoding="utf-8")
+        assert cp.main(["freeze", "--src", str(src), "--dest", str(tmp_path / f"x{n}"), "--list", str(two),
+                        "--manifest", str(tmp_path / f"x{n}.json")]) == 2, bad
+        assert not (tmp_path / f"x{n}").exists(), bad
+
+
+def test_required_inputs_manifest_is_a_freeze_list():
+    # ops/required_inputs.txt is what a parity freeze adds to the traced read set; every entry must be one freeze --list
+    # accepts, and the inputs the 10-14 runs stopped on (A2, A3) and would have stopped on next (the v8 name spine) are in it.
+    listing = Path(__file__).resolve().parents[1] / "required_inputs.txt"
+    lines = listing.read_text(encoding="utf-8").splitlines()
+    entries = [raw.split("  #")[0].strip() for raw in lines if raw.strip() and not raw.lstrip().startswith("#")]
+    assert entries and len(entries) == len(set(entries))
+    assert not [raw for raw in lines if raw.startswith("#DIR")]
+    for e in entries:
+        assert not e.startswith("/") and not re.match(r"^[A-Za-z]:", e) and ".." not in e.split("/") and "\\" not in e, e
+    for needed in ("outputs/press_refresh_*/", "outputs/press_refresh_20260828/", "audits/dashboard_repair_20260905/voteview_source/",
+                   "audits/staffer_network/hill_personnel_spine_20260908_v8_primary/hill_person_spine.ndjson.gz",
+                   "audits/staffer_network/staffer_social_network_20260908_v8_math_primary/"):
+        assert needed in entries, needed
+
+
+def test_freeze_takes_the_required_inputs_manifest_end_to_end(tmp_path):
+    listing = Path(__file__).resolve().parents[1] / "required_inputs.txt"
+    src, files = tmp_path / "live", {}
+    for raw in listing.read_text(encoding="utf-8").splitlines():
+        e = raw.split("  #")[0].strip()
+        if e and not e.startswith("#"):
+            files[e.replace("*", "x") + "f.bin" if e.endswith("/") else e] = b"x"
+    write_tree(src, files)
+    dest = tmp_path / "frozen"
+    assert cp.main(["freeze", "--src", str(src), "--dest", str(dest), "--list", str(listing)]) == 0
+    assert set(json.loads((tmp_path / "frozen.manifest.json").read_text("utf-8"))) == set(files)
+
+
 def test_snapshot_and_census(tmp_path, capsys):
     root = tmp_path / "t"
     write_tree(root, {"keep.txt": b"k", "gone.txt": b"g", "chg.txt": b"1", "skip.log": b"s"})
@@ -696,6 +751,7 @@ def test_windows_side_redirects_every_root_and_rebases_stored_paths(tmp_path, ca
     assert win["MELANGE_LOCAL_ROOT"] == os.path.abspath(tmp_path / "l" / "Melange") and win["LOCALAPPDATA"] == os.path.abspath(tmp_path / "l")
     assert win["MELANGE_DATA_ROOT"] == os.path.abspath(tmp_path / "d") and win["MONEYBALL_DRAFT"] == os.path.abspath(tmp_path / "dr")
     assert win["GLASSBOX_EVENTS_DIR"] == os.path.abspath(tmp_path / "g")
+    assert win["GLASSBOX_EMIT"] == os.path.join(os.path.abspath(tmp_path / "g"), "emit.ps1.absent")   # never the live emit.ps1
 
 
 def test_windows_side_executes_with_only_the_allowlisted_environment(tmp_path, monkeypatch):
@@ -708,7 +764,7 @@ def test_windows_side_executes_with_only_the_allowlisted_environment(tmp_path, m
     env = seen["env"]
     assert "COSPONSOR_FORECAST_REFRESH" not in env and "ANTHROPIC_API_KEY" not in env
     assert env["MELANGE_LOCAL_ROOT"] == os.path.abspath(tmp_path / "Melange") and env["PATH"] == "/bin"
-    assert all(k in cp.ENV_ALLOW or k.startswith(("MELANGE_", "MONEYBALL_", "PYTHON")) or k in ("LOCALAPPDATA", "GLASSBOX_EVENTS_DIR") for k in env), sorted(env)
+    assert all(k in cp.ENV_ALLOW or k.startswith(("MELANGE_", "MONEYBALL_", "PYTHON")) or k in ("LOCALAPPDATA", "GLASSBOX_EVENTS_DIR", "GLASSBOX_EMIT") for k in env), sorted(env)
 
 
 def test_from_step_is_appended_for_both_sides(tmp_path, capsys, clean_env):

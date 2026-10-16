@@ -38,6 +38,7 @@ DEFAULT_OUT = (
 )
 TRUSTED_RECALL_QUERY_ID = "trusted_source_recall"
 TRUSTED_RECALL_LABEL = "Archive and Trusted-Article Recall"
+VISIBLE_CANDIDATE_DISPOSITIONS = frozenset({"included_unreviewed_candidate"})
 
 
 def parse_args() -> argparse.Namespace:
@@ -255,6 +256,15 @@ def main() -> int:
         for key in recovery_only_keys
     ]
     gaps = [*base_gaps, *recovery_gaps]
+    unresolved_gap_count = sum(
+        row.get("disposition") not in VISIBLE_CANDIDATE_DISPOSITIONS
+        for row in gaps
+    )
+    if unresolved_gap_count:
+        raise RuntimeError(
+            f"{unresolved_gap_count} coverage gap(s) carry an unresolved "
+            "disposition; refusing to write a merged manifest with zero gaps"
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     records_path = out_dir / "congress_advanced_records.ndjson"
@@ -328,7 +338,7 @@ def main() -> int:
         TRUSTED_RECALL_QUERY_ID,
     ]
     manifest["queries"] = [*base_manifest["queries"], synthetic_query]
-    manifest["coverage_gap_count"] = 0
+    manifest["coverage_gap_count"] = unresolved_gap_count
     manifest["observed_recovered_gap_count"] = len(gaps)
     manifest["coverage_evidence"] = {
         "missed_candidates_ledger": file_receipt(gaps_path, root=out_dir),
@@ -336,7 +346,7 @@ def main() -> int:
         "scope_and_exclusion_contract": file_receipt(
             scope_path, root=out_dir
         ),
-        "unresolved_gap_count": 0,
+        "unresolved_gap_count": unresolved_gap_count,
         "recovered_candidates_remain_visible": True,
         "semantic_exclusions_are_never_automatic": True,
     }

@@ -122,7 +122,6 @@ for _metric in SPEARMAN_FIELDS:
             _metric + "_p",
             _metric + "_n",
             _metric + "_excluded_missing_value",
-            _metric + "_excluded_missing_stance",
         ]
     )
 for _attention in ("high", "low"):
@@ -661,7 +660,7 @@ def attach_member_records(
     return output
 
 
-def spearman_result(rows, field, missing_stance):
+def spearman_result(rows, field):
     pairs = [
         (row["champion_score"], row[field])
         for row in rows
@@ -672,7 +671,6 @@ def spearman_result(rows, field, missing_stance):
         "p": None,
         "n": len(pairs),
         "excluded_missing_value": len(rows) - len(pairs),
-        "excluded_missing_stance": missing_stance,
     }
     if len(pairs) < 2:
         result["note"] = "fewer than two complete pairs"
@@ -847,7 +845,7 @@ def analyze_organization_rows(rows, min_members=25):
                 "high if champion_score >= within-org median; low otherwise"
             ),
             "spearman": {
-                field: spearman_result(rows, field, len(missing_stance_rows))
+                field: spearman_result(rows, field)
                 for field in SPEARMAN_FIELDS
             },
             "primary_attention_by_stance": {
@@ -954,9 +952,6 @@ def flatten_org_entry(entry):
         row[metric + "_n"] = result["n"]
         row[metric + "_excluded_missing_value"] = result[
             "excluded_missing_value"
-        ]
-        row[metric + "_excluded_missing_stance"] = result[
-            "excluded_missing_stance"
         ]
     for attention in ("high", "low"):
         for direction in ("supportive", "hostile"):
@@ -1230,7 +1225,7 @@ def main(argv=None):
         }
         write_outputs(args.out_dir, document, flat_rows)
         _print_summary(document)
-    except InstrumentError as exc:
+    except (InstrumentError, identity.IdentityError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
     return 0

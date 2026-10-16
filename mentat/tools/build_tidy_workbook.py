@@ -1211,13 +1211,17 @@ def build(arguments):
     finally:
         connection.close()
 
-    failures = checks.failed()
+    # Stored source guards are part of publication, not only worksheet prose.
+    # Only numeric 1 establishes a critical pass; NULL/other states remain unknown.
+    source_checks = [dict(zip((c for c, _, _ in DATA_QUALITY), row)) for row in store_quality]
+    failures = [row for row in source_checks
+                if row["severity"] == "fail" and row["passed"] != 1] + checks.failed()
     ordered = {"About": counts["About"]}
     ordered.update({e.name: counts[e.name] for e in emits})
     ordered["Data Quality"] = counts["Data Quality"]
     receipt = {"expected_worksheet_count": len(ordered),
                "sha256": None if failures else file_sha256(pending),
-               "rows_per_sheet": ordered, "checks": checks.rows,
+               "rows_per_sheet": ordered, "checks": source_checks + checks.rows,
                "split_sheets": {e.base: [x.name for x in emits if x.base == e.base]
                                 for e in emits if e.name != e.base},
                "schema_version": SCHEMA_VERSION, "writer_version": WRITER_VERSION,

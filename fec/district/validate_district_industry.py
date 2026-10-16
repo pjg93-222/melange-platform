@@ -41,6 +41,7 @@ import os
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections import defaultdict
@@ -298,6 +299,12 @@ def _download_source(label, url, path, force):
             failure = exc
             _discard_part(part_path)
             if attempt == DOWNLOAD_ATTEMPTS - 1:
+                break
+            if (
+                isinstance(exc, urllib.error.HTTPError)
+                and 400 <= exc.code < 500
+                and exc.code not in (408, 429)
+            ):
                 break
             delay = RETRY_BASE_SECONDS * (attempt + 1)
             print(
@@ -1167,17 +1174,6 @@ def _parse_bea(path, required_years):
     return values, unavailable, footer_rows_skipped, value_counts
 
 
-def _suppression_header(headers, label, fieldnames):
-    if 'empflag' in headers:
-        return headers['empflag']
-    if 'emp_nf' in headers:
-        return headers['emp_nf']
-    raise SystemExit(
-        '%s is missing suppression column empflag or emp_nf; headers=%r' %
-        (label, fieldnames)
-    )
-
-
 def _parse_cbp_county_totals(path):
     if not os.path.exists(path):
         raise SystemExit('CBP county archive does not exist: %s' % path)
@@ -1208,12 +1204,6 @@ def _parse_cbp_county_totals(path):
             )
             est_header = _required_header(
                 headers, 'est', label, fieldnames
-            )
-            emp_header = _required_header(
-                headers, 'emp', label, fieldnames
-            )
-            suppression_header = _suppression_header(
-                headers, label, fieldnames
             )
             lfo_header = headers.get('lfo')
             for row in reader:
@@ -1257,9 +1247,6 @@ def _parse_cbp_county_totals(path):
                         '%s row %d duplicates county total %s' %
                         (label, reader.line_num, county)
                     )
-                suppression = _row_cell(
-                    row, suppression_header, label, reader.line_num
-                ).strip().upper()
                 est = _parse_count_cell(
                     row,
                     est_header,
@@ -1272,19 +1259,7 @@ def _parse_cbp_county_totals(path):
                         '%s row %d county %s has UNKNOWN total EST' %
                         (label, reader.line_num, county)
                     )
-                emp_value = _parse_count_cell(
-                    row,
-                    emp_header,
-                    label,
-                    reader.line_num,
-                    value_counts,
-                    disclosed=suppression in ('D', 'S'),
-                )
-                emp_suppressed = emp_value is UNKNOWN
-                totals[county] = {
-                    'est': est,
-                    'emp_suppressed': emp_suppressed,
-                }
+                totals[county] = {'est': est}
     if not totals:
         raise SystemExit('%s has no voting-state total rows' % label)
     print('parsed %s: %d voting-state counties' % (label, len(totals)))

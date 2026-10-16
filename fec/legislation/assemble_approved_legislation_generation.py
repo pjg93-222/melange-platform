@@ -209,9 +209,14 @@ def source_receipt(path: Path) -> dict[str, Any]:
     }
 
 
+READ_SHA256: dict[Path, str] = {}
+
+
 def read_object(path: Path) -> dict[str, Any]:
     try:
-        value = json.loads(path.read_text(encoding="utf-8-sig"))
+        raw = path.read_bytes()
+        READ_SHA256[path.resolve()] = hashlib.sha256(raw).hexdigest()
+        value = json.loads(raw.decode("utf-8-sig"))
     except (OSError, json.JSONDecodeError) as exc:
         raise AssemblyError(f"invalid JSON object {path}: {exc}") from exc
     if not isinstance(value, dict):
@@ -1180,6 +1185,7 @@ def assemble(
     numeric_plan_path: Path,
     out_dir: Path,
 ) -> dict[str, Any]:
+    READ_SHA256.clear()
     sources = {
         "source_accepted_manifest": require_file(
             accepted_manifest_path, "accepted generation manifest"
@@ -1247,6 +1253,19 @@ def assemble(
         layout=layout,
     )
 
+    validated_sha = {
+        "source_accepted_manifest":
+            READ_SHA256[sources["source_accepted_manifest"].resolve()],
+        "canonical_ledger": accepted["generation_id"],
+        "source_direction_manifest":
+            READ_SHA256[sources["source_direction_manifest"].resolve()],
+        "direction_ledger": direction["sha256"],
+        "manual_bill_evidence": manual_hash,
+        "role_weight_policy_approval": role["sha256"],
+        "computation_policy_approval": computation["sha256"],
+        "audited_layout": layout["sha256"],
+        "numeric_recompute_plan": plan["sha256"],
+    }
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = Path(
         tempfile.mkdtemp(
@@ -1260,7 +1279,7 @@ def assemble(
             shutil.copyfile(source, destination)
             if (
                 destination.stat().st_size != source.stat().st_size
-                or sha256_file(destination) != sha256_file(source)
+                or sha256_file(destination) != validated_sha[label]
             ):
                 raise AssemblyError(f"staged copy verification failed: {label}")
             copied[label] = destination
@@ -1368,7 +1387,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             numeric_plan_path=args.numeric_plan,
             out_dir=args.out,
         )
-    except (AssemblyError, OSError, ValueError, json.JSONDecodeError) as exc:
+    except (
+        AssemblyError, OSError, ValueError, json.JSONDecodeError,
+        TypeError, AttributeError, KeyError,
+    ) as exc:
         print(f"APPROVED LEGISLATION GENERATION BLOCKED: {exc}")
         return 2
     print(json.dumps(manifest, indent=2, sort_keys=True))

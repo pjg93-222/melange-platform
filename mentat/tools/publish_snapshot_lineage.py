@@ -14,6 +14,7 @@ import contribution_data as data
 from contribution_workbook_guard import cycle_totals
 from report_identity import identity, lineage_paths
 from report_directory import report_directory, require_report_path
+from runtime_paths import resolve_receipt, portable_receipt, report_cache_root
 
 
 def publish(workbook, payload, project=PROJECT, reports=None):
@@ -28,7 +29,7 @@ def publish(workbook, payload, project=PROJECT, reports=None):
         raise ValueError('Payload industry and cycle must match the workbook.')
     if cycle_totals(data._stamp(workbook)) != expected:
         raise ValueError('Payload totals disagree with the published workbook.')
-    database = Path(metadata['database_path']).resolve()
+    database = resolve_receipt(metadata['database_path']).resolve()
     database_hash = data._workbook_source(data._stamp(workbook))
     for suffix in ('-wal', '-journal'):
         sidecar = Path(str(database) + suffix)
@@ -40,13 +41,13 @@ def publish(workbook, payload, project=PROJECT, reports=None):
         if row.get('cycle_label') != info['cycle_label']:
             raise ValueError('Payload contains a contribution outside the selected cycle.')
     workbook_hash, payload_hash = data._hash(workbook), data._hash(payload)
-    cache = Path(project) / '.cache/industry-report' / data._slug(info['industry'])
+    cache = (report_cache_root() if os.environ.get('MENTAT_REPORT_CACHE_ROOT') else Path(project) / '.cache/industry-report') / data._slug(info['industry'])
     manifest_path, target = lineage_paths(cache, database_hash, info['cycle_label'])
     cache.mkdir(parents=True, exist_ok=True)
     manifest = {'schema_version': 2, 'database_sha256': database_hash,
                 'cycle_label': info['cycle_label'], 'data_sha256': payload_hash,
                 'data_bytes': payload.stat().st_size, 'workbook_sha256': workbook_hash,
-                'published_workbook': workbook.name, 'source_payload': str(payload),
+                'published_workbook': workbook.name, 'source_payload': portable_receipt(payload),
                 'publication_basis': 'preserved_payload_verified_against_published_workbook'}
     owner_fields = ('database_sha256', 'cycle_label', 'data_sha256',
                     'workbook_sha256', 'published_workbook')

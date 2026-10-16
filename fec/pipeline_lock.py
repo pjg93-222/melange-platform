@@ -106,6 +106,11 @@ def _foreign_holder_is_live(payload: dict, path) -> bool:
     Missing, unreadable, malformed or token-mismatched heartbeat => held (a Windows holder never
     writes one, and a container must not take over its lease).  A heartbeat dated in the future is
     clock skew (WSL2 drifts), which reads as fresh.
+
+    A stale-looking heartbeat is not yet proof: a container frozen by laptop sleep resumes and beats
+    again within one interval.  So before declaring the holder dead the mtime is re-read after
+    ``2 * HEARTBEAT_SECONDS + 5``; the holder is live if it moved (or the file can no longer be
+    stat'ed), dead only if it is unchanged.
     """
     token = payload.get("token")
     if path is None or not token:
@@ -113,16 +118,22 @@ def _foreign_holder_is_live(payload: dict, path) -> bool:
     beat_path = _heartbeat_path(path)
     try:
         beat = json.loads(beat_path.read_text(encoding="utf-8"))
-        age = time.time() - beat_path.stat().st_mtime
+        seen = beat_path.stat().st_mtime
     except (OSError, ValueError, TypeError):
         return True
     if not isinstance(beat, dict) or beat.get("token") != token:
         return True
-    return age <= _stale_seconds()
+    if time.time() - seen <= _stale_seconds():
+        return True
+    time.sleep(2 * HEARTBEAT_SECONDS + 5)
+    try:
+        return beat_path.stat().st_mtime != seen
+    except OSError:
+        return True
 
 
 def _write_heartbeat(path, token) -> None:
-    """Atomically refresh the heartbeat; a failure only makes peers more conservative."""
+    """Atomically refresh the heartbeat.  A failure is swallowed, and a heartbeat that keeps failing makes the lease look stale to peers (it does NOT make them more conservative)."""
     beat_path = _heartbeat_path(path)
     temp = beat_path.with_name(beat_path.name + ".tmp")
     try:

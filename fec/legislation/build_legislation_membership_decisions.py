@@ -128,7 +128,7 @@ def project(row: Mapping[str, Any]) -> dict[str, Any]:
         "decision_evidence_sha256": row.get("official_decision_evidence_sha256"),
         "evidence_sources_checked": list(row.get("evidence_sources_checked") or []),
         "absence_used_as_exclusion_evidence": bool(
-            row.get("article_absence_is_never_exclusion_evidence") is False
+            row.get("article_absence_is_never_exclusion_evidence") is not True
         ),
         "full_text_rule_out_complete": bool(
             row.get("official_text_evidence_state") == "complete"
@@ -187,6 +187,11 @@ def build(args: argparse.Namespace) -> Mapping[str, Any]:
             )
             continue
         if natural_key in emitted:
+            if emitted[natural_key]["disposition"] != disposition:
+                raise DecisionBuildError(
+                    f"conflicting resolved dispositions for edge {natural_key}: "
+                    f"{emitted[natural_key]['disposition']} vs {disposition}"
+                )
             counters["duplicate_edges_dropped"] += 1
             dropped.append(
                 {

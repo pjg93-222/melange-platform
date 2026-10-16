@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -230,9 +231,15 @@ def build_rows(evidence):
     return result
 
 
-def write_json(path, value):
+def write_bytes_atomic(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_bytes(data)
+    os.replace(tmp, path)
+
+
+def write_json(path, value):
+    write_bytes_atomic(path, (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
 
 
 def main():
@@ -300,9 +307,15 @@ def main():
         backup.mkdir(exist_ok=True)
         for original in (ACTIVE, ROOT / "data/members/member_narratives_v2_semantic_receipt.json", RECEIPT):
             destination = backup / original.name
-            if original.exists() and not destination.exists():
+            if not original.exists():
+                continue
+            if not destination.exists():
                 destination.write_bytes(original.read_bytes())
-        ACTIVE.write_bytes(candidate.read_bytes())
+            elif destination.read_bytes() != original.read_bytes():
+                # re-activation: keep a timestamped copy instead of losing the current live file
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                (backup / f"{original.stem}.{stamp}{original.suffix}").write_bytes(original.read_bytes())
+        write_bytes_atomic(ACTIVE, candidate.read_bytes())
         write_json(RECEIPT, receipt)
     print(json.dumps({"profiles": len(members), "words_min": receipt["minimum_words"], "words_max": receipt["maximum_words"], "activated": args.activate, "output": str(OUT)}, indent=2))
 

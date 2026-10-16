@@ -252,6 +252,14 @@ def main():
     roster = set(bio2name)
     print('roster: %d members, %d with bioguide' % (len(C), len(roster)))
 
+    # PRO-1 fail-closed, BEFORE any extraction or write: extract_congress silently skips absent types,
+    # and a partial graph saved as the newest BASE would be picked up by mtime-choosing loaders.
+    missing_types = [(cg, t) for cg in d['congresses'] for t in d['types']
+                     if not os.path.exists(os.path.join(raw, 'billstatus%d' % cg,
+                                                        'BILLSTATUS-%d-%s.zip' % (cg, t)))]
+    if missing_types:
+        raise SystemExit('PRO-1 fail-closed: dialled bill types with no zip present: %s '
+                         '(a silently dropped type would produce a plausible-but-wrong graph)' % missing_types)
     caches = []
     for cg in d['congresses']:
         print('congress %d:' % cg)
@@ -273,7 +281,8 @@ def main():
     for (a, b), e in sorted(edges.items()):
         ws.append([a, b, e['Weight'], e['NBills'], e['NOriginal'], e['NRegular'],
                    bio2name.get(a, a), bio2name.get(b, b), e['WOriginal'], e['WRegular']])
-    wb.save(out)
+    import moneyball_core as MC
+    MC.save_workbook_atomic(wb, out)
 
     members_in = {a for a, _ in edges} | {b for _, b in edges}
     isolates = sorted(m for m in roster if m not in members_in)
@@ -290,12 +299,6 @@ def main():
             zip_pins[z] = {'sha256': hashlib.sha256(open(zp, 'rb').read()).hexdigest(),
                            'mtime_utc': datetime.datetime.fromtimestamp(
                                os.path.getmtime(zp), datetime.timezone.utc).strftime('%Y-%m-%d')}
-    missing_types = [(cg, t) for cg, _, _ in caches for t in d['types']
-                     if not os.path.exists(os.path.join(raw, 'billstatus%d' % cg,
-                                                        'BILLSTATUS-%d-%s.zip' % (cg, t)))]
-    if missing_types:
-        raise SystemExit('PRO-1 fail-closed: dialled bill types with no zip present: %s '
-                         '(a silently dropped type would produce a plausible-but-wrong graph)' % missing_types)
     # PRO-1 fix: the BASE manifest records a canonical content hash OF ITS OWN OUTPUT, so the
     # AUG's base pin can be checked against something reproducible (raw xlsx bytes are not).
     _ws = openpyxl.load_workbook(out, data_only=True)['Edges']
@@ -313,8 +316,8 @@ def main():
         'inputs': {'billstatus_zips': zip_pins},
         'output': os.path.basename(out), 'output_canonical_rows_sha256': _canon,
     }
-    mpath = out.replace('.xlsx', '.manifest.json')
-    json.dump(manifest, open(mpath, 'w', encoding='utf-8'), indent=1)
+    mpath = os.path.splitext(out)[0] + '.manifest.json'
+    MC.dump_atomic(manifest, mpath, indent=1)
     c = stats['counters']
     print('SUMMARY: %d edges | bills contributing %d / no-cosponsor %d / sponsor-off-roster %d | '
           'ties kept %d / cosponsor-off-roster %d / self-loops %d / withdrawn-included %d | '

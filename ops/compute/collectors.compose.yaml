@@ -20,8 +20,12 @@
 #   CASSETTE_HOST_DIR            where http_replay.py recorded on Windows
 #   REPLAY_OUT_HOST_DIR          an existing, writable, per-run directory for a replay's store and outputs (the wrapper seeds it)
 #   GOVINFO_KEY_FILE_HOST, FEC_DATA_GOV_FILE_HOST, CLAUDE_CREDENTIALS_FILE_HOST   (%USERPROFILE%\.claude\.credentials.json)
+#                                paths of single-value key files, mounted read-only at /run/secrets by the `secrets:` block below; an unset one stops
+#                                the run (`:?`). `python ops/compute/collectors_replay.py keyenv --service collect|llm` resolves them from where the
+#                                Windows collectors look (paths only, never opened); FEC has no default (see key_files there).
 # A job that does not use a secret still needs its variable set when Compose parses the file: point it at any existing empty file.
-# social_media.db (507 MB, WAL) is NOT safe on /melange across the VM file share until the wrapper stages it (design 2.4).
+# social_media.db (507 MB, WAL) is NOT safe on /melange across the VM file share until the wrapper stages it (design 2.4):
+# `collectors_replay.py stage --src social_media.db --dest <staged>` is that copy (backup API, WAL folded in, one file); the replay test uses it.
 #
 # Mounts, traced from the collector code (the design's table listed %LOCALAPPDATA%\Melange read-write for all three services):
 #   %LOCALAPPDATA%\Melange: mounted only as lda_rebuild\raw, read-write, on `collect` (LDA_RAW_HOST_DIR ->

@@ -84,7 +84,7 @@ def run(args):
     if output == source or source in output.parents:
         raise ValueError("Use an isolated output directory outside the read-only original source workspace")
     if output == FEC.parent: raise ValueError("Output root must be a dedicated shadow directory")
-    date.fromisoformat(args.as_of)
+    if date.fromisoformat(args.as_of).isoformat()!=args.as_of: raise ValueError("--as-of must be YYYY-MM-DD")
     output.mkdir(parents=True,exist_ok=True)
     write_json(output/"shadow_generation.json", {"schema":"effectiveness-shadow-generation-v1","status":"building","production_activation":False})
     service_paths = [Path(args.service_reference)/name for name in ("legislators-current.yaml","legislators-historical.yaml")] if args.service_reference else []

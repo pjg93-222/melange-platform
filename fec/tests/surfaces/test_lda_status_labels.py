@@ -399,10 +399,18 @@ def test_attach_counts_how_many_labels_came_from_the_ruling(tmp_path):
     sidecar = labels.load_sidecar(sidecar_fixture(tmp_path), employment=employment)
     nodes = nodes_fixture()
     counts = labels.attach(nodes, sidecar)
-    # Of the 4 LDA people attach() labels here, only lobbyist:1 is named by the
-    # employment map; the rest fall back to the sidecar's year order.
+    # Of the LDA people attach() labels here, only lobbyist:1 is named by the
+    # employment map; some others fall back to the sidecar's year order and the
+    # rest carry no employer line at all.
     assert counts["employer_from_ruling"] == 1
-    assert counts["employer_from_sidecar_year_order"] == counts["lda_people"] - 1
+    assert (counts["employer_from_ruling"] + counts["employer_from_sidecar_year_order"]
+            + counts["employer_none"]) == counts["lda_people"]
+    assert counts["employer_from_sidecar_year_order"] == sum(
+        1 for n in nodes.values()
+        if n.get("lda_status", {}).get("employer_source") == labels.EMPLOYER_SOURCE_SIDECAR)
+    assert counts["employer_none"] == sum(
+        1 for n in nodes.values()
+        if "lda_status" in n and not n["lda_status"].get("employer_source"))
     assert counts["engagements"] == {"contract": 1}
     status = nodes["person:lda:lobbyist:1"]["lda_status"]
     assert status["employer_source"] == labels.EMPLOYER_SOURCE_RULING

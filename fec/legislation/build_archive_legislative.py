@@ -260,7 +260,7 @@ for _idx,r in A.iterrows():
                           'disposition':'neutral-official-evidence'})
             routing_rows.append(audit); continue
     elif registry_direction is not None:  # registry beats the section default (any category)
-        sign={'1':1,'-1':-1}.get(registry_direction,0)
+        sign=parse_direction(registry_direction) or 0   # same parser as override/manual paths; None/unparseable -> neutral
         audit['direction_mechanism']=registry_mechanism
         if sign==0:
             audit.update({'member':mm,'effective_category':cat,'sign':0,

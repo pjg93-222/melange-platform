@@ -543,6 +543,27 @@ class CompareInputsTests(TempCase):
                 {'path': 'C:/a.zip', 'sha256': 'AB', 'roles': ['r']}]}})
         self.assertEqual(listed, {'C:/a.zip': 'AB'})
 
+    def test_empty_or_unrecognised_provenance_never_agrees(self):
+        # An empty comparison proves nothing: it must not read as "fresh".
+        for report in ({}, {'provenance': {}}, {'provenance': {'every_input_sha256': 'x'}},
+                       {'provenance': 'junk'}):
+            comparison = FCST.compare_inputs(report)
+            self.assertFalse(comparison['agrees'], report)
+            self.assertTrue(comparison['reasons'], report)
+        self.assertFalse(FCST.compare_inputs([1])['agrees'])
+
+    def test_non_object_report_loads_as_missing(self):
+        out_dir = self.path('cosponsor_sc')
+        os.makedirs(out_dir)
+        Path(os.path.join(out_dir, FCST.REPORT_NAME)).write_text('[1]', encoding='utf-8')
+        self.assertIsNone(FCST.load_report(out_dir))
+
+    def test_deleted_scores_csv_is_a_change_when_out_dir_given(self):
+        out_dir, _ = self.make()
+        self.assertFalse(FCST.compare_inputs(FCST.load_report(out_dir), out_dir)['agrees'])
+        Path(os.path.join(out_dir, FCST.SCORES_NAME)).write_text('x\n', encoding='utf-8')
+        self.assertTrue(FCST.compare_inputs(FCST.load_report(out_dir), out_dir)['agrees'])
+
     def test_hash_comparison_is_case_insensitive(self):
         out_dir, zip_path = self.make()
         report = FCST.load_report(out_dir)

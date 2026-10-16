@@ -45,6 +45,7 @@ import threading
 import zipfile
 
 import contribution_data as data
+import report_publication
 from receipt_path import receipt_path
 from report_identity import identity, companion_name, lineage_paths
 
@@ -130,7 +131,7 @@ def _discover(directory):
         names = watch('glob', str(root))
         if names[:1] == ('error',):
             return spec, values, False
-        project, cache_root = data.PROJECT, None
+        cache_root = None
         for name in names:
             info = identity(name)
             if name.startswith('~$') or info is None or info['kind'] != 'overview':
@@ -140,6 +141,9 @@ def _discover(directory):
             if not Path(watch('real', str(workbook))).is_relative_to(root):
                 return spec, values, False  # _sources() raises for this report
             watch('stat', str(workbook))
+            for dependency in report_publication.dependencies(workbook):
+                watch('stat', str(dependency))
+                watch('real', str(dependency))
             try:
                 data._hash(workbook)
             except OSError as error:
@@ -161,7 +165,7 @@ def _discover(directory):
                         pass
             try:
                 db_hash = data._workbook_source(data._stamp(workbook))
-                cache = project / '.cache' / 'industry-report' / data._slug(industry)
+                cache = data._report_cache_root() / data._slug(industry)
                 manifest_path, payload = lineage_paths(cache, db_hash, info['cycle_label'])
                 watch('stat', str(manifest_path))
                 if data._json(manifest_path).get('database_sha256') != db_hash:
@@ -173,7 +177,7 @@ def _discover(directory):
                 if watch('stat', database)[0] == 'file':
                     watch('real', database)
                     continue
-                hydration_path = (project / '.cache/receipt-metadata-repair-20260910' / data._slug(industry)
+                hydration_path = (data._data_cache_root() / 'receipt-metadata-repair-20260910' / data._slug(industry)
                                   / 'mentat.db.hydration.json')
                 watch('stat', str(hydration_path))
                 hydration = data._json(hydration_path)
@@ -181,7 +185,7 @@ def _discover(directory):
                     continue
                 output = watch('real', str(receipt_path(hydration['output'])))
                 if cache_root is None:
-                    cache_root = watch('real', str(project / '.cache'))
+                    cache_root = watch('real', str(data._data_cache_root()))
                 if not Path(output).is_relative_to(cache_root) or watch('stat', output)[0] != 'file':
                     continue
                 data._hash(Path(output))
@@ -195,7 +199,8 @@ def _discover(directory):
 
 
 def _key(directory):
-    return (str(Path(directory).resolve()), str(data.PROJECT), _original, data._hash, data._stamp,
+    return (str(Path(directory).resolve()), str(data.PROJECT),
+            str(data._report_cache_root()), str(data._data_cache_root()), _original, data._hash, data._stamp,
             data._json, data._payload_metadata, data._workbook_source, data._slug)
 
 

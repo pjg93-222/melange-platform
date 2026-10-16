@@ -1,15 +1,20 @@
 """Collect public 2026 campaign-site pages with reproducible raw storage."""
 
 import argparse
+import codecs
 import csv
 import datetime
 import gzip
 import hashlib
 from html.parser import HTMLParser
+import http.client
+import ipaddress
 import json
 import os
 import random
 import re
+import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -31,6 +36,7 @@ GLASSBOX_EMITTER = r"C:\Users\pgoff\.claude\glassbox\emit.ps1"
 GLASSBOX_RUN_ID = "c1-2026-collection"
 GLASSBOX_SOURCE = "campaign-sites-2026"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+CRAWL_DELAY_CAP_S = 30.0
 EXPECTED_ROSTER_COLUMNS = [
     "state",
     "district",
@@ -55,6 +61,8 @@ MANIFEST_KEYS = (
     "pages",
     "platform_points",
     "bio_text",
+    "page_errors",
+    "run_log_error",
 )
 
 BIO_LINK_RE = re.compile(r"about|meet|bio", re.IGNORECASE)
@@ -191,8 +199,12 @@ def utc_now():
     return datetime.datetime.now(datetime.timezone.utc)
 
 
-def candidate_slug(state, district, candidate_name, url="", official_url=""):
-    """Return the readable candidate slug with its collision-resistant suffix."""
+def candidate_slug(state, district, candidate_name):
+    """Return the readable candidate slug with its collision-resistant suffix.
+
+    The suffix hashes state|district|candidate_name only, so fixing a roster URL never orphans a
+    candidate's manifest or raw directory.
+    """
     name = (candidate_name or "").strip()
     if "," in name:
         last_part, first_part = name.split(",", 1)
@@ -208,7 +220,7 @@ def candidate_slug(state, district, candidate_name, url="", official_url=""):
         state or "", district or "", last_name, first_name
     ).lower()
     current_slug = re.sub(r"[^a-z0-9]+", "-", value).strip("-")
-    identity = "{}|{}".format(candidate_name or "", url or official_url or "")
+    identity = "{}|{}|{}".format(state or "", district or "", candidate_name or "")
     suffix = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:6]
     return current_slug + "-" + suffix
 
@@ -258,9 +270,59 @@ def _charset_from_content_type(content_type):
     return match.group(1) if match else "utf-8"
 
 
+def _safe_charset(name):
+    """Return a canonical codec name that can decode text, else utf-8."""
+    try:
+        # A non-empty decode also rejects bytes-to-bytes codecs such as "hex" that lookup accepts.
+        b"x".decode(name, "replace")
+        return codecs.lookup(name).name
+    except (LookupError, TypeError, UnicodeError):
+        return "utf-8"
+
+
+def _effective_address(address):
+    """Judge an IPv4 carried inside an IPv4-mapped or 6to4 IPv6 address as that IPv4."""
+    return (
+        getattr(address, "ipv4_mapped", None)
+        or getattr(address, "sixtofour", None)
+        or address
+    )
+
+
+def _assert_public_resolution(url):
+    """Refuse a URL whose host is, or resolves to, a non-public address."""
+    reason = private_target_reason(url)
+    if reason:
+        raise UnverifiedTarget(reason)
+    parsed = urllib.parse.urlparse(url)
+    port = parsed.port or (443 if parsed.scheme.lower() == "https" else 80)
+    try:
+        answers = socket.getaddrinfo(parsed.hostname, port, proto=socket.IPPROTO_TCP)
+    except socket.gaierror as exc:
+        raise urllib.error.URLError(exc)
+    for answer in answers:
+        address = ipaddress.ip_address(answer[4][0].split("%")[0])
+        if not _effective_address(address).is_global:
+            raise UnverifiedTarget(
+                "target {} resolves to non-public address {}".format(
+                    parsed.hostname, address
+                )
+            )
+
+
+class _PublicRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _assert_public_resolution(newurl)  # a public page can still redirect inward
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def default_fetch(url, timeout):
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
+    # ponytail: DNS can answer differently when urllib connects after this check (rebinding TOCTOU);
+    # the upgrade is a pinned-IP connection.
+    _assert_public_resolution(url)
+    opener = urllib.request.build_opener(_PublicRedirectHandler)
+    with opener.open(request, timeout=timeout) as response:
         content_type = response.headers.get("Content-Type", "")
         content_length = response.headers.get("Content-Length")
         raw = response.read(MAX_RESPONSE_BYTES)
@@ -283,25 +345,15 @@ def default_fetch(url, timeout):
 
 
 def _normalize_fetch_result(result, requested_url):
-    if len(result) == 2:
-        status, raw = result
-        final_url = requested_url
-        charset = "utf-8"
-        truncated = False
-    elif len(result) == 3:
-        status, raw, final_url = result
-        charset = "utf-8"
-        truncated = False
-    elif len(result) == 5:
-        status, raw, final_url, charset, truncated = result
-    else:
-        raise ValueError("fetch_fn must return 2, 3, or 5 values")
+    if len(result) != 5:
+        raise ValueError("fetch_fn must return 5 values")
+    status, raw, final_url, charset, truncated = result
     return {
         "requested_url": requested_url,
         "http_status": status,
         "raw": raw,
         "final_url": final_url or requested_url,
-        "charset": charset or "utf-8",
+        "charset": _safe_charset(charset or "utf-8"),
         "truncated": bool(truncated),
     }
 
@@ -313,25 +365,27 @@ def private_target_reason(url):
     host = (parsed.hostname or "").lower()
     if not host:
         return "target host cannot be determined"
-    if host == "localhost":
+    if host == "localhost" or host.endswith(".localhost"):
         return "target host localhost is not public"
-    if host in {"::1", "0:0:0:0:0:0:0:1"}:
-        return "target IPv6 address ::1 is loopback"
-    if re.fullmatch(r"\d{1,3}(?:\.\d{1,3}){3}", host):
-        octets = [int(part) for part in host.split(".")]
-        if any(part > 255 for part in octets):
-            return "target IPv4 address is invalid"
-        if octets[0] == 127:
-            return "target IPv4 address is loopback"
-        if octets[0] == 10:
-            return "target IPv4 address is private"
-        if octets[0] == 172 and 16 <= octets[1] <= 31:
-            return "target IPv4 address is private"
-        if octets[0] == 192 and octets[1] == 168:
-            return "target IPv4 address is private"
-        if octets[0] == 169 and octets[1] == 254:
-            return "target IPv4 address is link-local"
-    return None
+    # Local parsing only (no DNS): ipaddress for canonical literals, inet_aton for the
+    # integer / hex / short spellings (2130706433, 0x7f000001, 127.1) that resolvers accept.
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        try:
+            address = ipaddress.IPv4Address(socket.inet_aton(host))
+        except OSError:
+            return None  # a hostname; default_fetch resolves and re-checks it
+    effective = _effective_address(address)
+    if effective.is_global:
+        return None
+    kind = (
+        "loopback" if effective.is_loopback
+        else "link-local" if effective.is_link_local
+        else "private" if effective.is_private
+        else "reserved"
+    )
+    return "target non-public address {} is {}".format(address, kind)
 
 
 def assert_output_path(out_dir, path):
@@ -383,6 +437,7 @@ def emit_glassbox(kind, status, counts):
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            timeout=30,
         )
     except Exception:
         pass
@@ -423,7 +478,9 @@ class CampaignSiteCollector:
                 return _normalize_fetch_result(
                     self.fetch_fn(url, self.timeout), requested_url=url
                 )
-            except urllib.error.URLError:
+            except urllib.error.HTTPError:
+                raise  # an HTTP answer is final; HTTPError subclasses URLError
+            except (urllib.error.URLError, TimeoutError, http.client.IncompleteRead):
                 if attempt == 1:
                     raise
                 time.sleep(5)
@@ -485,9 +542,16 @@ class CampaignSiteCollector:
         if reason:
             raise UnverifiedTarget(reason)
         if not self._robots_allowed(url):
-            raise RobotsDisallowed(url)
+            raise RobotsDisallowed("robots.txt disallows " + url)
         parser = self._robot_parser_for(url)
-        response = self._transport(url, crawl_delay=self._crawl_delay(parser))
+        delay = self._crawl_delay(parser)
+        if isinstance(delay, (int, float)) and delay > CRAWL_DELAY_CAP_S:
+            raise RobotsDisallowed(
+                "crawl-delay {}s exceeds {}s cap: {}".format(
+                    delay, CRAWL_DELAY_CAP_S, url
+                )
+            )
+        response = self._transport(url, crawl_delay=delay)
         final_url = response["final_url"]
         disallowed_redirect = False
         # A SAME-host redirect can still land on a Disallowed PATH (robots allows / but disallows
@@ -497,7 +561,9 @@ class CampaignSiteCollector:
         if final_url != url:
             try:
                 disallowed_redirect = not self._robots_allowed(final_url)
-            except UnverifiedTarget:
+            except (UnverifiedTarget, RobotsDisallowed, urllib.error.URLError, OSError):
+                # A robots lookup failure for the redirect target must not escape as a URLError
+                # that _fetch_with_https_upgrade would answer with an http re-fetch.
                 disallowed_redirect = True
         response["disallowed_redirect"] = disallowed_redirect
         return response
@@ -508,9 +574,16 @@ class CampaignSiteCollector:
             upgraded = urllib.parse.urlunparse(parsed._replace(scheme="https"))
             try:
                 return self._fetch_checked(upgraded)
-            except RobotsDisallowed:
+            except (RobotsDisallowed, UnverifiedTarget, urllib.error.HTTPError):
                 raise
-            except (urllib.error.URLError, OSError):
+            except (urllib.error.URLError, OSError) as exc:
+                # Downgrade only after a plain connection failure, never after an HTTP answer or a
+                # certificate-verification failure.
+                reason = getattr(exc, "reason", exc)
+                if isinstance(reason, ssl.SSLCertVerificationError) or isinstance(
+                    exc, ssl.SSLCertVerificationError
+                ):
+                    raise
                 return self._fetch_checked(url)
         return self._fetch_checked(url)
 
@@ -558,8 +631,6 @@ class CampaignSiteCollector:
                 row.get("state", ""),
                 row.get("district", ""),
                 row.get("candidate_name", ""),
-                row.get("url", ""),
-                row.get("official_url", ""),
             ),
             "state": row.get("state", ""),
             "district": row.get("district", ""),
@@ -572,6 +643,8 @@ class CampaignSiteCollector:
             "pages": [],
             "platform_points": [],
             "bio_text": None,
+            "page_errors": [],
+            "run_log_error": None,
         }
 
     def _write_manifest(self, manifest):
@@ -619,25 +692,32 @@ class CampaignSiteCollector:
 
         if disallowed_redirect:
             return final_url, b"", response["charset"], True
-        text, points = extract_text_and_platform_points(
-            raw_html,
-            include_platform_points=(role == "issues"),
-            charset=response["charset"],
-        )
-        if role == "bio":
-            if manifest["bio_text"]:
-                manifest["bio_text"] += "\n\n" + text
+        if role in ("bio", "issues"):
+            text, points = extract_text_and_platform_points(
+                raw_html,
+                include_platform_points=(role == "issues"),
+                charset=response["charset"],
+            )
+            if role == "bio":
+                if manifest["bio_text"]:
+                    manifest["bio_text"] += "\n\n" + text
+                else:
+                    manifest["bio_text"] = text
             else:
-                manifest["bio_text"] = text
-        if role == "issues":
-            manifest["platform_points"].extend(points)
+                manifest["platform_points"].extend(points)
         return final_url, raw_html, response["charset"], False
 
     def _collect(self, manifest, target_url, housegov):
         home_url, home_html, home_charset, disallowed_redirect = self._fetch_store_extract(
             manifest, target_url, "home", housegov
         )
-        if self.max_pages <= 1 or disallowed_redirect:
+        if disallowed_redirect:
+            manifest["status"] = "skipped_robots"
+            manifest["error"] = "home page redirects to a disallowed URL: {}".format(
+                home_url
+            )
+            return
+        if self.max_pages <= 1:
             manifest["status"] = "collected"
             return
 
@@ -653,7 +733,7 @@ class CampaignSiteCollector:
         seen = {urllib.parse.urlunparse(urllib.parse.urlparse(home_url)._replace(fragment=""))}
         for unused_index, (page_url, role) in prioritized:
             del unused_index
-            if len(manifest["pages"]) >= self.max_pages:
+            if len(manifest["pages"]) + len(manifest["page_errors"]) >= self.max_pages:
                 break
             parsed = urllib.parse.urlparse(page_url)
             if parsed.hostname.lower() != home_host or page_url in seen:
@@ -661,7 +741,16 @@ class CampaignSiteCollector:
             if parsed.username is not None or parsed.password is not None:
                 continue
             seen.add(page_url)
-            self._fetch_store_extract(manifest, page_url, role, housegov)
+            try:
+                self._fetch_store_extract(manifest, page_url, role, housegov)
+            except Exception as exc:  # one bad subpage must not sink the candidate
+                manifest["page_errors"].append(
+                    {
+                        "url": page_url,
+                        "role": role,
+                        "error": str(exc) or type(exc).__name__,
+                    }
+                )
         manifest["status"] = "collected"
 
     def process_row(self, row, run_utc):
@@ -679,9 +768,9 @@ class CampaignSiteCollector:
                     manifest["error"] = reason
                 else:
                     self._collect(manifest, target_url, housegov)
-        except RobotsDisallowed:
+        except RobotsDisallowed as exc:
             manifest["status"] = "skipped_robots"
-            manifest["error"] = None
+            manifest["error"] = str(exc)
         except UnverifiedTarget as exc:
             manifest["status"] = "skipped_unverified"
             manifest["error"] = str(exc)
@@ -813,6 +902,7 @@ def main(argv=None, fetch_fn=None, robot_parser_factory=None):
         max_pages=args.max_pages,
     )
 
+    run_log_failed = False
     smoke_used = 0
     for row in rows:
         has_fetchable_url = collector.row_has_fetchable_url(row)
@@ -822,27 +912,21 @@ def main(argv=None, fetch_fn=None, robot_parser_factory=None):
             smoke_used += 1
 
         manifest = collector.process_row(row, run_utc)
-        if run_log_setup_error is not None:
-            _set_candidate_write_error(
-                manifest, "run log write failed", run_log_setup_error
-            )
+        run_log_error = run_log_setup_error
+        if run_log_error is None and run_log is not None:
+            try:
+                _atomic_append_json_line(args.out_dir, run_log, manifest)
+            except Exception as exc:
+                run_log_error = "run log write failed: {}".format(exc)
+        if run_log_error is not None:
+            # The collection itself succeeded: keep its status and record the log fault apart.
+            manifest["run_log_error"] = run_log_error
+            run_log_failed = True
             try:
                 collector._write_manifest(manifest)
             except Exception as exc:
                 _set_candidate_write_error(manifest, "manifest write failed", exc)
                 print(manifest["error"], file=sys.stderr)
-        elif run_log is not None:
-            try:
-                _atomic_append_json_line(args.out_dir, run_log, manifest)
-            except Exception as exc:
-                _set_candidate_write_error(manifest, "run log write failed", exc)
-                try:
-                    collector._write_manifest(manifest)
-                except Exception as manifest_exc:
-                    _set_candidate_write_error(
-                        manifest, "manifest write failed", manifest_exc
-                    )
-                    print(manifest["error"], file=sys.stderr)
 
         summary["processed"] += 1
         if manifest["status"] == "error":
@@ -857,10 +941,11 @@ def main(argv=None, fetch_fn=None, robot_parser_factory=None):
         try:
             _atomic_append_json_line(args.out_dir, run_log, summary)
         except Exception as exc:
+            run_log_failed = True
             print("run log summary write failed: {}".format(exc), file=sys.stderr)
     emit_glassbox("task.completed", "completed", summary)
     print(json.dumps(summary, sort_keys=True))
-    return 0
+    return 1 if summary["errors"] or run_log_failed else 0
 
 
 if __name__ == "__main__":

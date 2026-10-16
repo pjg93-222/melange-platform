@@ -1807,7 +1807,10 @@ def _extend_fullscope_scope_with_pattern_clients(
                 "distinct_lda_client_ids": len(per_pattern_clients[pattern_id]),
                 "contributed_orgs": len(per_pattern_orgs[pattern_id]),
             }
-            for pattern_id, _expression, _sector in FULLSCOPE_FINANCE_NAME_PATTERNS
+            for pattern_id in sorted(
+                set(per_pattern_clients)
+                | {p for p, _e, _s in FULLSCOPE_FINANCE_NAME_PATTERNS}
+            )
         },
         "per_client": per_client,
     }
@@ -3276,6 +3279,13 @@ def assert_bill_index_corpus_basis(
     return expected_basis
 
 
+def _clean_csv_row(row, label, line_number):
+    # DictReader stores surplus fields as a list under key None.
+    if None in row:
+        raise IngestError(f"{label} line {line_number} has extra fields")
+    return {key: (value or "").strip() for key, value in row.items()}
+
+
 def _load_repository_csv(path, label, required_fields):
     try:
         handle = open(path, "r", encoding="utf-8-sig", newline="")
@@ -3290,7 +3300,7 @@ def _load_repository_csv(path, label, required_fields):
                 f"{label} must contain {', '.join(required_fields)}"
             )
         return [
-            {key: (value or "").strip() for key, value in row.items()}
+            _clean_csv_row(row, label, reader.line_num)
             for row in reader
         ]
 

@@ -116,6 +116,8 @@ def load_verified_archive(data_root, manifest_path):
             manifest = json.load(handle)
     except (OSError, ValueError) as exc:
         raise ProvenanceError('manifest unreadable: %s' % exc)
+    if not isinstance(manifest, dict):
+        raise ProvenanceError('manifest must be a JSON object')
     if manifest.get('schema') != MANIFEST_SCHEMA:
         raise ProvenanceError(
             'unexpected manifest schema: %r' % manifest.get('schema')
@@ -127,7 +129,7 @@ def load_verified_archive(data_root, manifest_path):
         raise ProvenanceError('manifest input_count does not match its input list')
     matches = [
         item for item in inputs
-        if item.get('scratch_name') == ARCHIVE_NAME
+        if isinstance(item, dict) and item.get('scratch_name') == ARCHIVE_NAME
     ]
     if len(matches) != 1:
         raise ProvenanceError(
@@ -169,13 +171,16 @@ def optional_manifest_cross_check(archive_path, manifest_path):
     except (OSError, ValueError) as exc:
         result['detail'] = '%s (%s)' % (unavailable, exc)
         return result
+    if not isinstance(manifest, dict):
+        result['detail'] = '%s (manifest is not a JSON object)' % unavailable
+        return result
     inputs = manifest.get('inputs')
     if not isinstance(inputs, list):
         result['detail'] = '%s (manifest inputs are not a list)' % unavailable
         return result
     matches = [
         item for item in inputs
-        if item.get('scratch_name') == archive_path.name
+        if isinstance(item, dict) and item.get('scratch_name') == archive_path.name
     ]
     if len(matches) != 1:
         result['detail'] = (

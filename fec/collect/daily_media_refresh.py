@@ -7,7 +7,11 @@ inputs that the canonical chain consumes. A failed source never produces PASS.
 The press collector budgets body retrieval per run and exits 3 when bodies
 remain queued for the next pass. That is a designed partial outcome, so it is
 recorded as PARTIAL rather than counted as a collection failure, and the
-terminal receipt always names the partial sources alongside its status.
+terminal receipt always names the partial sources alongside its status. Exit 3
+is believed only with proof: a current PARTIAL retry receipt with a positive
+integer backlog. Without it the press step FAILs. With it, the intake gate's own
+read-only test (build_press_engine_feed.inspect_run) decides whether the
+backlog is excused; only an unexcused PARTIAL parks the intake steps.
 """
 from __future__ import annotations
 
@@ -46,14 +50,26 @@ PRESS_RETRY_RECEIPT = 'press_network_retry_receipt.json'
 # Journal collectors are the slow, browser-driven ones and are left out.
 SMOKE_SOURCES = ('crec', 'chrg', 'bluesky')
 # Derived steps that hand the intake gate this run's press directory by path.
-# audit_collection.py --scope all still audits press_delta (:1273-1275), and
-# build_press_engine_feed.validate_body_completion:99-101 refuses any receipt
-# whose body backlog is open regardless of require_complete, so pointing it at
-# an incomplete generation is a guaranteed rejection. When the chain runs the
-# same tool without --press-delta-root it discovers a run instead, and
-# discover_run:300-307 skips the refused one, so the canonical chain still
-# audits the last complete press generation.
+# audit_collection.py --scope all audits press_delta as well, and the gate
+# (build_press_engine_feed.validate_body_completion) refuses a generation whose
+# body backlog is open unless every pending URL is tombstoned (Paul's 2026-09-19
+# ruling). all_intake is therefore parked only when press is an unexcused PARTIAL
+# (inspect_run refused the generation) or was skipped (smoke); pointing the gate
+# at such a generation is a guaranteed rejection. An excused PARTIAL and a
+# complete press run are not parked. When the chain runs the same tool without
+# --press-delta-root it discovers a run instead and skips a refused one, so the
+# canonical chain still audits the last complete press generation.
 PRESS_GATED_DERIVED = ('all_intake',)
+# Collector log statuses that are explicit outcomes rather than unresolved items:
+# empty or member-free days and source-attested terminal losses. Compared lowercased.
+TERMINAL_LOG_STATUSES = {'ok', 'nosession', 'noep', 'empty', 'nopage', 'gone', 'noqa'}
+# Interrupt plumbing. Lanes run in pool threads, so a Ctrl-C lands in the main
+# thread while the collectors are children of the workers: every live child is
+# registered here so the main thread can terminate their trees, and STOP keeps a
+# lane from launching its next step once an interrupt is under way.
+STOP = threading.Event()
+_LIVE = []
+_LIVE_LOCK = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -110,10 +126,92 @@ def press_partial_details(step, root):
     except Exception as error:
         return {'note': 'retry receipt unreadable: ' + type(error).__name__ + ': ' + str(error),
                 'run_root': str(run_root)}
+    if not isinstance(document, dict):
+        return {'note': 'retry receipt is not a JSON object', 'run_root': str(run_root)}
     return {'pending_body_urls': document.get('pending_body_urls'),
             'failed_bodies': document.get('failed_bodies'),
             'status': document.get('status'),
             'run_root': str(run_root)}
+
+
+def require_press_partial_proof(step, root, started):
+    """Exit 3 is a designed outcome only when this run's own receipt says so.
+
+    The retry receipt must be a current PARTIAL with a positive integer backlog.
+    Anything else (absent, unreadable, stale, PASS, nothing pending) is not the
+    budgeted-retrieval partial and raises, which the caller records as a FAIL.
+    """
+    from collect.press_receipt import parse_receipt_timestamp, ReceiptTimestampError
+    receipt = press_run_root(step, root) / PRESS_RETRY_RECEIPT
+    try:
+        document = json.loads(receipt.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as error:
+        raise RuntimeError('press exited 3 without a readable retry receipt: %s: %s'
+                           % (type(error).__name__, error)) from error
+    if not isinstance(document, dict):
+        raise RuntimeError('press exited 3 but its retry receipt is not a JSON object')
+    pending = document.get('pending_body_urls')
+    if document.get('status') != 'PARTIAL' or type(pending) is not int or pending <= 0:
+        raise RuntimeError('press exited 3 but its retry receipt is not a PARTIAL with a body backlog '
+                           '(status=%r pending_body_urls=%r)' % (document.get('status'), pending))
+    try:
+        completed = parse_receipt_timestamp(document.get('completed_at'))
+    except ReceiptTimestampError as error:
+        raise RuntimeError('press exited 3 but its retry receipt has no usable completed_at: %s' % error) from error
+    if completed.timestamp() < started - 1:   # 1 s: whole-second R stamps
+        raise RuntimeError('press exited 3 but its retry receipt predates this run (completed_at=%s)'
+                           % document.get('completed_at'))
+
+
+def press_intake_excusal(step, root):
+    """Would the intake gate accept this PARTIAL generation? Same test as weekly_refresh._press_partial_excused.
+
+    Read-only: build_press_engine_feed.inspect_run is the gate's own run test. Any
+    refusal, and any unexpected error, means the generation is not excused; it is
+    never a crash.
+    """
+    try:
+        from collect.build_press_engine_feed import inspect_run, ReceiptRejected
+    except Exception as error:
+        return {'intake_excused': False, 'intake_refusal_reason': 'INSPECT_UNAVAILABLE',
+                'intake_refusal_detail': type(error).__name__ + ': ' + str(error)[:300]}
+    try:
+        inspect_run(press_run_root(step, root))
+    except ReceiptRejected as error:
+        return {'intake_excused': False, 'intake_refusal_reason': error.reason,
+                'intake_refusal_detail': str(error.detail)[:300]}
+    except Exception as error:
+        return {'intake_excused': False, 'intake_refusal_reason': 'INSPECT_ERROR',
+                'intake_refusal_detail': type(error).__name__ + ': ' + str(error)[:300]}
+    return {'intake_excused': True}
+
+
+def reused_press_partial(step, root):
+    """The partial coverage behind a press exit 0, or None when the run is complete.
+
+    refresh_press_stream.current_source_run reuses a tombstone-excused same-day PARTIAL
+    run and returns 0 without walking again, so exit 0 alone does not mean a complete
+    generation. Exit 0 also means the wrapper already validated the run (valid_run), so
+    no freshness test applies here, unlike exit 3. Any read problem leaves the row PASS.
+    """
+    receipt = press_run_root(step, root) / PRESS_RETRY_RECEIPT
+    try:
+        document = json.loads(receipt.read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(document, dict) or document.get('status') != 'PARTIAL':
+        return None
+    partial = press_partial_details(step, root)
+    partial.update(press_intake_excusal(step, root))
+    partial['reused_same_day_receipt'] = True
+    return partial
+
+
+def parks_intake(row):
+    """True while a press row means the intake gate must not be handed this run's press directory."""
+    if row.get('status') == 'SKIPPED_SMOKE':
+        return True
+    return row.get('status') == 'PARTIAL' and (row.get('partial') or {}).get('intake_excused') is not True
 
 
 def smoke_sources(steps):
@@ -144,6 +242,12 @@ def park_remaining(steps, note):
     return [skipped_row(step.name, step.kind, 'SKIPPED_PARTIAL', note) for step in steps]
 
 
+def skip_after_failure(steps, failed):
+    """Rows for steps that never ran because an earlier step failed."""
+    note = 'not run: %s failed earlier in this run' % failed
+    return [skipped_row(step.name, step.kind, 'SKIPPED_AFTER_FAILURE', note) for step in steps]
+
+
 def summarize_partials(state):
     """A PASS receipt must name partial coverage and everything that did not run."""
     rows = [row for row in state.get('sources') or [] if row.get('status') == 'PARTIAL']
@@ -151,7 +255,7 @@ def summarize_partials(state):
     state['partial_sources'] = [row['source'] for row in rows]
     state['press_partial'] = next((row.get('partial') for row in rows if row['source'] == 'press'), None)
     state['parked_steps'] = [row['source'] for row in state.get('sources') or []
-                             if row.get('status') in ('SKIPPED_PARTIAL', 'SKIPPED_SMOKE')]
+                             if row.get('status') in ('SKIPPED_PARTIAL', 'SKIPPED_SMOKE', 'SKIPPED_AFTER_FAILURE')]
 
 
 def source_steps(today, last_success=None):
@@ -191,8 +295,9 @@ def press_steps(root, today):
     press_root = Path(root) / 'outputs' / ('press_refresh_' + today.strftime('%Y%m%d'))
     intake = 'data/engine/press_collection_intake_receipt.json'
     return [
+        # press step timeout 72000 s (20 h): must stay under the daily cadence
         Step('press', 'collect/refresh_press_stream.py',
-             ('--run-root', str(press_root), '--date-floor', '2026-06-25', '--workers', '4'), 129600, 'press'),
+             ('--run-root', str(press_root), '--date-floor', '2026-06-25', '--workers', '4'), 72000, 'press'),
         Step('press_intake', 'audit_collection.py',
              ('--scope', 'press', '--press-delta-root', str(press_root), '--output', intake)),
         Step('press_feed', 'collect/build_press_engine_feed.py', ('--intake-receipt', intake)),
@@ -279,17 +384,29 @@ def fetch_log_snapshot(root, table):
                 connection.execute('SELECT key,status,ts FROM ' + table)}
 
 
-def changed_log_errors(before, after):
+def changed_log_errors(before, after, step=None):
     # Empty/member-free days and source-attested terminal losses are explicit
-    # outcomes; anything else besides ok is an unresolved collection item.
-    terminal = {'ok', 'nosession', 'noep', 'empty', 'nopage', 'gone'}
+    # outcomes (TERMINAL_LOG_STATUSES); anything else is an unresolved item.
+    # The fetch-log tables are shared with other writers (the supervisor legs
+    # aei:/asf:/axf:/cfr:/csis:/hh:/antag:/antag2:), so with a step given only the
+    # keys its own collector writes count: crec:, chrg:, cnn:/cnnseg:, npr:/nprfeed:/
+    # nprtx:, pbs:/pbsseg:, fox:, msnow:, abc:, cbs:, mtp:. That is why the match is
+    # a prefix of the key's source part, not name + ':'.
+    name = getattr(step, 'name', step)
     return [{'key': key, 'status': status} for key, (status, stamp) in after.items()
-            if before.get(key) != (status, stamp) and status.lower() not in terminal]
+            if before.get(key) != (status, stamp) and status.lower() not in TERMINAL_LOG_STATUSES
+            and (name is None or key.split(':', 1)[0].startswith(name))]
+
+
+def completed_at_utc(document):
+    """The receipt's completed_at as an aware datetime; a naive stamp is UTC (the writers' contract)."""
+    completed = datetime.fromisoformat(str(document.get('completed_at') or '').replace('Z', '+00:00'))
+    return completed if completed.tzinfo is not None else completed.replace(tzinfo=timezone.utc)
 
 
 def require_receipt(path, schema, started):
     document = json.loads(Path(path).read_text(encoding='utf-8'))
-    completed = datetime.fromisoformat(str(document.get('completed_at') or '').replace('Z', '+00:00'))
+    completed = completed_at_utc(document)
     if (document.get('schema') != schema or document.get('status') != 'COMPLETE'
             or completed.timestamp() < started - 1):
         raise RuntimeError('source completion receipt is not current/COMPLETE: ' + str(path))
@@ -302,13 +419,13 @@ def validate_source(step, root, started, before):
     if step.kind in ('congress_record', 'interview'):
         table = 'cr_fetch_log' if step.kind == 'congress_record' else 'iv_fetch_log'
         after = fetch_log_snapshot(root, table)
-        errors = changed_log_errors(before, after)
+        errors = changed_log_errors(before, after, step)
         if step.name == 'crec':
             start = date.fromisoformat(step.args[step.args.index('--since') + 1])
             end = date.fromisoformat(step.args[step.args.index('--until') + 1])
             for offset in range((end - start).days + 1):
                 key = 'crec:CREC-' + (start + timedelta(days=offset)).isoformat()
-                if after.get(key, ('', ''))[0] not in ('ok', 'nosession'):
+                if after.get(key, ('', ''))[0].lower() not in TERMINAL_LOG_STATUSES:
                     if not any(row['key'] == key for row in errors):
                         errors.append({'key': key, 'status': after.get(key, ('MISSING', ''))[0]})
         result.update(error_count=len(errors), item_errors=errors, changed_items=sum(before.get(k) != v for k, v in after.items()))
@@ -347,10 +464,15 @@ def failure_diagnostics(step, root, started, before):
     """Retain current item counts even when a collector correctly exits nonzero."""
     result = {}
     if step.kind in ('congress_record', 'interview'):
-        table = 'cr_fetch_log' if step.kind == 'congress_record' else 'iv_fetch_log'
-        after = fetch_log_snapshot(root, table)
-        errors = changed_log_errors(before, after)
-        result.update(item_errors=errors, error_count=len(errors))
+        if before is None:
+            # The pre-run snapshot failed, so there is nothing to diff against:
+            # diffing against {} would charge every historical error key to this step.
+            result['diagnostic_error'] = 'pre-run collector log snapshot unavailable; log diff skipped'
+        else:
+            table = 'cr_fetch_log' if step.kind == 'congress_record' else 'iv_fetch_log'
+            after = fetch_log_snapshot(root, table)
+            errors = changed_log_errors(before, after, step)
+            result.update(item_errors=errors, error_count=len(errors))
     receipt = None
     if step.kind == 'bluesky':
         receipt = Path(root) / BLUESKY_RECEIPT
@@ -360,7 +482,7 @@ def failure_diagnostics(step, root, started, before):
         schema = 'interview-source-receipt-v1'
     if receipt is not None and receipt.is_file():
         document = json.loads(receipt.read_text(encoding='utf-8'))
-        completed = datetime.fromisoformat(str(document.get('completed_at') or '').replace('Z', '+00:00'))
+        completed = completed_at_utc(document)
         if document.get('schema') == schema and completed.timestamp() >= started - 1:
             count = sum(int(document.get(key) or 0) for key in
                         ('error_count', 'archive_page_failures', 'new_url_failures'))
@@ -371,15 +493,49 @@ def failure_diagnostics(step, root, started, before):
 
 
 def terminate_tree(process):
+    """Kill the child and its descendants. Bounded: a stuck taskkill or an unkillable child never hangs the run."""
     if os.name == 'nt':
-        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
-                       capture_output=True, check=False, creationflags=subprocess.CREATE_NO_WINDOW)
+        try:
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                           capture_output=True, check=False, timeout=60,
+                           creationflags=subprocess.CREATE_NO_WINDOW)
+        except subprocess.TimeoutExpired:
+            pass
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-    process.wait()
+    try:
+        process.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+
+
+def register_process(process, spec):
+    with _LIVE_LOCK:
+        _LIVE.append((process, spec))
+
+
+def unregister_process(process):
+    with _LIVE_LOCK:
+        _LIVE[:] = [item for item in _LIVE if item[0] is not process]
+
+
+def terminate_live_processes():
+    """Terminate every collector child still running. One failure never spares the others."""
+    with _LIVE_LOCK:
+        live = list(_LIVE)
+    for process, spec in live:
+        try:
+            if process.poll() is None:
+                terminate_tree(process)
+            compute_engine.reap(spec)
+        except Exception:
+            pass
 
 
 def run_process(step, root, log_path, environment):
@@ -391,13 +547,20 @@ def run_process(step, root, log_path, environment):
                                    stdout=handle, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
                                    start_new_session=os.name != 'nt')
+        register_process(process, spec)
         try:
+            if STOP.is_set():
+                # An interrupt began after this lane's check but before the child
+                # was registered, so the main thread's sweep could not see it.
+                raise RuntimeError('run interrupted before the collector was waited on')
             return process.wait(timeout=step.timeout)
         except BaseException:
             if process.poll() is None:
                 terminate_tree(process)
             compute_engine.reap(spec)
             raise
+        finally:
+            unregister_process(process)
 
 
 def execute_step(step, root, run_dir, environment, runner=run_process):
@@ -406,7 +569,7 @@ def execute_step(step, root, run_dir, environment, runner=run_process):
     row = {'source': step.name, 'kind': step.kind, 'status': 'FAIL', 'started_at': utc_now(),
            'command': [sys.executable, str(CODE / step.script), *step.args],
            'timeout_seconds': step.timeout, 'log': str(log_path), 'error_count': 0}
-    before = {}
+    before = None   # unknown until the pre-run snapshot succeeds; failure_diagnostics skips the log diff then
     try:
         if compute_engine.engine_of(step.script, ('collect',)) == 'container':
             row['engine'] = 'container'   # 'command' above is the host form; the run itself was compute_engine.launch's container
@@ -419,8 +582,14 @@ def execute_step(step, root, run_dir, environment, runner=run_process):
             # for the next pass. That per-run budget is deliberate, so the pass
             # is partial coverage rather than a failure: it neither raises nor
             # contributes to error_count, and the lane continues behind it.
+            # The exit code alone proves nothing, though: the retry receipt must
+            # show a current PARTIAL with a backlog, else this raises into FAIL.
             row['partial'] = press_partial_details(step, root)
+            require_press_partial_proof(step, root, started)
             row['status'] = 'PARTIAL'
+            # Whether the intake gate would accept this generation as it stands
+            # (every pending URL tombstoned) decides if the lane parks behind it.
+            row['partial'].update(press_intake_excusal(step, root))
         elif code:
             raise RuntimeError('source process exited ' + str(code))
         else:
@@ -428,6 +597,13 @@ def execute_step(step, root, run_dir, environment, runner=run_process):
             if row['error_count']:
                 raise RuntimeError('%d unresolved collector items despite process exit 0' % row['error_count'])
             row['status'] = 'PASS'
+            if step.name == 'press':
+                # A same-day rerun that reuses a tombstone-excused PARTIAL run exits 0,
+                # so the exit code cannot tell it from a complete run: read the receipt.
+                reused = reused_press_partial(step, root)
+                if reused is not None:
+                    row['partial'] = reused
+                    row['status'] = 'PARTIAL'
     except Exception as error:
         try:
             diagnostics = failure_diagnostics(step, root, started, before)
@@ -489,25 +665,35 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
                 state['heartbeat_at'] = utc_now()
                 summarize_partials(state)
                 write_json(root / RECEIPT, state)
-                pending = (row.get('partial') or {}).get('pending_body_urls')
+                partial = row.get('partial') or {}
+                pending = partial.get('pending_body_urls')
                 note = '' if pending is None else ' pending_body_urls=%s' % pending
+                if 'intake_excused' in partial:
+                    note += ' intake_excused=%s' % partial['intake_excused']
                 print('%s %s: %s (%ss)%s' % (utc_now(), row['source'], row['status'],
                                              row['duration_seconds'], note), flush=True)
 
         def lane(steps, continue_after_failure, park_on_partial=False):
             for position, step in enumerate(steps):
+                if STOP.is_set():
+                    break   # an interrupt is under way: launch nothing further
                 row = execute_step(step, root, run_dir, environment, runner)
                 record(row)
-                if row['status'] == 'PARTIAL' and park_on_partial:
-                    # Partial coverage is not a failure, but it is also not a
-                    # generation the intake gate may be handed. Park the rest of
-                    # the lane rather than feed it an open body backlog.
+                if park_on_partial and parks_intake(row):
+                    # Partial coverage the intake gate has not accepted is not a
+                    # generation it may be handed. Park the rest of the lane
+                    # rather than feed it an open body backlog. (An excused
+                    # PARTIAL falls through: the gate accepts it, so the lane runs.)
                     for parked in park_remaining(steps[position + 1:], deferred_intake_note(row)):
                         record(parked)
                     break
                 if row['status'] not in ('PASS', 'PARTIAL') and not continue_after_failure:
+                    for skipped in skip_after_failure(steps[position + 1:], step.name):
+                        record(skipped)
                     break
 
+        STOP.clear()
+        fatal = None
         try:
             write_json(root / RECEIPT, state)
             preflight_check(root)
@@ -517,8 +703,8 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
             if smoke:
                 # A smoke pass collects a credential-free source subset and runs
                 # every derived producer. The press lane is recorded as skipped:
-                # its collector is the 4-hour one and its intake gate governs the
-                # published feed, neither of which a shakeout should touch.
+                # its collector does budgeted body retrieval and its intake gate
+                # governs the published feed, neither of which a shakeout should touch.
                 sources = smoke_sources(sources)
                 skipped = [skipped_row(step.name) for step in press]
                 press = []
@@ -535,14 +721,23 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
             # SQLite writers. Successful press acceptance survives an unrelated
             # interview outage without authorizing a mixed-generation dashboard.
             with ThreadPoolExecutor(max_workers=2) as pool:
-                work = [pool.submit(lane, sources, True),
-                        pool.submit(lane, press, False, True)]
-                for future in work:
-                    future.result()
+                try:
+                    work = [pool.submit(lane, sources, True),
+                            pool.submit(lane, press, False, True)]
+                    for future in work:
+                        future.result()
+                except BaseException:
+                    # An interrupt lands here, in the main thread, while the
+                    # collectors are children of the workers, and leaving this
+                    # block waits for those workers. Stop new launches and kill
+                    # the live trees first, or the workers sit out their timeouts.
+                    STOP.set()
+                    terminate_live_processes()
+                    raise
             if not state['error_count']:
                 derived = derived_steps(root, today)
                 press_row = next((row for row in state['sources'] if row['source'] == 'press'
-                                  and row['status'] in ('PARTIAL', 'SKIPPED_SMOKE')), None)
+                                  and parks_intake(row)), None)
                 if press_row is not None:
                     # Same reason as the press lane: these steps name this run's
                     # press directory on their command line.
@@ -552,10 +747,18 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
                         record(parked)
                     derived = [step for step in derived if step.name not in PRESS_GATED_DERIVED]
                 lane(derived, False)
+            else:
+                failed = next((row['source'] for row in state['sources'] if row['error_count']), 'an earlier step')
+                for skipped in skip_after_failure(derived_steps(root, today), failed):
+                    record(skipped)
             state['status'] = 'FAIL' if state['error_count'] else 'PASS'
-        except Exception as error:
+        except BaseException as error:
             state.update(status='FAIL', error=type(error).__name__ + ': ' + str(error),
                          error_count=max(1, state['error_count']))
+            # An Exception ends in the FAIL receipt below and a return code; an
+            # interrupt (KeyboardInterrupt, SystemExit) is written the same way
+            # and then re-raised, so the process still dies the way it was told to.
+            fatal = None if isinstance(error, Exception) else error
         summarize_partials(state)
         state['completed_at'] = utc_now()
         write_json(run_dir / 'receipt.json', state)
@@ -569,6 +772,8 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
                           'partial_sources': state['partial_sources'],
                           'parked_steps': state['parked_steps'],
                           'receipt': str(root / RECEIPT)}), flush=True)
+        if fatal is not None:
+            raise fatal
         return 0 if state['status'] == 'PASS' else 1
 
 

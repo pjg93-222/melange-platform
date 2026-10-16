@@ -201,6 +201,8 @@ def build_candidate(
     members = {}
     paragraphs = {}
     omitted_claims = {}
+    defense_omitted = {}
+    cross_party_omitted = {}
     for name in sorted(legacy_members):
         source = (pre_longform_members[name]
                   if name in UNQUALIFIED_LONGFORM_MEMBERS else legacy_members[name])
@@ -209,9 +211,12 @@ def build_candidate(
             raise SystemExit(f"{name}: legacy profile has an empty paragraph")
         row, omissions = omit_unsupported_defense(row, evidence_members[name])
         row, cross_party = omit_unsupported_cross_party(row, evidence_members[name])
-        omissions += cross_party
         if omissions:
-            omitted_claims[name] = omissions
+            defense_omitted[name] = omissions
+        if cross_party:
+            cross_party_omitted[name] = cross_party
+        if omissions or cross_party:
+            omitted_claims[name] = omissions + cross_party
         issues = mechanical_issues(headed_text(row), name, evidence_members[name])
         if issues:
             raise SystemExit(f"{name}: current-evidence claim gate failed: {issues!r}")
@@ -251,7 +256,8 @@ def build_candidate(
         "evidence_source": str(evidence_path.relative_to(ROOT)).replace("\\", "/"),
         "evidence_sha256": sha256(evidence_path),
         "ratified_profiles_retained": 529 - len(set(omitted_claims) - UNQUALIFIED_LONGFORM_MEMBERS),
-        "unsupported_defense_omissions": omitted_claims,
+        "unsupported_defense_omissions": defense_omitted,
+        "unsupported_cross_party_omissions": cross_party_omitted,
         "profiles_with_omissions": len(omitted_claims),
         "pre_longform_profiles_retained_pending_review": sorted(UNQUALIFIED_LONGFORM_MEMBERS),
         "current_evidence_gate_pass": 533,
@@ -263,7 +269,8 @@ def build_candidate(
         ),
         "adjudication": (
             "Previously ratified source prose retained except for the recorded whole-sentence "
-            "omissions when the current repeated-defensive evidence gate is absent. No new "
+            "omissions when the current repeated-defensive evidence gate or the cross-party "
+            "cooperation measure is absent. No new "
             "narrative prose is generated. Four profiles "
             "with candidate-only long-form claims use their pre-long-form reviewed prose until "
             "source-bound review passes. Deterministic source, scope, missing-measure, and "
@@ -293,14 +300,16 @@ def build_candidate(
             "legacy_profiles_retained": 533 - len(omitted_claims),
             "ratified_profiles_retained": 529 - len(set(omitted_claims) - UNQUALIFIED_LONGFORM_MEMBERS),
             "profiles_with_omissions": len(omitted_claims),
-            "unsupported_defense_sentences_omitted": sum(map(len, omitted_claims.values())),
+            "unsupported_defense_sentences_omitted": sum(map(len, defense_omitted.values())),
+            "unsupported_cross_party_sentences_omitted": sum(map(len, cross_party_omitted.values())),
             "pre_longform_profiles_retained_pending_review": 4,
             "meeting_playbooks": 533,
             "new_human_audio_reviews": 0,
             **audio_counts,
         },
         "review_contract": provenance["legacy_profile_refresh_20260908"]["adjudication"],
-        "unsupported_defense_omissions": omitted_claims,
+        "unsupported_defense_omissions": defense_omitted,
+        "unsupported_cross_party_omissions": cross_party_omitted,
         "audio_contract": provenance["legacy_profile_refresh_20260908"]["audio_contract"],
     }
     return candidate, receipt
@@ -334,11 +343,15 @@ def main() -> int:
         if args.artifact.resolve() != DEFAULT_ACTIVE.resolve():
             raise SystemExit("--activate is allowed only for the canonical root artifact")
         args.backup.parent.mkdir(parents=True, exist_ok=True)
-        if not args.backup.exists():
-            shutil.copy2(args.artifact, args.backup)
+        backup = args.backup
+        if backup.exists() and sha256(backup) != sha256(args.artifact):
+            backup = backup.with_name(
+                f"{backup.stem}.{dt.datetime.now(dt.timezone.utc):%Y%m%dT%H%M%SZ}{backup.suffix}")
+        if not backup.exists():
+            shutil.copy2(args.artifact, backup)
         os.replace(args.candidate_out, args.artifact)
         receipt["active_artifact_sha256"] = sha256(args.artifact)
-        receipt["backup_path"] = str(args.backup.relative_to(ROOT)).replace("\\", "/")
+        receipt["backup_path"] = str(backup.relative_to(ROOT)).replace("\\", "/")
         dump_atomic(receipt, args.receipt)
         print(
             json.dumps(

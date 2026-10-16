@@ -2,9 +2,8 @@ import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.pa
 import moneyball_core as MBC
 import json, sys, math, collections, random, statistics, openpyxl
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
-random.seed(3)
-WM,WP=0.6,0.4; CAP=50000
-PRO={'Champion','Ally'}; ANTI={'Opponent','Skeptic'}
+random.seed(3); WM,WP=0.6,0.4; CAP=50000
+PRO={'Champion','Ally'}; ANTI={'Opponent','Highly Skeptical','Skeptic'}
 C={m['member']:m for m in json.load(open(MB_ROOT+r'\data\engine\congestion.json'))}
 bio2name={m['bioguide']:m['member'] for m in C.values() if m['bioguide']}
 wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
@@ -13,7 +12,7 @@ stance={ra.cell(r,1).value:ra.cell(r,7).value for r in range(3,536) if ra.cell(r
 rank={bm.cell(r,1).value:bm.cell(r,20).value for r in range(3,536) if bm.cell(r,1).value}
 members=[m['member'] for m in C.values()]
 ind={n:(C[n]['banks'] or 0)+(C[n]['finserv'] or 0) for n in members}; cu={n:(C[n]['cu'] or 0) for n in members}
-st={n:stance.get(n,'Neutral') for n in members}
+st={n:stance.get(n,'True Neutral') for n in members}
 camp={n:('pro' if st[n] in PRO else 'anti' if st[n] in ANTI else 'neu') for n in members}
 adj=MBC.load_network()
 nbrA={n:sum(w for u,w in adj[n].items() if camp[u]=='pro') for n in members}
@@ -23,10 +22,11 @@ moneyscale=max(max(math.sqrt(cu[n]+CAP) for n in members),max(math.sqrt(ind[n]+1
 def pflip(n,al=0):
     a=WM*math.sqrt(cu[n]+al+1)/moneyscale+WP*nbrA[n]/mA; b=WM*math.sqrt(ind[n]+1)/moneyscale+WP*nbrB[n]/mB
     return a/(a+b) if a+b>0 else 0
-order=['Champion','Ally','Neutral','Unengaged','Skeptic','Opponent']
+order=['Champion','Ally','Highly Persuadable','Persuadable','Lean Persuadable','True Neutral','Lean Skeptic','Skeptic','Highly Skeptical','Opponent']  # R&A col G 10-rung ladder (= money_response.ORDER)
 print('=== M1 FLIP CALIBRATION: baseline P_flip by stance (expect MONOTONIC decreasing) ===')
 pf=collections.defaultdict(list); rk=collections.defaultdict(list)
 for n in members: pf[st[n]].append(pflip(n)); rk[st[n]].append(rank[n] or 999)
+order=[s for s in order if pf[s]]  # skip empty rungs (statistics.mean([]) raises)
 for s in order:
     print('   %-10s n=%3d  mean P %.3f   mean rank %3.0f'%(s,len(pf[s]),statistics.mean(pf[s]),statistics.mean(rk[s])))
 allp=[pflip(n) for n in members]
@@ -34,7 +34,7 @@ mono=all(statistics.mean(pf[order[i]])>=statistics.mean(pf[order[i+1]])-0.02 for
 print('   monotonic(P): %s | median P %.3f | FIXED common money scale %.1f (was asymmetric 295 vs 422)'%(mono,statistics.median(allp),moneyscale))
 # spearman P vs stance ordinal
 so={s:i for i,s in enumerate(order)}
-xs=[so[st[n]] for n in members]; ys=[pflip(n) for n in members]
+xs=[so[st[n]] for n in members if st[n] in so]; ys=[pflip(n) for n in members if st[n] in so]
 def spear(a,b):
     ra_=sorted(range(len(a)),key=lambda i:a[i]); rb=sorted(range(len(b)),key=lambda i:b[i])
     rka=[0]*len(a); rkb=[0]*len(b)
@@ -64,7 +64,7 @@ comm={'American Bankers Assn':(['C00004275'],2917903),'JPMorgan Chase':(['C00104
 'Wells Fargo':(['C00034595','C00300178','C00429852'],2978057),'Bank of America':(['C00043489','C00364778'],2694456),
 'Citigroup':(['C00008474','C00039305'],1488140)}
 pac=collections.defaultdict(float)
-for line in open('itpas2.txt',encoding='latin-1'):
+for line in open(MB_ROOT+r'\fec\itpas2.txt',encoding='latin-1'):
     p=line.split('|')
     if len(p)<17 or p[5] not in ('24K','24Z') or (len(p)>19 and p[19]=='X'): continue
     pac[p[0]]+=0 if not p[14] else float(p[14] or 0)
