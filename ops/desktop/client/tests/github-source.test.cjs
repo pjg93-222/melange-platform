@@ -70,12 +70,15 @@ test('GitHub source reuses signed baseline, hash checks and native activation wi
 });
 test('GitHub network redirects stay on HTTPS asset hosts, never forward credentials, and metadata is bounded',async t=>{
  const https=require('node:https'),original=https.request,requests=[];let mode='cdn',hops=0;
- https.request=(url,options,callback)=>{requests.push({url:url.href,options});const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>setImmediate(()=>{const stream=Readable.from(mode==='large'?Buffer.alloc(100):Buffer.from('{}'));stream.statusCode=(mode==='cdn'&&hops++===0)||mode==='bad'||mode==='loop'||mode==='api'?302:200;stream.headers=stream.statusCode===302?{location:mode==='bad'?'https://evil.example/steal':mode==='api'?'https://api.github.com/other':'https://release-assets.githubusercontent.com/fixture?signature=opaque'}:{};callback(stream);});request.destroy=error=>request.emit('error',error);return request;};t.after(()=>{https.request=original;});
+ https.request=(url,options,callback)=>{requests.push({url:url.href,options});const request=new EventEmitter();request.setTimeout=()=>{};request.end=()=>setImmediate(()=>{const stream=Readable.from(mode==='large'?Buffer.alloc(100):Buffer.from(mode==='secondary'?'You have exceeded a secondary rate limit':'{}'));stream.statusCode=mode==='quota'?429:['secondary','forbidden'].includes(mode)?403:(mode==='cdn'&&hops++===0)||mode==='bad'||mode==='loop'||mode==='api'?302:200;stream.headers=mode==='quota'?{'retry-after':'3600'}:stream.statusCode===302?{location:mode==='bad'?'https://evil.example/steal':mode==='api'?'https://api.github.com/other':'https://release-assets.githubusercontent.com/fixture?signature=opaque'}:{};callback(stream);});request.destroy=error=>request.emit('error',error);return request;};t.after(()=>{https.request=original;});
  assert.deepEqual(await json('https://github.com/'+repo+'/releases/download/desktop-v1.0.0/fixture.json',{asset:true}),{});
  assert.equal(requests.length,2);for(const {options} of requests){assert.equal(options.rejectUnauthorized,true);assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);}
  mode='bad';await assert.rejects(response('https://github.com/'+repo+'/asset',{asset:true}),/refused/);
  mode='api';await assert.rejects(response('https://api.github.com/repos/'+repo+'/releases'),/redirect/);
  mode='loop';await assert.rejects(response('https://github.com/'+repo+'/asset',{asset:true}),/redirect/);
  mode='large';await assert.rejects(json('https://api.github.com/repos/'+repo+'/releases',{maxBytes:10}),/limit/);
+ mode='quota';await assert.rejects(response('https://api.github.com/repos/'+repo+'/releases'),error=>error.githubRateLimit===true&&error.retryAfter==='3600');
+ mode='secondary';await assert.rejects(response('https://api.github.com/repos/'+repo+'/releases'),error=>error.githubRateLimit===true);
+ mode='forbidden';await assert.rejects(response('https://api.github.com/repos/'+repo+'/releases'),error=>!error.githubRateLimit&&/403/.test(error.message));
  for(const url of ['http://github.com/asset','https://github.com.evil.test/asset','https://user:pass@github.com/asset','https://github.com:444/asset'])assert.throws(()=>checkedURL(url,true));
 });

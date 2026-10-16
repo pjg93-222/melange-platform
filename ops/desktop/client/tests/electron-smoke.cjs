@@ -15,6 +15,10 @@ BrowserWindow.prototype.show=function(){};BrowserWindow.prototype.focus=function
 require('../main.cjs');
 let timer=setTimeout(()=>{process.stderr.write('Electron setup smoke timed out\n');app.exit(1);},30000);
 app.whenReady().then(async()=>{
+  const {DiscoveryCache}=require('../github-discovery.cjs');
+  const cacheOptions={directory:path.join(temporary,'shared-discovery'),repository:'fixture/release',validate:value=>value};
+  assert.deepEqual(await new DiscoveryCache(cacheOptions).get(async()=>[]),[]);
+  assert.deepEqual(await new DiscoveryCache(cacheOptions).get(async()=>{throw new Error('Cached empty result was not reused');}),[]);
   for(let attempt=0;attempt<100;attempt++){
     const window=BrowserWindow.getAllWindows().find(item=>item.webContents.getURL().endsWith('/setup.html'));
     if(window&&!window.webContents.isLoading()&&window.webContents.getURL().endsWith('/setup.html')){
@@ -23,7 +27,7 @@ app.whenReady().then(async()=>{
       assert.equal(preferences.nodeIntegration,false);assert.equal(preferences.contextIsolation,true);assert.equal(preferences.sandbox,true);assert.equal(preferences.webSecurity,true);
       const result=await window.webContents.executeJavaScript('({nodeExposed:typeof process!=="undefined",body:document.body.textContent,desktopExposed:typeof window.desktop})');
       assert.equal(result.nodeExposed,false);assert.equal(result.desktopExposed,'object');assert.match(result.body,/Terrier/);
-      process.stdout.write(JSON.stringify({uiShellLaunched:true,sandbox:true,nodeIntegration:false,isolatedPreload:true,nativeBackendAccepted:false})+'\n');
+      process.stdout.write(JSON.stringify({uiShellLaunched:true,sandbox:true,nodeIntegration:false,isolatedPreload:true,sharedDiscoveryCache:true,nativeBackendAccepted:false})+'\n');
       clearTimeout(timer);app.quit();return;
     }
     await new Promise(resolve=>setTimeout(resolve,100));
