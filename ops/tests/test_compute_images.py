@@ -72,6 +72,7 @@ def test_downloads_and_apt_are_pinned():
     assert re.fullmatch(r"\d{8}T\d{6}Z", arg("DEBIAN_SNAPSHOT"))
     assert DOCKERFILE.count("http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/") == 1
     assert DOCKERFILE.count("http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}/") == 1
+    assert arg("DEBIAN_SNAPSHOT") >= "20261017T000000Z" and "apt-get upgrade -y" in DOCKERFILE      # D-181: first snapshot holding the fixed libcurl, libexpat and chromium
     assert "deb.debian.org" not in DOCKERFILE
     # Chromium is an exact version, and the apt line uses it
     assert re.fullmatch(r"\d+(\.\d+){3}-\d+~deb13u\d+", arg("CHROMIUM_VERSION"))

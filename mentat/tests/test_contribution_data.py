@@ -199,8 +199,9 @@ class ContributionQueryTests(unittest.TestCase):
             c._record({**row,'contribution_receipt_date':'2024-02-30'},{},None)
 
     def test_running_process_cannot_label_old_imports_as_new_code(self):
+        # _token captures the workbook's publication first; a plain (legacy) name reaches the accounting-rule check.
         with patch.object(c,'LOADED_RULE_STAMPS',[]):
-            with self.assertRaisesRegex(ValueError,'Restart the app'):c._token({})
+            with self.assertRaisesRegex(ValueError,'Restart the app'):c._token({'workbook':Path(self.tmp.name)/'workbook'})
 
     def test_evidence_epoch_ignores_read_locks_but_tracks_nonempty_wal(self):
         root=Path(self.tmp.name);evidence=root/'state/cross-reference/evidence.sqlite'

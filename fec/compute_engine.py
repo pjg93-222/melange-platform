@@ -23,6 +23,12 @@ the diagnostics have no parity evidence.  The visible-Chrome congress.gov cookie
 Container mode never guesses: the image is the env override (IMAGE_COMPUTE_*, a digest reference) else the verified current
 manifest (`python ops/release_lib/current.py image <name>`), else EngineError and nothing starts.  Inside a container every
 phase resolves to 'windows' (the -e flags built here), so a container never tries to start a sibling container.
+
+Secrets (Paul 2026-10-18): a *_FILE_HOST variable the caller already set is used as given.  One it left unset is staged by
+launch() on the container path only (never on the host): the key goes into a one-line file in a per-run folder that only this
+user can read, found where the Windows collectors find it; release() / reap() delete the folder when the run ends and the next
+staging sweeps a crash leftover.  The CLI login is not copied: its own file is mounted read-only.  No key value is ever put in
+an argument, an environment value launch() returns, an error message or a log line.
 """
 import collections
 import json
@@ -33,6 +39,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 import paths
@@ -50,6 +57,9 @@ IMAGE_RE = re.compile(r'^[a-z0-9][a-z0-9./_-]*@sha256:[0-9a-f]{64}$')   # same s
 FORWARD = ('BILLSTATUS_BULK_REFRESH', 'COSPONSOR_FORECAST_REFRESH', 'MELANGE_TODAY', 'PYTHONUTF8', 'PYTHONUNBUFFERED')
 SECRET_VARS = {'collect': ('GOVINFO_KEY_FILE_HOST', 'FEC_DATA_GOV_FILE_HOST'), 'llm': ('CLAUDE_CREDENTIALS_FILE_HOST',)}
 ALL_SECRET_VARS = ('GOVINFO_KEY_FILE_HOST', 'FEC_DATA_GOV_FILE_HOST', 'CLAUDE_CREDENTIALS_FILE_HOST')
+SECRET_FILE = {'GOVINFO_KEY_FILE_HOST': 'govinfo_key', 'FEC_DATA_GOV_FILE_HOST': 'fec_data_gov'}   # names in a run's folder (the compose secret names)
+KEYS_JSON = ('OneDrive', 'Desktop', 'API Keys', 'keys.json')   # under the home dir: the --key-file default of refresh_fec_money.py:162
+SECRET_TTL = 6 * 3600   # a staged folder this old is a crash leftover: a secret is read when its container starts, seconds after staging
 
 SERVICES = {
     'collect': dict(phase='collect', compose='collectors.compose.yaml', profile='collect',
@@ -167,8 +177,113 @@ def _glassbox():
     return os.environ.get('GLASSBOX_EVENTS_DIR') or os.path.join(os.path.expanduser('~'), '.claude', 'glassbox', 'events')
 
 
+def _secret_root():
+    return os.path.join(tempfile.gettempdir(), 'melange-secrets')   # under the user profile, so Docker Desktop can bind-mount it
+
+
+def _key_line(var, root, environ):
+    """The key a Windows collector would use for `var`, looked up as it does (the environment, then its file): -> the one line
+    as bytes, or None for any problem (absent, unreadable, blank, more than one line).  Nothing read is ever put in a message."""
+    try:
+        if var == 'GOVINFO_KEY_FILE_HOST':          # fetch_congressional_record.py:33
+            value = environ.get('GOVINFO_KEY')
+            if not value:
+                with open(os.path.join(root, 'fec', 'govinfo_key.txt'), encoding='utf-8-sig') as handle:
+                    value = handle.read()
+        else:                                       # refresh_fec_money.py:165-166
+            value = environ.get('FEC_API_KEY')
+            if not value:
+                with open(os.path.join(os.path.expanduser('~'), *KEYS_JSON), encoding='utf-8') as handle:
+                    value = json.load(handle)['data_gov']['keys'][0]
+        value = value.strip()
+        return value.encode('utf-8') if value and len(value.splitlines()) == 1 else None
+    except (OSError, ValueError, LookupError, TypeError, AttributeError):
+        return None
+
+
+def _private_dir(name):
+    """A new folder for one run's secret files that only this user can read; sweeps the crash leftovers of earlier runs first."""
+    parent = _secret_root()
+    os.makedirs(parent, mode=0o700, exist_ok=True)
+    if os.path.islink(parent) or os.path.isjunction(parent):    # a planted link would send the keys, and the sweep, elsewhere
+        raise EngineError('%s is a symbolic link or junction; not running' % parent)
+    for old in os.listdir(parent):
+        try:
+            if time.time() - os.path.getmtime(os.path.join(parent, old)) > SECRET_TTL:
+                shutil.rmtree(os.path.join(parent, old), ignore_errors=True)
+        except OSError:
+            pass
+    path = os.path.join(parent, name)
+    os.mkdir(path, 0o700)                           # POSIX: owner only.  Windows ignores the mode, so the ACL below does it
+    if os.name == 'nt':
+        user = os.environ.get('USERNAME')
+        if not user:
+            raise EngineError('USERNAME is not set, so %s cannot be restricted to the current user; not running' % path)
+        user = '%s\\%s' % (os.environ['USERDOMAIN'], user) if os.environ.get('USERDOMAIN') else user
+        # Inheritance off and this user the only entry; the files created inside inherit it.  Python's own mkdir(0o700) ACL (3.12.4+)
+        # and the parent's both carry SYSTEM, Administrators and OWNER RIGHTS (*S-1-5-18, *S-1-5-32-544, *S-1-3-4): removed as well.
+        try:
+            done = run_bounded(['icacls', path, '/inheritance:r', '/remove:g', '*S-1-5-18', '*S-1-5-32-544', '*S-1-3-4',
+                                '/grant:r', user + ':(OI)(CI)F'], timeout=60)
+        except (OSError, subprocess.SubprocessError) as error:
+            raise EngineError('could not restrict %s to the current user (%s); not running' % (path, type(error).__name__))
+        if done.returncode != 0:
+            raise EngineError('could not restrict %s to the current user (icacls exit %s); not running' % (path, done.returncode))
+    return path
+
+
+def _stage_secrets(service, root, environ, name):
+    """Container path only: -> {VAR: path} for the secret-file variables of `service` that `environ` does not already set.
+    GOVINFO_KEY_FILE_HOST and FEC_DATA_GOV_FILE_HOST name a one-line file written into this run's private folder; the folder is
+    named for the container (`name`) so release() / reap() find it.  CLAUDE_CREDENTIALS_FILE_HOST names the CLI's own login file
+    (D-179: Compose mounts it read-only; it is not copied).  The caller (launch) deletes the folder if anything after this fails."""
+    staged, folder = {}, None
+    for var in SECRET_VARS.get(service, ()):
+        if (environ.get(var) or '').strip():
+            continue                                # the caller's own file (collectors_replay, a test) wins
+        if var == 'CLAUDE_CREDENTIALS_FILE_HOST':
+            staged[var] = os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json')
+            continue
+        line = _key_line(var, root, environ)
+        if line is None:
+            raise EngineError('%s is unset and no usable one-line key was found in %s; not running' % (
+                var, 'GOVINFO_KEY or fec/govinfo_key.txt' if var == 'GOVINFO_KEY_FILE_HOST'
+                else 'FEC_API_KEY or data_gov.keys[0] of ~/' + '/'.join(KEYS_JSON)))
+        folder = folder or _private_dir(name)
+        path = staged[var] = os.path.join(folder, SECRET_FILE[var])
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, 'O_BINARY', 0), 0o600)
+            with os.fdopen(fd, 'wb') as handle:
+                handle.write(line + b'\n')
+        except OSError as error:
+            raise EngineError('could not write %s (%s); not running' % (path, type(error).__name__))
+    return staged
+
+
+def _drop(name):
+    """Delete the secret folder staged for container `name`.  Never raises; a `name` that is not a plain folder name directly under
+    the secret root is ignored, so a bad name cannot reach anything else."""
+    try:
+        parent = _secret_root()
+        path = os.path.join(parent, name)
+        if name and os.path.dirname(os.path.abspath(path)) == os.path.abspath(parent):
+            shutil.rmtree(path, ignore_errors=True)
+            if os.path.exists(path):
+                print('melange-secrets: %s could not be deleted; the next staging sweeps it' % path, file=sys.stderr)
+    except Exception:
+        pass
+
+
+def release(spec):
+    """Delete the secret files launch() staged for `spec`: a no-op on the host engine and on a second call; never raises.  reap()
+    calls it; a caller that does not reap on a normal exit calls it on every path."""
+    if spec.container:
+        _drop(spec.container)
+
+
 def _compose_env(service, root, environ):
-    """The environment `docker compose` needs to parse the service's file.  Variables already set win; secrets are never derived."""
+    """The environment `docker compose` needs to parse the service's file.  Variables already set win (launch stages the secret
+    files before this runs, so they are set by now); a secret file that still does not exist is an error, never a guess."""
     spec, env = SERVICES[service], dict(environ)
     derived = {spec['image_var']: image(spec['image'], spec['image_var'], root, environ)}
     if spec['compose'] == 'melange.compose.yaml':
@@ -182,7 +297,7 @@ def _compose_env(service, root, environ):
         for var in ALL_SECRET_VARS:
             if var in SECRET_VARS[service]:
                 if not os.path.isfile(env.get(var) or ''):
-                    raise EngineError('the %s service needs %s to name an existing secret file (the job wrapper sets it); not running'
+                    raise EngineError('the %s service needs %s to name an existing secret file (the caller sets it, or launch() stages it); not running'
                                       % (service, var))
             else:
                 derived[var] = empty
@@ -207,7 +322,10 @@ def engine_of(script, phases=PHASES):
 def launch(script, arguments, *, phases=PHASES, root=None, cwd=None, environ=None):
     """How to start one producer: -> Launch.  `script` is its path on this host, `arguments` what follows it, `environ` the
     environment the host child would get (None: this process's).  On the host this is [sys.executable, script, *arguments]
-    and env None -- exactly the command the callers built before this module existed."""
+    and env None -- exactly the command the callers built before this module existed.
+
+    On the container path a secret-file variable the caller did not set is staged here (_stage_secrets), so the caller MUST call
+    release(spec) or reap(spec) when the run ends, on every path; a launch() that raises has already taken its files back."""
     host = Launch([sys.executable, script, *arguments], None, None, None)
     if engine_of(script, phases) != 'container':
         return host
@@ -222,29 +340,38 @@ def launch(script, arguments, *, phases=PHASES, root=None, cwd=None, environ=Non
     compose = os.path.join(root, 'ops', 'compute', SERVICES[service]['compose'])
     if not os.path.isfile(compose):
         raise EngineError('%s does not exist: the container engine needs the compose files of this tree' % compose)
-    env = _compose_env(service, root, environ)
     name = _container_name(service)
-    argv = ['docker', 'compose', '-f', compose, '--profile', SERVICES[service]['profile'], 'run', '--rm', '-T', '--name', name,
-            '-w', posixpath.normpath('/melange/' + _rel(root, cwd or os.path.dirname(script)))]
-    for key in KEYS:
-        argv += ['-e', '%s%s=windows' % (ENV_PREFIX, key.upper())]
-    for key in FORWARD:
-        if environ.get(key):
-            argv += ['-e', '%s=%s' % (key, environ[key])]
-    argv += [service, 'python', '/melange/' + _rel(root, script), *[str(a) for a in arguments]]
+    svc = SERVICES[service]
+    # The image first: a run that cannot start never stages a key.  _compose_env finds the resolved reference here and checks it again.
+    environ = {**environ, svc['image_var']: image(svc['image'], svc['image_var'], root, environ)}
+    try:
+        env = _compose_env(service, root, {**environ, **_stage_secrets(service, root, environ, name)})
+        argv = ['docker', 'compose', '-f', compose, '--profile', SERVICES[service]['profile'], 'run', '--rm', '-T', '--name', name,
+                '-w', posixpath.normpath('/melange/' + _rel(root, cwd or os.path.dirname(script)))]
+        for key in KEYS:
+            argv += ['-e', '%s%s=windows' % (ENV_PREFIX, key.upper())]
+        for key in FORWARD:
+            if environ.get(key):
+                argv += ['-e', '%s=%s' % (key, environ[key])]
+        argv += [service, 'python', '/melange/' + _rel(root, script), *[str(a) for a in arguments]]
+    except BaseException:
+        _drop(name)                                 # nothing was started: take back any secret file staged for it
+        raise
     return Launch(argv, env, name, phase)
 
 
 def reap(spec):
     """Stop, then remove, a container whose client was killed (a timeout, Ctrl-C).  --rm already removed one that ended; this is best effort.
 
-    The stop gives the chain a SIGTERM and 30 s to unwind (release its lease) before the force-remove."""
+    The stop gives the chain a SIGTERM and 30 s to unwind (release its lease) before the force-remove.  The container's secret
+    files (if launch staged any) are deleted last, once nothing can still have them mounted."""
     if spec.container:
         for argv, limit in ((['docker', 'stop', '-t', '30', spec.container], 90), (['docker', 'rm', '-f', spec.container], 60)):
             try:
                 run_bounded(argv, timeout=limit, start_new_session=os.name != 'nt')
             except Exception:
                 pass
+        release(spec)
 
 
 def office_view(root=None, timeout=3600):

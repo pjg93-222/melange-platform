@@ -12,7 +12,7 @@ k=rsa.generate_private_key(public_exponent=65537,key_size=2048)
 n=x509.Name([x509.NameAttribute(NameOID.COMMON_NAME,'dataset-fixture')]);now=datetime.datetime.now(datetime.timezone.utc)
 c=x509.CertificateBuilder().subject_name(n).issuer_name(n).public_key(k.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(hours=1)).sign(k,hashes.SHA256())
 print(json.dumps({'key':k.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()).decode(),'cert':c.public_bytes(serialization.Encoding.PEM).decode()}))
-`],{windowsHide:true,encoding:'utf8',timeout:10000});assert.equal(generated.status,0,'TLS fixture failed');const material=JSON.parse(generated.stdout);
+`],{windowsHide:true,encoding:'utf8',timeout:10000});assert.equal(generated.status,0,'TLS fixture failed: '+String(generated.stderr));const material=JSON.parse(generated.stdout);
  let mode='json',hits=0;const sockets=new Set();
  const server=https.createServer(material,(_request,response)=>{hits++;
   if(mode==='redirect'){response.writeHead(302,{'Content-Length':0,Location:'/v1/data/catalog?after=0&limit=25'});response.end();return;}

@@ -2207,7 +2207,9 @@ def discover_one(
                 )
                 if program["status"] in {"exact_timed_captions", "candidate_asr_required"}:
                     return program
-            except (RecoveryError, OSError, urllib.error.URLError, ValueError) as exc:
+            except RecoveryError:
+                pass
+            except (OSError, urllib.error.URLError, ValueError) as exc:
                 fallback_errors.append(str(exc)[:500])
         if dt.date(2009, 7, 2) <= date_value <= dt.date(2024, 10, 5):
             try:
@@ -2217,7 +2219,11 @@ def discover_one(
                 )
                 if archive["status"] in {"exact_timed_captions", "candidate_asr_required"}:
                     return archive
-            except (RecoveryError, OSError, urllib.error.URLError, ValueError) as exc:
+            except RecoveryError:
+                # A deterministic miss (for example a transcript turn that is too
+                # short) is final for this row, so it must not become retryable.
+                pass
+            except (OSError, urllib.error.URLError, ValueError) as exc:
                 # The GDELT TV endpoint is intermittently reset-prone.  Exact
                 # official episode feeds remain a valid independent resolver;
                 # do not discard them merely because the optional archive
@@ -2227,11 +2233,11 @@ def discover_one(
             feed = discover_fox_sunday(record, shared["fox_by_date"])
             if feed["status"] == "exact_episode_asr_required":
                 return feed
-        if inline_error:
+        if inline_error or fallback_errors:
             return media_result(
                 "probe_error",
                 "fox_inline_partial",
-                "official Fox crawler page could not be read and no exact fallback resolved it",
+                "Fox inline page or a transport-level fallback failed and no exact source resolved it",
                 evidence={"page_error": inline_error, "fallback_errors": fallback_errors},
             )
         return inline

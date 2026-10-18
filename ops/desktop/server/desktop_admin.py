@@ -710,6 +710,25 @@ class BoundedServer(ThreadingHTTPServer):
             self.slots.release()
 
 
+def open_dashboard_window(url):
+    # Edge (else Chrome) --app window on its own profile, as Mentat's Start-MentatApp.ps1 does.
+    # Browser paths come from HKLM App Paths, not the launching environment; otherwise the default browser.
+    import webbrowser, winreg
+    profile = os.environ.get('LOCALAPPDATA')
+    for name in ('msedge.exe', 'chrome.exe'):
+        if not profile: break
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, 'SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\' + name) as key:
+                browser = winreg.QueryValue(key, None)
+            subprocess.Popen([browser, '--app=' + url, '--user-data-dir=' + os.path.join(profile, 'Melange', 'admin-browser'),
+                              '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--disable-sync',
+                              '--disable-background-networking', '--disable-component-update'],
+                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return
+        except OSError: continue
+    webbrowser.open(url)
+
+
 def main(argv=None):
     # Avoid packaged-host AppData virtualization and redirected/synced known folders.
     default = Path.home() / "Documents" / "MelangeDesktopAdmin"
@@ -785,7 +804,6 @@ def main(argv=None):
             from access_store import AccessStore
             print(json.dumps(AccessStore(store).descriptor(args.url), indent=2))
         elif args.command == 'access-dashboard':
-            import webbrowser
             from access_store import AccessStore
             from admin_dashboard import create_server, SessionCapacityReached
             from dashboard_instance import DashboardInstance, ReopenLimit
@@ -805,7 +823,7 @@ def main(argv=None):
                 def reopen_dashboard():
                     try: fresh_url = server.fresh_bootstrap_url()
                     except SessionCapacityReached: return False
-                    webbrowser.open(fresh_url)
+                    open_dashboard_window(fresh_url)
                     return True
                 instance.start(reopen_dashboard)
                 print('Local application approval dashboard opened. No approval keys are logged.', flush=True)
@@ -814,7 +832,7 @@ def main(argv=None):
                 lifetime.daemon = True
                 lifetime.start()
                 try:
-                    if not args.background: webbrowser.open(url)
+                    if not args.background: open_dashboard_window(url)
                     server.serve_forever()
                 finally:
                     lifetime.cancel()

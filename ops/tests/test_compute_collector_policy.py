@@ -73,6 +73,8 @@ def test_installs_are_pinned_hashed_and_signature_checked():
     for arg in ("PLAYWRIGHT_VERSION", "CLAUDE_CODE_VERSION"):
         assert re.search(rf"^ARG {arg}=\d+\.\d+\.\d+$", DOCKERFILE, re.M), arg
     assert "snapshot.debian.org/archive/debian-security/" in DOCKERFILE and "grep -q" in DOCKERFILE   # dated archive, guarded
+    snapshot = re.search(r"^ARG DEBIAN_SNAPSHOT=(\d{8}T\d{6}Z)$", DOCKERFILE, re.M).group(1)
+    assert snapshot >= "20261017T000000Z" and "apt-get upgrade -y" in DOCKERFILE      # D-181: first snapshot holding the fixed libcurl, libexpat and chromium
 
 
 def test_claude_pin_matches_the_version_installed_on_the_laptop_when_it_can_be_read():

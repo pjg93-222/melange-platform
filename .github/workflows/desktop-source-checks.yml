@@ -40,10 +40,10 @@ jobs:
       - name: Install client dependencies from lockfile
         working-directory: ops/desktop/client
         run: npm ci
+      - name: Install publisher test dependencies
+        run: python -m pip install -r ops/desktop/server/requirements.txt pytest==8.4.2
       - name: Test desktop receiver
         working-directory: ops/desktop/client
         run: npm test
-      - name: Install publisher test dependencies
-        run: python -m pip install -r ops/desktop/server/requirements.txt pytest==8.4.2
       - name: Test release preparation and guarded source synchronization
         run: python -m pytest ops/desktop/packaging/test_github_release.py ops/tests/test_sync_sources.py -q

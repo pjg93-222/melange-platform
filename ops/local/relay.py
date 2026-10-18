@@ -44,7 +44,10 @@ def serve(listener, port):
     # ponytail: two threads per open connection, capped by the container's pids_limit; enough for one local user.
     while True:
         client, _ = listener.accept()
-        threading.Thread(target=_handle, args=(client, port), daemon=True).start()
+        try:
+            threading.Thread(target=_handle, args=(client, port), daemon=True).start()
+        except RuntimeError:   # pids_limit reached: refuse this one connection, keep serving
+            client.close()
 
 
 if __name__ == "__main__":

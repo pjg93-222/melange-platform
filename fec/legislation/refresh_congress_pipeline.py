@@ -369,32 +369,35 @@ def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smo
                 # this process holds the writer lease. Engine 'windows' (the default): the same argv and environment as always.
                 spec = compute_engine.launch(str(CODE / script), arguments, phases=("collect",), root=root, cwd=root,
                                              environ=environment)
-                process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
-                                           stdout=log, stderr=subprocess.STDOUT)
                 try:
-                    while process.poll() is None:
-                        try:
-                            process.wait(timeout=15)
-                        except subprocess.TimeoutExpired:
-                            state.update(heartbeat_at=now(), child_pid=process.pid)
-                            write_status(root, state)
-                            elapsed = time.time() - step_start
-                            if elapsed - last_beat >= HEARTBEAT_SECONDS:
-                                last_beat = elapsed
-                                _emit("refresh.heartbeat", "running",
-                                      f"Congress pipeline: {name} still running",
-                                      stage=name, detail=f"{int(elapsed)}s elapsed",
-                                      run_id=stream_id, source="congress-pipeline",
-                                      current=index, total=total,
-                                      duration_ms=int(elapsed * 1000))
-                                live_log(root, name, "RUNNING", elapsed, "child pid %s" % process.pid)
-                            if elapsed > timeout:
-                                raise TimeoutError(f"{name} exceeded {timeout} seconds")
-                except BaseException:
-                    if process.poll() is None:
-                        terminate_tree(process)
-                    compute_engine.reap(spec)
-                    raise
+                    process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
+                                               stdout=log, stderr=subprocess.STDOUT)
+                    try:
+                        while process.poll() is None:
+                            try:
+                                process.wait(timeout=15)
+                            except subprocess.TimeoutExpired:
+                                state.update(heartbeat_at=now(), child_pid=process.pid)
+                                write_status(root, state)
+                                elapsed = time.time() - step_start
+                                if elapsed - last_beat >= HEARTBEAT_SECONDS:
+                                    last_beat = elapsed
+                                    _emit("refresh.heartbeat", "running",
+                                          f"Congress pipeline: {name} still running",
+                                          stage=name, detail=f"{int(elapsed)}s elapsed",
+                                          run_id=stream_id, source="congress-pipeline",
+                                          current=index, total=total,
+                                          duration_ms=int(elapsed * 1000))
+                                    live_log(root, name, "RUNNING", elapsed, "child pid %s" % process.pid)
+                                if elapsed > timeout:
+                                    raise TimeoutError(f"{name} exceeded {timeout} seconds")
+                    except BaseException:
+                        if process.poll() is None:
+                            terminate_tree(process)
+                        compute_engine.reap(spec)
+                        raise
+                finally:
+                    compute_engine.release(spec)    # on every path (Popen, wait): the staged secret files go when the run ends
             return step_start, process.returncode, round(time.time() - step_start, 2)
 
         try:

@@ -82,13 +82,21 @@ Rules the code keeps:
 * `chain` = container hands the writer lease to the container: `weekly_refresh.py` removes its own lease just before `docker compose run` and takes it back when the
   container exits (a container cannot adopt a Windows-held lease: design F9). The weekly lock stays held, and failing to take the lease back is a hard abort.
 * Compose variables the code can derive (the tree, Draft Systems, the data root, the Melange local folder, the Glass Box folder) are set unless already in the
-  environment. Secrets are never derived: `GOVINFO_KEY_FILE_HOST` and `FEC_DATA_GOV_FILE_HOST` (collect), `CLAUDE_CREDENTIALS_FILE_HOST` (admissions) must name existing
-  files, set by the job wrapper (`run_job.ps1`, lane C1, not written yet); a variable a service does not use points at an empty scratch file.
+  environment. Secrets are never derived from the tree, but `launch()` stages them on the container path only (never on the host), for a variable the caller has not
+  set (a caller's own file, as `collectors_replay.py` uses, wins): `GOVINFO_KEY_FILE_HOST` and `FEC_DATA_GOV_FILE_HOST` (collect) get a one-line file in a per-run folder
+  `%TEMP%\melange-secrets\<container name>` holding the key from where the Windows collectors look (`GOVINFO_KEY`, else `fec/govinfo_key.txt` of the tree; `FEC_API_KEY`,
+  else `data_gov.keys[0]` of `%USERPROFILE%\OneDrive\Desktop\API Keys\keys.json`); the folder carries an ACL for the current user alone (`icacls`; POSIX mode 0700).
+  `CLAUDE_CREDENTIALS_FILE_HOST` (admissions) names `%USERPROFILE%\.claude\.credentials.json` itself, which Compose mounts read-only: not copied (D-179). A file that
+  cannot be found or is not one line stops the run, naming the variable and the sources, never a value. A variable a service does not use points at an empty scratch file.
+* The staged folder is deleted by `compute_engine.release(spec)` / `reap(spec)` when the run ends (the callers call one of them on every path, a failed `launch()`
+  deletes its own), and the next staging sweeps any folder older than 6 hours that a crash left.
 * A timed-out or interrupted step removes its container (`docker rm -f <name>`); `--rm` removes one that ended.
 
 Not provided by this code, so check before switching `collect`: staging of `social_media.db` for the production jobs (507 MB, WAL: design 2.4 says every container
-writer stages it; `collectors_replay.py stage` is the copy, the job wrapper must call it), starting Docker Desktop, and the secret files above
-(`collectors_replay.py keyenv --service collect|llm` prints the paths, FEC excepted). `fec/refresh_tick.py` is not switched (unscheduled; Option A was ruled, not the tick).
+writer stages it; `collectors_replay.py stage` is the copy, the job wrapper must call it), starting Docker Desktop, and a smoke run through Docker Desktop with a fake key
+file staged by `launch()`, read as `/run/secrets/govinfo_key` by uid 10001: it must pass before `collect` is switched to container (the owner-only ACL on the staged folder and
+uid 10001 being able to read the file are unverified). The secret files are staged by `launch()` (above;
+`collectors_replay.py keyenv --service collect|llm` still prints the paths a caller can set itself). `fec/refresh_tick.py` is not switched (unscheduled; Option A was ruled, not the tick).
 
 ## Collectors replay test (D-180; needs Docker Desktop, about 10 to 15 minutes, one request)
 

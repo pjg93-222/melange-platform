@@ -34,11 +34,14 @@ class AccessLifecycle{
  async suspend(reason){
   // Stop new network activity first. Existing requests/compute and the DOM remain intact.
   this.generation++;this.runtime.requestsAllowed=false;this.suspended=true;this.gate.local?.lock();this.hide();
-  await this.onSuspend();
+  // onSuspend cancels in-flight district switches synchronously; its backend stops never gate or skip the lock.
+  const stopped=(async()=>this.onSuspend())().catch(()=>{});
   if(['locked','signed_out'].includes(reason)&&this.runtime.definition.id==='terrier'){
-   let passwordless=false;try{passwordless=await this.terrierPasswordLockDisabled();}catch{}
+   // Fail closed while the password-lock preference is read; the final value is set below.
+   this.requiresFreshPassword=true;let passwordless=false;try{passwordless=await this.terrierPasswordLockDisabled();}catch{}
    this.requiresFreshPassword=!passwordless;if(!passwordless)await this.terrierLogout();
   }
+  await stopped;
   try{await this.presence(reason==='signed_out'?'signed_out':'locked',this.sessionId);}catch{}
   await this.showBoundary();
  }

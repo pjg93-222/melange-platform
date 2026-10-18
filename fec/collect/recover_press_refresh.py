@@ -326,7 +326,8 @@ fetch_member_fulltext <- function(bg, urls, force=FALSE, js=FALSE) {
 }
 '''
         code=original.read_text(encoding='utf-8')
-        code=re.sub(r'^wrapper_file <- .*$', 'wrapper_file <- '+json.dumps(str(original).replace('\\','/')),code,flags=re.M)
+        wrapper_line='wrapper_file <- '+json.dumps(str(original).replace('\\','/'))
+        code=re.sub(r'^wrapper_file <- .*$', lambda _m: wrapper_line, code, flags=re.M)
         marker='future::plan(future::multisession, workers = FUTURE_WORKERS)'
         if code.count(marker)!=1: raise RuntimeError('R integration marker changed')
         code=code.replace(marker,hook+'\n'+marker)

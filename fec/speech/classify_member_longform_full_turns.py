@@ -281,19 +281,22 @@ def main() -> int:
     wanted = set(args.member)
     all_inputs = [row for row in rows if row.get("status") in INPUT_CANDIDATE_STATUSES]
     selected = [row for row in all_inputs if not wanted or row.get("member") in wanted]
-    all_keys = [source_key(row) for row in all_inputs]
-    if len(set(all_keys)) != len(all_keys):
+    current = {source_key(row): row for row in all_inputs}
+    if len(current) != len(all_inputs):
         raise SystemExit("duplicate input member/source_id")
-    all_keys = set(all_keys)
+    selected_keys = {source_key(row) for row in selected}
+    classifier_settings = settings(args.max_output_tokens, args.timeout_seconds)
     existing = {}
     for row in SMR.read_jsonl(args.output) if args.output.exists() else []:
         key = source_key(row)
         if key in existing:
             raise SystemExit("duplicate output member/source_id")
-        # Keep every current input's prior row; --member only narrows `pending`, never the cache.
-        if key in all_keys:
+        # --member narrows `pending`, not the cache. An unselected prior row survives only while it still
+        # matches its current input and settings; failed/refused rows survive so the receipt keeps counting them.
+        if key in selected_keys or (key in current and (
+                row.get("status") in {"CLASSIFIER_ERROR", "CLASSIFIER_RESPONSE_REFUSED"}
+                or not needs_processing(current[key], row, classifier_settings))):
             existing[key] = row
-    classifier_settings = settings(args.max_output_tokens, args.timeout_seconds)
     pending = [row for row in selected if needs_processing(row, existing.get(source_key(row)), classifier_settings,
                                                          refresh=args.refresh, retry_errors=args.retry_errors)]
     if args.max_requests is not None and len(pending) > args.max_requests:

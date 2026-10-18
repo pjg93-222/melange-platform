@@ -14,6 +14,10 @@ The publisher tests use deliberately non-installable fixtures and an injected OS
 
 Run `python desktop_admin.py --help`. Default private state is `%USERPROFILE%\Documents\MelangeDesktopAdmin`, outside the repository and AppData virtualization. `--state PATH` selects a different private state directory **before** the subcommand. Login registration pins this exact state path, so changing the launching application's environment cannot select different keys. Existing initialized state must be migrated with its keys and database intact; do not initialize a replacement identity.
 
+Before installing the launcher, run `python desktop_admin.py init` and `python desktop_admin.py access-init` (with the same `--state PATH` before each subcommand for a custom state directory).
+Desktop launcher: `powershell -NoProfile -ExecutionPolicy Bypass -File Install-AdminLauncher.ps1` adds a **Melange Admin** shortcut to the Desktop and Start menu (`-Uninstall` removes both; `-PythonExecutable` and `-StateDirectory` override the defaults).
+Clicking it opens the loopback dashboard in an Edge (else Chrome) app window on a one-time 60-second link; clicking again while the dashboard runs opens a fresh link (at most four sessions), and the dashboard still shuts down after 8 hours.
+
 - `init`: initialize three application signing identities, a TLS identity, and enrollment/audit databases. Existing identities are never overwritten. Windows keys are protected with current-user DPAPI and a restricted directory ACL. Do not copy this state to recipient machines.
 - `trust-publisher --windows-subject "VERIFIED CERTIFICATE SUBJECT"`: pin the expected Windows signing certificate identity after independently checking it. `--mac-receipt-key BASE64_PUBLIC_KEY` pins the separately provisioned native Mac build attestation identity.
 - `pair --app melange --url https://PRIVATE_LAN_IP:38443`: issue a 10-minute, one-use pairing bundle. Transfer it directly to the intended recipient. It includes the TLS SPKI pin, application release public keys, and one-use enrollment secret; do not put it in logs or issue trackers.

@@ -228,3 +228,34 @@ def test_member_filter_preserves_other_members_prior_rows(tmp_path, monkeypatch)
     assert module.main() == 0
     members = {json.loads(line)["member"] for line in output.read_text().splitlines()}
     assert members == {"Example Member", "Other Member"}
+
+
+@pytest.mark.parametrize("status, kept", [
+    ("FULL_TURN_CANDIDATE_IDENTITY_UNVERIFIED", False),
+    ("SCREENED_OUT", False),
+    ("CLASSIFIER_ERROR", True),
+    ("CLASSIFIER_RESPONSE_REFUSED", True),
+])
+def test_member_filter_drops_other_members_stale_rows_but_keeps_failures(tmp_path, monkeypatch, status, kept):
+    source = source_fixture(tmp_path)
+    other = {**source, "member": "Other Member"}
+    input_path, output, receipt = tmp_path / "input.jsonl", tmp_path / "out.jsonl", tmp_path / "receipt.json"
+    key = tmp_path / "key.txt"
+    key.write_text("fake-test-only-key")
+    input_path.write_text(json.dumps(source) + "\n" + json.dumps(other) + "\n")
+    # The prior row was classified from an earlier version of Other Member's input row.
+    prior = {**other, "source_input_sha256": module.row_hash({**other, "cues": []}),
+             "classifier_settings": module.settings(8000, 180), "status": status, "turns": [], "api_requests_attempted": 1}
+    output.write_text(json.dumps(prior) + "\n")
+    monkeypatch.setattr(module, "classify_source", lambda row, k, config, h: {
+        **row, "source_input_sha256": module.row_hash(row), "classifier_settings": config,
+        "status": "SCREENED_OUT", "turns": [], "api_requests_attempted": 1})
+    monkeypatch.setattr("sys.argv", ["classifier", "--input", str(input_path), "--output", str(output),
+                                   "--receipt", str(receipt), "--key", str(key), "--workers", "1",
+                                   "--member", "Example Member"])
+    assert module.main() == 0
+    rows = {json.loads(line)["member"]: json.loads(line) for line in output.read_text().splitlines()}
+    assert ("Other Member" in rows) is kept
+    if kept:
+        assert rows["Other Member"]["status"] == status
+    assert json.loads(receipt.read_text())["status"] == ("PARTIAL_VISIBLE" if kept else "PASS_CANDIDATES_ONLY")

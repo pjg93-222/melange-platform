@@ -30,11 +30,12 @@ sys.modules["http_replay"] = HR
 _spec.loader.exec_module(HR)
 
 FAKE = '''
-import json, os, sys
+import json, os, sys, time
 log = {"argv": sys.argv[1:], "stdin": sys.stdin.read(), "cwd": os.getcwd(), "config_dir": os.environ.get("CLAUDE_CONFIG_DIR"),
        "appdata": os.environ.get("APPDATA")}
 with open(os.environ["FAKE_CLAUDE_LOG"], "w", encoding="utf-8") as fh:
     json.dump(log, fh)
+time.sleep(float(os.environ.get("FAKE_CLAUDE_SLEEP", "0")))
 print(json.dumps({"structured_output": {"cls": "negative"}, "uuid": "u-1", "modelUsage": {}, "session_id": "s-1",
                   "usage": {"input_tokens": 3, "output_tokens": 2}, "total_cost_usd": 0.001}))
 '''
@@ -139,3 +140,16 @@ def test_the_cli_step_replays_from_a_cassette_with_the_binary_gone(fake_claude, 
         with pytest.raises(OSError):
             CR.classify_json("Policy", "Evidence two", {"type": "object"})   # never recorded: the real (absent) binary is not a fallback
     assert len(replay.report()["misses"]) == 1
+
+
+def test_a_classifier_timeout_replays_as_a_timeout_not_as_a_failure(fake_claude, tmp_path, monkeypatch):
+    monkeypatch.setattr(CR, "TIMEOUT_SECONDS", 1)
+    monkeypatch.setenv("FAKE_CLAUDE_SLEEP", "60")                           # overruns the bound: classify_json kills it
+    with HR.Harness("record", tmp_path / "cas"):
+        with pytest.raises(RuntimeError, match="timed out"):
+            CR.classify_json("Policy", "Evidence", {"type": "object"})
+    os.remove(fake_claude.launcher)
+    with HR.Harness("replay", tmp_path / "cas") as replay:
+        with pytest.raises(RuntimeError, match="timed out"):                 # was 'Classifier failed': the kill code came back at once
+            CR.classify_json("Policy", "Evidence", {"type": "object"})
+    assert replay.report()["misses"] == [] == replay.report()["unused"]

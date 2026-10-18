@@ -555,25 +555,28 @@ def run_process(step, root, log_path, environment):
     # Collectors follow the collect engine (ops/compute/engines.json); this process stays on the host because it holds the writer
     # lease. Engine 'windows' (the default): the same argv and environment as always.
     spec = compute_engine.launch(str(CODE / step.script), step.args, phases=('collect',), root=root, cwd=root, environ=environment)
-    with log_path.open('w', encoding='utf-8') as handle:
-        process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
-                                   stdout=handle, stderr=subprocess.STDOUT,
-                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
-                                   start_new_session=os.name != 'nt')
-        register_process(process, spec)
-        try:
-            if STOP.is_set():
-                # An interrupt began after this lane's check but before the child
-                # was registered, so the main thread's sweep could not see it.
-                raise RuntimeError('run interrupted before the collector was waited on')
-            return process.wait(timeout=step.timeout)
-        except BaseException:
-            if process.poll() is None:
-                terminate_tree(process)
-            compute_engine.reap(spec)
-            raise
-        finally:
-            unregister_process(process)
+    try:
+        with log_path.open('w', encoding='utf-8') as handle:
+            process = subprocess.Popen(spec.argv, cwd=root, env=environment if spec.env is None else spec.env,
+                                       stdout=handle, stderr=subprocess.STDOUT,
+                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0,
+                                       start_new_session=os.name != 'nt')
+            register_process(process, spec)
+            try:
+                if STOP.is_set():
+                    # An interrupt began after this lane's check but before the child
+                    # was registered, so the main thread's sweep could not see it.
+                    raise RuntimeError('run interrupted before the collector was waited on')
+                return process.wait(timeout=step.timeout)
+            except BaseException:
+                if process.poll() is None:
+                    terminate_tree(process)
+                compute_engine.reap(spec)
+                raise
+            finally:
+                unregister_process(process)
+    finally:
+        compute_engine.release(spec)    # on every path (log open, Popen, wait): the staged secret files go when the run ends
 
 
 def execute_step(step, root, run_dir, environment, runner=run_process):

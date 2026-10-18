@@ -378,6 +378,15 @@ def test_non_claude_subprocesses_pass_through_untouched(tmp_path):
     assert not (tmp_path / "cas" / "cassette.jsonl").read_text(encoding="utf-8")
 
 
+def test_a_claude_run_with_a_file_stdout_is_recorded_once_by_the_run_hook(monkeypatch, tmp_path):
+    monkeypatch.setenv("MELANGE_CLASSIFIER_COMMAND", sys.executable)          # this interpreter stands in for `claude`
+    with HR.Harness("record", tmp_path / "cas"), (tmp_path / "out").open("w+b") as out:
+        assert subprocess.run([sys.executable, "-c", "print('hi')"], stdout=out).returncode == 0   # was TypeError: no __enter__
+        out.seek(0)
+        assert out.read().strip() == b"hi"
+    assert len((tmp_path / "cas" / "cassette.jsonl").read_text(encoding="utf-8").splitlines()) == 1   # run()'s Popen not diverted again
+
+
 def test_check_true_and_failures_are_replayed_faithfully(monkeypatch, tmp_path):
     def run(command, **kwargs):
         if kwargs.get("timeout") == 1:

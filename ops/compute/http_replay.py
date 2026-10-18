@@ -263,6 +263,7 @@ class Harness:
         self._seq = 0
         self._pending: dict[str, deque] = defaultdict(deque)
         self._total = 0
+        self._in_run = threading.local()   # set while the run() hook owns a claude call: its inner Popen is not diverted again
 
     # -- lifecycle
     def __enter__(self):
@@ -465,11 +466,14 @@ class Harness:
             key, request = self._cli_key(args, kwargs.get("input"))
             if self.mode == "replay":
                 return self._cli_result(self._next(key, "claude CLI call"), args, kwargs)
+            self._in_run.on = True
             try:
                 done = original(*popenargs, **kwargs)
             except Exception as exc:
                 self._record("cli", key, request, error=dump_exc(exc))
                 raise
+            finally:
+                self._in_run.on = False
             text = isinstance(done.stdout, str) or isinstance(done.stderr, str)
             blobs = [None if s is None else (s.encode("utf-8") if isinstance(s, str) else s) for s in (done.stdout, done.stderr)]
             self._record("cli", key, request, response={
@@ -506,14 +510,15 @@ class Harness:
     # -- the claude CLI, bounded shape. D-211: classifier_runtime.classify_json no longer calls run(); it spawns Popen with temp-file
     #    stdin/stdout/stderr and waits with a timeout, which the run() hook cannot see. Popen is replaced by a SUBCLASS (subclassing
     #    and isinstance against subprocess.Popen keep working) that diverts only a claude argv whose stdout is a file; every other
-    #    Popen, including the PIPE one run() builds internally, is constructed untouched.
+    #    Popen, including the one run() builds internally (the run() hook already owns that call), is constructed untouched.
     def _cli_popen(self, original):
         harness = self
 
         class Popen(original):
             def __new__(cls, *popenargs, **kwargs):
                 args = popenargs[0] if popenargs else kwargs.get("args")
-                if isinstance(args, (list, tuple)) and args and _is_claude(args[0]) and hasattr(kwargs.get("stdout"), "write"):
+                if (not getattr(harness._in_run, "on", False) and isinstance(args, (list, tuple)) and args
+                        and _is_claude(args[0]) and hasattr(kwargs.get("stdout"), "write")):
                     return harness._cli_spawn(original, popenargs, kwargs)
                 return super().__new__(cls)
 
@@ -537,7 +542,7 @@ class Harness:
                 if stream is not None and digest is not None:
                     stream.write(self._get(digest))
                     stream.flush()
-            return _ReplayedCli(args, r["returncode"])
+            return _ReplayedCli(args, r["returncode"], r.get("timed_out"))   # cassettes before the field: no timeout, as before
         starts = [None if s is None else s.tell() for s in streams]
         try:
             process = original(*popenargs, **kwargs)
@@ -545,7 +550,7 @@ class Harness:
             self._record("cli", key, request, error=dump_exc(exc))
             raise
 
-        def finish(returncode):
+        def finish(returncode, timed_out):
             blobs = []
             for stream, start in zip(streams, starts):
                 if stream is None:
@@ -556,7 +561,7 @@ class Harness:
                 blobs.append(stream.read())
                 stream.seek(at)
             self._record("cli", key, request, response={
-                "returncode": returncode, "text": False,
+                "returncode": returncode, "text": False, "timed_out": timed_out,
                 "stdout_sha256": None if blobs[0] is None else self._put(blobs[0]),
                 "stderr_sha256": None if blobs[1] is None else self._put(blobs[1])})
 
@@ -564,10 +569,11 @@ class Harness:
 
 
 class _RecordedCli:
-    """The real claude child (record mode): wait()/poll() delegate, and the first one that sees it exit records the interaction."""
+    """The real claude child (record mode): wait()/poll() delegate, and the first one that sees it exit records the interaction,
+    with the timeout of the first bounded wait() that expired (the caller then killed it), so replay takes the same branch."""
 
     def __init__(self, process, finish):
-        self._process, self._finish = process, finish
+        self._process, self._finish, self._timed_out = process, finish, None
 
     def __getattr__(self, name):   # pid, returncode, args, kill, terminate, send_signal: the real process's
         return getattr(self._process, name)
@@ -575,11 +581,16 @@ class _RecordedCli:
     def _done(self, returncode):
         if returncode is not None and self._finish:
             finish, self._finish = self._finish, None
-            finish(returncode)
+            finish(returncode, self._timed_out)
         return returncode
 
     def wait(self, timeout=None):
-        return self._done(self._process.wait(timeout))
+        try:
+            return self._done(self._process.wait(timeout))
+        except subprocess.TimeoutExpired:
+            if self._timed_out is None:
+                self._timed_out = timeout
+            raise
 
     def poll(self):
         return self._done(self._process.poll())
@@ -589,10 +600,13 @@ class _ReplayedCli:
     """A claude child rebuilt from the cassette (replay mode): it has already exited, nothing was spawned, nothing can be killed."""
     pid = None
 
-    def __init__(self, args, returncode):
-        self.args, self.returncode = args, returncode
+    def __init__(self, args, returncode, timed_out=None):
+        self.args, self.returncode, self._timed_out = args, returncode, timed_out
 
-    def wait(self, timeout=None):
+    def wait(self, timeout=None):   # a recorded overrun: the first bounded wait expires again, later waits see the kill code
+        if self._timed_out is not None and timeout is not None:
+            pending, self._timed_out = self._timed_out, None
+            raise subprocess.TimeoutExpired(self.args, pending)
         return self.returncode
 
     def poll(self):

@@ -649,7 +649,9 @@ function selectPanelTab(name, focus){
 function closePanel(){
  backToTargets();
  sync();
- const t = railOpen ? $('mlk-v8-tab-targets') : ui.railShow; if (t) setTimeout(() => t.focus(), 0);   // 10: a collapsed rail folds away again
+ setTimeout(() => {   // 10: a collapsed rail folds away again; its reopen button is hidden at <=700px
+  const t = !railOpen && ui.railShow && ui.railShow.offsetParent ? ui.railShow : $('mlk-v8-tab-targets'); if (t) t.focus();
+ }, 0);
 }
 
 function shrinkTip(){

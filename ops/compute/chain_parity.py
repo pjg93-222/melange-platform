@@ -24,6 +24,18 @@ Exit codes: 0 pass; 1 a gate failed (or verify/census found a difference); 2 usa
 JSON_CANONICAL mask: the leaf VALUE paths that differ between A1 and A2 (never taken from B). A difference in
 shape (key set, list length, scalar vs container) is never maskable, so such a path is DIFFERENT unless B equals A1.
 
+`compare --single-reference` (D-242, Paul 2026-10-18: one Windows run is both A1 and A2, as D-201 and Terrier's --single-reference): no
+--a2, nothing is measured and the noise-floor checks do not apply (the gate list shows NF NOT_APPLICABLE and the report says
+"reference": "single"). The mask is the fixed, reviewed list ops/compute/chain_volatile.json instead: per file glob, the JSON value
+paths that are clocks, run ids or mtimes of files the run rewrote, each citing the line that writes it. "Reviewed" is enforced: the
+list must be committed and unmodified (git status clean, else exit 2) and the report records its sha256 and HEAD blob id. So is
+the code: fec/ must have no uncommitted change (exit 2; the report records repo_head and repo_dirty) and every entry's needle must
+be on its cited line in the tree that produced A1 (exit 2 otherwise). A path is masked only when both values have the same JSON type;
+shape differences stay unmaskable; the byte gates never reach a mask (a list entry that could match one, or that is nothing but
+wildcards, is refused). Beside a masked field nothing else may differ in the raw text (spacing, number spelling, escapes, key order,
+line endings), and a duplicate key or NaN/Infinity makes a file DIFFERENT. Fields that differ by absolute path are never listed:
+they are PATH_ONLY acceptance (--map, then --accept) or a reviewed --exclude.
+
 Glob patterns (--include/--exclude): matched against the POSIX relative path with fnmatch (so `*` crosses
 `/`); a pattern without `/` matches any single path segment (`__pycache__`, `*.pyc`). Run the roots with
 PYTHONDONTWRITEBYTECODE=1 or pass --exclude __pycache__ to compare, or the .pyc files are DIFFERENT paths.
@@ -53,6 +65,7 @@ BLOCK = 1 << 20  # ponytail: whole-file hashing reads each file in 1 MiB blocks,
 COMPOSE_FILE = "ops/compute/melange.compose.yaml"
 PARITY_COMPOSE_FILE = "ops/compute/melange.parity.compose.yaml"   # merged over COMPOSE_FILE when --audio-pilot-dir is given
 REPO_ROOT = Path(__file__).resolve().parents[2]
+VOLATILE_FILE = Path(__file__).resolve().with_name("chain_volatile.json")   # the fixed mask of compare --single-reference
 # container env names passed through from the caller's environment, each overridable by a flag
 PASSTHROUGH = (("MELANGE_DRAFT_DIR", "draft_dir"), ("MELANGE_DATA_DIR", "data_dir"),
                ("MELANGE_LOCAL_DIR", "local_dir"), ("MELANGE_GLASSBOX_DIR", "glassbox_dir"),
@@ -154,24 +167,99 @@ def _head(items, n=10) -> str:
 
 # ------------------------------------------------------------------------------------------ json diffing
 
-def parse_json_bytes(data: bytes):
-    """-> ("json", doc) | ("ndjson", [docs]) | None.  ponytail: loads the whole document into memory."""
+def _no_duplicate_keys(pairs):
+    keys = [k for k, _ in pairs]
+    if len(set(keys)) != len(keys):
+        raise ValueError("duplicate key")
+    return dict(pairs)
+
+
+def _no_constant(name):
+    raise ValueError(f"{name} is not JSON")
+
+
+def parse_json_bytes(data: bytes, strict: bool = False):
+    """-> ("json", doc) | ("ndjson", [docs]) | None.  strict (--single-reference): a duplicate key or NaN/Infinity is None, not a
+    silently merged or accepted value.  ponytail: loads the whole document into memory."""
+    load = (lambda t: json.loads(t, object_pairs_hook=_no_duplicate_keys, parse_constant=_no_constant)) if strict else json.loads
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         return None
     try:
-        return "json", json.loads(text)
+        return "json", load(text)
     except (ValueError, RecursionError):
         pass
     docs = []
     for line in text.split("\n"):  # not splitlines(): U+2028 may sit inside a JSON string
         if line.strip():
             try:
-                docs.append(json.loads(line))
+                docs.append(load(line))
             except (ValueError, RecursionError):
                 return None
     return ("ndjson", docs) if docs else None
+
+
+_TOKEN = re.compile(r'\s+|"(?:[^"\\]|\\.)*"|[^\s"{}\[\],:]+|[{}\[\],:]')
+
+
+def _masked_digest(data: bytes, ndjson: bool, masked: set) -> str:
+    """sha256 of the raw text of a document parse_json_bytes accepted, each scalar at a masked path replaced by a NUL. Two documents
+    have the same digest iff they are equal outside the mask: spacing, number spelling, escapes, key order and line endings all
+    count. One regex pass with a container stack; paths are built only along the masked ones; memory stays bounded."""
+    text = data.decode("utf-8-sig")
+    h = hashlib.sha256(b"\xef\xbb\xbf" if data.startswith(b"\xef\xbb\xbf") else b"")
+    prefixes = {path[:k] for path in masked for k in range(len(path) + 1)}
+    buf, stack, top_n, pos = [], [], 0, 0      # a frame is [is_object, path or None, key or index, next token is a key]
+    for m in _TOKEN.finditer(text):
+        if m.start() != pos:
+            raise ValueError("unscannable text")
+        t, pos = m.group(), m.end()
+        c = t[0]
+        if c in ",:" or c.isspace():
+            buf.append(t)
+            if c == "," and stack:
+                if stack[-1][0]:
+                    stack[-1][3] = True
+                else:
+                    stack[-1][2] += 1
+        elif c in "}]":
+            buf.append(t)
+            stack.pop()
+            top_n += not stack
+        else:
+            top = stack[-1] if stack else None
+            if top is not None and top[0] and top[3]:                      # an object key
+                top[2], top[3] = t, False
+                buf.append(t)
+                continue
+            if top is None:
+                path = ((top_n,) if (top_n,) in prefixes else None) if ndjson else ()
+            elif top[1] is None:
+                path = None
+            else:
+                path = top[1] + (json.loads(top[2]) if top[0] else top[2],)
+                path = path if path in prefixes else None
+            if c in "{[":
+                stack.append([c == "{", path, 0, c == "{"])
+                buf.append(t)
+            else:
+                buf.append("\0" if path is not None and path in masked else t)
+                top_n += top is None
+        if len(buf) > 65536:
+            h.update("".join(buf).encode("utf-8", "surrogatepass"))
+            buf.clear()
+    if pos != len(text):
+        raise ValueError("unscannable text")
+    h.update("".join(buf).encode("utf-8", "surrogatepass"))
+    return h.hexdigest()
+
+
+def same_outside_mask(da: bytes, db: bytes, ndjson: bool, masked: set) -> bool:
+    try:
+        return _masked_digest(da, ndjson, masked) == _masked_digest(db, ndjson, masked)
+    except (ValueError, IndexError, RecursionError):
+        return False
 
 
 def json_diff(a, b, path=()):
@@ -206,8 +294,109 @@ def pointer(path) -> str:
     return "".join("/" + str(p).replace("~", "~0").replace("/", "~1") for p in path)
 
 
-def _mask(ctx, rel) -> set:
-    """The mask for rel = value paths that differ between A1 and A2 - derived ONLY from those two, never from B."""
+def load_volatile(path=None) -> dict:
+    """The fixed volatile list of --single-reference -> {"path", "sha256", "entries": [{file, pointer, writer, ...}]}.
+    An entry whose file glob could match a byte-gate artifact is refused: no mask reaches ranks_python.json, dashboard_data.json
+    or bipartisan.json."""
+    path = Path(path or VOLATILE_FILE)
+    try:
+        raw = path.read_bytes()
+        entries = json.loads(raw.decode("utf-8")).get("entries")
+    except (OSError, ValueError, AttributeError) as e:
+        raise Usage(f"cannot read the volatile list {path}: {e}") from e
+    if not isinstance(entries, list) or not entries:
+        raise Usage(f"{path} has no entries")
+    for i, e in enumerate(entries):
+        if not (isinstance(e, dict) and all(isinstance(e.get(k), str) and e[k] for k in ("file", "pointer", "writer", "needle"))
+                and e["pointer"].startswith("/")):
+            raise Usage(f"{path} entry {i} needs string file, pointer (starting with /), writer and needle")
+        if all(seg == "*" for seg in e["pointer"][1:].split("/")):
+            raise Usage(f"{path} entry {i} ({e['file']!r}, {e['pointer']!r}) is only wildcards: name the fields")
+        hit = [a for a in BYTE_ARTIFACTS if _match(a, e["file"])]
+        if hit:
+            raise Usage(f"{path} entry {i} ({e['file']!r}) matches the byte gate {hit[0]}: a byte gate is never maskable")
+    return {"path": str(path), "sha256": hashlib.sha256(raw).hexdigest(), "entries": entries}
+
+
+def _git(*args) -> str:
+    """stdout of `git -C <repo root> ARGS`; a failure is a refusal (the list cannot be shown to be reviewed)."""
+    try:
+        done = subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as e:
+        raise Usage(f"git is unavailable ({e}): the volatile list cannot be shown to be committed") from e
+    if done.returncode != 0:
+        raise Usage(f"git {' '.join(args)} failed: {done.stderr.strip() or done.stdout.strip()}")
+    return done.stdout.strip()
+
+
+def reviewed_blob(path) -> str:
+    """HEAD blob id of the volatile list. "Reviewed" means committed: any staged, unstaged or untracked change to the file, or a file
+    HEAD does not hold, is a refusal."""
+    try:
+        rel = Path(os.path.relpath(path, REPO_ROOT)).as_posix()
+    except ValueError as e:
+        raise Usage(f"the volatile list {path} is not in the repository {REPO_ROOT}") from e
+    if _git("status", "--porcelain", "--", rel):
+        raise Usage(f"{rel} is not committed (git status --porcelain is not empty): --single-reference masks only from a reviewed, "
+                    f"committed list")
+    return _git("rev-parse", f"HEAD:{rel}")
+
+
+CODE_TREE = "fec"   # everything the chain runs lives here: all 196 modules chain_imports reaches
+
+
+def repo_state() -> tuple:
+    """(HEAD of the repository this tool lives in, whether the chain's code tree has an uncommitted change). Untracked files in
+    CODE_TREE count: a new module there is code the chain may run."""
+    return _git("rev-parse", "HEAD"), bool(_git("status", "--porcelain", "--", CODE_TREE))
+
+
+def check_citations(entries, root) -> None:
+    """Every entry's needle is on its cited writer line in the tree the chain ran from (A1's root). Not only a unit test: a list
+    reviewed against other code than the code that wrote A proves nothing about A."""
+    bad = []
+    for e in entries:
+        path, _, line = e["writer"].rpartition(":")
+        try:
+            lines = (Path(root) / path).read_text(encoding="utf-8", errors="replace").splitlines()
+            ok = line.isdigit() and 1 <= int(line) <= len(lines) and e["needle"] in lines[int(line) - 1]
+            why = "needle not on that line" if not ok else ""
+        except OSError:
+            ok, why = False, "file missing"
+        if not ok:
+            bad.append(f"{e['writer']} ({why})")
+    if bad:
+        raise Usage(f"{len(bad)} volatile list citation(s) do not match the code that produced A1 under {root}: {_head(bad)}")
+
+
+def _jtype(v) -> str:
+    return "null" if v is None else "bool" if isinstance(v, bool) else "number" if isinstance(v, (int, float)) else "string"
+
+
+def _at(doc, path):
+    for step in path:
+        doc = doc[step]
+    return doc
+
+
+def is_volatile(entries, rel, path) -> bool:
+    """True iff the value path (a json_diff path) is listed for rel: file glob matches and every pointer segment equals or is `*`."""
+    segs = pointer(path)[1:].split("/") if path else None   # the root value itself is never listed
+    return segs is not None and any(
+        _match(rel, e["file"]) and len(segs) == len(want := e["pointer"][1:].split("/"))
+        and all(w in ("*", s) for w, s in zip(want, segs)) for e in entries)
+
+
+def _mask(ctx, rel, diffs=(), docs=None) -> set:
+    """The mask for rel = value paths that differ between A1 and A2 - derived ONLY from those two, never from B.
+    --single-reference: the differing value paths (A1 vs this root) that the fixed volatile list names and whose two values have
+    the same JSON type (a string against null is a change, not a different clock reading); nothing is measured."""
+    if ctx["single"]:
+        mask = {p for p, kind in diffs if kind == "value" and is_volatile(ctx["volatile"]["entries"], rel, p)
+                and _jtype(_at(docs[0], p)) == _jtype(_at(docs[1], p))}
+        if mask:
+            ctx["mask_report"][rel] = sorted({*ctx["mask_report"].get(rel, ()), *map(pointer, mask)})
+        return mask
     if rel not in ctx["mask_sets"]:
         e1, e2 = ctx["snaps"]["A1"].get(rel), ctx["snaps"]["A2"].get(rel)
         mask: set = set()
@@ -402,11 +591,12 @@ def gate0(ctx) -> dict:
     for lbl, ch in ctx["changed"].items():
         if not ch:
             p.append(f"{lbl}: no path changed versus the frozen manifest (nothing ran)")
-    a1, a2 = set(ctx["changed"]["A1"]), set(ctx["changed"]["A2"])
+    a1, a2 = set(ctx["changed"]["A1"]), set(ctx["changed"].get("A2", ctx["changed"]["A1"]))   # single reference: A2 is A1
     if a1 != a2:
         p.append(f"noise floor: A1 and A2 changed different path sets; only A1: {_head(sorted(a1 - a2))}; "
                  f"only A2: {_head(sorted(a2 - a1))}")
-    return _gate("G0", "preconditions: frozen non-empty, roots distinct, every run changed paths, A1/A2 path sets equal", p,
+    return _gate("G0", "preconditions: frozen non-empty, roots distinct, every run changed paths"
+                 + ("" if ctx["single"] else ", A1/A2 path sets equal"), p,
                  data={"changed_counts": {l: len(c) for l, c in ctx["changed"].items()}})
 
 
@@ -437,7 +627,7 @@ def gate2(ctx) -> dict:
         if empty:
             p.append(f"{art}: empty in {', '.join(empty)} (an empty file proves nothing)")
         sha = table[art]
-        if sha["A1"] != sha["A2"]:
+        if not ctx["single"] and sha["A1"] != sha["A2"]:
             p.append(f"{art}: noise floor violated: A1 != A2 ({sha['A1'][:12]} vs {sha['A2'][:12]}); "
                      f"no mask can rescue a byte gate")
         for lbl in ctx["others"]:
@@ -447,7 +637,8 @@ def gate2(ctx) -> dict:
         if stale:
             notes.append(f"note: {art} is byte-identical to the frozen copy on {', '.join(stale)}; "
                          f"the equality above does not show that the run rewrote it")
-    return _gate("G2", "byte gates: ranks_python.json, dashboard_data.json, bipartisan.json (A1==A2, B==A1)", p, notes,
+    return _gate("G2", "byte gates: ranks_python.json, dashboard_data.json, bipartisan.json ("
+                 + ("B==A1)" if ctx["single"] else "A1==A2, B==A1)"), p, notes,
                  data={"sha256": table})
 
 
@@ -487,14 +678,19 @@ def classify(rel: str, ctx, lbl: str) -> tuple[str, str]:
     note = ""
     if all(d[:64].lstrip(b"\xef\xbb\xbf \t\r\n")[:1] in (b"{", b"[") for d in (da, db)) \
             or rel.lower().endswith((".json", ".jsonl", ".ndjson", ".geojson")):
-        ja, jb = parse_json_bytes(da), parse_json_bytes(db)
+        ja, jb = parse_json_bytes(da, ctx["single"]), parse_json_bytes(db, ctx["single"])
+        if ctx["single"] and not (ja and jb) and (parse_json_bytes(da) or parse_json_bytes(db)):
+            note = "duplicate key or NaN/Infinity in JSON: not comparable under --single-reference"
         if ja and jb and ja[0] == jb[0]:
             diffs = json_diffs(ja[1], jb[1])
-            mask = _mask(ctx, rel)
+            mask = _mask(ctx, rel, diffs, (ja[1], jb[1]))
             bad = [pth for pth, kind in diffs if kind != "value" or pth not in mask]
-            if not bad:
-                return "JSON_CANONICAL", f"{len(diffs)} differing value(s), all inside the A1/A2 mask ({len(mask)} path(s))"
-            note = f"JSON differs at {len(bad)} path(s) outside the A1/A2 mask: {_head(pointer(x) or '/' for x in bad)}"
+            what = "fixed volatile list" if ctx["single"] else "A1/A2 mask"
+            text_ok = not (ctx["single"] and mask) or same_outside_mask(da, db, ja[0] == "ndjson", mask)
+            if not bad and text_ok:
+                return "JSON_CANONICAL", f"{len(diffs)} differing value(s), all inside the {what} ({len(mask)} path(s))"
+            note = (f"JSON differs at {len(bad)} path(s) outside the {what}: {_head(pointer(x) or '/' for x in bad)}" if bad else
+                    f"the raw text differs outside the {what} (spacing, number spelling, escapes, key order or line endings)")
     if rel.lower().endswith((".xlsx", ".xlsm")):
         try:
             import xlsx_content_diff as XD  # D-177: content, not bytes; D-178 makes artifact-tool vs openpyxl authors differ in bytes
@@ -714,20 +910,39 @@ def cmd_command(a) -> int:
 
 def cmd_compare(a) -> int:
     excl = a.exclude or []
+    single = a.single_reference
+    if single == bool(a.a2):
+        raise Usage("--single-reference takes no --a2 (A2 is A1)" if single else "--a2 is required, or pass --single-reference")
+    volatile = None
+    if single:
+        volatile = load_volatile()
+        volatile["head_blob"] = reviewed_blob(volatile["path"])
     frozen = {k: v for k, v in load_manifest(a.frozen).items() if not excluded(k, excl)}
-    roots = {"A1": a.a1, "A2": a.a2, "B": a.b, **({"C": a.c} if a.c else {})}
+    roots = {"A1": a.a1, **({} if single else {"A2": a.a2}), "B": a.b, **({"C": a.c} if a.c else {})}
     for lbl, r in roots.items():
         if not os.path.isdir(r):
             raise Usage(f"{lbl} root {r!r} is not a directory")
     roots = {lbl: os.path.abspath(r) for lbl, r in roots.items()}
+    if single:   # before the slow part: the list must fit the code that ran, and that code must be a commit
+        check_citations(volatile["entries"], roots["A1"])
+        volatile["repo_head"], volatile["repo_dirty"] = repo_state()
+        if volatile["repo_dirty"]:
+            raise Usage(f"{CODE_TREE}/ has uncommitted changes (git status --porcelain -- {CODE_TREE}): --single-reference needs the "
+                        f"chain's code to be a commit, or the reviewed list says nothing about what ran")
     ctx = {"frozen": frozen, "roots": roots, "others": [l for l in roots if l not in ("A1", "A2")],
-           "maps": parse_maps(a.map or []), "mask_sets": {}, "mask_report": {},
+           "maps": parse_maps(a.map or []), "mask_sets": {}, "mask_report": {}, "single": single, "volatile": volatile,
            "snaps": {lbl: snapshot_tree(r, excl) for lbl, r in roots.items()}}
     if a.store:   # keep each root's snapshot beside the report: the evidence can be audited and `census`ed later without rehashing
         for lbl, snap in ctx["snaps"].items():
             write_json(Path(a.store) / f"{lbl}.manifest.json", snap)
     ctx["changed"] = {lbl: changed_paths(frozen, s) for lbl, s in ctx["snaps"].items()}
     gates = [gate0(ctx), gate1(ctx), gate2(ctx), gate3(ctx, a.expect_members), gate4(ctx)]
+    if single:   # appended last: the report reads gates[2..4] by position. Not "PASS": nothing was measured
+        gates.append({"name": "NF", "title": "noise floor: A1 vs A2 variance", "status": "NOT_APPLICABLE", "data": {}, "detail": [
+            "single reference: A2 is A1, so no variance was measured; JSON value paths are masked from the fixed list "
+            f"{Path(volatile['path']).name} ({len(volatile['entries'])} entries, sha256 {volatile['sha256'][:12]}, "
+            f"HEAD blob {volatile['head_blob'][:12]}; code HEAD {volatile['repo_head'][:12]}, {CODE_TREE}/ clean), never from a measurement "
+            "(D-242)"]})
 
     needs: dict[str, dict] = {}
     for lbl, table in ctx["classes"].items():
@@ -752,6 +967,10 @@ def cmd_compare(a) -> int:
     if a.report:
         write_json(a.report, {
             "schema": 1, "result": result, "exit_code": code, "failed_gates": failed,
+            **({"reference": "single", "repo_head": volatile["repo_head"], "repo_dirty": volatile["repo_dirty"],
+                "volatile_list": {"path": volatile["path"], "sha256": volatile["sha256"],
+                                                        "head_blob": volatile["head_blob"],
+                                                        "entries": len(volatile["entries"])}} if single else {}),
             "inputs": {"frozen": os.path.abspath(a.frozen), "roots": roots, "maps": ctx["maps"],
                        "expect_members": a.expect_members, "exclude": excl},
             "gates": gates,
@@ -823,7 +1042,10 @@ def build_parser() -> argparse.ArgumentParser:
     s = add("compare", cmd_compare, "gates G0-G4 over the frozen manifest and the A1, A2, B (and C) roots")
     s.add_argument("--frozen", required=True, metavar="M", help="manifest of the pre-run state (from freeze or snapshot)")
     s.add_argument("--a1", required=True, metavar="DIR")
-    s.add_argument("--a2", required=True, metavar="DIR")
+    s.add_argument("--a2", metavar="DIR", help="second Windows run (the noise floor); omit with --single-reference")
+    s.add_argument("--single-reference", action="store_true",
+                   help="one Windows run (D-242): A2 is A1, no noise floor is measured, JSON value paths in the fixed "
+                        "ops/compute/chain_volatile.json are masked instead; byte gates are never masked")
     s.add_argument("--b", required=True, metavar="DIR")
     s.add_argument("--c", metavar="DIR", help="optional second container run")
     s.add_argument("--map", action="extend", nargs="+", metavar="WIN=CONTAINER", help="root prefix pair for PATH_ONLY, e.g. C:\\melange-data=/melange-data")

@@ -45,7 +45,7 @@ socket.getaddrinfo = _ipv4_first
 # catching the cases the per-request timeout misses). The leg's own retry/skip then continues.
 socket.setdefaulttimeout(90)
 B = MB_ROOT
-DB = B + r'\social_media.db'
+DB = os.path.join(B, 'social_media.db')
 UA = {'User-Agent': 'MelangeSystemsResearchCollector/1.0 (public-records research)',
       # cbsnews.com 406s requests with no Accept header (content-negotiation WAF, verified 2026-07-05);
       # standard browser Accept headers unblock it and are inert for every other leg.
@@ -121,7 +121,7 @@ def scrub(sp):
     return re.sub(r'\s+', ' ', sp).strip()
 
 # ---------------- roster resolution ----------------
-C = {m['member']: m for m in json.load(open(B + r'\data\engine\congestion.json'))}
+C = {m['member']: m for m in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json')))}
 TITLE = re.compile(r'^(SEN\.|REP\.|SENATOR|REPRESENTATIVE|SPEAKER OF THE HOUSE|SPEAKER|HOUSE MINORITY LEADER|'
                    r'HOUSE MAJORITY LEADER|SENATE (MAJORITY|MINORITY) LEADER|DEL\.|CONGRESSMAN|CONGRESSWOMAN|DR\.)\s+', re.I)
 import unicodedata as _ud

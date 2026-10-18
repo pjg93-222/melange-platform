@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import zipfile
 from pathlib import Path
@@ -21,6 +22,9 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "compute"))
 import chain_parity as cp  # noqa: E402
+
+REAL_GIT = cp._git
+REAL_CITATIONS = cp.check_citations
 
 STAMP_OLD = dt.datetime(2020, 1, 1, 12, 0, 0)
 STAMP_NEW = dt.datetime(2026, 10, 11, 9, 30, 0)
@@ -849,3 +853,426 @@ def test_workbook_style_only_difference_is_canonical_but_a_cached_value_is_not(t
     rc, rep = compare(make_case(tmp_path / "d", a1={"out/w.xlsx": with_cached(plain, 3)}, a2={"out/w.xlsx": with_cached(plain, 3)},
                                 b={"out/w.xlsx": with_cached(plain, 4)}))
     assert rc == 1 and "cached_value" in rep["classes"]["B"]["out/w.xlsx"]["detail"]
+
+
+# ------------------------------------------------------------------ compare --single-reference (Paul 2026-10-18)
+
+def compare_single(case, *extra: str):
+    args = ["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]), "--single-reference"]
+    report = case.tmp / "report.json"
+    rc = cp.main([*args, "--report", str(report), *extra])
+    return rc, json.loads(report.read_text(encoding="utf-8"))
+
+
+@pytest.fixture(autouse=True)
+def git_calls(monkeypatch):
+    """The list is 'reviewed' only when committed and clean (cp.reviewed_blob): every test sees that unless it says otherwise."""
+    calls = []
+
+    def fake(*args):
+        calls.append(args)
+        return "" if args[0] == "status" else "b" * 40
+    monkeypatch.setattr(cp, "_git", fake)
+    return calls
+
+
+@pytest.fixture(autouse=True)
+def citation_calls(monkeypatch):
+    """The cited writer lines are checked against the code tree A1 ran from (cp.check_citations); synthetic roots carry no code."""
+    calls = []
+    monkeypatch.setattr(cp, "check_citations", lambda entries, root: calls.append((len(entries), root)))
+    return calls
+
+
+@pytest.fixture
+def volatile_list(tmp_path, monkeypatch):
+    """Install a throwaway volatile list in place of the shipped chain_volatile.json."""
+    def install(*entries):
+        path = tmp_path / "volatile.json"
+        path.write_text(json.dumps({"entries": [{"writer": "x.py:1", "needle": "x", **e} for e in entries]}), encoding="utf-8")
+        monkeypatch.setattr(cp, "VOLATILE_FILE", path)
+    return install
+
+
+STATE_LIST = ({"file": "out/state.json", "pointer": "/built_at"}, {"file": "out/state.json", "pointer": "/rows/*/t"})
+
+
+def test_single_reference_passes_identical_a_and_b_and_the_report_says_so(tmp_path, git_calls, citation_calls):
+    case = make_case(tmp_path)
+    rc, rep = compare_single(case)
+    assert rc == 0 and rep["result"] == "PASS" and rep["exit_code"] == 0 and rep["failed_gates"] == []
+    assert rep["reference"] == "single"
+    assert rep["volatile_list"]["path"] == str(cp.VOLATILE_FILE) and rep["volatile_list"]["entries"] == len(cp.load_volatile()["entries"])
+    assert rep["volatile_list"]["sha256"] == hashlib.sha256(cp.VOLATILE_FILE.read_bytes()).hexdigest()
+    assert rep["volatile_list"]["head_blob"] == "b" * 40
+    assert git_calls == [("status", "--porcelain", "--", "ops/compute/chain_volatile.json"),
+                         ("rev-parse", "HEAD:ops/compute/chain_volatile.json"),
+                         ("rev-parse", "HEAD"), ("status", "--porcelain", "--", "fec")]
+    assert rep["repo_head"] == "b" * 40 and rep["repo_dirty"] is False
+    assert citation_calls == [(rep["volatile_list"]["entries"], str(case.roots["A1"]))]     # checked against the tree A1 ran from
+    assert list(rep["inputs"]["roots"]) == ["A1", "B"] and "A2" not in rep["byte_artifacts"]["ranks_python.json"]
+    assert "A1_vs_A2" not in rep["movers"] and rep["movers"]["A1_vs_B"]["zero"] is True
+    # nothing was measured: the noise floor is reported as not applicable, never as a pass
+    assert [g["name"] for g in rep["gates"]] == ["G0", "G1", "G2", "G3", "G4", "NF"]
+    nf = gate(rep, "NF")
+    assert nf["status"] == "NOT_APPLICABLE" and "no variance was measured" in " ".join(nf["detail"]) and "D-242" in " ".join(nf["detail"])
+    assert "A1/A2" not in gate(rep, "G0")["title"] and "A1==A2" not in gate(rep, "G2")["title"]
+
+
+def test_single_reference_fails_on_a_real_difference(tmp_path, volatile_list):
+    volatile_list(*STATE_LIST)
+    one = lambda **kw: json.dumps({"built_at": "t1", "x": 1, "rows": [{"t": "t1", "n": 1}], **kw}).encode()  # noqa: E731
+    rc, rep = compare_single(make_case(tmp_path / "a", a1={"out/state.json": one()}, b={"out/state.json": one(x=2)}))
+    assert rc == 1 and failed(rep) == ["G4"] and rep["classes"]["B"]["out/state.json"]["class"] == "DIFFERENT"
+    assert "/x" in rep["classes"]["B"]["out/state.json"]["detail"] and "fixed volatile list" in rep["classes"]["B"]["out/state.json"]["detail"]
+    rc, rep = compare_single(make_case(tmp_path / "b", b={"ranks_python.json": ranks_bytes(swap=(10, 11))}))
+    assert rc == 1 and failed(rep) == ["G2", "G3"] and rep["movers"]["A1_vs_B"]["zero"] is False
+    rc, rep = compare_single(make_case(tmp_path / "c", b={"out/extra.txt": b"x"}))
+    assert rc == 1 and failed(rep) == ["G1", "G4"] and "out/extra.txt" in detail(rep, "G1")
+
+
+def test_volatile_list_masks_only_the_listed_fields(tmp_path, volatile_list):
+    volatile_list(*STATE_LIST)
+    rc, rep = compare_single(make_case(tmp_path / "ok", a1={"out/state.json": js("t1")}, b={"out/state.json": js("t2")}))
+    assert rc == 0 and rep["classes"]["B"]["out/state.json"]["class"] == "JSON_CANONICAL"
+    assert "fixed volatile list (2 path(s))" in rep["classes"]["B"]["out/state.json"]["detail"]
+    assert rep["masks"]["out/state.json"] == ["/built_at", "/rows/0/t"]
+    # the same fields in a file that is not listed, an unlisted sibling field, a deeper path under a `*`, and a changed shape all fail
+    rc, rep = compare_single(make_case(tmp_path / "file", a1={"out/other.json": js("t1")}, b={"out/other.json": js("t2")}))
+    assert rc == 1 and rep["classes"]["B"]["out/other.json"]["class"] == "DIFFERENT" and "out/other.json" not in rep["masks"]
+    rc, rep = compare_single(make_case(tmp_path / "sib", a1={"out/state.json": js("t1")}, b={"out/state.json": js("t2", x=2)}))
+    assert rc == 1 and rep["classes"]["B"]["out/state.json"]["class"] == "DIFFERENT" and "/x" in rep["classes"]["B"]["out/state.json"]["detail"]
+    volatile_list({"file": "out/state.json", "pointer": "/rows/*"}, {"file": "out/state.json", "pointer": "/built_at"})
+    rc, rep = compare_single(make_case(tmp_path / "deep", a1={"out/state.json": js("t1")}, b={"out/state.json": js("t2")}))
+    assert rc == 1 and "/rows/0/t" in rep["classes"]["B"]["out/state.json"]["detail"]
+    volatile_list({"file": "out/s.json", "pointer": "/k"})
+    arr = lambda *v: json.dumps({"k": list(v)}).encode()  # noqa: E731
+    rc, rep = compare_single(make_case(tmp_path / "shape", a1={"out/s.json": arr(1, 2)}, b={"out/s.json": arr(1, 2, 3)}))
+    assert rc == 1 and rep["classes"]["B"]["out/s.json"]["class"] == "DIFFERENT"
+
+
+def test_volatile_list_reaches_ndjson_lines_and_never_widens_from_a2(tmp_path, volatile_list):
+    volatile_list({"file": "out/ev.ndjson", "pointer": "/*/ts"})
+    nd = lambda t, n=0: ("\n".join(json.dumps({"ts": t, "id": i + n}) for i in range(3)) + "\n").encode()  # noqa: E731
+    case = make_case(tmp_path / "ok", a1={"out/ev.ndjson": nd("t1")}, a2={"out/ev.ndjson": nd("zzz")}, b={"out/ev.ndjson": nd("t2")})
+    rc, rep = compare_single(case)
+    assert rc == 0 and rep["classes"]["B"]["out/ev.ndjson"]["class"] == "JSON_CANONICAL"      # the unused A2 copy is never read
+    rc, rep = compare_single(make_case(tmp_path / "bad", a1={"out/ev.ndjson": nd("t1")}, b={"out/ev.ndjson": nd("t2", n=5)}))
+    assert rc == 1 and rep["classes"]["B"]["out/ev.ndjson"]["class"] == "DIFFERENT"
+
+
+def test_is_volatile_matches_one_segment_per_star_and_never_the_root():
+    entries = [{"file": "a/*.json", "pointer": "/x/*/y"}, {"file": "z.json", "pointer": "/k"}]
+    assert cp.is_volatile(entries, "a/b.json", ("x", 0, "y")) and cp.is_volatile(entries, "a/b.json", ("x", "k", "y"))
+    assert not cp.is_volatile(entries, "a/b.json", ("x", "y")) and not cp.is_volatile(entries, "a/b.json", ("x", 0, "y", "w"))
+    assert cp.is_volatile(entries, "dir/z.json", ("k",)) and not cp.is_volatile(entries, "z.jsonl", ("k",))   # a bare name is a path segment
+    assert not cp.is_volatile([{"file": "*", "pointer": "/*"}], "a.json", ())                              # the root value is never listed
+
+
+def test_byte_gates_cannot_be_masked_by_any_list(tmp_path, volatile_list, capsys):
+    for n, glob in enumerate(("dashboard_data.json", "ranks_python.json", "bipartisan.json", "*.json", "dashboard_*")):
+        volatile_list({"file": glob, "pointer": "/built"})
+        case = make_case(tmp_path / f"case{n}")
+        report = tmp_path / f"r{n}.json"
+        assert cp.main(["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]),
+                        "--single-reference", "--report", str(report)]) == 2, glob
+        assert "byte gate" in capsys.readouterr().err and not report.exists()
+    volatile_list({"file": "out/state.json", "pointer": "/built_at"})            # a legitimate list still cannot rescue a byte artifact
+    rc, rep = compare_single(make_case(tmp_path / "gate", b={"dashboard_data.json": b'{"members":533,"built":"fixeD"}'}))
+    assert rc == 1 and failed(rep) == ["G2"] and "dashboard_data.json: B != A1" in detail(rep, "G2")
+
+
+def test_single_reference_argument_errors(tmp_path, capsys):
+    case = make_case(tmp_path)
+    base = ["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"])]
+    assert cp.main(base) == 2 and "--a2 is required" in capsys.readouterr().err
+    assert cp.main([*base, "--single-reference", "--a2", str(case.roots["A2"])]) == 2 and "takes no --a2" in capsys.readouterr().err
+    assert cp.main([*base, "--single-reference"]) == 0
+
+
+@pytest.mark.parametrize("doc", ["not json", "{}", '{"entries": []}', '{"entries": [{"file": "a.json", "pointer": "x", "writer": "w:1"}]}',
+                                 '{"entries": [{"file": "a.json", "pointer": "/x"}]}',
+                                 '{"entries": [{"file": "a.json", "pointer": "/x", "writer": "w:1"}]}'])
+def test_a_malformed_volatile_list_is_a_usage_error(tmp_path, monkeypatch, capsys, doc):
+    bad = tmp_path / "bad.json"
+    bad.write_text(doc, encoding="utf-8")
+    monkeypatch.setattr(cp, "VOLATILE_FILE", bad)
+    case = make_case(tmp_path / "t")
+    assert cp.main(["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]),
+                    "--single-reference"]) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_two_run_mode_is_unchanged_by_the_single_reference_option(tmp_path, volatile_list, git_calls):
+    volatile_list(*STATE_LIST)                           # a list on disk must not leak into the measured mask
+    rc, rep = compare(make_case(tmp_path / "pass"))
+    assert rc == 0 and "reference" not in rep and "volatile_list" not in rep and git_calls == []
+    assert [g["name"] for g in rep["gates"]] == ["G0", "G1", "G2", "G3", "G4"] and list(rep["inputs"]["roots"]) == ["A1", "A2", "B"]
+    assert "A1/A2 path sets equal" in gate(rep, "G0")["title"] and "A1==A2" in gate(rep, "G2")["title"] and "A1_vs_A2" in rep["movers"]
+    rc, rep = compare(make_case(tmp_path / "same", a1={"out/state.json": js("t1")}, a2={"out/state.json": js("t1")},
+                                b={"out/state.json": js("t2")}))                    # listed fields, but A1 == A2: still DIFFERENT
+    assert rc == 1 and rep["classes"]["B"]["out/state.json"]["class"] == "DIFFERENT"
+    assert "outside the A1/A2 mask" in rep["classes"]["B"]["out/state.json"]["detail"]
+    rc, rep = compare(make_case(tmp_path / "noise", a2={"bipartisan.json": b'{"pairs":[1,2,9]}'}))
+    assert rc == 1 and "noise floor violated" in detail(rep, "G2")
+
+
+def test_the_shipped_volatile_list_is_sound_and_its_citations_still_resolve():
+    entries = cp.load_volatile()["entries"]              # refuses a malformed entry or one that could match a byte gate
+    assert len(entries) > 20 and len({(e["file"], e["pointer"]) for e in entries}) == len(entries)
+    assert {e["kind"] for e in entries} <= {"clock", "mtime", "duration", "copy"}
+    for e in entries:
+        assert all(seg for seg in e["pointer"][1:].split("/")), e                          # no empty segment
+        path, _, line = e["writer"].rpartition(":")
+        source = (cp.REPO_ROOT / path).read_text(encoding="utf-8", errors="replace").splitlines()
+        assert line.isdigit() and 1 <= int(line) <= len(source), e["writer"]
+        assert e["needle"] and e["needle"] in source[int(line) - 1], (e["writer"], e["needle"], source[int(line) - 1])
+        assert not any(cp._match(art, e["file"]) for art in cp.BYTE_ARTIFACTS), e
+
+
+def test_single_reference_refuses_a_list_that_is_not_committed(tmp_path, monkeypatch, capsys):
+    case = make_case(tmp_path)
+    args = ["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]),
+            "--single-reference", "--report", str(tmp_path / "r.json")]
+    monkeypatch.setattr(cp, "_git", lambda *a: " M ops/compute/chain_volatile.json" if a[0] == "status" else "b" * 40)   # edited, unstaged
+    assert cp.main(args) == 2 and "not committed" in capsys.readouterr().err and not (tmp_path / "r.json").exists()
+
+    def not_in_head(*a):
+        if a[0] == "status":
+            return ""                                       # e.g. a git-ignored list: status says nothing, HEAD does not hold it
+        raise cp.Usage("git rev-parse HEAD:ops/compute/chain_volatile.json failed: path exists on disk, but not in 'HEAD'")
+    monkeypatch.setattr(cp, "_git", not_in_head)
+    assert cp.main(args) == 2 and "not in 'HEAD'" in capsys.readouterr().err and not (tmp_path / "r.json").exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_reviewed_blob_against_a_real_repository(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "ops" / "compute").mkdir(parents=True)
+    lst = repo / "ops" / "compute" / "chain_volatile.json"
+    lst.write_text("{}\n", encoding="utf-8")
+    monkeypatch.setattr(cp, "_git", REAL_GIT)
+    monkeypatch.setattr(cp, "REPO_ROOT", repo)
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    with pytest.raises(cp.Usage, match="not committed"):    # untracked
+        cp.reviewed_blob(lst)
+    git("add", ".")
+    with pytest.raises(cp.Usage, match="not committed"):    # staged, never committed
+        cp.reviewed_blob(lst)
+    git("commit", "-q", "-m", "list")
+    blob = git("rev-parse", "HEAD:ops/compute/chain_volatile.json")
+    assert cp.reviewed_blob(lst) == blob and len(blob) == 40
+    lst.write_text("{ }\n", encoding="utf-8")
+    with pytest.raises(cp.Usage, match="not committed"):    # edited after the review
+        cp.reviewed_blob(lst)
+    git("commit", "-q", "-am", "edit")
+    assert cp.reviewed_blob(lst) != blob
+
+
+def test_a_listed_field_that_changes_json_type_is_a_change_not_a_clock_reading(tmp_path, volatile_list):
+    volatile_list({"file": "out/t.json", "pointer": "/at"})
+    doc = lambda v: json.dumps({"at": v, "x": 1}).encode()  # noqa: E731
+    for n, (a, b) in enumerate((("2026-10-18T10:00:00Z", None), (None, "2026-10-18T10:00:00Z"), ("t1", 5), (1.5, "t"), (True, "t"), (1, True))):
+        rc, rep = compare_single(make_case(tmp_path / f"c{n}", a1={"out/t.json": doc(a)}, b={"out/t.json": doc(b)}))
+        assert rc == 1 and rep["classes"]["B"]["out/t.json"]["class"] == "DIFFERENT", (a, b)
+    for n, (a, b) in enumerate((("t1", "t2"), (1.5, 2.5), (1, 2.5), (None, None))):
+        rc, rep = compare_single(make_case(tmp_path / f"s{n}", a1={"out/t.json": doc(a)}, b={"out/t.json": doc(b)}))
+        assert rc == 0, (a, b)
+
+
+@pytest.mark.parametrize("pointer", ["/*", "/*/*", "/*/*/*"])
+def test_a_pointer_made_only_of_wildcards_is_refused(tmp_path, monkeypatch, pointer):
+    bad = tmp_path / "bad.json"
+    bad.write_text(json.dumps({"entries": [{"file": "out/a.json", "pointer": pointer, "writer": "x.py:1", "needle": "x"}]}), encoding="utf-8")
+    with pytest.raises(cp.Usage, match="only wildcards"):
+        cp.load_volatile(bad)
+    bad.write_text(json.dumps({"entries": [{"file": "out/a.json", "pointer": pointer + "/ts", "writer": "x.py:1", "needle": "x"}]}), encoding="utf-8")
+    assert cp.load_volatile(bad)["entries"]                  # one named segment is enough
+
+
+def test_the_shipped_list_masks_the_mtimes_of_files_the_run_writes_and_not_of_inputs(tmp_path):
+    def bundle(stamp, **src):
+        sources = {"ranks_python.json": "m", "data/lobbying/district_industry.json": "m", "social_media.db": "m", **src}
+        return json.dumps({"freshness": {"generated_at": stamp, "sources": sources}}).encode()
+    ok = make_case(tmp_path / "ok", a1={"member_desk_bundle.json": bundle("g1")},
+                   b={"member_desk_bundle.json": bundle("g2", **{"ranks_python.json": "m2", "data/lobbying/district_industry.json": "m2"})})
+    rc, rep = compare_single(ok)
+    assert rc == 0 and rep["masks"]["member_desk_bundle.json"] == [
+        "/freshness/generated_at", "/freshness/sources/data~1lobbying~1district_industry.json", "/freshness/sources/ranks_python.json"]
+    for n, name in enumerate(("social_media.db", "data/district/district_hmda.json", "bill_repository_live.json")):   # inputs: no chain step writes them
+        bad = make_case(tmp_path / f"bad{n}", a1={"member_desk_bundle.json": bundle("g1", **{name: "m1"})},
+                        b={"member_desk_bundle.json": bundle("g1", **{name: "m2"})})
+        rc, rep = compare_single(bad)
+        assert rc == 1 and rep["classes"]["B"]["member_desk_bundle.json"]["class"] == "DIFFERENT"
+        assert "/freshness/sources/" + name.replace("/", "~1") in rep["classes"]["B"]["member_desk_bundle.json"]["detail"]
+
+    def vintages(**mod):
+        base = {"dashboard_data": {"modified_utc": "m"}, "champions_v2_boards": {"modified_utc": "m", "declared_generated_utc": "d"},
+                "member_congress_panel": {"modified_utc": "m"}, "strict_bill_lobby_indexes": [{"modified_utc": "m"}]}
+        for k, v in mod.items():
+            base[k] = v
+        return json.dumps({"generated_utc": "g", "receipts": {"artifact_vintages": base}}).encode()
+    rc, rep = compare_single(make_case(tmp_path / "eff", a1={"data/engine/efficiency_layers.json": vintages()},
+                                       b={"data/engine/efficiency_layers.json": vintages(
+                                           dashboard_data={"modified_utc": "n"},
+                                           champions_v2_boards={"modified_utc": "n", "declared_generated_utc": "e"})}))
+    assert rc == 0
+    for n, mod in enumerate(({"member_congress_panel": {"modified_utc": "n"}}, {"strict_bill_lobby_indexes": [{"modified_utc": "n"}]})):
+        rc, rep = compare_single(make_case(tmp_path / f"eff{n}", a1={"data/engine/efficiency_layers.json": vintages()},
+                                           b={"data/engine/efficiency_layers.json": vintages(**mod)}))
+        assert rc == 1 and rep["classes"]["B"]["data/engine/efficiency_layers.json"]["class"] == "DIFFERENT"
+
+
+def test_the_shipped_list_never_names_path_fields_and_says_where_they_go():
+    doc = json.loads(cp.VOLATILE_FILE.read_text(encoding="utf-8"))
+    assert "D-242" in doc["ruling"] and "PATH_ONLY" in doc["never_listed"] and "--exclude" in doc["never_listed"]
+    paths = {"path", "source_run", "output", "artifact", "root", "report_path", "alias", "source"}
+    assert not [e for e in doc["entries"] if e["pointer"].rsplit("/", 1)[-1] in paths]
+
+
+def test_single_reference_refuses_citations_that_do_not_fit_the_code_that_produced_a(tmp_path, monkeypatch, capsys, volatile_list):
+    monkeypatch.setattr(cp, "check_citations", REAL_CITATIONS)
+    volatile_list({"file": "out/t.json", "pointer": "/at", "writer": "fec/x.py:2", "needle": "stamp = now()"})
+    code = b"import os\nstamp = now()\n"
+    ok = make_case(tmp_path / "ok", frozen_extra={"fec/x.py": code})
+    assert compare_single(ok)[0] == 0
+    cases = (("line moved", b"import os\nimport sys\nstamp = now()\n"), ("needle gone", b"import os\nstamp = clock()\n"),
+             ("past the end", b"stamp = now()\n"), ("file absent", None))
+    for n, (label, content) in enumerate(cases):
+        case = make_case(tmp_path / f"bad{n}", frozen_extra={"fec/x.py": code})
+        target = case.roots["A1"] / "fec" / "x.py"
+        target.unlink() if content is None else target.write_bytes(content)
+        report = tmp_path / f"r{n}.json"
+        rc = cp.main(["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]),
+                      "--single-reference", "--report", str(report)])
+        err = capsys.readouterr().err
+        assert rc == 2 and "fec/x.py:2" in err and "produced A1" in err and not report.exists(), label
+    # the code is read from A1's root, not from the repository the tool lives in
+    assert not (cp.REPO_ROOT / "fec" / "x.py").exists()
+
+
+def test_check_citations_names_every_mismatch(tmp_path):
+    (tmp_path / "fec").mkdir()
+    (tmp_path / "fec" / "a.py").write_text("one\ntwo = 2\n", encoding="utf-8")
+    entries = [{"writer": "fec/a.py:2", "needle": "two = 2"}, {"writer": "fec/a.py:1", "needle": "two = 2"},
+               {"writer": "fec/gone.py:1", "needle": "x"}, {"writer": "fec/a.py:9", "needle": "x"}]
+    with pytest.raises(cp.Usage) as err:
+        REAL_CITATIONS(entries, tmp_path)
+    text = str(err.value)
+    assert "3 volatile list citation(s)" in text and "fec/a.py:1 (needle not on that line)" in text
+    assert "fec/gone.py:1 (file missing)" in text and "fec/a.py:9 (needle not on that line)" in text and "fec/a.py:2 (" not in text
+    REAL_CITATIONS(entries[:1], tmp_path)
+
+
+def test_single_reference_refuses_a_dirty_code_tree(tmp_path, monkeypatch, capsys):
+    case = make_case(tmp_path)
+    args = ["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--b", str(case.roots["B"]),
+            "--single-reference", "--report", str(tmp_path / "r.json")]
+
+    def dirty(*a):
+        if a[:3] == ("status", "--porcelain", "--") and a[3] == "fec":
+            return " M fec/engine/compute_pillars.py"
+        return "" if a[0] == "status" else "b" * 40
+    monkeypatch.setattr(cp, "_git", dirty)
+    assert cp.main(args) == 2
+    assert "fec/ has uncommitted changes" in capsys.readouterr().err and not (tmp_path / "r.json").exists()
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_repo_state_against_a_real_repository(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    (repo / "fec").mkdir(parents=True)
+    (repo / "fec" / "a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "ops").mkdir()
+    (repo / "ops" / "doc.md").write_text("doc\n", encoding="utf-8")
+    monkeypatch.setattr(cp, "_git", REAL_GIT)
+    monkeypatch.setattr(cp, "REPO_ROOT", repo)
+
+    def git(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    git("init", "-q")
+    git("add", ".")
+    git("commit", "-q", "-m", "code")
+    head = git("rev-parse", "HEAD")
+    assert cp.repo_state() == (head, False)
+    (repo / "ops" / "doc.md").write_text("edited\n", encoding="utf-8")          # outside the chain's code tree: not dirty
+    assert cp.repo_state() == (head, False)
+    (repo / "fec" / "a.py").write_text("x = 2\n", encoding="utf-8")
+    assert cp.repo_state() == (head, True)
+    git("checkout", "--", "fec/a.py")
+    (repo / "fec" / "new_module.py").write_text("y = 1\n", encoding="utf-8")    # untracked code is code the chain may run
+    assert cp.repo_state() == (head, True)
+
+
+# --- the raw text beside a masked field: JSON canonicalisation must not hide anything else
+
+RAW_LIST = {"file": "out/t.json", "pointer": "/at"}
+
+
+@pytest.mark.parametrize("label, a, b", [
+    ("spacing", b'{"at":"t1","x":1}', b'{"at": "t2","x":1}'),
+    ("trailing newline", b'{"at":"t1","x":1}', b'{"at":"t2","x":1}\n'),
+    ("number spelling", b'{"at":"t1","x":1.0}', b'{"at":"t2","x":1.00}'),
+    ("exponent spelling", b'{"at":"t1","x":100.0}', b'{"at":"t2","x":1e2}'),
+    ("escape", b'{"at":"t1","x":"\xc3\xa9"}', b'{"at":"t2","x":"\\u00e9"}'),
+    ("key order", b'{"at":"t1","x":1,"y":2}', b'{"y":2,"x":1,"at":"t2"}'),
+    ("line endings", b'{\n"at":"t1",\n"x":1}', b'{\r\n"at":"t2",\r\n"x":1}'),
+    ("byte order mark", b'{"at":"t1","x":1}', b'\xef\xbb\xbf{"at":"t2","x":1}'),
+])
+def test_text_beside_a_masked_field_must_be_identical(tmp_path, volatile_list, label, a, b):
+    volatile_list(RAW_LIST)
+    rc, rep = compare_single(make_case(tmp_path, a1={"out/t.json": a}, b={"out/t.json": b}))
+    assert rc == 1 and rep["classes"]["B"]["out/t.json"]["class"] == "DIFFERENT", label
+    assert "raw text differs outside the fixed volatile list" in rep["classes"]["B"]["out/t.json"]["detail"]
+
+
+@pytest.mark.parametrize("label, a, b", [
+    ("duplicate key in B", b'{"at":"t1","x":1}', b'{"at":"t2","x":1,"x":1}'),
+    ("duplicate key in A1", b'{"at":"t1","x":1,"x":2}', b'{"at":"t2","x":2}'),
+    ("NaN", b'{"at":"t1","x":NaN}', b'{"at":"t2","x":NaN}'),
+    ("Infinity", b'{"at":"t1","x":1}', b'{"at":"t2","x":-Infinity}'),
+])
+def test_a_duplicate_key_or_nan_makes_the_file_not_comparable(tmp_path, volatile_list, label, a, b):
+    volatile_list(RAW_LIST)
+    rc, rep = compare_single(make_case(tmp_path, a1={"out/t.json": a}, b={"out/t.json": b}))
+    assert rc == 1 and rep["classes"]["B"]["out/t.json"]["class"] == "DIFFERENT", label
+    assert "duplicate key or NaN/Infinity" in rep["classes"]["B"]["out/t.json"]["detail"]
+
+
+def test_identical_text_with_different_masked_scalars_passes_at_any_depth(tmp_path, volatile_list):
+    volatile_list(RAW_LIST, {"file": "out/n.json", "pointer": "/rows/*/t"}, {"file": "out/e.ndjson", "pointer": "/*/ts"})
+    rc, rep = compare_single(make_case(tmp_path, a1={
+        "out/t.json": b'{ "at" : "t1" , "x" : [1, {"y": null}] }\n',
+        "out/n.json": b'{"rows":[{"t":"a","n":1},{"t":"b","n":2}],"k":"v\\"}"}',
+        "out/e.ndjson": b'{"ts":"a","id":0}\n\n{"ts":"b","id":1}\n'}, b={
+        "out/t.json": b'{ "at" : "2026-10-18T10:00:00+00:00" , "x" : [1, {"y": null}] }\n',
+        "out/n.json": b'{"rows":[{"t":"longer stamp","n":1},{"t":"c","n":2}],"k":"v\\"}"}',
+        "out/e.ndjson": b'{"ts":"zzz","id":0}\n\n{"ts":"yyyy","id":1}\n'}))
+    assert rc == 0 and all(rep["classes"]["B"][f]["class"] == "JSON_CANONICAL" for f in ("out/t.json", "out/n.json", "out/e.ndjson"))
+    assert rep["masks"]["out/n.json"] == ["/rows/0/t", "/rows/1/t"] and rep["masks"]["out/e.ndjson"] == ["/0/ts", "/1/ts"]
+
+
+def test_ndjson_text_beside_a_masked_field_must_be_identical_too(tmp_path, volatile_list):
+    volatile_list({"file": "out/e.ndjson", "pointer": "/*/ts"})
+    rc, rep = compare_single(make_case(tmp_path, a1={"out/e.ndjson": b'{"ts":"a","id":0}\n{"ts":"b","id":1}\n'},
+                                       b={"out/e.ndjson": b'{"ts":"c","id":0}\n{"ts":"d", "id":1}\n'}))
+    assert rc == 1 and "raw text differs" in rep["classes"]["B"]["out/e.ndjson"]["detail"]
+
+
+def test_without_a_masked_field_json_canonical_is_unchanged_in_both_modes(tmp_path, volatile_list):
+    volatile_list(RAW_LIST)
+    reordered = {"out/t.json": b'{"x" : 1,\n"y":2}'}
+    base = {"out/t.json": b'{"y":2,"x":1}'}
+    rc, rep = compare_single(make_case(tmp_path / "single", a1=base, b=reordered))
+    assert rc == 0 and rep["classes"]["B"]["out/t.json"]["class"] == "JSON_CANONICAL"      # nothing masked: parsed equality, as D-177
+    rc, rep = compare(make_case(tmp_path / "two", a1={"out/t.json": b'{"at":"t1","x":1}'}, a2={"out/t.json": b'{"at":"t2","x":1}'},
+                                b={"out/t.json": b'{ "at": "t3", "x": 1 }'}))               # two-run mode keeps parsed equality beside the mask
+    assert rc == 0 and rep["classes"]["B"]["out/t.json"]["class"] == "JSON_CANONICAL"
+    dup = b'{"at":"t1","x":1,"x":1}'
+    rc, rep = compare(make_case(tmp_path / "dup", a1={"out/t.json": dup}, a2={"out/t.json": dup}, b={"out/t.json": b'{"at":"t1","x":1}'}))
+    assert rc == 0                                                                           # two-run mode accepts a duplicate key as before

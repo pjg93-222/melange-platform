@@ -141,7 +141,7 @@ class AnchorSeamTests(unittest.TestCase):
             (Path(base) / 'inputs' / 'active_fec_sources.json').write_text(json.dumps({'path': pointer}), encoding='utf-8')
             self.assertEqual(bga.fec_root(base), Path(pointer))                          # Windows: exactly as before
             self.assertEqual(bga.fec_root(base, '/explicit'), Path('/explicit'))
-            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix')):
+            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix', environ={})):
                 rebased = bga.fec_root(base)
             self.assertEqual(rebased.relative_to(receipt_paths.PROJECT).as_posix(), '.cache/repair-20260908-inputs')
 

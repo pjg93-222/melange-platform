@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -38,8 +39,11 @@ class HardAbort(BaseException):
 @pytest.fixture(autouse=True)
 def clean(monkeypatch, tmp_path):
     for var in (*(f"MELANGE_ENGINE_{k}" for k in ("COLLECT", "CHAIN", "OFFICE")), "IMAGE_COMPUTE_COLLECTOR", "IMAGE_COMPUTE_MELANGE",
-                "IMAGE_OFFICE_CALC", *CE.ALL_SECRET_VARS, *CE.FORWARD, "GLASSBOX_EVENTS_DIR"):
+                "IMAGE_OFFICE_CALC", *CE.ALL_SECRET_VARS, *CE.FORWARD, "GLASSBOX_EVENTS_DIR", "GOVINFO_KEY", "FEC_API_KEY"):
         monkeypatch.delenv(var, raising=False)
+    for var in ("USERPROFILE", "HOME"):     # launch() looks under the home dir for the CLI login and keys.json: never the real ones
+        monkeypatch.setenv(var, str(tmp_path / "home"))
+    monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))     # launch() stages secret files and the empty scratch file under the temp dir
     monkeypatch.setattr(CE.paths, "ROOT", str(REPO))
     monkeypatch.setattr(CE.paths, "LOCAL_MELANGE", str(tmp_path / "local"))
     monkeypatch.setattr(CE.paths, "DRAFT", str(tmp_path / "draft"))

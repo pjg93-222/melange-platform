@@ -1,0 +1,151 @@
+{
+  "schema": "mentat-streak-volatile-v1",
+  "ruling": "Paul, 2026-10-18: one Windows run serves as A1 and A2; the volatile fields are masked from this fixed, reviewed list. Nothing is masked from the container side.",
+  "rules": [
+    "An entry masks JSON locations (RFC 6901 pointers, as tools/compute_parity.py flattens them) of files the Windows reference run writes, for fields that hold a wall clock, an elapsed time or a hash derived from one.",
+    "A money location is never maskable: any path segment matching amount|total|receipt|disburs|expend|cash|count|sum|cents|rank|percentil|threshold|usd|dollar|amt|contrib|giving|spend|value|share is refused (the judge pattern of mentat/COMPUTE.md, collector parity, plus usd|dollar|amt|contrib|giving|spend|value|share). The driver refuses a list that holds one and refuses to build a mask that would.",
+    "ignore globs may leave out log-like files only (log.txt, *.log).",
+    "`explained` (Paul 2026-10-18, brain D-entry pending) lists differences between the Windows run and the container that are known and ruled on. They are recorded in the result as EXPLAINED, with both values and the ruling, never as DIFFERENT. Only the one receipt file named here, only the locations named here; panels, bundle, coefficients and review can never be explained, and the driver refuses a list that tries.",
+    "A `text_pattern` entry (refit-parity, D-246 extension) explains a string, not a pointer: the receipt's and review/gates.json's /gates/0/detail (the G0 gate text, which embeds R.version.string). It counts as EXPLAINED only if the two strings are byte-identical once the one R version text in each (a pattern held in the driver, `R version x.y.z (yyyy-mm-dd[ platform])`) is replaced by one placeholder; any other change keeps the difference as DIFFERENT. Both raw values are recorded. Only those two locations are allowed.",
+    "`repeat_ok` (refit-parity only) lets repeat snapshots over the same inputs count; snapshot names must still differ, and the Mentat HEAD, the image digest and the hash of this file must be the same. Every other job needs a different inputs digest per snapshot.",
+    "`a_exit_explained` accepts a Windows A side that exited 1 only when its log shows G0, G1 and G3 passing, G2 failing with no error and no leaf mismatch, and testthat failure headers that are exactly the pinned ones. A log that names no failing test is not accepted.",
+    "Every entry cites the Mentat file:line that writes the field. `mentat_streak.py volatile --check-cites` reads the live checkout and proves each cited line holds the needle."
+  ],
+  "jobs": {
+    "anchors": {
+      "mask": [
+        {
+          "file": "giving-anchors-v1.json",
+          "locations": ["/built_at_utc"],
+          "cite": "mentat/forecast/anchors/build_giving_anchors.py:456",
+          "needle": "built_at_utc",
+          "reason": "snapshot['built_at_utc'] = utc_now() (defined at :53-54), the wall clock of the build."
+        },
+        {
+          "file": "giving-anchors-v1.receipt.json",
+          "locations": ["/built_at_utc", "/elapsed_seconds", "/snapshot_sha256"],
+          "cite": "mentat/forecast/anchors/build_giving_anchors.py:529-530",
+          "needle": "elapsed_seconds",
+          "reason": "The receipt copies built_at_utc, records the build's elapsed seconds, and snapshot_sha256 is the sha256 of the snapshot text, which holds built_at_utc. The driver checks that it equals the sha256 of the snapshot file beside it on each side."
+        }
+      ],
+      "ignore": []
+    },
+    "refit-detect": {
+      "mask": [
+        {
+          "file": "agent/queue/*.json",
+          "locations": ["/detected_utc"],
+          "cite": "mentat/forecast/refit/R/rf_agent.R:75",
+          "needle": "detected_utc",
+          "reason": "A queue request is written once per new industry with rf_now_utc(). Inert while every published workbook is known or declined (detect.csv carries no clock)."
+        }
+      ],
+      "ignore": []
+    },
+    "refit-parity": {
+      "repeat_ok": true,
+      "repeat_ruling": "Paul 2026-10-18 (brain D-entry pending): three repeat runs on the same pinned inputs count as the three passes. registry/inputs.json pins every raw input by sha256 (and the driver checks each at freeze), so the inputs cannot differ between snapshots.",
+      "mask": [
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/started_utc"],
+          "cite": "mentat/forecast/refit/R/rf_parity.R:187",
+          "needle": "started_utc",
+          "reason": "started <- rf_now_utc() at the top of rf_run_parity (:87)."
+        },
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/finished_utc"],
+          "cite": "mentat/forecast/refit/R/rf_bundle.R:91",
+          "needle": "finished_utc",
+          "reason": "finished_utc = rf_now_utc() in rf_receipt()."
+        }
+      ],
+      "ignore": [
+        {
+          "glob": "runs/{run_id}/log.txt",
+          "cite": "mentat/forecast/refit/R/rf_parity.R:93",
+          "needle": "%H:%M:%S",
+          "reason": "Every log line starts with the wall-clock time of day; the log is written at :189."
+        }
+      ],
+      "explained": [
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/R_version"],
+          "cite": "mentat/forecast/refit/R/rf_bundle.R:94",
+          "needle": "R_version = R.version.string",
+          "reason": "R.version.string of the machine that ran: the Windows build (ucrt) and the container's Linux build differ by construction.",
+          "ruling": "Paul 2026-10-18 (brain D-entry pending)"
+        },
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/platform/*"],
+          "cite": "mentat/forecast/refit/R/rf_publish.R:241-245",
+          "needle": "nodename",
+          "reason": "rf_platform_info(): R_version, platform, os, blas, lapack, cores and the host name. One path segment under /platform only.",
+          "ruling": "Paul 2026-10-18 (brain D-entry pending)"
+        },
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/packages/*/lib"],
+          "cite": "mentat/forecast/refit/R/rf_bundle.R:94",
+          "needle": "lib = run$packages$lib[i]",
+          "reason": "The library folder each package was loaded from: a Windows path in A, a container path in B. Package names and versions stay compared.",
+          "ruling": "Paul 2026-10-18 (brain D-entry pending)"
+        },
+        {
+          "file": "runs/{run_id}/receipt.json",
+          "locations": ["/gates/0/detail"],
+          "text_pattern": "r-version",
+          "cite": "mentat/forecast/refit/R/rf_bundle.R:95",
+          "needle": "detail = run$gates$detail[i]",
+          "origin_cite": "mentat/forecast/refit/R/rf_parity.R:12",
+          "origin_needle": "R.version.string",
+          "reason": "The receipt copies each gate's detail; G0's is sprintf(\"%s; %s; rf_rng.R %s\", R.version.string, <package versions>, <hash state>). Explained only when the strings are identical once the R version text is replaced by a placeholder: the package versions and the hash state must still match.",
+          "ruling": "Paul 2026-10-18 (D-246 extension, brain entry pending)"
+        },
+        {
+          "file": "runs/{run_id}/review/gates.json",
+          "locations": ["/gates/0/detail"],
+          "text_pattern": "r-version",
+          "cite": "mentat/forecast/refit/R/rf_parity.R:186",
+          "needle": "\"review\", \"gates.json\"",
+          "origin_cite": "mentat/forecast/refit/R/rf_parity.R:12",
+          "origin_needle": "R.version.string",
+          "reason": "review/gates.json holds the same gate rows (as.list of the gates data frame), so the same text at the same pointer. The rest of the file, every other gate and every status, must match.",
+          "ruling": "Paul 2026-10-18 (D-246 extension, brain entry pending)"
+        }
+      ],
+      "a_exit_explained": {
+        "exit": 1,
+        "failures": ["test-19-parity-environment.R:17"],
+        "cites": [
+          {"cite": "mentat/forecast/refit/tests/testthat/test-19-parity-environment.R:17", "needle": "expect_identical(after[order(names(after))]"},
+          {"cite": "mentat/forecast/refit/R/rf_parity.R:38", "needle": "reporter = \"silent\""},
+          {"cite": "mentat/forecast/refit/R/rf_parity.R:174", "needle": "expectations, %d failed"}
+        ],
+        "ruling": "Paul 2026-10-18 (brain D-entry pending)",
+        "reason": "The one known failing expectation (references/jobs.md: test-19-parity-environment.R:17 fails identically on the Windows side). Accepted only when the A log names exactly that test and no other. NOTE: rf_parity_suite() runs with the silent reporter and its filter (rf_parity.R:28) leaves test-19 out, so today's log prints counts only and cannot name any failing test; until the log can, A's exit 1 stays a failure."
+      }
+    },
+    "pocket-build": {
+      "mask": [],
+      "ignore": [],
+      "note": "tools/pocket/build_page.py has no clock, uuid or host-dependent value: the page is a pure function of its two inputs (CRLF written explicitly). Nothing is volatile."
+    }
+  },
+  "not_masked": [
+    {
+      "what": "Everything else in refit-parity's receipt.json and review/gates.json: every other gate, every status, the package versions and hash state inside the G0 detail",
+      "cite": "mentat/forecast/refit/R/rf_parity.R:11-13",
+      "why": "Paul's D-246 extension explains the R version text inside /gates/0/detail only; everything else in those fields must still match, and a G0 detail that differs in anything but that text stays DIFFERENT."
+    },
+    {
+      "what": "Every path-valued field (inputs[].path, bundle_path, ...)",
+      "cite": "mentat/COMPUTE.md (parity: --map, PATH_ONLY)",
+      "why": "Handled by --map HOST=CONTAINER, which compute_parity.py reports as PATH_ONLY; the result lists each PATH_ONLY path for the explanation report."
+    }
+  ]
+}

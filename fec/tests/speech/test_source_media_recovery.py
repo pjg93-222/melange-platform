@@ -819,6 +819,27 @@ class SourceMediaRecoveryTests(unittest.TestCase):
         self.assertEqual(result, candidate)
         phrase.assert_not_called()
 
+    def test_fox_transport_failure_is_retryable_but_a_deterministic_miss_is_not(self):
+        package = "https://www.foxnews.com/transcript/example"
+        record = {
+            "source_family": "fox",
+            "date": "2023-04-09",
+            "show": "Fox News Sunday",
+            "package": package,
+            "package_id": SMR.package_id(package),
+        }
+        none = SMR.media_result("no_media", "test", "none")
+        for failure, status in (
+            (SMR.urllib.error.URLError("connection reset"), "probe_error"),
+            (SMR.RecoveryError("transcript turn is too short"), "blocked_no_exact_media"),
+        ):
+            with self.subTest(failure=type(failure).__name__),                     mock.patch.object(SMR, "fetch_text", return_value="no media"),                     mock.patch.object(SMR, "discover_tvnews_program", return_value=none),                     mock.patch.object(SMR, "discover_tvnews_phrase", side_effect=failure),                     mock.patch.object(SMR, "discover_fox_sunday", return_value=none):
+                result = SMR.discover_one(record, {"fox_by_date": {}})
+            self.assertEqual(result["status"], status)
+            if status == "probe_error":
+                self.assertEqual(result["adapter"], "fox_inline_partial")
+                self.assertEqual(result["evidence"]["fallback_errors"], [str(failure)])
+
     def test_cnn_official_fallback_candidates_reach_acquisition(self):
         record = {
             "source_family": "cnn",

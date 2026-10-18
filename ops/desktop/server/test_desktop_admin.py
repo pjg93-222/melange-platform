@@ -6,14 +6,15 @@ from pathlib import Path
 import ssl
 import threading
 import time
+from unittest import mock
 import uuid
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from desktop_admin import (APPS, BoundedServer, Refused, Store, b64, canonical,
-                           digest, file_hashes, handler_for, private_address,
-                           protect, unb64, verify_envelope)
+                           digest, file_hashes, handler_for, open_dashboard_window,
+                           private_address, protect, unb64, verify_envelope)
 
 
 @pytest.fixture
@@ -315,3 +316,23 @@ def test_local_existing_release_authorization_is_audited_and_never_revives_withd
     with pytest.raises(Refused):
         store.authorize_existing_release('melange', 1, [later['deviceId']])
     assert store.recovery_seed(later_device, 'win32', 'x64', '1.0.0') is None
+
+
+@pytest.mark.parametrize('registered', [True, False])
+def test_dashboard_window_is_registered_browser_app_mode_else_default_browser(registered, monkeypatch):
+    winreg = pytest.importorskip('winreg')
+    url = 'http://127.0.0.1:1/#bootstrap=x'
+    monkeypatch.setenv('LOCALAPPDATA', r'C:\fake\local')
+    with mock.patch.object(winreg, 'OpenKey', side_effect=None if registered else OSError), \
+         mock.patch.object(winreg, 'QueryValue', return_value=r'C:\fake\msedge.exe'), \
+         mock.patch('subprocess.Popen') as popen, mock.patch('webbrowser.open') as opened:
+        open_dashboard_window(url)
+    if registered:
+        popen.assert_called_once()
+        argv = popen.call_args.args[0]
+        assert argv[0] == r'C:\fake\msedge.exe' and '--app=' + url in argv
+        assert sum(arg.startswith('--user-data-dir=') for arg in argv) == 1
+        opened.assert_not_called()
+    else:
+        popen.assert_not_called()
+        opened.assert_called_once_with(url)

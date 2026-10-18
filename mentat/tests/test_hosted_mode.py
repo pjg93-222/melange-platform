@@ -1467,7 +1467,7 @@ class ReceiptPaths(unittest.TestCase):
     """Receipts and accepted-source pointers hold Windows paths; Linux must still find the files."""
 
     def as_linux(self, text):
-        with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix')):
+        with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix', environ={})):
             return receipt_paths.receipt_path(text)
 
     def relative_to_project(self, text):
@@ -1513,7 +1513,7 @@ class ReceiptPaths(unittest.TestCase):
         fake_stamp = lambda path: guard.LOADED_ALGORITHM_STAMP if path == guard.__file__ else (str(path), 1, 1, 1)
         with patch.object(guard, '_stamp', side_effect=fake_stamp), patch.object(guard, '_read', return_value=pointer), \
                 patch.object(guard, '_quiescent'), patch.object(guard, '_verify_cached', return_value='proof') as verified, \
-                patch.object(receipt_paths, 'os', SimpleNamespace(name='posix')):
+                patch.object(receipt_paths, 'os', SimpleNamespace(name='posix', environ={})):
             self.assertEqual(guard.verify(source), 'proof')
         expected = (guard.ACCEPTED_ROOT / 'x' / '2022-2024-2026' / 's.db').resolve()
         self.assertEqual(Path(verified.call_args.args[2][0]), expected)
@@ -1533,12 +1533,12 @@ class ReceiptPaths(unittest.TestCase):
             arguments = (stamp(database), stamp(pointer), stamp(snapshot), 'not-its-hash', 'original', 'X', 'algorithm',
                          str(temp))
             # The pointer names the snapshot, so verification moves on to the next check (the database's hash).
-            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix')):
+            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix', environ={})):
                 with self.assertRaisesRegex(ValueError, 'recovered database changed'):
                     guard._verify_cached.__wrapped__(*arguments)
             # Named some other snapshot, it is refused at the pointer.
             pointer.write_text(pointer.read_text().replace('\\\\s.db', '\\\\other.db'))
-            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix')):
+            with patch.object(receipt_paths, 'os', SimpleNamespace(name='posix', environ={})):
                 with self.assertRaisesRegex(ValueError, 'does not match the original published source scope'):
                     guard._verify_cached.__wrapped__(*arguments)
 

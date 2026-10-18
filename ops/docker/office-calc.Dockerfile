@@ -17,7 +17,12 @@ FROM ${DEBIAN_BASE}
 
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown
-ARG SNAPSHOT=20261012T000000Z
+# 20261012T000000Z -> 20261017T000000Z (D-181): the images gate failed this image on fixable findings in libcurl4t64 and libcurl3t64-gnutls
+# 8.14.1-2+deb13u5 (CVE-2026-8286, CVE-2026-8927, CVE-2026-92392) and libexpat1 2.8.3-1~deb13u1 (CVE-2026-66046, CVE-2026-76956,
+# CVE-2026-76957, CVE-2026-77214, CVE-2026-93990). trixie-security fixed them at libcurl 8.14.1-2+deb13u7 (DSA-6558-1) and libexpat
+# 2.9.0-1~deb13u1 (DSA-6566-1); the 20261012 snapshot holds neither. The cure for a fixable finding is the fixed package, never an
+# exception. The upgrade step and the dpkg assertions below make the build fail if the snapshot ever stops holding them.
+ARG SNAPSHOT=20261017T000000Z
 ARG LIBREOFFICE_VERSION=4:25.2.3-2+deb13u8
 LABEL org.opencontainers.image.title="office-calc" \
       org.opencontainers.image.description="LibreOffice headless recalculation of a workbook copy (view copy with injected cached values)" \
@@ -41,10 +46,14 @@ RUN set -eux; \
     printf '%s\n' 'path-exclude=/usr/share/doc/*' 'path-include=/usr/share/doc/*/copyright' 'path-exclude=/usr/share/man/*' \
       'path-exclude=/usr/share/info/*' > /etc/dpkg/dpkg.cfg.d/01-minimal; \
     apt-get -o Acquire::Check-Valid-Until=false update; \
+    apt-get upgrade -y; \
     apt-get install -y --no-install-recommends \
       "libreoffice-calc-nogui=${LIBREOFFICE_VERSION}" "libreoffice-core-nogui=${LIBREOFFICE_VERSION}" \
       "libreoffice-common=${LIBREOFFICE_VERSION}" "python3-uno=${LIBREOFFICE_VERSION}" fonts-dejavu-core; \
     test "$(dpkg-query -W -f='${Version}' libreoffice-calc-nogui)" = "${LIBREOFFICE_VERSION}"; \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libcurl4t64)" ge 8.14.1-2+deb13u7; \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libcurl3t64-gnutls)" ge 8.14.1-2+deb13u7; \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge 2.9.0-1~deb13u1; \
     /usr/bin/python3 -I -c "import uno"; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*; \
     groupadd --gid 10001 app; \
