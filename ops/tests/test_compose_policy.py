@@ -379,7 +379,8 @@ def test_every_ops_file_ci_and_the_images_read_survives_the_source_only_export()
     text = "\n".join([(WF_DIR / n).read_text(encoding="utf-8") for n in ("release.yml", "deps.yml")]
                      + [(OPS / rel).read_text(encoding="utf-8") for rel in ("docker/melange-desk.Dockerfile", "docker/mentat.Dockerfile")])
     needed = {p for p in re.findall(r"\bops/[A-Za-z0-9_./-]+", text) if (OPS.parent / p).is_file()}
-    needed |= {"ops/security/canaries.txt", "ops/security/exceptions.toml"}
+    needed |= {"ops/security/canaries.txt", "ops/security/exceptions.toml",
+               "ops/required_inputs.txt"}   # read by ops/tests/test_chain_parity.py, which the platform CI runs
     assert {"ops/ci/no_data_tests.txt", "ops/ci/mentat_tests.txt", "ops/locks/mentat-console.linux.txt", "ops/locks/r-packages.txt",
             "ops/compose.env.example",
             "ops/images.lock", "ops/compose.yaml", "ops/security_gate.py"} <= needed
