@@ -670,6 +670,12 @@ class JobFlow(Rig):
         self.assertTrue((self.export / CID / 'EXPORT.json').is_file(), 'the export is made whatever the exit code was')
         self.assertIn('frontier.sqlite', [Path(item['path']).name for item in receipt['outputs']])
 
+    def test_an_export_that_fails_with_an_io_error_still_writes_a_failed_receipt(self):
+        with mock.patch.object(dv, '_copy_exclusive', side_effect=OSError(28, 'No space left on device')):
+            code, receipt = self.run_job()
+        self.assertEqual((code, receipt and receipt['status']), (1, 'failed'))
+        self.assertTrue(any('No space left on device' in problem for problem in receipt['check']['problems']), receipt['check']['problems'])
+
     def test_the_preflight_refuses_before_the_child_starts_and_writes_nothing(self):
         for name, change in {'a ledger that is not the expected base': dict(args=self.args(**{'--expect-base-sha256': '0' * 64})),
                              'no stored map': dict(env={'MENTAT_STORED_PATH_MAP': ''}), 'no descriptor': dict(env={'MENTAT_REQUEST_POOL_CONFIG': ''})}.items():

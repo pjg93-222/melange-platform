@@ -40,6 +40,7 @@ def main(argv=None):
     command = argv[split + 1:]
     import compute_job
     import api_host_pool
+    import stored_paths
     from archive_cassette import Cassette, CassetteOpener
     plan = compute_job.downstream_plan('collect-downstream', job_arguments(command))
     keys = [line.strip() for line in args.dummy_keys.read_text(encoding='utf-8').splitlines() if line.strip()]
@@ -48,7 +49,8 @@ def main(argv=None):
     args.workdir.mkdir(parents=True, exist_ok=True)
     cassette = Cassette.load(args.cassette)
     broker = api_host_pool.EvidenceBroker(keys=keys, ledger=args.workdir / 'budget.sqlite', archive_root=args.archive_root, run_id=plan['collector_run_id'],
-                                          families=api_host_pool.parse_families(plan['families']), max_attempts=plan['max_requests'], opener=CassetteOpener(cassette), cap=10 ** 9)
+                                          families=api_host_pool.parse_families(plan['families']), max_attempts=plan['max_requests'], opener=CassetteOpener(cassette), cap=10 ** 9,
+                                          stored_root=stored_paths.to_stored(args.archive_root))   # the spelling the collector's MENTAT_STORED_PATH_MAP reads back
     server, thread, url = api_host_pool.evidence_http_server(broker)
     descriptor = args.workdir / 'request-pool.json'
     try:

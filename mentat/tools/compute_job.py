@@ -561,7 +561,10 @@ def run(name, run_id, extra, env=None, dry_run=False):
     started = time.time()
     glassbox_emit.emit('run.start', 'running', 'Compute job ' + name + ': ' + job.summary, run_id=run_id, stage='start', lane='system', source='mentat-compute')
     code = _run_child(argv, job.cwd(ctx), child, job.minutes)
-    finished = job.finish(ctx, extra, started, code) if job.finish else []
+    try:
+        finished = job.finish(ctx, extra, started, code) if job.finish else []
+    except OSError as error:                                      # e.g. the export disk is full: the receipt still records why
+        finished = ['the finish step failed: ' + (str(error) or type(error).__name__)]
     outputs = job.outputs(ctx, extra) if job.finish else outputs         # the export is only there now
     problems = finished + ([] if code else job.check(ctx, extra, started))
     files = [{'path': str(path), 'sha256': _sha256(path), 'bytes': path.stat().st_size} for path in outputs if path.is_file()]

@@ -256,6 +256,7 @@ class CloseOut(Legacy):
         driver.Frontier(self.state / 'frontier.sqlite').close()
         self.refused('schema-2 ledger only')
 
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows sharing semantics (CreateFileW without FILE_SHARE_DELETE)')
     def test_a_file_that_cannot_be_moved_refuses_before_any_receipt_and_leaves_the_folder(self):
         import test_collect_committee_activity_crash as crash
         release = crash.hold_without_delete_sharing(self.orphan[0])

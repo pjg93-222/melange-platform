@@ -181,6 +181,11 @@ class Verification(Fixture):
         entries[0]['member_sha256'] = '1' * 64
         self.refused(entries, 'member sha256')
 
+    def test_a_zip_member_without_a_recorded_hash_refuses(self):
+        entries = self.full_2024()
+        del entries[0]['member_sha256']
+        self.refused(entries, 'without a recorded member_sha256')
+
     def test_a_row_count_that_differs_from_the_verified_record_refuses(self):
         entries = self.full_2024()
         entries[2]['rows'] += 1

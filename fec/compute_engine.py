@@ -36,6 +36,7 @@ import os
 import posixpath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -201,12 +202,29 @@ def _key_line(var, root, environ):
         return None
 
 
+def _owner_only(path):
+    """POSIX: refuse `path` unless it is a real directory (not a link) owned by this process with no group or other access.  In a
+    shared /tmp a root another user made first, or can write, lets them swap a run's folder for a link to theirs between the mkdir
+    and the key write; O_EXCL guards only the last path component.  Never chmods.  Windows: per-user %TEMP% and icacls do this."""
+    if os.name == 'nt':
+        return
+    info = os.lstat(path)
+    if not stat.S_ISDIR(info.st_mode):
+        raise EngineError('%s is not a directory (a link or a file); not running' % path)
+    # geteuid, not getuid: the kernel gives new files and folders the effective uid, so that is who must own them.
+    if info.st_uid != os.geteuid():
+        raise EngineError('%s is owned by uid %d, not this process (uid %d); not running' % (path, info.st_uid, os.geteuid()))
+    if stat.S_IMODE(info.st_mode) & 0o077:
+        raise EngineError('%s allows group or other access (mode %03o); not running' % (path, stat.S_IMODE(info.st_mode)))
+
+
 def _private_dir(name):
     """A new folder for one run's secret files that only this user can read; sweeps the crash leftovers of earlier runs first."""
     parent = _secret_root()
-    os.makedirs(parent, mode=0o700, exist_ok=True)
+    os.makedirs(parent, mode=0o700, exist_ok=True)  # a new root is 0o700 (umask only removes bits); an existing one is checked, never fixed
     if os.path.islink(parent) or os.path.isjunction(parent):    # a planted link would send the keys, and the sweep, elsewhere
         raise EngineError('%s is a symbolic link or junction; not running' % parent)
+    _owner_only(parent)                             # before the sweep and the mkdir: no other user may change what is in it
     for old in os.listdir(parent):
         try:
             if time.time() - os.path.getmtime(os.path.join(parent, old)) > SECRET_TTL:
@@ -215,6 +233,7 @@ def _private_dir(name):
             pass
     path = os.path.join(parent, name)
     os.mkdir(path, 0o700)                           # POSIX: owner only.  Windows ignores the mode, so the ACL below does it
+    _owner_only(path)
     if os.name == 'nt':
         user = os.environ.get('USERNAME')
         if not user:

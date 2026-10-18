@@ -255,6 +255,7 @@ class CtrlC(CrashBase):
         self.recover_resume_and_validate(receipt_a, proof_a, abandoned=False, committed=committed, replayed=orphans, quarantined=0, unrecorded=0)
 
 
+@unittest.skipUnless(sys.platform == 'win32', 'Windows sharing semantics (CreateFileW without FILE_SHARE_DELETE)')
 class SharingViolation(CrashBase):
     def test_recovery_retries_a_windows_sharing_violation_then_refuses_with_nothing_changed(self):
         real = accounted.durable_new

@@ -13,7 +13,7 @@ Read-only and separate from candidate_spending's API figures (D-074; Paul's ruli
   * Operating expenditures only (Form 3 line 17, 3P line 23, 3X line 21B): not the whole of Schedule B.
 
 Source: <mentat>/state/fec-bulk/oppexp/<yy>/<YYYYMMDD>/{MANIFEST.json, oppexp<yy>.parquet}, written by the D-074 ingest.
-The newest YYYYMMDD directory per cycle is used. MENTAT_BULK_OPPEXP_DIR points elsewhere (tests, previews).
+The newest YYYYMMDD directory per cycle with a readable MANIFEST.json is used. MENTAT_BULK_OPPEXP_DIR points elsewhere (tests, previews).
 """
 import datetime as dt
 import hashlib
@@ -50,12 +50,15 @@ def _vintage(cycle):
     """(manifest, parquet path) of the newest vintage for the cycle's file, or None."""
     folder = _root() / f'{int(cycle) % 100:02d}'
     dated = sorted((item for item in folder.glob('*') if item.is_dir() and item.name.isdigit() and len(item.name) == 8), reverse=True)
-    if not dated:
-        return None
-    manifest = json.loads((dated[0] / 'MANIFEST.json').read_text(encoding='utf-8'))
-    if manifest.get('source_kind') != SOURCE_KIND or int(manifest.get('file_cycle') or 0) != int(cycle):
-        raise ValueError(f'{dated[0]} is not the oppexp file for {cycle}')
-    return manifest, dated[0] / manifest['parquet']['file']
+    for directory in dated:
+        try:
+            manifest = json.loads((directory / 'MANIFEST.json').read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            continue  # an ingest in progress or interrupted: no readable MANIFEST.json, not a vintage yet
+        if manifest.get('source_kind') != SOURCE_KIND or int(manifest.get('file_cycle') or 0) != int(cycle):
+            raise ValueError(f'{directory} is not the oppexp file for {cycle}')
+        return manifest, directory / manifest['parquet']['file']
+    return None
 
 
 def _verify(path, manifest):

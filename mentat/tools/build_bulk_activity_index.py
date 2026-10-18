@@ -169,12 +169,14 @@ def verify_source(entry):
     member = entry.get('member')
     body = hashlib.sha256()
     if member:
+        if not re.fullmatch('[0-9a-f]{64}', str(entry.get('member_sha256', ''))):
+            raise ValueError('source ' + entry['id'] + ' is a zip member without a recorded member_sha256; refusing')   # nothing else ties the parsed bytes to a verified hash
         with zipfile.ZipFile(path) as archive:
             if archive.namelist() != [member]:
                 raise ValueError('source ' + entry['id'] + ' zip holds ' + repr(archive.namelist()) + ' instead of exactly ' + member)
             with archive.open(member) as stream:
                 result = parse(entry, stream, body)
-        if 'member_sha256' in entry and body.hexdigest() != entry['member_sha256']:
+        if body.hexdigest() != entry['member_sha256']:
             raise ValueError('source ' + entry['id'] + ' member sha256 ' + body.hexdigest() + ' differs from the recorded ' + entry['member_sha256'] + '; refusing')
     else:
         with open(path, 'rb') as stream:
@@ -241,7 +243,7 @@ def build(entries, built_utc):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--sources', required=True, type=Path, help='JSON list of source entries: id, kind, cycle, path, sha256, vintage_asof [, member, member_sha256, rows, last_modified, url, retrieved_at, verified_from]')
+    parser.add_argument('--sources', required=True, type=Path, help='JSON list of source entries: id, kind, cycle, path, sha256, vintage_asof [, member with its member_sha256, rows, last_modified, url, retrieved_at, verified_from]')
     parser.add_argument('--out', required=True, type=Path, help='the index file to write; it must not exist')
     parser.add_argument('--built-utc', default=None)
     args = parser.parse_args(argv)

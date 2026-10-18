@@ -287,7 +287,7 @@ def test_release_ignores_a_name_that_is_not_a_plain_folder_under_the_secret_root
 def test_the_next_staging_sweeps_a_crash_leftover_but_not_a_fresh_sibling(world):
     keys_json(world)
     govinfo_file(world)
-    world.secrets.mkdir()
+    world.secrets.mkdir(mode=0o700)                                            # as launch() makes it: POSIX refuses a root others can open
     old, fresh = world.secrets / "melange-collect-0ld0ld0ld0", world.secrets / "melange-collect-fresh00000"
     for folder in (old, fresh):
         folder.mkdir()
@@ -356,6 +356,44 @@ def test_on_posix_the_folder_and_file_are_owner_only(world):
     govinfo_file(world)
     folder = world.secrets / collect(world).container
     assert stat.S_IMODE(folder.stat().st_mode) == 0o700 and stat.S_IMODE((folder / "govinfo_key").stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="owner and mode bits are the POSIX guard")
+@pytest.mark.parametrize("case", ["root mode", "root owner", "run folder mode", "run folder link"])
+def test_on_posix_a_root_or_run_folder_another_user_could_change_is_refused(world, monkeypatch, case):
+    """A shared /tmp: another user made the root first, or can write it, so could swap the run folder for a link to theirs."""
+    keys_json(world)
+    govinfo_file(world)
+    elsewhere = world.temp / "elsewhere"
+    elsewhere.mkdir()
+    if case == "root mode":
+        world.secrets.mkdir()
+        os.chmod(world.secrets, 0o755)
+    elif case == "root owner":                                                 # the real lstat; this process just claims another uid
+        euid = os.geteuid()
+        monkeypatch.setattr(os, "geteuid", lambda: euid + 1)
+    else:
+        real_mkdir = os.mkdir
+
+        def swapped(path, mode=0o777, **kwargs):                               # the swap lands between mkdir and the key write
+            real_mkdir(path, mode, **kwargs)
+            if os.path.dirname(os.fspath(path)) == str(world.secrets):
+                if case == "run folder mode":
+                    os.chmod(path, 0o755)
+                else:
+                    os.rmdir(path)
+                    os.symlink(elsewhere, path, target_is_directory=True)
+
+        monkeypatch.setattr(os, "mkdir", swapped)
+    reason = {"root mode": "group or other access", "root owner": "owned by uid", "run folder mode": "group or other access",
+              "run folder link": "not a directory"}[case]
+    with pytest.raises(CE.EngineError, match=reason) as error:
+        collect(world)
+    assert str(world.secrets) in str(error.value) and not leaked(str(error.value))
+    assert list(elsewhere.iterdir()) == []                                     # nothing was written through a link
+    assert not [p for p in world.secrets.rglob("*") if p.is_file()]           # ... nor anywhere under the root
+    if case == "root mode":
+        assert stat.S_IMODE(world.secrets.stat().st_mode) == 0o755             # refused, never chmod'ed to "fix" it
 
 
 # ------------------------------------------------------------------------ the two callers that do not reap on a normal exit

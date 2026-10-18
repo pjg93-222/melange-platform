@@ -64,6 +64,13 @@ class ReplayEntryPoint(unittest.TestCase):
         written = sorted(p.name for p in (self.hostroot / ('responses-' + CID)).iterdir())
         self.assertEqual(written, sorted(p.name for p in self.archive.iterdir()), 'the broker re-archived exactly the recorded files')
 
+    def test_under_a_stored_path_map_the_broker_records_the_mapped_root_the_collector_reads_back(self):
+        stored = 'C:\\stored\\committee-activity'      # compute.replay.yaml always sets MENTAT_STORED_PATH_MAP (REPLAY_STORED_MAP)
+        with mock.patch.dict(os.environ, {'MENTAT_STORED_PATH_MAP': '%s=%s;%s=%s' % (self.hostroot, stored, self.state, stored)}):
+            code, report = self.replay()
+        self.assertEqual((code, report['child_exit_code'], report['misses']), (0, 0, []))
+        self.assertEqual(cc.canonical(self.state / 'frontier.sqlite'), cc.canonical(self.local.path))
+
     def test_a_request_the_cassette_lacks_is_a_miss_and_the_replay_exits_3(self):
         index = json.loads((self.root / 'cassette' / 'index.json').read_text())
         index['entries'].pop(len(index['entries']) // 2)

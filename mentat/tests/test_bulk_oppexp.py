@@ -155,6 +155,11 @@ class BulkWithPanel(unittest.TestCase):
         body, status = self.ask()
         self.assertEqual((status, body['status'], body['bulk']['shown'], body['bulk']['reason']), (404, 'not_collected', False, 'bulk_error'))
 
+    def test_a_newer_vintage_without_its_manifest_yet_is_skipped(self):
+        (Path(self.tmp.name) / '24' / '20261013').mkdir()    # an ingest in progress or interrupted: no MANIFEST.json
+        got = bo.read_rows([A], 2024)
+        self.assertEqual((got['status'], got['vintage_asof']), ('ok', '2026-10-12T17:36:09Z'), 'the newest complete vintage is read')
+
     # ---- the route: incomplete -> complete
     def test_transition_from_incomplete_to_complete(self):
         # 1. nothing collected by the API: 404 as before, and the bulk rows ride along, labeled
