@@ -41,6 +41,7 @@ import fnmatch
 import hashlib
 import importlib.util
 import json
+import ntpath
 import os
 import re
 import shutil
@@ -161,7 +162,8 @@ def check_name(label: str, value: str) -> str:
 
 
 def results_default() -> Path:
-    return Path(os.environ.get("MELANGE_PARITY_DIR") or RESULTS_PARENT) / "mentat"
+    parent = os.environ.get("MELANGE_PARITY_DIR")
+    return Path(parent) / "mentat" if parent else Path(ntpath.join(RESULTS_PARENT, "mentat"))   # the default is a Windows path on any host
 
 
 def run_id_for(job: str, snapshot: str) -> str:
@@ -865,7 +867,9 @@ def space_problems(host, scratch: Path, need_bytes: int, floor_gb: int = FLOOR_G
     floor, problems = floor_gb * 2 ** 30, []
     system = host.free_bytes(host.system_drive())
     here = host.free_bytes(scratch)
-    same = os.path.splitdrive(str(scratch))[0].lower() == os.path.splitdrive(host.system_drive())[0].lower()
+    # ntpath, not os.path: system_drive() is a Windows drive ("C:\\"), and posixpath.splitdrive is always "", so every scratch
+    # would count as the system drive and its own free space would go unchecked
+    same = ntpath.splitdrive(str(scratch))[0].lower() == ntpath.splitdrive(host.system_drive())[0].lower()
     if system - (need_bytes if same else 0) < floor:
         problems.append("%s has %s free%s, below the %d GB floor" % (host.system_drive()[:2], gb(system), " after this run's copies (%s)" % gb(need_bytes) if same else "", floor_gb))
     if not same and here - need_bytes < floor:

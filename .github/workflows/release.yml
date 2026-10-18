@@ -156,6 +156,19 @@ jobs:
           IMAGE: ghcr.io/pjg93-222/${{ matrix.name }}@${{ steps.push.outputs.digest }}
           SMOKE: ${{ matrix.smoke }}
         run: docker run --rm "$IMAGE" python -c "$SMOKE"
+      # No data may ride in an app image: it arrives as the read-only mounts under /data, /app/mentat/{state,inputs,...} and
+      # the /var/lib/mentat + /var/cache/mentat volumes (ops/compose.yaml). Nothing under /app ships a data-like file, so there
+      # is no allowlist; add one by exact name (! -name x.csv) if one ever does. Runs on a reused image too (the input hash
+      # does not cover this check) and before the inputs-<hash> tag, so a failing image is never tagged for reuse.
+      - name: Image must hold no data
+        env:
+          IMAGE: ghcr.io/pjg93-222/${{ matrix.name }}@${{ steps.reuse.outputs.reused == 'true' && steps.reuse.outputs.digest || steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "$IMAGE" >/dev/null
+          found=$(docker run --rm --entrypoint sh "$IMAGE" -c \
+            'find /app /data /var/lib/mentat /var/cache/mentat -xdev \( -iname "*.zip" -o -iname "*.sqlite*" -o -iname "*.parquet" -o -iname "*.csv" -o -iname "*.xlsx" -o -iname "*.pkl" -o -iname "*.pickle" -o -iname "keys.json" -o -iname ".env" \) 2>/dev/null || true')
+          [ -z "$found" ] || { echo "::error::image contains data files:"; echo "$found"; exit 1; }
       - name: Tag the new image with its inputs, so the next release can reuse it
         if: steps.reuse.outputs.reused != 'true'
         env: {NAME: "${{ matrix.name }}", HASH: "${{ steps.inputs.outputs.hash }}", DIGEST: "${{ steps.push.outputs.digest }}"}

@@ -186,6 +186,7 @@ idempotent pass over what changed; a Task Scheduler task runs it every 15 minute
    (tests, SBOM and the security scan still run on it); missing = build, then tag the new digest `inputs-<hash>`
    (`build_or_reuse.sh tag`). Any registry answer other than "found" or "not found" fails the step. A reused image keeps the
    commit it was built from in the manifest (`image_commits`), so `status` does not call it stale. Geo unchanged: its images stand as signed.
+   The `build` job also fails the release if a built or reused app image holds a data file (`*.zip *.sqlite* *.parquet *.csv *.xlsx *.pkl *.pickle keys.json .env` under `/app`, `/data`, `/var/lib/mentat`, `/var/cache/mentat`; step "Image must hold no data", run by digest before the `inputs-<hash>` tag).
 6. **One manifest for every image.** `melange-platform-release-v1` gains an `images` map `{name: repo@sha256:...}` (all three app
    images, plus Terrier's build images and the compute images) and `image_commits`. The `systems` block is unchanged, so the VPS
    updater, which reads only `systems`, takes a `code-only` manifest as a code-only release (same snapshot, no data copy).

@@ -10,13 +10,21 @@ import time
 from desktop_admin import Refused, canonical
 from access_http import unique_object, RateLimit, HTTPRefused, HeaderDeadlineMixin
 from access_store import fields, secret_hash
+from apps_admin import AppsAdmin, AppsError, UnavailableApps
 
 STATIC = Path(__file__).with_name('admin_ui_v2')
 CLIENT = Path(__file__).resolve().parent.parent / 'client'
 
 
+APPS_ROUTES = {'/apps', '/apps/detail', '/apps/logs', '/apps/action', '/apps/invite'}
+
+
 class SessionCapacityReached(Refused):
     pass
+
+
+class NoSession(Refused):
+    """No valid bearer: the Apps routes answer 401. A valid bearer with a bad CSRF value is a plain Refused (403)."""
 
 
 class AdminSession:
@@ -42,11 +50,15 @@ class AdminSession:
 
     def authenticate(self, authorization, csrf):
         if not isinstance(authorization, str) or not authorization.startswith('Bearer '):
-            raise Refused('local session required')
-        token_hash, csrf_hash = secret_hash(authorization[7:]), secret_hash(csrf)
+            raise NoSession('local session required')
+        try: token_hash = secret_hash(authorization[7:])
+        except Refused: raise NoSession('local session required') from None
         with self.lock:
-            if (self.clock() >= self.expires or not self.token_hash or not self.csrf_hash
-                    or not hmac.compare_digest(self.token_hash, token_hash) or not hmac.compare_digest(self.csrf_hash, csrf_hash)):
+            if self.clock() >= self.expires or not self.token_hash or not hmac.compare_digest(self.token_hash, token_hash):
+                raise NoSession('local session required')
+            try: csrf_hash = secret_hash(csrf)
+            except Refused: raise Refused('local session required') from None
+            if not self.csrf_hash or not hmac.compare_digest(self.csrf_hash, csrf_hash):
                 raise Refused('local session required')
 
 
@@ -73,11 +85,13 @@ class AdminSessions:
         raise Refused('bootstrap unavailable')
 
     def authenticate(self, authorization, csrf):
+        bad_csrf = False
         with self.lock:
             for session in self.sessions:
                 try: return session.authenticate(authorization, csrf)
-                except Refused: pass
-        raise Refused('local session required')
+                except NoSession: pass
+                except Refused: bad_csrf = True
+        raise Refused('local session required') if bad_csrf else NoSession('local session required')
 
     def close_session(self, authorization, csrf):
         with self.lock:
@@ -89,10 +103,14 @@ class AdminSessions:
         raise Refused('local session required')
 
 
-def create_server(access, port=0):
+def create_server(access, port=0, apps=None):
     if type(port) is not int or (port and not 1024 <= port <= 65535):
         raise Refused('unprivileged local dashboard port required')
     session, limiter = AdminSessions(), RateLimit()
+    try:
+        apps = apps if apps is not None else AppsAdmin(audit=access)
+    except ValueError:   # bad MELANGE_ADMIN_COMPOSE_* settings must not stop access approvals from working
+        apps = UnavailableApps('The Apps settings (MELANGE_ADMIN_COMPOSE_PROJECT and MELANGE_ADMIN_COMPOSE_FILE) are not valid. Correct them, then open the dashboard again.')
 
     class Handler(HeaderDeadlineMixin, BaseHTTPRequestHandler):
         header_deadline = 5
@@ -149,7 +167,7 @@ def create_server(access, port=0):
                 chunks.append(chunk); remaining -= len(chunk)
             value = json.loads(b''.join(chunks).decode('utf-8'), object_pairs_hook=unique_object,
                                parse_constant=lambda _value: (_ for _ in ()).throw(ValueError()))
-            if not isinstance(value, dict): raise Refused('JSON object required')
+            if not isinstance(value, dict): raise ValueError('JSON object required')
             return value
 
         def do_GET(self):
@@ -174,7 +192,7 @@ def create_server(access, port=0):
                 self.guard(mutation=True)
                 if self.path == '/session':
                     return self.reply(200, session.exchange(self.body()))
-                if self.path not in {'/dashboard', '/approve', '/replace-key', '/deny', '/revoke', '/session-close'}:
+                if self.path not in {'/dashboard', '/approve', '/replace-key', '/deny', '/revoke', '/session-close'} | APPS_ROUTES:
                     return self.reply(404, {'error':'not_found'})
                 session.authenticate(self.headers.get('Authorization'), self.headers.get('X-Admin-CSRF'))
                 value = self.body()
@@ -194,12 +212,20 @@ def create_server(access, port=0):
                 elif self.path == '/deny':
                     fields(value, {'requestId'})
                     access.deny(value['requestId']); result = {'ok':True}
+                elif self.path in APPS_ROUTES:
+                    result = apps.handle(self.path, value)
                 else:
                     fields(value, {'grantId'})
                     access.revoke(value['grantId']); result = {'ok':True}
                 self.reply(200, result)
-            except (Refused, ValueError, TypeError, KeyError):
-                self.reply(403, {'error':'access_denied'})
+            except NoSession:
+                self.reply(401 if self.path in APPS_ROUTES else 403, {'error':'session_required' if self.path in APPS_ROUTES else 'access_denied'})
+            except AppsError as error:
+                self.reply(error.status, {'error':error.code, **({'message':error.message} if error.message else {})})
+            except (Refused, ValueError, TypeError, KeyError) as error:
+                # On the Apps routes a malformed body or a bad value is the caller's mistake (400); a Refused is still a refusal.
+                bad = self.path in APPS_ROUTES and isinstance(error, ValueError) and not isinstance(error, Refused)
+                self.reply(400 if bad else 403, {'error':'invalid_request' if bad else 'access_denied'})
             except HTTPRefused as error:
                 self.reply(error.status, {'error':error.code})
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
@@ -229,6 +255,10 @@ def create_server(access, port=0):
         def process_request_thread(self, request, address):
             try: super().process_request_thread(request, address)
             finally: self.slots.release()
+
+        def server_close(self):
+            try: apps.shutdown()   # actions still running are written to the activity log as interrupted
+            finally: super().server_close()
 
     server = LocalServer()
     server.fresh_bootstrap_url = lambda: f'http://127.0.0.1:{server.server_port}/#bootstrap={session.new_bootstrap()}'

@@ -277,6 +277,33 @@ class AccessStore:
         connection.execute('INSERT INTO access_audit(at,action,request_id,grant_id) VALUES (?,?,?,?)',
                            (self.now(), action, request, grant))
 
+    def audit_app_action(self, actor, service, action, outcome):
+        """One dashboard Apps action (apps_admin.py) in the existing audit trail: no schema change, no secrets."""
+        parts = (actor, service, action, outcome)
+        if any(not isinstance(p, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,40}', p) for p in parts):
+            raise Refused('invalid app action record')
+        with self.connect() as db:
+            self.audit(db, '|'.join(('apps',) + parts))
+
+    def last_app_action(self, service, action, outcome):
+        """When the newest matching Apps action was recorded (epoch seconds), or None. Asks the table directly."""
+        parts = (service, action, outcome)
+        if any(not isinstance(p, str) or not re.fullmatch(r'[A-Za-z0-9._-]{1,40}', p) for p in parts):
+            return None
+        with self.connect() as db:   # the values hold no GLOB characters (checked above); the actor is the one wildcard
+            row = db.execute('SELECT at FROM access_audit WHERE action GLOB ? ORDER BY id DESC LIMIT 1', ('apps|*|' + '|'.join(parts),)).fetchone()
+        return row['at'] if row else None
+
+    def app_actions(self, limit=100):
+        with self.connect() as db:
+            rows = db.execute("SELECT at,action FROM access_audit WHERE action LIKE 'apps|%' ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        result = []
+        for row in rows:
+            parts = row['action'].split('|')
+            if len(parts) == 5:
+                result.append({'at': row['at'], 'actor': parts[1], 'service': parts[2], 'action': parts[3], 'outcome': parts[4]})
+        return result
+
     def request(self, value, source_address):
         fields(value, {'requestId', 'deviceId', 'appId', 'platform', 'arch', 'displayName', 'requestSecret'})
         request_id, device_id = identifier(value['requestId']), identifier(value['deviceId'])
@@ -522,7 +549,7 @@ class AccessStore:
         for request in requests:
             request['can_replace_key'] = request['state'] == 'approved' and request['expires'] > self.now()
             request['state'] = self._request_status(request)['status']
-        return {'requests': requests, 'grants': grants, 'activity': events,
+        return {'requests': requests, 'grants': grants, 'activity': events, 'appActions': self.app_actions(100),
                 'notifications': {'channel': 'windows-desktop', 'pendingRequests': pending, 'handedToWindows': handed, 'unknown': unknown}, 'serverTime': self.now()}
 
     def update_enrollment(self, bearer, value, service_url):

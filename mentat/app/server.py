@@ -3310,10 +3310,11 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
         query = parse_qs(parsed.query)
         app = self.server.app
         try:
+            # /healthz and /version answer in both modes (local: after the loopback Host check above).
+            if parsed.path in access_gate.HEALTH_ROUTES:
+                return self.send({'status': 'ok'} if parsed.path == '/healthz'
+                                 else access_gate.version_payload(self.access_app))
             if self.access_cfg.enforced:
-                if parsed.path in access_gate.HEALTH_ROUTES:
-                    return self.send({'status': 'ok'} if parsed.path == '/healthz'
-                                     else access_gate.version_payload(self.access_app))
                 if not (parsed.path in HOSTED_GET_ROUTES or parsed.path in STATIC_ASSETS
                         or parsed.path.startswith(('/geo/v2/', '/basemap/'))):
                     return self.send({'error': HOSTED_REFUSED}, 403)

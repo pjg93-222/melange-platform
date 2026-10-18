@@ -238,7 +238,7 @@ def test_a_planted_link_or_junction_as_the_secret_root_is_refused(world):
         assert str(world.secrets) in str(error.value) and not leaked(str(error.value))
         assert list(elsewhere.iterdir()) == []                                 # nothing was written through it
     finally:
-        os.rmdir(world.secrets)                                                # removes the link, not its target
+        (os.rmdir if os.name == "nt" else os.unlink)(world.secrets)           # removes the link, not its target (a junction is rmdir'd)
 
 
 # ------------------------------------------------------------------------------------------------ deletion: release, reap, sweep
@@ -309,10 +309,10 @@ def test_no_key_value_reaches_an_error_its_chain_or_its_traceback(world, monkeyp
     govinfo_file(world)
     real_open = os.open
 
-    def refuse(path, *args, **kwargs):                                         # the secret file cannot be written
-        if str(world.secrets) in str(path):
+    def refuse(path, flags, *args, **kwargs):                                  # the secret file cannot be written; read-only opens
+        if str(world.secrets) in str(path) and flags & os.O_CREAT:             # pass, as POSIX rmtree opens the folder to delete it
             raise PermissionError(13, "Permission denied", str(path))
-        return real_open(path, *args, **kwargs)
+        return real_open(path, flags, *args, **kwargs)
 
     if case == "icacls":                                                       # icacls fails and says whatever it likes
         monkeypatch.setattr(CE, "run_bounded", lambda argv, **kw: SimpleNamespace(returncode=5, stdout=FECK, stderr=GOV))

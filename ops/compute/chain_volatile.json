@@ -53,8 +53,8 @@
   {"file": "data/engine/staffer_offices_section.json", "pointer": "/meta/built_at", "writer": "fec/surfaces/build_staffer_groups_section.py:1349", "kind": "clock", "needle": "'built_at': built_at()", "why": "base_meta (:1322) feeds all three groups parts (:1438, :1655, :1817)"},
   {"file": "data/engine/staffer_organisations_section.json", "pointer": "/meta/built_at", "writer": "fec/surfaces/build_staffer_groups_section.py:1349", "kind": "clock", "needle": "'built_at': built_at()", "why": "same"},
   {"file": "data/engine/staffer_clients_section.json", "pointer": "/meta/built_at", "writer": "fec/surfaces/build_staffer_groups_section.py:1349", "kind": "clock", "needle": "'built_at': built_at()", "why": "same"},
-  {"file": "data/engine/source_freshness.json", "pointer": "/sources/*/evaluated_utc", "writer": "fec/chain_transaction.py:633", "kind": "clock", "needle": "'evaluated_utc': _now()", "why": "merged only when the file already exists (:621-623); holder is doc['sources'] (:628)"},
-  {"file": "data/engine/source_freshness.json", "pointer": "/*/evaluated_utc", "writer": "fec/chain_transaction.py:633", "kind": "clock", "needle": "'evaluated_utc': _now()", "why": "same, when the file has no `sources` wrapper"},
+  {"file": "data/engine/source_freshness.json", "pointer": "/sources/*/evaluated_utc", "writer": "fec/chain_transaction.py:635", "kind": "clock", "needle": "'evaluated_utc': _now()", "why": "merged only when the file already exists (:623-625); holder is doc['sources'] (:630)"},
+  {"file": "data/engine/source_freshness.json", "pointer": "/*/evaluated_utc", "writer": "fec/chain_transaction.py:635", "kind": "clock", "needle": "'evaluated_utc': _now()", "why": "same, when the file has no `sources` wrapper"},
   {"file": "data/system/system_manifest.json", "pointer": "/money_pin_advance/at", "writer": "fec/engine/money_manifest_pin.py:32", "kind": "clock", "needle": "'at': datetime.now(timezone.utc).isoformat()", "why": "only when the FEC money application changes congestion.json (:25)"}
  ]
 }
