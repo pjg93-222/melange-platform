@@ -176,8 +176,10 @@ def _build_minimal_generation(root):
 
     verification = {
         "status": "PASS", "failures": [],
+        # A real verifier row binds both copies; the graph loader now refuses one without them.
         "twin_byte_identity": [{"path": "staffer_social_network_receipt.json",
-                                "primary_sha256": _sha256(receipt_path)}],
+                                "primary_sha256": _sha256(receipt_path),
+                                "twin_sha256": _sha256(receipt_path), "identical": True}],
     }
     verification_dir.mkdir(parents=True, exist_ok=True)
     with open(verification_dir / "staffer_social_network_verification_receipt.json",

@@ -336,18 +336,78 @@ def gold_orphans(channel, source_ids):
     return rows, retired, orphan_ids - retired
 
 
+# Self-healing phase 2 (Paul 2026-10-15; precedent D-200 -- the 2026-10-12 step-17 incident): a gold label that no longer binds to a
+# source row is SKIPPED (not trained on, not applied), appended to the dead-letter ledger and announced on stdout, instead of aborting
+# the channel -- unless more than ORPHAN_MAX_FRACTION of the channel's gold labels are orphaned, which still fails exactly as before
+# (a mass loss is a broken extract, not a retired label). The label itself is never rewritten. If the ledger cannot be written the
+# skip does not happen (a skip nobody can see is a silent loss), so the old fail-closed behaviour stands.
+ORPHAN_MAX_FRACTION = 0.05
+DEAD_LETTER_RELATIVE = os.path.join("data", "engine", "dead_letter", "gold_labels.jsonl")
+
+
+def _dead_letter_gold_orphans(channel, rows, ids):
+    path = os.path.join(ROOT, DEAD_LETTER_RELATIVE)
+    seen = set()
+    if os.path.exists(path):
+        with io.open(path, encoding="utf-8") as handle:
+            for line in handle:
+                try:
+                    record = json.loads(line)
+                except ValueError:
+                    continue
+                seen.add((record.get("channel"), record.get("id")))
+    fresh = [rid for rid in sorted(ids) if (channel, rid) not in seen]
+    if fresh:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with io.open(path, "a", encoding="utf-8", newline="\n") as handle:
+            for rid in fresh:
+                row = rows[rid]
+                handle.write(json.dumps({
+                    "schema": "gold-label-dead-letter-v1", "channel": channel, "id": rid,
+                    "gold_stance": (row.get("gold_stance") or "").strip().lower(),
+                    "categories": (row.get("categories") or "").strip(),
+                    "member": (row.get("member") or row.get("bioguide") or "").strip(),
+                    "date": (row.get("date") or "").strip(),
+                    "text_snippet": (row.get("text_snippet") or row.get("text") or "")[:200],
+                    "reason": "gold label no longer binds to any source row",
+                    "first_seen_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "channel_gold_labels": len(rows), "channel_orphans": len(ids),
+                }, sort_keys=True) + "\n")
+    return len(fresh)
+
+
+def gold_orphan_policy(channel, rows, blocking):
+    """(skipped, still_blocking): orphans within ORPHAN_MAX_FRACTION are dead-lettered and skipped; beyond it, or when the
+    dead letter cannot be written, every orphan stays blocking and the caller fails exactly as it always has."""
+    if not blocking:
+        return set(), set()
+    if len(blocking) / max(len(rows), 1) > ORPHAN_MAX_FRACTION:
+        return set(), set(blocking)
+    try:
+        new = _dead_letter_gold_orphans(channel, rows, blocking)
+    except OSError as exc:
+        print("!! GOLD ORPHANS cannot be dead-lettered (%s: %s); failing closed" % (type(exc).__name__, exc))
+        return set(), set(blocking)
+    print("!! GOLD ORPHAN SKIPPED (%s): %d of %d hand labels no longer bind (%d newly dead-lettered to %s): %s" % (
+        channel, len(blocking), len(rows), new, DEAD_LETTER_RELATIVE.replace(os.sep, "/"), sorted(blocking)[:8]))
+    return set(blocking), set()
+
+
 def own_gold_examples():
     examples = []
     for channel in CHANNELS:
         source = source_examples(channel)
         by_id = {example.row_id: example for example in source}
         rows, retired, blocking = gold_orphans(channel, by_id)
+        skipped, blocking = gold_orphan_policy(channel, rows, blocking)
         if blocking:
             raise RuntimeError(
-                "%s gold labels no longer bind to source rows: %s" % (channel, sorted(blocking)[:8])
+                "%s gold labels no longer bind to source rows: %s (%d of %d = %.1f%%; more than %.0f%% fails the channel)" % (
+                    channel, sorted(blocking)[:8], len(blocking), len(rows), 100.0 * len(blocking) / max(len(rows), 1),
+                    100.0 * ORPHAN_MAX_FRACTION)
             )
         for rid, row in rows.items():
-            if rid in retired:
+            if rid in retired or rid in skipped:
                 continue
             label = (row.get("gold_stance") or "").strip().lower()
             example = by_id[rid]
@@ -770,7 +830,8 @@ def run_channel(channel, force_train=False):
     gold = gold_map(channel)
     source_ids = {example.row_id for example in examples}
     _gold_rows, retired, blocking = gold_orphans(channel, source_ids)
-    for rid in retired:
+    skipped, blocking = gold_orphan_policy(channel, _gold_rows, blocking)
+    for rid in retired | skipped:
         gold.pop(rid, None)
     if retired:
         # The two retirement mechanisms are reported separately: the summary line must not

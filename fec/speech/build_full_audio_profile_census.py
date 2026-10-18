@@ -136,6 +136,14 @@ def build(args):
     anchors = read_jsonl(args.anchor_manifest)
     canonical = read_jsonl(args.canonical_manifest)
     descriptive = read_json(args.descriptive_artifact)
+    descriptive_manifest_sha = (descriptive.get("source") or {}).get("manifest_sha256")
+    canonical_manifest_sha = sha256_file(args.canonical_manifest)
+    if descriptive_manifest_sha != canonical_manifest_sha:
+        raise CensusError(
+            "descriptive artifact was not built from the supplied canonical "
+            "manifest (source.manifest_sha256 %s != sha256 %s); superseded rows "
+            "would not be excluded reliably" % (descriptive_manifest_sha, canonical_manifest_sha)
+        )
     locked_gap = {
         row["member"]: row for row in read_jsonl(args.locked_gap)
     }

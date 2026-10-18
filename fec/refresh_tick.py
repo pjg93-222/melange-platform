@@ -22,12 +22,48 @@ or any producer (import == execution in this repo).  The scheduled task keeps la
 orchestrator until Paul flips it; the step table is pinned to that script by an AST test so the
 two cannot drift while both exist.
 
-NOT IN v1, deliberately: no backup/restore of last-good outputs -- a torn source waits for its
+NOT IN v1, deliberately: no backup/restore of last-good outputs -- a failed step that wrote
+nothing leaves its last-good bytes in place and they are served, a torn CORE source waits for its
 next success; no per-source coverage thresholds beyond the zero floor -- every other shrink ratio
-is recorded so thresholds can be set from data later; the daily congress pipeline stays a separate
-orchestrator; press-walk internals, the AI degrade and the Excel dependency are separate changes;
-no scheduled-task changes, and the legacy ``weekly_refresh.log`` / ``weekly_refresh_status.json``
-are NOT written here (cutover needs collector_supervisor's GATE-1 to read this runner's marker).
+is recorded so thresholds can be set from data later; press-walk internals, the AI degrade and the
+Excel dependency are separate changes; the scheduled task is registered by
+ops/scheduler/register_refresh_tick_task.ps1, never by this module, and the legacy
+``weekly_refresh.log`` / ``weekly_refresh_status.json`` are NOT written here (cutover needs
+collector_supervisor's GATE-1 to read this runner's marker).
+
+THE SINGLE ORCHESTRATOR, WITH A TIERED DEGRADE (owner rulings, 2026-10-15).  This runner is the one
+scheduled orchestrator -- hourly, at logon and on wake; ``daily_refresh.py`` and
+``weekly_refresh.py`` stay as manual wrappers -- and it never halts the whole system:
+
+  * CORE sources (bill discovery, admissions, rollcall votes, BILLSTATUS, the bill repository, FEC
+    money; all daily) stay strict: each must have a last-good generation, intact and whole, before
+    anything is computed.  Past its window that last-good is SERVED and LABELLED, not a stop.
+  * ENRICHMENT sources (press, interviews, Wikipedia, Bluesky, CREC/CHRG) degrade with labels and
+    can never hold a publication.
+  * Every source's age and status (FRESH, STALE_LABELLED, DEGRADED, DEAD_LETTER) is written
+    atomically to ``data/engine/source_freshness.json`` on every state commit: the label feed the
+    dashboard reads.
+  * A failure is classified by ``fec/refresh_failure.py`` and each class has a bounded answer:
+    TRANSIENT backs off 15 min doubling to 4 h, at most 6 attempts a step a day; SOURCE_OUTAGE keeps
+    last-good and probes on cadence; BUDGET_QUOTA (the provider refused) is a FAILED step, never a
+    pass: its last-good generation is served and labelled STALE_LABELLED and it is tried once per
+    daily window, while BUDGET_CALLS (the intentional ``--max-classifier-calls`` stop, exit 0) is a
+    PASS at the normal cadence (D-211); DATA_CONTRACT is dead-lettered to
+    ``data/engine/dead_letter/<step>.jsonl`` and not retried until an input generation changes.
+    The daily attempt cap and the quota window are ONE function, :meth:`Tick.attempt_barrier`, that
+    every way of starting a step asks -- the schedule, the retry pass, a recovered dependency and
+    crash recovery alike.  No AI supervises any of it (DE-019); nothing retries in a storm
+    (DE-020).
+  * Compute is coalesced under one writer: always the FULL chain (DE-016/043/051/055, never a
+    slice), only when a core generation changed or an enrichment generation changed and
+    ``ENRICHMENT_COMPUTE_GAP_HOURS`` have passed since the last compute.
+
+THE WRITER LEASE IS HELD FOR THE WHOLE TICK, collection included -- deliberately NOT separated in
+this phase.  The torn-output and manifest machinery credits every changed file under ``data/`` to
+the step that was running, which is true only while this tick is the sole writer: a collector run
+without the lease would be credited with (or accused of) a manual chain's writes.  And
+``update_bill_repository.py`` takes the lease itself and relies on adopting this tick's.  Letting
+collectors fetch without the lease needs a collect-scoped snapshot and a lease per phase.
 
   python fec/refresh_tick.py --dry-run      what is due, why, and whether it could publish
   python fec/refresh_tick.py --status       the current state, rendered; no locks, no writes
@@ -51,11 +87,13 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 import bounded_subprocess
+import compute_engine
+import refresh_failure as failure_module
 import refresh_state as state_store
 import refresh_table as table_module
-from refresh_state import (COVERAGE_OK, COVERAGE_SUSPECT, DEPENDENCY, EXIT, FAILED, INTERRUPTED,
-                           KILLED, NEVER, NOT_CONFIGURED, OK, PARTIAL, RUNNING, SKIPPED,
-                           SUCCEEDED, TIMEOUT)
+from refresh_state import (BUDGET_QUOTA, COVERAGE_OK, COVERAGE_SUSPECT, DATA_CONTRACT, DEPENDENCY,
+                           EXIT, FAILED, FRESH, INTERRUPTED, KILLED, NEVER, NOT_CONFIGURED, OK,
+                           PARTIAL, RUNNING, SKIPPED, SOURCE_OUTAGE, SUCCEEDED, TIMEOUT, TRANSIENT)
 
 # ---- constants ------------------------------------------------------------------------------
 SCHEMA = 1
@@ -84,6 +122,14 @@ RETRY_ATTEMPTS = 2
 MIN_ATTEMPT_GAP_HOURS = 1.0
 GLASSBOX_SOURCE = 'moneyball-refresh-tick'
 CRASH_ENV = 'REFRESH_TICK_CRASH_AT'
+# A change in a CORE source computes at once.  A change in ENRICHMENT alone computes only when this
+# many hours have passed since the last publication: a press or interview refresh must not restart
+# a multi-hour chain every hour.  A clock that stepped back (a negative gap) counts as elapsed.
+ENRICHMENT_COMPUTE_GAP_HOURS = 4.0
+# A daily source becomes due this long before its cadence, so an hourly schedule does not walk it
+# later by up to a tick every cycle.  Only cadences up to CADENCE_SLACK_MAX_H get it.
+CADENCE_SLACK_HOURS = 1.0
+CADENCE_SLACK_MAX_H = 48
 
 CHAIN_STEP = 'FULL PIPELINE + dashboards'
 PUBLISH_STEP = 'prepare dashboard deployment'
@@ -129,9 +175,12 @@ LOG_NAME = 'refresh_tick.log'
 REVIEW_NAME = 'refresh_review.json'
 MANIFEST_DIR = 'refresh_manifests'
 INSTANCE_LOCK_NAME = '.refresh_tick.lock'
+FRESHNESS_NAME = 'source_freshness.json'
+DEAD_LETTER_DIR = 'dead_letter'
 _RUNNER_FILES = frozenset(
     '%s/%s' % (ENGINE_DIR, name)
-    for name in (STATE_NAME, STATUS_NAME, TICKS_NAME, LOG_NAME, REVIEW_NAME, INSTANCE_LOCK_NAME))
+    for name in (STATE_NAME, STATUS_NAME, TICKS_NAME, LOG_NAME, REVIEW_NAME, INSTANCE_LOCK_NAME,
+                 FRESHNESS_NAME))
 # Which of the project ROOT's own files can be a producer's output (social_media.db,
 # press_text_cache.jsonl, ranks_python.json, the workbook, the dashboards).  Everything else at
 # the root -- notes, documents, scripts -- is a human's, and is never evidence that a step wrote.
@@ -150,6 +199,14 @@ class MissingProducer(Exception):
     not landed yet must cost exactly that row -- killing the whole refresh because one new script
     is missing is the 2026-09-10 failure (two unrelated __init__.py stopped the refresh in 0.2 s
     before step 1) in a different costume.
+    """
+
+
+class LeaseLost(Exception):
+    """The writer lease could not be taken back after a chain container ran.
+
+    Nothing may run between steps without the lease, so this is not one step's failure: it ends the
+    tick (weekly_refresh.py hard-aborts on the same condition).
     """
 
 
@@ -217,6 +274,8 @@ def runner_owned(key):
         return True
     if key.startswith('%s/%s/' % (ENGINE_DIR, MANIFEST_DIR)):
         return True
+    if key.startswith('%s/%s/' % (ENGINE_DIR, DEAD_LETTER_DIR)):
+        return True
     path = key[len(state_store.EXTERNAL_PREFIX):] if key.startswith(
         state_store.EXTERNAL_PREFIX) else key
     parts = path.replace('\\', '/').split('/')
@@ -263,6 +322,25 @@ def render_argv(argv, today=None):
         else:
             raise ValueError('unknown date token %r' % (item,))
     return out
+
+
+def _child_python():
+    """The interpreter producers run under.
+
+    The scheduled task runs this module under ``pythonw.exe`` so no console window appears; there
+    ``sys.executable`` is the windowless interpreter, and children started from it would inherit
+    that.  Their sibling ``python.exe`` is what a producer expects.
+    """
+    exe = sys.executable
+    if os.path.basename(exe).lower() == 'pythonw.exe':
+        sibling = os.path.join(os.path.dirname(exe), 'python.exe')
+        if os.path.exists(sibling):
+            return sibling
+    return exe
+
+
+def _windowless_parent():
+    return os.name == 'nt' and os.path.basename(sys.executable).lower() == 'pythonw.exe'
 
 
 def _crashpoint(name):
@@ -362,7 +440,9 @@ class Tick(object):
                  lease_poll_seconds=LEASE_POLL_SECONDS,
                  lease_event_seconds=LEASE_EVENT_SECONDS,
                  window_days=WINDOW_DAYS, retry_attempts=RETRY_ATTEMPTS,
-                 min_attempt_gap_hours=MIN_ATTEMPT_GAP_HOURS):
+                 min_attempt_gap_hours=MIN_ATTEMPT_GAP_HOURS,
+                 backoff_minutes=failure_module.BACKOFF_BASE_MINUTES,
+                 enrichment_gap_hours=ENRICHMENT_COMPUTE_GAP_HOURS):
         self.root = os.path.abspath(str(root))
         self.fec_dir = os.path.join(self.root, 'fec')
         self.engine_dir = os.path.join(self.root, ENGINE_DIR.replace('/', os.sep))
@@ -372,6 +452,8 @@ class Tick(object):
         self.ticks_path = os.path.join(self.engine_dir, TICKS_NAME)
         self.log_path = os.path.join(self.engine_dir, LOG_NAME)
         self.review_path = os.path.join(self.engine_dir, REVIEW_NAME)
+        self.freshness_path = os.path.join(self.engine_dir, FRESHNESS_NAME)
+        self.dead_letter_dir = os.path.join(self.engine_dir, DEAD_LETTER_DIR)
         self.instance_lock_path = os.path.join(self.engine_dir, INSTANCE_LOCK_NAME)
         self.pipeline_lock_path = os.path.join(self.root, '.pipeline_run.lock')
         self.run_pipeline_path = os.path.join(self.fec_dir, 'run_pipeline.py')
@@ -384,6 +466,8 @@ class Tick(object):
         self.window_days = int(window_days)
         self.retry_attempts = int(retry_attempts)
         self.min_attempt_gap_hours = float(min_attempt_gap_hours)
+        self.backoff_minutes = float(backoff_minutes)
+        self.enrichment_gap_hours = float(enrichment_gap_hours)
         self.only = tuple(only or ())
         self.skip_compute = bool(skip_compute)
         self.force_due = tuple(force_due or ())
@@ -394,7 +478,7 @@ class Tick(object):
         self.accept_zero = tuple(accept_zero or ())
         self.table = tuple(table if table is not None else table_module.TABLE)
         self.by_name = table_module.by_name(self.table)
-        self.python = python or sys.executable
+        self.python = python or _child_python()
         self.now = now if now is not None else state_store.utcnow
         self.sleep = sleep if sleep is not None else time.sleep
 
@@ -434,6 +518,17 @@ class Tick(object):
         self.unhandled = None
         self.published = None
         self.review_added = 0
+        # step -> failure class, for the failures of THIS tick; and why compute was held, if it was.
+        # ``hold_blocker`` is a failed hard step still backing off (the tick reports it and exits
+        # non-zero); ``hold_note`` is information only (enrichment coalescing).
+        self.failure_classes = {}
+        # Every step that ended FAILED in this tick and has not recovered since -- exit, timeout,
+        # torn or a coverage verdict.  A tick that computes nothing is quiet (NOTHING_DUE) only
+        # when this is empty: a failure this tick is never reported as "nothing happened".
+        self.failed_steps = []
+        self.hold_blocker = ''
+        self.hold_note = ''
+        self._freshness_failures = 0
 
         self._live_child = [None]
         # Set the instant a console event starts killing the tree, so the step the main thread is
@@ -510,9 +605,74 @@ class Tick(object):
         self.marker = state_store.StatusMarker(self.status_path, log=self.log)
 
     def commit_state(self):
-        """The one durable state write, serialized against the console handler's thread."""
+        """The one durable state write, serialized against the console handler's thread.
+
+        The freshness feed is rewritten with it, so the label a reader sees is never older than the
+        state: a projection of the same truth, written by the same hand.
+        """
         with self._commit_lock:
-            return self.state.commit()
+            written = self.state.commit()
+            self.write_freshness()
+            return written
+
+    def freshness_records(self):
+        """{source: label record} for every evidence row -- the dashboard's label feed."""
+        now = self.now()
+        return {step.name: state_store.freshness_record(
+                    step.tier, step.cadence_h, self.state.step(step.name), now, self.window_days,
+                    manifest_unreadable=step.name in self.unavailable_manifests)
+                for step in table_module.evidence_steps(self.table)}
+
+    def write_freshness(self):
+        """Atomically refresh ``data/engine/source_freshness.json``.  Never raises.
+
+        Like the status marker it is a projection nobody depends on, so it uses the marker's short
+        retry budget and a lost write costs a log line, not a step.
+        """
+        try:
+            records = self.freshness_records()
+            by_status, by_tier = {}, {}
+            for record in records.values():
+                by_status[record['status']] = by_status.get(record['status'], 0) + 1
+                tier = by_tier.setdefault(record['tier'] or 'untiered', {})
+                tier[record['status']] = tier.get(record['status'], 0) + 1
+            # Producer labels (chain_transaction.note_freshness: fec_money, sentinel_admissions,
+            # official_membership ...) are merged into this file by the loaders themselves, under
+            # ``sources``.  They are not table rows, so the tick keeps them -- moved to
+            # ``producer_labels`` so ``sources`` stays exactly the table's evidence rows -- instead of
+            # rewriting them away.
+            previous, _problem = state_store.read_json(self.freshness_path)
+            labels = {}
+            if isinstance(previous, dict):
+                if isinstance(previous.get('producer_labels'), dict):
+                    labels.update((name, entry) for name, entry in previous['producer_labels'].items()
+                                  if isinstance(entry, dict))
+                if isinstance(previous.get('sources'), dict):
+                    labels.update((name, entry) for name, entry in previous['sources'].items()
+                                  if name not in records and isinstance(entry, dict)
+                                  and entry.get('producer'))
+            document = {'schema': state_store.FRESHNESS_SCHEMA,
+                        'updated_utc': state_store.stamp(self.now()),
+                        'window_days': self.window_days,
+                        'sources': records,
+                        'producer_labels': labels,
+                        'summary': {'by_status': by_status, 'by_tier': by_tier,
+                                    'not_fresh': [name for name, record in records.items()
+                                                  if record['status'] != FRESH]}}
+            state_store.write_json_atomic(self.freshness_path, document,
+                                          attempts=state_store.STATUS_REPLACE_ATTEMPTS,
+                                          backoff=state_store.STATUS_REPLACE_BACKOFF)
+            self._freshness_failures = 0
+            return True
+        except (OSError, ValueError, TypeError) as error:
+            self._freshness_failures += 1
+            if self._freshness_failures == 1:
+                try:
+                    self.log('source freshness feed unwritable (%s) — the state is unaffected'
+                             % type(error).__name__)
+                except Exception:
+                    pass
+            return False
 
     def write_status(self, tick=None):
         if self.marker is None:
@@ -606,8 +766,9 @@ class Tick(object):
             try:
                 context = pipeline_run_lock(self.pipeline_lock_path, owner_kind='refresh_tick')
                 lease = context.__enter__()
-            except RuntimeError as error:
-                why = str(error)
+            except (RuntimeError, OSError) as error:
+                # OSError: Windows delete-pending lock file / stale-lease unlink race; transient.
+                why = '%s: %s' % (type(error).__name__, error)
             else:
                 if waited:
                     self.log('writer lease acquired after %.0fs of waiting' % waited)
@@ -651,6 +812,33 @@ class Tick(object):
             context.__exit__(None, None, None)
         except BaseException:
             pass
+
+    def _lease_handoff_out(self):
+        """chain=container: give the writer lease to the container for the length of the chain.
+
+        The container judges a lease by its own pid space, so it can neither adopt this process's
+        lease nor take over its file; it takes a fresh one once this process has removed its own.
+        The single-instance lock stays held throughout.  weekly_refresh.py does the same.
+        """
+        from pipeline_lock import LOCK_OWNER_PID_ENV, LOCK_TOKEN_ENV
+        os.environ.pop(LOCK_TOKEN_ENV, None)
+        os.environ.pop(LOCK_OWNER_PID_ENV, None)
+        context, self._lease_context = self._lease_context, None
+        self._lease = None
+        if context is not None:
+            context.__exit__(None, None, None)
+        self.log('   chain container: writer lease released to the container; this process '
+                 'takes it back when the container exits')
+
+    def _lease_handoff_in(self):
+        from pipeline_lock import pipeline_run_lock
+        try:
+            context = pipeline_run_lock(self.pipeline_lock_path, owner_kind='refresh_tick')
+            lease = context.__enter__()
+        except (RuntimeError, OSError) as error:
+            raise LeaseLost('writer lease not taken back after the chain container: %s' % error)
+        self._lease_context, self._lease = context, lease
+        self._export_lease(lease)
 
     # ---- the exit guard ----------------------------------------------------------------
     def adopt_child(self, process):
@@ -781,6 +969,17 @@ class Tick(object):
             self.log('table producer(s) not on disk, each will FAIL its own step: %s'
                      % ', '.join(self.missing_producers))
 
+    def preflight_engines(self):
+        """Read ops/compute/engines.json ONCE, before step 1: an unreadable file is a pre-step
+        failure, and no step changes engine half way through a tick (weekly_refresh.py's rule)."""
+        try:
+            engines = compute_engine.snapshot()
+        except compute_engine.EngineError as error:
+            raise FatalPreStep('compute engines: %s' % error)
+        if 'container' in engines.values():
+            self.log('compute engines: %s' % ', '.join('%s=%s' % item
+                                                       for item in sorted(engines.items())))
+
     def producer_path(self, step):
         basename = table_module.producer_basename(step)
         if basename not in self.producers:
@@ -902,8 +1101,145 @@ class Tick(object):
                 continue
             if self.satisfied(required):
                 continue
+            # A COMPUTE step may stand on a CORE source's last-good generation: past its window or
+            # after a failed attempt that wrote nothing, it is served and labelled, not a stop.
+            if step.kind in table_module.COMPUTE_KINDS and self.serves_last_good(required):
+                continue
             return False, required
         return True, None
+
+    def serves_last_good(self, name):
+        """True when ``name`` is a CORE source whose last-good generation is intact and whole.
+
+        Intact means a recorded success, outputs neither torn nor awaiting reconciliation, coverage
+        OK.  Age is deliberately not asked: that is the label, not the gate.
+        """
+        step = self.by_name.get(name)
+        if step is None or step.kind not in table_module.COLLECT_KINDS:
+            return False
+        if step.tier != table_module.CORE:
+            return False
+        entry = self.state.step(name)
+        return (bool(entry.get('last_ok_utc')) and entry.get('torn') is False
+                and entry.get('coverage') == COVERAGE_OK and entry.get('state') != RUNNING)
+
+    def attempt_barrier(self, step, entry):
+        """(blocked, why): the limits NO way of starting a step may cross.
+
+        Two, and they are the only two: the rolling-day attempt cap (MAX_ATTEMPTS_PER_DAY launches
+        in the last 24 h, whatever their outcome) and the quota window (a provider quota stop is
+        not met again before the next daily window, then once).  Crash recovery, a dependency's
+        news, a coverage flag and a stale pending marker may each skip a backoff WAIT; none of
+        them reaches past this.  Only an explicit ``--force-due`` does, and that is decided before
+        anyone asks.  due(), failure_gate() (hence the retry pass, a recovered dependent and the
+        compute hold) all call this one function.
+        """
+        now = self.now()
+        attempts = len(state_store.recent_attempts(entry.get('recent_attempts_utc'), now))
+        if attempts >= failure_module.MAX_ATTEMPTS_PER_DAY:
+            return True, ('attempted %d times in the last 24 h (cap %d); waits for the window to '
+                          'roll' % (attempts, failure_module.MAX_ATTEMPTS_PER_DAY))
+        stopped = entry.get('quota_stop_utc')
+        if not stopped and entry.get('failure_class') == BUDGET_QUOTA:
+            stopped = entry.get('last_attempt_utc')             # a record from before the field
+        age = state_store.hours_since(stopped, now)
+        # A stamp up to an hour ahead is a clock that stepped back: still a stop.  Further ahead is
+        # clock damage and must not hold a source off for days.
+        if age is not None and -1.0 <= age < failure_module.QUOTA_WINDOW_HOURS:
+            return True, ('classifier quota exhausted %.2f h ago; no re-spend, one attempt per '
+                          'daily window, next in %.1f h'
+                          % (max(0.0, age), failure_module.QUOTA_WINDOW_HOURS - max(0.0, age)))
+        return False, ''
+
+    def recovery_override(self, step, entry):
+        """Why ``step`` is due NOW because the previous tick did not finish it -- or ''.
+
+        The contract's "due now".  The one-hour attempt gap exists to stop the runner hammering a
+        collector that refused on its own terms; a step whose process was killed never got to
+        refuse, and making it wait an hour after every crash is the all-or-nothing stall this
+        runner exists to remove.  A step THIS tick has already attempted is excluded: the pending
+        flag it carries is this tick's own, not a crash's.  It skips the backoff WAIT only; the
+        attempt barrier still applies.  Shared by :meth:`due` and :meth:`compute_hold`, so a hold
+        and an override can never disagree about the same step.
+        """
+        if step.name in self.attempted:
+            return ''
+        if step.name in self.due_now:
+            return 'the previous tick died inside it'
+        if entry.get('state') == RUNNING or entry.get('failure_pending_tick_end'):
+            return 'the previous tick did not finish this attempt'
+        failure = entry.get('failure')
+        if isinstance(failure, dict) and failure.get('kind') in (KILLED, INTERRUPTED):
+            return 'the previous tick was killed inside it'
+        return ''
+
+    def cadence_due_hours(self, step):
+        """The age at which a cadence-driven step is due: its cadence less the daily slack."""
+        cadence = step.cadence_h
+        if cadence and cadence <= CADENCE_SLACK_MAX_H:
+            return max(0.0, cadence - CADENCE_SLACK_HOURS)
+        return cadence
+
+    def input_signature(self, step):
+        """{source: generation} -- what a data-contract refusal was refused ON.
+
+        A collect step's inputs are the generations of what it ``requires``.  A compute step reads
+        every evidence source, so its signature is all of them.  The refusal is not retried until
+        this changes: a different input is the only thing that can make the same producer say yes.
+        """
+        if step.kind in table_module.COMPUTE_KINDS:
+            names = [item.name for item in table_module.evidence_steps(self.table)]
+        else:
+            names = list(step.requires)
+        return {name: int(self.state.step(name).get('generation') or 0) for name in names}
+
+    @staticmethod
+    def classified_failure(entry):
+        """True when the step's latest failure is a classified exit or timeout."""
+        failure = entry.get('failure')
+        return (entry.get('state') == FAILED
+                and entry.get('failure_class') in state_store.FAILURE_CLASSES
+                and isinstance(failure, dict) and failure.get('kind') in (EXIT, TIMEOUT))
+
+    def failure_gate(self, step, entry, triggered=False):
+        """(open, why): may a step whose latest failure was classified run again NOW?
+
+        The attempt barrier comes first and nothing lifts it (see :meth:`attempt_barrier`).  TRANSIENT:
+        then after its backoff.  SOURCE_OUTAGE: once per probe interval (its cadence, never longer
+        than a day) -- last-good is kept meanwhile.  BUDGET_QUOTA: after the quota window, which is
+        the barrier's.  DATA_CONTRACT: only after an input generation changed.  ``triggered`` (a
+        dependency produced new information, or the previous tick died inside the step) skips the
+        backoff WAIT and nothing else.  A stamp absurdly far ahead is clock damage and is not
+        waited for.
+        """
+        now = self.now()
+        blocked, why = self.attempt_barrier(step, entry)
+        if blocked:
+            return False, why
+        klass = entry.get('failure_class')
+        if klass == DATA_CONTRACT:
+            letter = entry.get('dead_letter') if isinstance(entry.get('dead_letter'), dict) else {}
+            if letter.get('signature') == self.input_signature(step):
+                return False, ('dead-lettered at %s (data contract); no automatic retry until an '
+                               'input generation changes' % letter.get('at'))
+            return True, 'an input generation changed since the data-contract dead letter'
+        gap = state_store.hours_since(entry.get('last_attempt_utc'), now)
+        gap = 0.0 if gap is None else max(0.0, gap)
+        if klass == SOURCE_OUTAGE:
+            probe = min(float(step.cadence_h or failure_module.OUTAGE_PROBE_CAP_HOURS),
+                        failure_module.OUTAGE_PROBE_CAP_HOURS)
+            if gap < probe:
+                return False, ('source outage: attempted %.2f h ago; last-good kept, next probe in '
+                               '%.1f h' % (gap, probe - gap))
+            return True, 'source outage probe'
+        wait_until = state_store.parse_stamp(entry.get('next_attempt_utc'))
+        if (wait_until is not None and not triggered and now < wait_until
+                and wait_until - now <= datetime.timedelta(
+                    minutes=failure_module.BACKOFF_CAP_MINUTES)):
+            return False, ('attempted %.2f h ago; backing off until %s (failure %d)'
+                           % (gap, state_store.stamp(wait_until),
+                              int(entry.get('attempts_since_ok') or 1)))
+        return True, 'state FAILED (%s; backoff elapsed)' % (klass or 'unclassified')
 
     def due(self, step):
         """(due, why).  Dueness is per step and depends on nothing another step did, except an
@@ -911,17 +1247,19 @@ class Tick(object):
         entry = self.state.step(step.name)
         if self._forced(step.name):
             return True, 'forced'
-        if step.name in self.due_now:
-            return True, 'the previous tick died inside it'
-        if entry.get('state') == RUNNING or entry.get('failure_pending_tick_end'):
-            return True, 'the previous tick did not finish this attempt'
-        failure = entry.get('failure')
-        if isinstance(failure, dict) and failure.get('kind') in (KILLED, INTERRUPTED):
-            # The contract's "due now".  The one-hour attempt gap exists to stop the runner
-            # hammering a collector that refused on its own terms; a step whose process was
-            # killed never got to refuse, and making it wait an hour after every crash is the
-            # all-or-nothing stall this runner exists to remove.
-            return True, 'the previous tick was killed inside it'
+        blocked, why = self.attempt_barrier(step, entry)
+        if blocked:
+            return False, why
+        override = self.recovery_override(step, entry)
+        if override:
+            # An ordinary failure committed just before the tick died is classified like any other:
+            # the crash skips its backoff WAIT, never the barrier, a dead letter or an outage probe.
+            # compute_hold() asks the same question of the hard compute steps.
+            if self.classified_failure(entry):
+                allowed, why = self.failure_gate(step, entry, triggered=True)
+                if not allowed:
+                    return False, why
+            return True, override
         triggered = ''
         triggers = ATTEMPT_TRIGGERED.get(step.name, ())
         for required in step.requires:
@@ -931,6 +1269,10 @@ class Tick(object):
             if required in triggers and required in self.attempted:
                 triggered = '%s was attempted this tick' % required
                 break
+        if self.classified_failure(entry):
+            # The class decides when it may run again; the one-hour attempt gap below is for
+            # failures nothing has explained.
+            return self.failure_gate(step, entry, triggered=bool(triggered))
         status = entry.get('state') or NEVER
         age = state_store.hours_since(entry.get('last_ok_utc'), self.now())
         if status not in SUCCEEDED:
@@ -941,7 +1283,7 @@ class Tick(object):
             why = 'coverage %s' % entry.get('coverage')
         elif age is None:
             why = 'no readable last success'
-        elif step.cadence_h and age >= step.cadence_h:
+        elif step.cadence_h and age >= self.cadence_due_hours(step):
             why = 'last success %.1f h ago, cadence %d h' % (age, step.cadence_h)
         elif triggered:
             why = triggered
@@ -971,6 +1313,38 @@ class Tick(object):
 
     # ---- running one step --------------------------------------------------------------
     def run_step(self, step, phase):
+        """One step; a durable-write OSError (OneDrive/AV lock) fails THIS step, not the tick."""
+        self._step_pre = None
+        started = time.monotonic()
+        try:
+            return self._run_step(step, phase)
+        except OSError as error:
+            self.log('%-30s STATE WRITE FAILED (%s: %s) — step skipped, tick continues'
+                     % (step.name, type(error).__name__, str(error)[:160]))
+            try:
+                pre = self._step_pre
+                self._fresh_snapshot = post = self.snapshot()
+                return self._fail_step(step, post if pre is None else pre, post, 'state_write',
+                                       None, '%s: %s' % (type(error).__name__, str(error)[:300]),
+                                       time.monotonic() - started)
+            except OSError as recovery_error:
+                # Without a complete recovery scan, old successful evidence is not verified.
+                # Keep the persisted pre-snapshot for the next tick's reconciliation.
+                self._fresh_snapshot = None
+                self.state.record(step.name, state=FAILED, torn=None,
+                                  failure_pending_tick_end=True,
+                                  failure={'kind': 'snapshot_unavailable', 'exit': None,
+                                           'detail': 'complete recovery snapshot/state unavailable: '
+                                                     + str(recovery_error)[:300]})
+                try:
+                    self.commit_state()
+                except OSError:
+                    pass  # The previous durable RUNNING record is also ineligible.
+                self.log('%-30s SNAPSHOT RECOVERY INCOMPLETE — tick stops; next tick must reconcile'
+                         % step.name)
+                raise
+
+    def _run_step(self, step, phase):
         """Launch one step and COMMIT its result.  Returns True when its outputs now stand.
 
         The protocol, in order: persist the pre-snapshot and write RUNNING; launch; snapshot
@@ -980,9 +1354,13 @@ class Tick(object):
         """
         if step.name in self.unavailable_manifests:
             self._note_blocker(step.name, 'manifest cannot be read; preserving its baseline')
+            # Deferred, not done: a tick that could not run a due step is not "nothing happened".
+            if step.name not in self.failed_steps:
+                self.failed_steps.append(step.name)
             return False
         self.set_phase(phase, step.name)
         pre = self._fresh_snapshot if self._fresh_snapshot is not None else self.snapshot()
+        self._step_pre = pre
         try:
             state_store.write_json_atomic(self.pre_snapshot_path(step),
                                           {k: list(v) for k, v in pre.items()}, indent=None)
@@ -994,6 +1372,12 @@ class Tick(object):
         self.state.record(step.name, state=RUNNING, torn=bool(entry.get('torn')),
                           last_attempt_utc=state_store.stamp(self.now()),
                           attempts_since_ok=int(entry.get('attempts_since_ok') or 0) + 1,
+                          recent_attempts_utc=state_store.record_attempt(
+                              entry.get('recent_attempts_utc'), self.now()),
+                          # The one attempt a quota window allows STARTS the next window, so a crash
+                          # inside it cannot buy a second attempt in the same one.
+                          quota_stop_utc=(state_store.stamp(self.now())
+                                          if entry.get('quota_stop_utc') else None),
                           failure=None, duration_s=None)
         self.commit_state()
         if step.name not in self.attempted:
@@ -1010,6 +1394,8 @@ class Tick(object):
             run = self._launch(step, timeout)
         except MissingProducer as error:
             launch_error = ('%s' % error)
+        except LeaseLost:
+            raise                                    # not one step's failure: the tick ends
         except Exception as error:                   # a launch failure is this step's failure
             launch_error = '%s: %s' % (type(error).__name__, str(error)[:160])
         _crashpoint('after_step_exit')
@@ -1021,11 +1407,17 @@ class Tick(object):
             return self._fail_step(step, pre, post, EXIT, None, launch_error, duration)
         if run.timed_out:
             return self._fail_step(step, pre, post, TIMEOUT, run.returncode,
-                                   run.timeout_note[:400], duration)
+                                   run.timeout_note[:400], duration, run=run)
         tail = (run.stdout or '').strip().split('\n')[-1:] or ['']
         if run.returncode == 0:
             self.log('%-30s OK    %5.0fs  %s' % (step.name, duration, tail[0][:100]))
-            return self._commit_step(step, pre, post, OK, duration, run)
+            budget = failure_module.budget_stop_reason(run.stdout, run.stderr)
+            if budget:
+                # An INTENTIONAL bound (--max-classifier-calls), exit 0, generation installed:
+                # a PASS at the normal cadence (D-211).  Not a failure and not a partial.
+                self.log('%-30s stopped on its call budget (%s) -- a bounded run, PASS; the '
+                         'unattempted work stays in the pool' % (step.name, budget))
+            return self._commit_step(step, pre, post, OK, duration, run, budget=budget)
         if run.returncode in step.partial_codes:
             self.log('%-30s PARTIAL %3.0fs  exit %s — committed, not retried; the deferred work '
                      'is the downstream gates\' decision' % (step.name, duration, run.returncode))
@@ -1043,45 +1435,107 @@ class Tick(object):
                           metadata={'step': step.name, 'failures': list(names),
                                     'tolerated': True})
                 return self._commit_step(step, pre, post, OK, duration, run, tolerated=names)
-        self.log('%-30s FAIL  %5.0fs  exit %s' % (step.name, duration, run.returncode))
+        klass, reason = failure_module.classify(run.returncode, False, run.stdout, run.stderr)
+        if klass == BUDGET_QUOTA:
+            # The provider refused (D-211): the step FAILED -- it is never reported as a pass or a
+            # partial -- and nothing was installed, so the last-good generation is what is served.
+            # The checkpoint it wrote is its resumable work queue, committed to the manifest like
+            # any output so it does not read as a tear.  The stop is recorded FIRST and in memory,
+            # so whichever way the commit below ends (a zero-floor verdict, a tear, this stop) the
+            # window it opens is persisted with it and no flag can reopen it early.
+            self.state.record(step.name, quota_stop_utc=state_store.stamp(self.now()))
+            self.log('%-30s FAIL  %5.0fs  exit %s  %s: %s -- nothing installed, last-good served; '
+                     'one attempt per daily window' % (step.name, duration, run.returncode,
+                                                       klass, reason))
+            return self._commit_step(step, pre, post, FAILED, duration, run, quota=reason)
+        self.log('%-30s FAIL  %5.0fs  exit %s  %s: %s'
+                 % (step.name, duration, run.returncode, klass, reason))
         self.log('   stderr: ' + (run.stderr or '')[-300:].replace('\n', ' | '))
         return self._fail_step(step, pre, post, EXIT, run.returncode,
-                               (run.stderr or run.stdout or '')[-400:], duration)
+                               (run.stderr or run.stdout or '')[-400:], duration, run=run)
 
     def _launch(self, step, timeout):
         """The ONE launch path.  Never ``subprocess.run(capture_output=True, timeout=...)``:
-        its timeout path re-enters communicate() and can block there (DE-026)."""
-        argv = [self.python, self.producer_path(step)] + render_argv(step.argv)[1:]
+        its timeout path re-enters communicate() and can block there (DE-026).
+
+        Each step starts where ops/compute/engines.json says its PHASE runs (D-187/D-188): on this
+        host exactly as before ('windows', the default) or in its compute container.  A chain
+        container gets the writer lease for the length of the step and this process takes it back
+        afterwards -- the same handoff weekly_refresh.py performs.
+        """
+        producer = self.producer_path(step)
+        arguments = render_argv(step.argv)[1:] + render_argv(step.tick_argv)
         flags = subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
+        if _windowless_parent():
+            flags |= subprocess.CREATE_NO_WINDOW        # no console flashes from a pythonw task
         # UTF-8 for the child: producers inherited a cp1252 stdout, so one that printed a check
         # mark died with UnicodeEncodeError and accented member names came back as U+FFFD.
         environment = dict(os.environ, PYTHONUTF8='1', PYTHONIOENCODING='utf-8')
+        spec = compute_engine.launch(producer, arguments, root=self.root, cwd=self.fec_dir,
+                                     environ=environment)
+        argv = spec.argv if spec.container else [self.python] + list(spec.argv[1:])
+        launch_environment = environment if spec.env is None else spec.env
+        handoff = spec.phase == 'chain'
+        if spec.container:
+            self.log('%-30s runs in container %s' % (step.name, spec.container))
+        run = None
+        if handoff:
+            self._lease_handoff_out()
         try:
-            return bounded_subprocess.run_bounded(
-                argv, timeout=timeout, cwd=self.fec_dir, env=environment, creationflags=flags,
-                start_new_session=os.name != 'nt', on_start=self.adopt_child)
+            run = bounded_subprocess.run_bounded(
+                argv, timeout=timeout, cwd=self.fec_dir, env=launch_environment,
+                creationflags=flags, start_new_session=os.name != 'nt', on_start=self.adopt_child)
+            return run
         finally:
             self._live_child[0] = None       # released on EVERY path: success, timeout, failure
+            compute_engine.reap(spec)        # a container whose client was killed keeps running
+            if handoff and not (run is not None and run.timed_out):
+                self._lease_handoff_in()
 
-    def _fail_step(self, step, pre, post, kind, returncode, detail, duration):
+    def _fail_step(self, step, pre, post, kind, returncode, detail, duration, run=None):
         if self._killing and kind == EXIT:
             kind, detail = KILLED, 'the console went away and this step\'s tree was killed'
-        changed = state_store.diff(pre, post)
+        changed = sorted(set(state_store.diff(pre, post)) | set(state_store.removed(pre, post)))
         entry = self.state.step(step.name)
         unverified = set(entry.get('unverified_files') or ()) | set(changed)
         torn = bool(entry.get('torn')) or bool(unverified)
+        now = self.now()
+        failure = {'kind': kind, 'exit': returncode, 'detail': (detail or '')[:400]}
+        explained = {'failure_class': None, 'next_attempt_utc': None, 'dead_letter': None}
+        klass = None
+        letter = None
+        if kind in (EXIT, TIMEOUT):
+            # Classified from the exit and the tail of the producer's own log.  A launch error never
+            # had a log, so the runner's own text stands in.
+            klass, reason = failure_module.classify(
+                returncode, kind == TIMEOUT, getattr(run, 'stdout', '') or '',
+                getattr(run, 'stderr', '') or '', '' if run is not None else detail)
+            failure.update({'class': klass, 'reason': reason})
+            explained['failure_class'] = klass
+            self.failure_classes[step.name] = klass
+            if klass == TRANSIENT:
+                minutes = failure_module.backoff_minutes(
+                    int(entry.get('attempts_since_ok') or 1), self.backoff_minutes)
+                explained['next_attempt_utc'] = state_store.stamp(
+                    now + datetime.timedelta(minutes=minutes))
+            elif klass == DATA_CONTRACT:
+                letter = {'at': state_store.stamp(now), 'exit': returncode,
+                          'signature': self.input_signature(step)}
+                explained['dead_letter'] = letter
+                self._dead_letter(step, returncode, reason, letter, run, detail)
         self.state.record(step.name, state=FAILED, torn=torn, duration_s=round(duration, 3),
                           unverified_files=sorted(unverified),
-                          failure_pending_tick_end=True,
-                          failure={'kind': kind, 'exit': returncode,
-                                   'detail': (detail or '')[:400]})
+                          failure_pending_tick_end=True, failure=failure, **explained)
+        if step.name not in self.failed_steps:
+            self.failed_steps.append(step.name)
         self.commit_state()
         _crashpoint('after_failed_step_commit')
         self.write_status()
         self.emit('refresh.step', 'failed', '%s failed (%s)' % (step.name, kind),
                   stage=step.name, detail=(detail or '')[:2000],
                   duration_ms=int(duration * 1000),
-                  metadata={'step': step.name, 'kind': kind, 'exit': returncode, 'torn': torn})
+                  metadata={'step': step.name, 'kind': kind, 'exit': returncode, 'torn': torn,
+                            'class': klass})
         if torn:
             self.log('   outputs TORN — this step wrote before it died; publication waits for '
                      'its next success')
@@ -1091,8 +1545,76 @@ class Tick(object):
                      % step.name)
         return False
 
-    def _commit_step(self, step, pre, post, result_state, duration, run, tolerated=()):
-        """Build the manifest, run the zero floor, then ONE atomic state write."""
+    def _commit_quota_stop(self, step, run, duration, sha, payload, reason):
+        """A provider quota stop: FAILED, last-good served, manifest refreshed, one try a window.
+
+        The producer checkpointed its decisions and stopped without installing a generation.  So the
+        state keeps ``last_ok_utc`` and ``generation`` (nothing new stands), records the failure and
+        its class (the barrier holds it a daily window), and records the manifest of what it wrote
+        -- otherwise the next tick's output check would find the checkpoint changed and call a clean
+        stop a tear, which would block a CORE source's publication for a day.
+        """
+        failure = {'kind': EXIT, 'exit': run.returncode, 'class': BUDGET_QUOTA, 'reason': reason,
+                   'detail': (run.stderr or run.stdout or '')[-400:]}
+        self.state.record(step.name, state=FAILED, torn=False, coverage=COVERAGE_OK,
+                          coverage_zeros=[], unverified_files=[], duration_s=round(duration, 3),
+                          manifest_sha=sha, failure=failure, failure_pending_tick_end=True,
+                          failure_class=BUDGET_QUOTA, next_attempt_utc=None, dead_letter=None,
+                          quota_stop_utc=state_store.stamp(self.now()),
+                          budget_stop={'reason': reason, 'at': state_store.stamp(self.now())})
+        self.commit_state()
+        _crashpoint('after_state_commit')
+        self.manifests[step.name] = payload
+        self.manifest_shas[step.name] = sha
+        self.manifest_dirty.clear()
+        self.failure_classes[step.name] = BUDGET_QUOTA
+        if step.name not in self.failed_steps:
+            self.failed_steps.append(step.name)
+        if step.kind in table_module.COLLECT_KINDS and step.name not in self.filed:
+            self.filed.append(step.name)
+        self.write_status()
+        self.emit('refresh.step', 'failed', '%s failed (%s)' % (step.name, BUDGET_QUOTA),
+                  stage=step.name, detail=failure['detail'][:2000],
+                  duration_ms=int(duration * 1000),
+                  metadata={'step': step.name, 'kind': EXIT, 'exit': run.returncode,
+                            'class': BUDGET_QUOTA, 'reason': reason})
+        return False
+
+    def _dead_letter(self, step, returncode, reason, letter, run, detail):
+        """Quarantine a data-contract refusal: one JSON line, a log line, a Glass Box alert.
+
+        The line is written BEFORE the state records the letter, so the state never claims a letter
+        that is not on file.  A crash between the two costs a duplicate line on the next attempt,
+        never a missing one.
+        """
+        record = {'ts': letter['at'], 'step': step.name, 'class': DATA_CONTRACT, 'exit': returncode,
+                  'reason': reason, 'signature': letter['signature'],
+                  'log_tail': failure_module.log_tail(getattr(run, 'stdout', '') or '',
+                                                      getattr(run, 'stderr', '') or '',
+                                                      '' if run is not None else detail)}
+        written = failure_module.append_dead_letter(self.dead_letter_dir, step.slug, record)
+        self.log('%-30s DEAD-LETTERED — data contract (%s); %s; no automatic retry until an input '
+                 'generation changes' % (step.name, reason,
+                                         'recorded in %s/%s/%s.jsonl' % (ENGINE_DIR, DEAD_LETTER_DIR,
+                                                                         step.slug)
+                                         if written else 'the dead-letter file was UNWRITABLE'))
+        self.emit('refresh.dead_letter', 'failed',
+                  '%s dead-lettered: data-contract refusal (%s)' % (step.name, reason),
+                  stage=step.name, detail='\n'.join(record['log_tail'])[:2000],
+                  metadata={'step': step.name, 'exit': returncode, 'reason': reason,
+                            'signature': letter['signature'], 'written': written})
+
+    def _commit_step(self, step, pre, post, result_state, duration, run, tolerated=(),
+                     budget=None, quota=None):
+        """Build the manifest, run the zero floor, then ONE atomic state write.
+
+        ``budget`` is STOP_CALLS when the producer stopped on its intentional call budget: the step
+        is a plain PASS, and the note rides along so the freshness feed can say its backlog is not
+        drained.  ``quota`` is STOP_QUOTA when the provider refused: the step is committed FAILED
+        (``result_state``), its checkpoint is manifested so it cannot read as a tear, and neither
+        ``last_ok_utc`` nor the generation moves -- nothing new was installed, so nothing is new
+        evidence, and a source that never succeeded does not become one.
+        """
         changed = state_store.diff(pre, post)
         # Membership, not scanning: a step that owns 20,000 files and a tick that changed 20,000
         # would otherwise be 400 million comparisons on the live tree's 29,631 files.
@@ -1105,6 +1627,8 @@ class Tick(object):
                 continue
             expected = (previous.get('files') or {}).get(relative) or {}
             actual = state_store.describe_file(self.root, relative)
+            if actual is None and not expected.get('sha256'):
+                continue        # never committed and gone now: nothing left to repair
             if not (actual and expected.get('sha256')
                     and actual.get('sha256') == expected['sha256']):
                 return self._fail_step(step, pre, post, state_store.TORN, run.returncode,
@@ -1128,6 +1652,14 @@ class Tick(object):
             described = state_store.describe_file(self.root, relative)
             if described is not None:
                 files[relative] = described
+
+        unreadable = sorted(relative for relative, entry in files.items()
+                            if not entry.get('sha256'))
+        if unreadable:
+            pending = set(self.state.step(step.name).get('unverified_files') or ()) | set(unreadable)
+            self.state.record(step.name, unverified_files=sorted(pending))
+            return self._fail_step(step, pre, post, state_store.TORN, run.returncode,
+                                   'output hash unavailable: ' + ', '.join(unreadable), duration)
 
         # THE ZERO FLOOR FOLLOWS WHAT THIS STEP ITSELF LAST PRODUCED, not only what it still owns.
         # "Last writer owns" strips a file from this step's manifest the moment a later step
@@ -1176,6 +1708,8 @@ class Tick(object):
                               failure={'kind': state_store.COVERAGE, 'exit': run.returncode,
                                        'detail': 'zero floor: %s'
                                                  % ', '.join(z['file'] for z in zeros)[:300]})
+            if step.name not in self.failed_steps:
+                self.failed_steps.append(step.name)
             self.commit_state()
             self.write_status()
             self.emit('refresh.review', 'failed',
@@ -1192,7 +1726,7 @@ class Tick(object):
                 [{'step': step.name, 'blocking': False, 'reason': 'shrink recorded', **shrink}
                  for shrink in shrinks], now=self.now())
 
-        generation = int(self.state.step(step.name).get('generation') or 0) + 1
+        generation = int(self.state.step(step.name).get('generation') or 0) + (0 if quota else 1)
         payload = state_store.build_manifest(step.name, generation, self.root, files,
                                              now=self.now())
         if shrinks:
@@ -1239,11 +1773,17 @@ class Tick(object):
         for other, other_sha in written.items():
             self.state.record(other, manifest_sha=other_sha)
             self.manifest_shas[other] = other_sha
+        if quota:
+            return self._commit_quota_stop(step, run, duration, sha, payload, quota)
         self.state.record(step.name, state=result_state, torn=False, coverage=COVERAGE_OK,
                           coverage_zeros=[], unverified_files=[],
                           last_ok_utc=state_store.stamp(self.now()), attempts_since_ok=0,
                           failure=None, duration_s=round(duration, 3), generation=generation,
-                          manifest_sha=sha)
+                          manifest_sha=sha,
+                          failure_class=None, next_attempt_utc=None, dead_letter=None,
+                          quota_stop_utc=None,
+                          budget_stop=({'reason': budget, 'at': state_store.stamp(self.now())}
+                                       if budget else None))
         self.state.step(step.name).pop('failure_pending_tick_end', None)
         self.commit_state()
         _crashpoint('after_state_commit')
@@ -1256,13 +1796,15 @@ class Tick(object):
             self.partial.append(step.name)
         if step.name in self.filed:
             self.filed.remove(step.name)
+        if step.name in self.failed_steps:
+            self.failed_steps.remove(step.name)
         self.write_status()
         self.emit('refresh.step', 'partial' if result_state == PARTIAL else 'completed',
                   '%s %s (%d file(s) manifested)' % (step.name, result_state.lower(), len(files)),
                   stage=step.name, duration_ms=int(duration * 1000),
                   metadata={'step': step.name, 'state': result_state, 'generation': generation,
                             'manifest_sha': sha, 'changed': len(changed),
-                            'shrinks': len(shrinks)})
+                            'shrinks': len(shrinks), 'budget_stop': budget})
         return True
 
     def skip_step(self, step, why, kind):
@@ -1296,7 +1838,8 @@ class Tick(object):
             if status != RUNNING and not (status == FAILED and entry.get('torn') is None):
                 continue
             pre = state_store.load_snapshot(self.pre_snapshot_path(step))
-            changed = state_store.diff(pre, now) if pre is not None else []
+            changed = (sorted(set(state_store.diff(pre, now)) | set(state_store.removed(pre, now)))
+                       if pre is not None else [])
             torn = (bool(entry.get('torn')) or bool(entry.get('unverified_files'))
                     or bool(changed) or pre is None)
             self.state.record(step.name, unverified_files=sorted(
@@ -1360,6 +1903,13 @@ class Tick(object):
                     return
                 entry = self.state.step(name)
                 failure = entry.get('failure') if isinstance(entry.get('failure'), dict) else {}
+                # The failure's CLASS decides whether this tick may come back to it at all: a
+                # transient one only after its backoff and inside its daily cap; an outage or a
+                # data-contract refusal never in this pass (it is probed / released elsewhere).
+                allowed, why = self.failure_gate(step, entry)
+                if not allowed:
+                    self.log('%-30s NOT RETRIED — %s' % (name, why))
+                    break
                 burned = float(entry.get('duration_s') or 0.0)
                 if failure.get('kind') == TIMEOUT and self.remaining_seconds() < 2 * burned:
                     # A step that HUNG is not a flaky socket.  Returning to it with less than
@@ -1384,31 +1934,77 @@ class Tick(object):
             if self.only and step.name not in self.only:
                 continue
             met, _unmet = self.requirements_met(step)
-            if met and self.budget_left():
-                self.log('%-30s DEPENDENCY RECOVERED — running now' % step.name)
-                self.run_step(step, PHASE_RETRY)
+            if not (met and self.budget_left()):
+                continue
+            # The recovery is NEW INFORMATION (due() sees the upstream in ``succeeded`` and skips
+            # the backoff wait), but a dependent is still a step with a daily attempt cap, a quota
+            # window and a dead letter: it goes through the same gate a primary run does, and
+            # run_step() does the same attempt accounting.
+            due, why = self.due(step)
+            if not due:
+                self.log('%-30s DEPENDENCY RECOVERED — not run: %s' % (step.name, why))
+                continue
+            self.log('%-30s DEPENDENCY RECOVERED — running now' % step.name)
+            self.run_step(step, PHASE_RETRY)
 
     def eligibility(self):
-        """(eligible, blockers).  Every evidence row must be present, intact and in-window."""
+        """(eligible, blockers).  Compute may run when every CORE source has a last-good generation.
+
+        CORE stays strict about INTEGRITY: a core source must have succeeded at least once, its
+        outputs must be whole -- not torn, not awaiting reconciliation, coverage OK -- and its
+        manifest must be readable.  It is NOT strict about age: past its window the last-good
+        generation is served and LABELLED (see :meth:`freshness_records`), because refusing to
+        publish at all is the all-or-nothing stop this runner exists to remove.  ENRICHMENT never
+        blocks (D-212); a source that is stale, failing, never collected, torn, suspect or whose
+        manifest cannot be opened is labelled DEGRADED and the chain runs on its last recorded
+        generation, or without it when it has none -- the transactional chain protects LIVE if it
+        then fails.
+        """
         blockers = []
         now = self.now()
         for name in sorted(self.unavailable_manifests):
+            row = self.by_name.get(name)
+            if row is not None and row.tier == table_module.ENRICHMENT:
+                continue                  # labelled by freshness_records(), never a block
             blockers.append((name, 'manifest cannot be read; evidence is unverified'))
         for step in table_module.evidence_steps(self.table):
+            if getattr(step, 'tier', None) == getattr(table_module, 'ENRICHMENT', 'enrichment'):
+                continue          # a row with no tier at all is strict: the safe side
             entry = self.state.step(step.name)
             age = state_store.hours_since(entry.get('last_ok_utc'), now)
             if not entry.get('last_ok_utc') or age is None:
                 blockers.append((step.name, 'has never succeeded'))
+            elif entry.get('state') == RUNNING or entry.get('torn') is None:
+                blockers.append((step.name, 'outputs await complete snapshot reconciliation'))
             elif entry.get('torn'):
                 blockers.append((step.name, 'outputs are torn'))
             elif entry.get('coverage') != COVERAGE_OK:
                 blockers.append((step.name, 'coverage is %s' % entry.get('coverage')))
-            elif age > self.window_days * 24:
-                blockers.append((step.name, 'last success %.1f d ago, older than the %d-day '
-                                            'window' % (age / 24.0, self.window_days)))
         return (not blockers), blockers
 
+    def compute_hold(self):
+        """(held, why): a hard compute step failed and its class says not to run it again yet."""
+        for step in self.table:
+            if step.kind not in table_module.COMPUTE_KINDS or not step.hard:
+                continue
+            entry = self.state.step(step.name)
+            if entry.get('state') not in (FAILED, RUNNING):
+                continue
+            if self.classified_failure(entry):
+                # Exactly due()'s rule: a failure committed just before the previous tick died skips
+                # the backoff wait (and nothing else), so recovery is not held for a wait the crash
+                # already spent.
+                allowed, why = self.failure_gate(
+                    step, entry, triggered=bool(self.recovery_override(step, entry)))
+            else:
+                blocked, why = self.attempt_barrier(step, entry)
+                allowed = not blocked
+            if not allowed:
+                return True, '%s: %s' % (step.name, why)
+        return False, ''
+
     def compute_wanted(self):
+        self.hold_blocker = self.hold_note = ''
         if self.force_compute:
             return True, '--force-compute'
         # NOTHING_DUE is the ONLY unpublished outcome that exits 0, and it means exactly
@@ -1420,6 +2016,12 @@ class Tick(object):
         eligible, blockers = self.eligibility()
         if not eligible:
             return True, 'evidence is not currently publishable (%s: %s)' % blockers[0]
+        # A hard compute step that failed, and whose class says wait, holds the whole phase: running
+        # the full chain again every hour to re-reach the same failure is the storm (DE-020).
+        held, held_why = self.compute_hold()
+        if held:
+            self.hold_blocker = held_why
+            return False, ''
         published = self.state.last_publish_utc()
         if not published:
             return True, 'nothing has been published yet'
@@ -1436,18 +2038,38 @@ class Tick(object):
         # generations were recorded.
         inputs = (self.state.publication() or {}).get('inputs')
         inputs = inputs if isinstance(inputs, dict) else {}
+        changed = []                  # (step, why), in table order
         for step in table_module.evidence_steps(self.table):
             if step.name in self.succeeded:
-                return True, 'new evidence this tick: %s' % step.name
+                changed.append((step, 'new evidence this tick: %s' % step.name))
+                continue
             entry = self.state.step(step.name)
             recorded = inputs.get(step.name)
             if isinstance(recorded, dict) and 'generation' in recorded:
                 if int(entry.get('generation') or 0) != int(recorded.get('generation') or 0):
-                    return True, 'new evidence since the last publication: %s' % step.name
+                    changed.append((step, 'new evidence since the last publication: %s'
+                                    % step.name))
                 continue
             last_ok = state_store.parse_stamp(entry.get('last_ok_utc'))
             if last_ok is not None and last_ok > moment:
-                return True, 'new evidence since the last publication: %s' % step.name
+                changed.append((step, 'new evidence since the last publication: %s' % step.name))
+        if changed:
+            # A CORE change computes at once.  An ENRICHMENT-only change is coalesced: it waits for
+            # the gap since the last compute, unless the owner forced that very source this tick
+            # (an explicit refresh is a request to publish it).  The generation stays recorded, so a
+            # held change is still there for the tick that finally computes it.
+            if any(step.tier != table_module.ENRICHMENT for step, _why in changed):
+                return True, changed[0][1]
+            if any(self._forced(step.name) and step.name in self.succeeded
+                   for step, _why in changed):
+                return True, changed[0][1]
+            since = state_store.hours_since(published, self.now())
+            if since is None or since < 0 or since >= self.enrichment_gap_hours:
+                return True, changed[0][1]
+            self.hold_note = ('only enrichment changed (%s); the last compute was %.1f h ago, '
+                              'coalescing until %.0f h' % (changed[0][0].name, since,
+                                                           self.enrichment_gap_hours))
+            return False, ''
         if self.state.state_of(CHAIN_STEP) not in SUCCEEDED:
             return True, 'the last compute did not succeed'
         return False, ''
@@ -1491,7 +2113,30 @@ class Tick(object):
                 self.compute_failure = step.name
                 self.log('COMPUTE PHASE STOPPED — hard step failed: %s' % step.name)
                 return False
+        if PUBLISH_STEP in self.succeeded or PUBLISH_STEP in self.skipped_not_configured:
+            self.workbook_view()
         return True
+
+    def workbook_view(self):
+        """The publish phase's office engine: a LibreOffice view copy of the workbook, after the
+        chain and never gating it (compute_engine.office_view, as weekly_refresh.py runs it).
+
+        Engine 'windows' (the default) skips it silently.  It is attempted only for the tree
+        compute_engine was configured for -- never for a scratch root a test or a rehearsal drives.
+        """
+        try:
+            from paths import ROOT as paths_root
+            if os.path.abspath(str(paths_root)) != self.root:
+                return
+            status, note = compute_engine.office_view(root=self.root)
+        except Exception as error:
+            status, note = 'failed', '%s: %s' % (type(error).__name__, str(error)[:200])
+        if status == 'skipped':
+            return
+        self.log('%-30s %s  %s' % ('workbook view (LibreOffice)', 'OK' if status == 'ok' else '!!',
+                                   note))
+        self.emit('refresh.step', 'completed' if status == 'ok' else 'failed',
+                  'workbook view (LibreOffice): %s' % note, stage='workbook view')
 
     def publication_record(self):
         """Write the publication record: the EXACT inputs this publication was computed from.
@@ -1512,6 +2157,7 @@ class Tick(object):
             return None
         now = self.now()
         inputs, stale = {}, []
+        labels = self.freshness_records()
         for step in table_module.evidence_steps(self.table):
             entry = self.state.step(step.name)
             age = state_store.hours_since(entry.get('last_ok_utc'), now)
@@ -1521,10 +2167,14 @@ class Tick(object):
                                  # compute_wanted() compares it, never the stamps.
                                  'generation': int(entry.get('generation') or 0),
                                  'age_h': None if age is None else round(age, 2)}
-            if age is None or (step.cadence_h and age >= step.cadence_h):
+            # Degraded = any source whose label is not FRESH: served stale, failing, never
+            # collected, suspect, budget-stopped or dead-lettered.  The label travels with it.
+            if labels[step.name]['status'] != FRESH:
                 stale.append(step.name)
         record = self.state.set_publication(inputs, bool(stale), stale, now=now)
         record['partial_steps'] = list(self.partial)
+        record['labels'] = {name: {'status': labels[name]['status'],
+                                   'detail': labels[name]['detail']} for name in stale}
         self.commit_state()
         self.published = record
         return record
@@ -1561,6 +2211,7 @@ class Tick(object):
             if problems:
                 raise FatalPreStep('; '.join(problems))
             self.index_producers()
+            self.preflight_engines()
             if not self.acquire_lease():
                 return self._finish(BLOCKED)
             self.load_manifests()
@@ -1574,6 +2225,14 @@ class Tick(object):
             self.emit('refresh.tick', 'failed', 'FATAL pre-step failure: %s' % str(error)[:300],
                       stage='tick', detail=str(error)[:2000])
             return self._finish(FATAL_PRESTEP)
+        except LeaseLost as error:
+            self.log('LEASE LOST — %s' % str(error)[:300])
+            self.emit('refresh.tick', 'failed', 'writer lease lost — %s' % str(error)[:300],
+                      stage=self.current_step or 'tick', detail=str(error)[:2000])
+            self.blockers.append(('writer lease', str(error)[:300]))
+            self.compute_failure = self.compute_failure or 'writer lease lost'
+            return self._finish(COMPUTE_FAILED if self.phase == PHASE_COMPUTE
+                                else COLLECTED_NOT_PUBLISHED)
         except Exception as error:
             # A BUG in this runner must still leave a terminal record and a non-zero exit: an
             # unattended job that dies with a traceback tells the supervisor nothing, which is the
@@ -1612,10 +2271,17 @@ class Tick(object):
             self._note_blocker('--skip-compute', 'the compute phase was skipped by request')
             return COLLECTED_NOT_PUBLISHED
         if not wanted:
-            if self.attempted:
+            if self.hold_blocker:
+                self._note_blocker('compute held', self.hold_blocker)
+                return COLLECTED_NOT_PUBLISHED
+            if self.hold_note:
+                self.log('compute phase held: %s' % self.hold_note)
+            elif self.attempted:
                 self.log('compute phase not needed: no evidence changed since the last '
                          'publication')
-            return NOTHING_DUE if not self.filed else COLLECTED_NOT_PUBLISHED
+            if self.filed or self.failed_steps:
+                return COLLECTED_NOT_PUBLISHED
+            return NOTHING_DUE
         self.log('compute phase wanted: %s' % why)
         eligible, blockers = self.eligibility()
         if not eligible:
@@ -1653,13 +2319,15 @@ class Tick(object):
                   'blockers': [{'what': what, 'why': why} for what, why in self.blockers],
                   'review_entries': self.review_added,
                   'compute_failure': self.compute_failure,
+                  'failure_classes': dict(self.failure_classes),
                   'unhandled': self.unhandled,
                   'published': bool(self.published)}
         self.state.set_last_tick(outcome, exit_code, self.started_utc, ended,
                                  steps_run=len(self.attempted), steps_ok=len(self.succeeded),
                                  partial_steps=list(self.partial), filed=list(self.filed),
                                  blockers=record['blockers'],
-                                 compute_failure=self.compute_failure)
+                                 compute_failure=self.compute_failure,
+                                 failure_classes=dict(self.failure_classes))
         for name in self.attempted:
             self.state.step(name).pop('failure_pending_tick_end', None)
         try:
@@ -1705,6 +2373,8 @@ class Tick(object):
                 'eligible': eligible,
                 'blockers': [{'source': name, 'why': reason} for name, reason in blockers],
                 'compute_wanted': wanted, 'compute_reason': why,
+                'compute_held': self.hold_blocker or self.hold_note,
+                'sources': self.freshness_records(),
                 'publication': self.state.publication(), 'last_tick': self.state.last_tick()}
 
 
@@ -1724,6 +2394,10 @@ def build_parser():
                         help='hard total budget for this tick (default %(default)s)')
     parser.add_argument('--lease-wait-hours', type=float, default=LEASE_WAIT_HOURS,
                         help='how long to poll for the writer lease (default %(default)s)')
+    parser.add_argument('--backoff-minutes', type=float,
+                        default=failure_module.BACKOFF_BASE_MINUTES,
+                        help='first wait after a TRANSIENT failure; it doubles to a 4 h cap '
+                             '(default %(default)s; 0 means no wait)')
     parser.add_argument('--only', action='append', default=[], metavar='NAME',
                         help='run only this step (repeatable)')
     parser.add_argument('--skip-compute', action='store_true',
@@ -1754,7 +2428,8 @@ def main(argv=None):
     root = _default_root()
     tick = Tick(root, budget_hours=args.budget_hours, lease_wait_hours=args.lease_wait_hours,
                 only=args.only, skip_compute=args.skip_compute, force_due=args.force_due,
-                force_compute=args.force_compute, accept_zero=args.accept_zero)
+                force_compute=args.force_compute, accept_zero=args.accept_zero,
+                backoff_minutes=args.backoff_minutes)
     if args.status:
         tick.state.load(rotate=False)
         print(json.dumps(state_store.render_status(tick.state, PHASE_IDLE), indent=1,
@@ -1777,6 +2452,13 @@ def main(argv=None):
         print('compute wanted: %s%s' % (plan['compute_wanted'],
                                         ' (%s)' % plan['compute_reason']
                                         if plan['compute_reason'] else ''))
+        if plan['compute_held']:
+            print('compute held: %s' % plan['compute_held'])
+        labelled = [(name, record) for name, record in plan['sources'].items()
+                    if record['status'] != FRESH]
+        print('source labels: %d of %d not FRESH' % (len(labelled), len(plan['sources'])))
+        for name, record in labelled:
+            print('  %-14s %-30s %s' % (record['status'], name[:30], record['detail']))
         print('eligible to publish: %s' % plan['eligible'])
         for blocker in plan['blockers']:
             print('  BLOCKER %-30s %s' % (blocker['source'][:30], blocker['why']))

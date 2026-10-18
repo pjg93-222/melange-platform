@@ -1,0 +1,556 @@
+{
+  "synthetic": true,
+  "warning": "SYNTHETIC FIXTURE. Every value is invented for interface design. Nothing here is FEC data, a real committee, a real vendor or a real amount. Field names follow the OpenFEC Schedule B row shape; the totals objects follow the retained (UNPINNED) /committee/{id}/totals/ shape and may differ from the live provider.",
+  "function": "committee_activity_reader.read_campaign_spending",
+  "schema": "read_campaign_spending_fixture.schema.json",
+  "examples": [
+    {
+      "name": "complete",
+      "comment": "B endpoint complete AND totals retrieved. Complete describes these two endpoints only.",
+      "call": {
+        "cycle": 2024,
+        "candidate_id": "H0ZZ99991",
+        "committee_id": null
+      },
+      "result": {
+        "query": {
+          "cycle": 2024,
+          "candidate_id": "H0ZZ99991",
+          "committee_id": null
+        },
+        "snapshot": {
+          "batch": 99,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        "mapping": {
+          "candidate_id": "H0ZZ99991",
+          "source": "local_ccl:ccl24.txt sha256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "vintage_or_retrieved_at": "2026-09-07T05:51:23+00:00",
+          "committee_ids": [
+            "C99999991"
+          ]
+        },
+        "committees": [
+          {
+            "committee_id": "C99999991",
+            "committee_name": "SYNTHETIC FIXTURE FOR HOUSE 0001",
+            "cycle": 2024,
+            "coverage_status": "complete",
+            "endpoint_status": {
+              "B": "complete",
+              "totals": "complete"
+            },
+            "retrieved_at": {
+              "B_latest": "2026-10-16T01:02:03.456789+00:00",
+              "totals": "2026-10-16T01:02:04.000000+00:00"
+            },
+            "totals": [
+              {
+                "committee_id": "C99999991",
+                "committee_name": "SYNTHETIC FIXTURE FOR HOUSE 0001",
+                "committee_type": "H",
+                "committee_type_full": "House",
+                "designation": "P",
+                "cycle": 2024,
+                "receipts": 125000.5,
+                "disbursements": 98000.25,
+                "operating_expenditures": 91000.0,
+                "contributions": 118000.0,
+                "individual_contributions": 110000.0,
+                "individual_itemized_contributions": 80000.0,
+                "individual_unitemized_contributions": 30000.0,
+                "other_political_committee_contributions": 8000.0,
+                "transfers_to_other_authorized_committee": 0.0,
+                "cash_on_hand_end_period": 27000.25,
+                "debts_owed_by_committee": 0.0,
+                "coverage_start_date": "2023-01-01T00:00:00",
+                "coverage_end_date": "2024-09-30T00:00:00",
+                "last_report_type_full": "OCTOBER QUARTERLY",
+                "last_report_year": 2024,
+                "full_election": false
+              }
+            ],
+            "rows": [
+              {
+                "amendment_indicator": "N",
+                "amendment_indicator_desc": "NEW",
+                "back_reference_schedule_id": null,
+                "back_reference_transaction_id": null,
+                "beneficiary_committee_name": null,
+                "candidate_first_name": null,
+                "candidate_id": null,
+                "candidate_last_name": null,
+                "candidate_middle_name": null,
+                "candidate_name": null,
+                "candidate_office": null,
+                "candidate_office_description": null,
+                "candidate_office_district": null,
+                "candidate_office_state": null,
+                "candidate_office_state_full": null,
+                "candidate_prefix": null,
+                "candidate_suffix": null,
+                "category_code": null,
+                "category_code_full": null,
+                "comm_dt": null,
+                "committee": {
+                  "committee_id": "C99999991",
+                  "name": "SYNTHETIC FIXTURE FOR HOUSE 0001",
+                  "committee_type": "H",
+                  "committee_type_full": "House",
+                  "designation": "P",
+                  "designation_full": "Principal campaign committee",
+                  "cycle": 2024,
+                  "cycles": [
+                    2022,
+                    2024
+                  ],
+                  "candidate_ids": [
+                    "H0ZZ99991"
+                  ],
+                  "party": "IND",
+                  "party_full": "INDEPENDENT (SYNTHETIC)",
+                  "state": "ZZ",
+                  "is_active": true,
+                  "organization_type": null,
+                  "organization_type_full": null
+                },
+                "committee_id": "C99999991",
+                "conduit_committee_city": null,
+                "conduit_committee_name": null,
+                "conduit_committee_state": null,
+                "conduit_committee_street1": null,
+                "conduit_committee_street2": null,
+                "conduit_committee_zip": null,
+                "disbursement_amount": 1250.0,
+                "disbursement_date": "2024-03-02",
+                "disbursement_description": "SYNTHETIC WEB HOSTING",
+                "disbursement_purpose_category": "ADMINISTRATIVE",
+                "disbursement_type": null,
+                "disbursement_type_description": null,
+                "election_type": "G2024",
+                "election_type_full": "GENERAL 2024",
+                "entity_type": "ORG",
+                "entity_type_desc": "ORGANIZATION",
+                "fec_election_type_desc": "GENERAL",
+                "fec_election_year": "2024",
+                "file_number": 9999001,
+                "filing_form": "F3",
+                "image_number": "999920240000000001",
+                "line_number": "17",
+                "line_number_label": "Operating Expenditures",
+                "link_id": 9999202400000000001,
+                "load_date": "2024-10-01T00:00:00",
+                "memo_code": null,
+                "memo_code_full": null,
+                "memo_text": null,
+                "memoed_subtotal": false,
+                "national_committee_nonfederal_account": null,
+                "original_sub_id": null,
+                "payee_employer": null,
+                "payee_first_name": null,
+                "payee_last_name": null,
+                "payee_middle_name": null,
+                "payee_occupation": null,
+                "payee_prefix": null,
+                "payee_suffix": null,
+                "pdf_url": "https://example.invalid/synthetic/999920240000000001",
+                "recipient_city": "EXAMPLEVILLE",
+                "recipient_committee": null,
+                "recipient_committee_id": null,
+                "recipient_name": "EXAMPLE VENDOR ONE (SYNTHETIC)",
+                "recipient_state": "ZZ",
+                "recipient_zip": "00000",
+                "ref_disp_excess_flg": null,
+                "report_type": "Q3",
+                "report_year": "2024",
+                "schedule_type": "SB",
+                "schedule_type_full": "ITEMIZED DISBURSEMENTS",
+                "semi_annual_bundled_refund": "0.00",
+                "spender_committee_designation": "P",
+                "spender_committee_org_type": null,
+                "spender_committee_type": "H",
+                "sub_id": "9999000000000000001",
+                "transaction_id": "SYNTH0000000001",
+                "two_year_transaction_period": 2024,
+                "unused_recipient_committee_id": null
+              },
+              {
+                "amendment_indicator": "N",
+                "amendment_indicator_desc": "NEW",
+                "back_reference_schedule_id": null,
+                "back_reference_transaction_id": null,
+                "beneficiary_committee_name": null,
+                "candidate_first_name": null,
+                "candidate_id": null,
+                "candidate_last_name": null,
+                "candidate_middle_name": null,
+                "candidate_name": null,
+                "candidate_office": null,
+                "candidate_office_description": null,
+                "candidate_office_district": null,
+                "candidate_office_state": null,
+                "candidate_office_state_full": null,
+                "candidate_prefix": null,
+                "candidate_suffix": null,
+                "category_code": null,
+                "category_code_full": null,
+                "comm_dt": null,
+                "committee": {
+                  "committee_id": "C99999991",
+                  "name": "SYNTHETIC FIXTURE FOR HOUSE 0001",
+                  "committee_type": "H",
+                  "committee_type_full": "House",
+                  "designation": "P",
+                  "designation_full": "Principal campaign committee",
+                  "cycle": 2024,
+                  "cycles": [
+                    2022,
+                    2024
+                  ],
+                  "candidate_ids": [
+                    "H0ZZ99991"
+                  ],
+                  "party": "IND",
+                  "party_full": "INDEPENDENT (SYNTHETIC)",
+                  "state": "ZZ",
+                  "is_active": true,
+                  "organization_type": null,
+                  "organization_type_full": null
+                },
+                "committee_id": "C99999991",
+                "conduit_committee_city": null,
+                "conduit_committee_name": null,
+                "conduit_committee_state": null,
+                "conduit_committee_street1": null,
+                "conduit_committee_street2": null,
+                "conduit_committee_zip": null,
+                "disbursement_amount": 410.75,
+                "disbursement_date": "2024-04-11",
+                "disbursement_description": "SYNTHETIC PRINTING",
+                "disbursement_purpose_category": "ADMINISTRATIVE",
+                "disbursement_type": null,
+                "disbursement_type_description": null,
+                "election_type": "G2024",
+                "election_type_full": "GENERAL 2024",
+                "entity_type": "ORG",
+                "entity_type_desc": "ORGANIZATION",
+                "fec_election_type_desc": "GENERAL",
+                "fec_election_year": "2024",
+                "file_number": 9999001,
+                "filing_form": "F3",
+                "image_number": "999920240000000001",
+                "line_number": "17",
+                "line_number_label": "Operating Expenditures",
+                "link_id": 9999202400000000001,
+                "load_date": "2024-10-01T00:00:00",
+                "memo_code": "X",
+                "memo_code_full": "Memo item",
+                "memo_text": null,
+                "memoed_subtotal": true,
+                "national_committee_nonfederal_account": null,
+                "original_sub_id": null,
+                "payee_employer": null,
+                "payee_first_name": null,
+                "payee_last_name": null,
+                "payee_middle_name": null,
+                "payee_occupation": null,
+                "payee_prefix": null,
+                "payee_suffix": null,
+                "pdf_url": "https://example.invalid/synthetic/999920240000000001",
+                "recipient_city": "EXAMPLEVILLE",
+                "recipient_committee": null,
+                "recipient_committee_id": null,
+                "recipient_name": "EXAMPLE VENDOR TWO (SYNTHETIC)",
+                "recipient_state": "ZZ",
+                "recipient_zip": "00000",
+                "ref_disp_excess_flg": null,
+                "report_type": "Q3",
+                "report_year": "2024",
+                "schedule_type": "SB",
+                "schedule_type_full": "ITEMIZED DISBURSEMENTS",
+                "semi_annual_bundled_refund": "0.00",
+                "spender_committee_designation": "P",
+                "spender_committee_org_type": null,
+                "spender_committee_type": "H",
+                "sub_id": "9999000000000000002",
+                "transaction_id": "SYNTH0000000002",
+                "two_year_transaction_period": 2024,
+                "unused_recipient_committee_id": null
+              }
+            ],
+            "row_occurrences": 2,
+            "disclosure_boundaries": 1
+          }
+        ]
+      }
+    },
+    {
+      "name": "partial",
+      "comment": "B has only some pages (status pending); rows listed are what was retrieved, NOT the committee total. Never read the empty remainder as zero.",
+      "call": {
+        "cycle": 2024,
+        "candidate_id": null,
+        "committee_id": "C99999992"
+      },
+      "result": {
+        "query": {
+          "cycle": 2024,
+          "candidate_id": null,
+          "committee_id": "C99999992"
+        },
+        "snapshot": {
+          "batch": 99,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        "mapping": null,
+        "committees": [
+          {
+            "committee_id": "C99999992",
+            "committee_name": "SYNTHETIC FIXTURE FOR HOUSE 0002",
+            "cycle": 2024,
+            "coverage_status": "partial",
+            "endpoint_status": {
+              "B": "pending",
+              "totals": "unsupported"
+            },
+            "retrieved_at": {
+              "B_latest": "2026-10-16T01:00:00.000000+00:00",
+              "totals": null
+            },
+            "totals": [],
+            "rows": [
+              {
+                "amendment_indicator": "N",
+                "amendment_indicator_desc": "NEW",
+                "back_reference_schedule_id": null,
+                "back_reference_transaction_id": null,
+                "beneficiary_committee_name": null,
+                "candidate_first_name": null,
+                "candidate_id": null,
+                "candidate_last_name": null,
+                "candidate_middle_name": null,
+                "candidate_name": null,
+                "candidate_office": null,
+                "candidate_office_description": null,
+                "candidate_office_district": null,
+                "candidate_office_state": null,
+                "candidate_office_state_full": null,
+                "candidate_prefix": null,
+                "candidate_suffix": null,
+                "category_code": null,
+                "category_code_full": null,
+                "comm_dt": null,
+                "committee": {
+                  "committee_id": "C99999992",
+                  "name": "SYNTHETIC FIXTURE FOR HOUSE 0002",
+                  "committee_type": "H",
+                  "committee_type_full": "House",
+                  "designation": "P",
+                  "designation_full": "Principal campaign committee",
+                  "cycle": 2024,
+                  "cycles": [
+                    2022,
+                    2024
+                  ],
+                  "candidate_ids": [
+                    "H0ZZ99991"
+                  ],
+                  "party": "IND",
+                  "party_full": "INDEPENDENT (SYNTHETIC)",
+                  "state": "ZZ",
+                  "is_active": true,
+                  "organization_type": null,
+                  "organization_type_full": null
+                },
+                "committee_id": "C99999992",
+                "conduit_committee_city": null,
+                "conduit_committee_name": null,
+                "conduit_committee_state": null,
+                "conduit_committee_street1": null,
+                "conduit_committee_street2": null,
+                "conduit_committee_zip": null,
+                "disbursement_amount": 90.0,
+                "disbursement_date": "2024-02-10",
+                "disbursement_description": "SYNTHETIC POSTAGE",
+                "disbursement_purpose_category": "ADMINISTRATIVE",
+                "disbursement_type": null,
+                "disbursement_type_description": null,
+                "election_type": "G2024",
+                "election_type_full": "GENERAL 2024",
+                "entity_type": "ORG",
+                "entity_type_desc": "ORGANIZATION",
+                "fec_election_type_desc": "GENERAL",
+                "fec_election_year": "2024",
+                "file_number": 9999001,
+                "filing_form": "F3",
+                "image_number": "999920240000000001",
+                "line_number": "17",
+                "line_number_label": "Operating Expenditures",
+                "link_id": 9999202400000000001,
+                "load_date": "2024-10-01T00:00:00",
+                "memo_code": null,
+                "memo_code_full": null,
+                "memo_text": null,
+                "memoed_subtotal": false,
+                "national_committee_nonfederal_account": null,
+                "original_sub_id": null,
+                "payee_employer": null,
+                "payee_first_name": null,
+                "payee_last_name": null,
+                "payee_middle_name": null,
+                "payee_occupation": null,
+                "payee_prefix": null,
+                "payee_suffix": null,
+                "pdf_url": "https://example.invalid/synthetic/999920240000000001",
+                "recipient_city": "EXAMPLEVILLE",
+                "recipient_committee": null,
+                "recipient_committee_id": null,
+                "recipient_name": "EXAMPLE VENDOR THREE (SYNTHETIC)",
+                "recipient_state": "ZZ",
+                "recipient_zip": "00000",
+                "ref_disp_excess_flg": null,
+                "report_type": "Q3",
+                "report_year": "2024",
+                "schedule_type": "SB",
+                "schedule_type_full": "ITEMIZED DISBURSEMENTS",
+                "semi_annual_bundled_refund": "0.00",
+                "spender_committee_designation": "P",
+                "spender_committee_org_type": null,
+                "spender_committee_type": "H",
+                "sub_id": "9999000000000000101",
+                "transaction_id": "SYNTH0000000101",
+                "two_year_transaction_period": 2024,
+                "unused_recipient_committee_id": null
+              }
+            ],
+            "row_occurrences": 1,
+            "disclosure_boundaries": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "not_seeded",
+      "comment": "The committee/cycle unit is not in the accepted snapshot: nothing was collected. Unknown, not zero.",
+      "call": {
+        "cycle": 2024,
+        "candidate_id": null,
+        "committee_id": "C99999993"
+      },
+      "result": {
+        "query": {
+          "cycle": 2024,
+          "candidate_id": null,
+          "committee_id": "C99999993"
+        },
+        "snapshot": {
+          "batch": 99,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        "mapping": null,
+        "committees": [
+          {
+            "committee_id": "C99999993",
+            "committee_name": null,
+            "cycle": 2024,
+            "coverage_status": "not_seeded",
+            "endpoint_status": {
+              "B": "not_seeded",
+              "totals": "not_seeded"
+            },
+            "retrieved_at": {
+              "B_latest": null,
+              "totals": null
+            },
+            "totals": [],
+            "rows": [],
+            "row_occurrences": 0,
+            "disclosure_boundaries": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "pending",
+      "comment": "Seeded but nothing retrieved yet.",
+      "call": {
+        "cycle": 2024,
+        "candidate_id": null,
+        "committee_id": "C99999994"
+      },
+      "result": {
+        "query": {
+          "cycle": 2024,
+          "candidate_id": null,
+          "committee_id": "C99999994"
+        },
+        "snapshot": {
+          "batch": 99,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        "mapping": null,
+        "committees": [
+          {
+            "committee_id": "C99999994",
+            "committee_name": null,
+            "cycle": 2024,
+            "coverage_status": "pending",
+            "endpoint_status": {
+              "B": "pending",
+              "totals": "unsupported"
+            },
+            "retrieved_at": {
+              "B_latest": null,
+              "totals": null
+            },
+            "totals": [],
+            "rows": [],
+            "row_occurrences": 0,
+            "disclosure_boundaries": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "mapping_unknown",
+      "comment": "A candidate was asked for but no principal-committee mapping is stored. The committee id is null: nothing can be said about spending.",
+      "call": {
+        "cycle": 2024,
+        "candidate_id": "H0ZZ99992",
+        "committee_id": null
+      },
+      "result": {
+        "query": {
+          "cycle": 2024,
+          "candidate_id": "H0ZZ99992",
+          "committee_id": null
+        },
+        "snapshot": {
+          "batch": 99,
+          "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+        },
+        "mapping": null,
+        "committees": [
+          {
+            "committee_id": null,
+            "committee_name": null,
+            "cycle": 2024,
+            "coverage_status": "mapping_unknown",
+            "endpoint_status": {
+              "B": "unknown",
+              "totals": "unknown"
+            },
+            "retrieved_at": {
+              "B_latest": null,
+              "totals": null
+            },
+            "totals": [],
+            "rows": [],
+            "row_occurrences": 0,
+            "disclosure_boundaries": 0
+          }
+        ]
+      }
+    }
+  ]
+}

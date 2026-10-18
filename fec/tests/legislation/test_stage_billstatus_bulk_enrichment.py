@@ -474,7 +474,7 @@ def test_xml_validation_fails_closed_on_hash_schema_identity_and_entities(
         )
 
 
-def test_plan_output_is_new_staging_json_only(tmp_path: Path) -> None:
+def test_plan_output_is_new_scoped_json_only(tmp_path: Path) -> None:
     with raises(billstatus.ContractError, match="audit/staging"):
         billstatus.validate_staging_plan_output(
             tmp_path / "production" / "vote_category_lean.json"
@@ -508,7 +508,7 @@ if __name__ == "__main__":
         test_snapshot_requires_exact_selected_manifest_query_union,
         test_v3_parser_preserves_roles_votes_content_and_provenance,
         test_xml_validation_fails_closed_on_hash_schema_identity_and_entities,
-        test_plan_output_is_new_staging_json_only,
+        test_plan_output_is_new_scoped_json_only,
     ]
     for test in tests:
         with tempfile.TemporaryDirectory(

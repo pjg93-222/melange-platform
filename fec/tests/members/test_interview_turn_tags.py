@@ -177,6 +177,11 @@ ok('MIXED_LABEL repaired still matches the party tail it always matched',
    and re.compile(TT.mixed_label_pattern('1'), re.M).match('Sen. Mark Warner, D-Va.: I do.'))
 ok('a label parenthetical can never hide a colon (parse_turns cuts on sp.index(":"))',
    not re.compile(TT.label_pattern('2'), re.M).match('WALLACE (via phone: London): words here'))
+_TS_PAGE = '[08:05:03] SEN. ADA ALPHER: Words after a timestamped label.\nBEN BRAVO: Next turn.'
+_m = list(re.compile(TT.label_pattern('2'), re.M).finditer(_TS_PAGE))
+ok('a [hh:mm:ss] turn is sliced from the label end, not the stamp colon (speech text)',
+   _m and _TS_PAGE[_m[0].end():_m[1].start()].strip() == 'Words after a timestamped label.'
+   and "sp.index(':')" not in COLLECTOR_SRC and 'text[me:end]' in COLLECTOR_SRC, _m)
 
 print('[stored text: every graded shape splits]')
 GRADED = [

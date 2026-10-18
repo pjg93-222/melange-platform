@@ -92,7 +92,7 @@ jobs:
             smoke: "import fec.access_gate, fec.surfaces.desk_server"
           - name: mentat-console
             dockerfile: ops/docker/mentat.Dockerfile
-            smoke: "import openpyxl, jinja2"
+            smoke: "import openpyxl, jinja2, attribution_policy"
     steps:
       - name: Tag must be v<YYYY>.<MM>.<DD>.<n>
         env: {TAG: "${{ github.ref_name }}"}

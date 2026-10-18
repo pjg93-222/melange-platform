@@ -185,17 +185,21 @@ def _node_contains(container, wanted):
     return any(node is wanted for node in ast.walk(container))
 
 
-def _source_files():
-    paths = list(FEC.glob('*.py'))
-    audit = FEC / 'audit'
-    tests = FEC / 'tests'
-    templates = FEC / 'templates'
-    if audit.is_dir():
-        paths.extend(audit.glob('*.py'))
-    if tests.is_dir():
-        paths.extend(tests.glob('*.py'))
-    if templates.is_dir():
-        paths.extend(templates.glob('*.tpl'))
+def _source_files(on_error=None):
+    # Producers moved into domain folders; keep the read-only scan recursive.
+    excluded = {'attic', '__pycache__', '.cache', '.pytest_cache', '.mypy_cache',
+                '.ruff_cache', '.git', '.hg', '.svn', 'node_modules', '.venv', 'venv'}
+    paths = []
+    is_junction = getattr(os.path, 'isjunction', lambda path: False)
+    for directory, subdirectories, filenames in os.walk(FEC, followlinks=False, onerror=on_error):
+        subdirectories[:] = sorted(name for name in subdirectories
+                                   if name not in excluded and not name.startswith('_quarantine')
+                                   and not os.path.islink(os.path.join(directory, name))
+                                   and not is_junction(os.path.join(directory, name)))
+        for name in filenames:
+            path = Path(directory) / name
+            if path.suffix in {'.py', '.pyw', '.tpl'} and not path.is_symlink():
+                paths.append(path)
     return sorted(set(paths), key=lambda path: str(path).lower())
 
 
@@ -338,7 +342,13 @@ def audit():
     parse_findings = []
     literal_candidates = []
     covered_literal_nodes = set()
-    for source_path in _source_files():
+    def discovery_error(exc):
+        parse_findings.append({
+            'kind': 'source_unreadable_or_unparseable',
+            'source': os.path.relpath(exc.filename or FEC, ROOT),
+            'detail': 'source discovery failed: ' + str(exc),
+        })
+    for source_path in _source_files(on_error=discovery_error):
         if source_path.suffix == '.tpl':
             try:
                 source = source_path.read_text(encoding='utf-8-sig')

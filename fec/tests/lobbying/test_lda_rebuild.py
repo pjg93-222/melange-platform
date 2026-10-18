@@ -8957,14 +8957,17 @@ def test_forecast_ledger_freeze_is_byte_idempotent():
 
 
 def test_forecast_ledger_brier_and_once_only_append_are_exact():
+    from unittest.mock import patch
+    clock = {"now": "2026-07-31T12:00:00+00:00"}
     predictions = [
         (1.0, "HR 1", "A000001"),
         (0.5, "S 2", "B000002"),
         (0.0, "HCONRES 3", "C000003"),
     ]
-    with tempfile.TemporaryDirectory() as data_root:
+    with tempfile.TemporaryDirectory() as data_root, patch.object(FL, "_utc_now", side_effect=lambda: clock["now"]):
         _forecast_ledger_fixture(data_root, predictions)
         FL.main(["--data-root", data_root])
+        clock["now"] = "2026-08-31T12:00:00+00:00"
         _forecast_ledger_write_memberships(
             data_root,
             [
@@ -8982,7 +8985,7 @@ def test_forecast_ledger_brier_and_once_only_append_are_exact():
                 },
             ],
         )
-        FL.main(["--data-root", data_root])
+        FL.main(["--data-root", data_root, "--cosponsor-resolution-after", "2026-08-15"])
         records = _forecast_ledger_records(data_root)
         assert len(records) == 1
         record = records[0]
@@ -9019,10 +9022,13 @@ def test_forecast_ledger_brier_and_once_only_append_are_exact():
 
 
 def test_forecast_ledger_refuses_unchanged_resolution_source():
-    with tempfile.TemporaryDirectory() as data_root:
+    from unittest.mock import patch
+    clock = {"now": "2026-07-31T12:00:00+00:00"}
+    with tempfile.TemporaryDirectory() as data_root, patch.object(FL, "_utc_now", side_effect=lambda: clock["now"]):
         _forecast_ledger_fixture(data_root)
         FL.main(["--data-root", data_root])
-        _created, scored, notes = FL.run(data_root)
+        clock["now"] = "2026-08-31T12:00:00+00:00"
+        _created, scored, notes = FL.run(data_root, "2026-08-15")
         assert scored == []
         assert any(
             "no new information has arrived" in note for note in notes

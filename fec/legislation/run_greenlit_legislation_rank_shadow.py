@@ -131,9 +131,11 @@ BASELINE_INPUTS = (
     "data/engine/pillar_inputs_snapshot.json",
     "ranks_python.json",
     "say_do_gap.json",
+    "legislation_routing_audit.json",
 )
 
 LIVE_SUPPORT_INPUTS = (
+    "bill_repository_live.json",
     "data/engine/congestion.json",
     "data/members/formal_visibility_roles.json",
     "data/legislation/bill_overrides.csv",

@@ -6,7 +6,7 @@ function authorizationIdentity(value){
   accountIdentity:grant.accountIdentity,appId:grant.appId,role:grant.role,districtIds:grant.districtIds,
   owner:Boolean(value.owner),principal:value.principal||null});
 }
-async function terrierSession(runtime,partition,{logout=false}={}){
+async function terrierSession(runtime,partition,{logout=false,passwordLockDisabled=false}={}){
  if(runtime.definition.id!=='terrier'||!runtime.origin||!runtime.token||!runtime.authorization?.principal)return false;
  const origin=new URL(runtime.origin);
  if(origin.protocol!=='http:'||origin.hostname!=='127.0.0.1'||!origin.port||origin.pathname!=='/')return false;
@@ -21,10 +21,10 @@ async function terrierSession(runtime,partition,{logout=false}={}){
  const value=await request('/api/auth/session');
  const authenticated=Boolean(value?.authenticated===true&&value.administrator===true&&value.username===runtime.authorization.principal.localAccountIdentity);
  if(logout){if(!value||typeof value.csrf!=='string')return false;const result=await request('/api/auth/logout','POST',value.csrf);return result?.ok===true;}
- return authenticated;
+ return authenticated&&(!passwordLockDisabled||value.password_lock_disabled===true);
 }
 class AccessLifecycle{
- constructor({runtime,gate,hide,showBoundary,presence=async()=>{},terrierAuthenticated=async()=>false,terrierLogout=async()=>false}){Object.assign(this,{runtime,gate,hide,showBoundary,presence,terrierAuthenticated,terrierLogout});this.suspended=false;this.generation=0;this.sessionId=require('node:crypto').randomUUID();this.osLocked=false;this.requiresFreshPassword=false;}
+ constructor({runtime,gate,hide,showBoundary,presence=async()=>{},terrierAuthenticated=async()=>false,terrierLogout=async()=>false,terrierPasswordLockDisabled=async()=>false,onSuspend=async()=>{}}){Object.assign(this,{runtime,gate,hide,showBoundary,presence,terrierAuthenticated,terrierLogout,terrierPasswordLockDisabled,onSuspend});this.suspended=false;this.generation=0;this.sessionId=require('node:crypto').randomUUID();this.osLocked=false;this.requiresFreshPassword=false;}
  async authenticated(){
   if(this.suspended||!this.runtime.child||this.runtime.requestsAllowed===false)return false;
   try{const approved=await this.gate.authorize();if(authorizationIdentity(approved)!==authorizationIdentity(this.runtime.authorization))return false;
@@ -34,7 +34,11 @@ class AccessLifecycle{
  async suspend(reason){
   // Stop new network activity first. Existing requests/compute and the DOM remain intact.
   this.generation++;this.runtime.requestsAllowed=false;this.suspended=true;this.gate.local?.lock();this.hide();
-  if(['locked','signed_out'].includes(reason)&&this.runtime.definition.id==='terrier'){this.requiresFreshPassword=true;await this.terrierLogout();}
+  await this.onSuspend();
+  if(['locked','signed_out'].includes(reason)&&this.runtime.definition.id==='terrier'){
+   let passwordless=false;try{passwordless=await this.terrierPasswordLockDisabled();}catch{}
+   this.requiresFreshPassword=!passwordless;if(!passwordless)await this.terrierLogout();
+  }
   try{await this.presence(reason==='signed_out'?'signed_out':'locked',this.sessionId);}catch{}
   await this.showBoundary();
  }

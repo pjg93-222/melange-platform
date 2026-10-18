@@ -85,7 +85,10 @@ def _combine(left, right, operation, limit=40):
     out = set()
     for a in left:
         for b in right:
-            out.add(operation(a, b))
+            try:
+                out.add(operation(a, b))
+            except (ValueError, TypeError, IndexError):
+                continue  # invalid constant path operations are unresolved, not executable
             if len(out) >= limit:
                 return out
     return out
@@ -157,7 +160,13 @@ def _values(node, env, source_path):
             except (ValueError, TypeError, SyntaxError):
                 return set()
             if isinstance(index, int) and index >= 0:
-                return {str(Path(value).parents[index]) for value in bases}
+                result = set()
+                for value in bases:
+                    try:
+                        result.add(str(Path(value).parents[index]))
+                    except IndexError:
+                        continue
+                return result
         return set()
     if not isinstance(node, ast.Call):
         return set()
@@ -291,18 +300,22 @@ def _artifact(value):
     return Path(os.path.normpath(str(path)))
 
 
-def _source_files():
-    paths = list(FEC.glob('*.py'))
-    audit = FEC / 'audit'
-    tests = FEC / 'tests'
-    templates = FEC / 'templates'
-    if audit.is_dir():
-        paths.extend(audit.glob('*.py'))
-    if tests.is_dir():
-        paths.extend(tests.glob('*.py'))
-    if templates.is_dir():
-        paths.extend(templates.glob('*.tpl'))
-    return sorted(set(paths), key=lambda p: str(p).lower())
+def _source_files(on_error=None):
+    # Producers moved into domain folders; keep the read-only scan recursive.
+    excluded = {'attic', '__pycache__', '.cache', '.pytest_cache', '.mypy_cache',
+                '.ruff_cache', '.git', '.hg', '.svn', 'node_modules', '.venv', 'venv'}
+    paths = []
+    is_junction = getattr(os.path, 'isjunction', lambda path: False)
+    for directory, subdirectories, filenames in os.walk(FEC, followlinks=False, onerror=on_error):
+        subdirectories[:] = sorted(name for name in subdirectories
+                                   if name not in excluded and not name.startswith('_quarantine')
+                                   and not os.path.islink(os.path.join(directory, name))
+                                   and not is_junction(os.path.join(directory, name)))
+        for name in filenames:
+            path = Path(directory) / name
+            if path.suffix in {'.py', '.pyw', '.tpl'} and not path.is_symlink():
+                paths.append(path)
+    return sorted(set(paths), key=lambda path: str(path).lower())
 
 
 def _literal_rows(tree, path):
@@ -426,7 +439,13 @@ def _category(artifact):
 
 def audit():
     writes, reads, literal_rows, parse_findings = [], [], [], []
-    for path in _source_files():
+    def discovery_error(exc):
+        parse_findings.append({
+            'kind': 'source_unreadable_or_unparseable',
+            'source': os.path.relpath(exc.filename or FEC, ROOT),
+            'detail': 'source discovery failed: ' + str(exc),
+        })
+    for path in _source_files(on_error=discovery_error):
         if path.suffix == '.tpl':
             try:
                 source = path.read_text(encoding='utf-8-sig')

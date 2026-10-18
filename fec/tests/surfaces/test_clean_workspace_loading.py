@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / 'fec'))
 
 
 def builder():
-    spec = importlib.util.spec_from_file_location('build_clean_workspace_under_test', SURFACES / 'build_clean_workspace.py')
+    spec = importlib.util.spec_from_file_location('build_clean_workspace_under_test', ROOT / 'fec' / 'surfaces' / 'build_clean_workspace.py')
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

@@ -33,6 +33,13 @@ function verifyDistrict(resources,userData,configuration,protectedPaths=[]){
   if(reply.district!==roots.district||reply.validated!==true)throw new Error('District validation did not confirm the selected data.');
   return true;
 }
+async function verifyDistrictAsync(resources,userData,configuration,protectedPaths=[]){
+ const command=backendCommand(resources,'terrier'),roots=runtimeRoots('terrier',userData,configuration);
+ if(!fs.statSync(configuration.dataDirectory).isDirectory())throw new Error('The selected data directory is unavailable.');
+ for(const target of [roots.data,roots.state])refuseInstalledOverlap(target,[resources,...protectedPaths]);
+ const reply=await require('./desktop-probe.cjs').desktopProbe(command,'--desktop-district-check',{sourceRoot:path.join(command.runtime,'sources'),dataRoot:roots.data,district:roots.district,legacy:Boolean(roots.legacyOwner)});
+ if(reply.district!==roots.district||reply.validated!==true)throw new Error('District validation did not confirm the selected data.');return true;
+}
 class PendingDistrictSwitch{
   constructor({read,write,scope,verify}){this.read=read;this.write=write;this.scope=scope;this.verify=verify;this.pending=null;}
   prepare(district){const current=this.read(),next=districtConfiguration(current,district,this.scope(current));this.verify(next);this.pending=next;return next;}
@@ -40,4 +47,4 @@ class PendingDistrictSwitch{
   commitAfterClosed(){if(!this.pending)return false;const current=this.read();const next=districtConfiguration(current,this.pending.district,this.scope(current));this.verify(next);this.write(next);this.pending=null;return true;}
 }
 function preserveUnloadVeto(contents,onVeto){contents.on('will-prevent-unload',()=>onVeto());}
-module.exports={IDS,LABELS,ownerDistrictScope,districtConfiguration,verifyDistrict,PendingDistrictSwitch,preserveUnloadVeto};
+module.exports={IDS,LABELS,ownerDistrictScope,districtConfiguration,verifyDistrict,verifyDistrictAsync,PendingDistrictSwitch,preserveUnloadVeto};

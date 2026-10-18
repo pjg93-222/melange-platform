@@ -126,8 +126,9 @@ def read_ndjson(path: Path) -> Iterator[Mapping[str, Any]]:
                 raise ReconciliationError(
                     f"{path.name}:{number}: invalid JSON"
                 ) from error
-            if isinstance(row, dict):
-                yield row
+            if not isinstance(row, dict):
+                raise ReconciliationError(f"{path.name}:{number}: expected JSON object")
+            yield row
 
 
 def measure_kind(key: str) -> str:

@@ -420,6 +420,9 @@ def clients_fixture():
 def build(data_path, out_path, args=(), offices_path=None, organisations_path=None,
          clients_path=None, legacy_groups_path=None):
     env = dict(os.environ)
+    # 2026-10-02: omitted optional islands must resolve inside this fixture.
+    # Falling back to the live root mixed generations and aborted the suite.
+    env['MONEYBALL_ROOT'] = os.path.dirname(os.path.abspath(data_path))
     env['STAFFER_SECTION_DATA_PATH'] = data_path
     env['STAFFER_HTML_OUT'] = out_path
     env['PYTHONIOENCODING'] = 'utf-8'

@@ -13,6 +13,15 @@ x-mounts:
   tls: &m-tls {type: bind, source: "${REPLAY_TLS_HOST:?REPLAY_TLS_HOST is the snapshot's tls folder (ca.pem, leaf.pem, hosts.txt)}", target: /replay/tls, read_only: true, bind: {create_host_path: false}}
   http-replay: &m-http-replay {type: bind, source: "${REPLAY_HTTP_REPLAY_HOST:?REPLAY_HTTP_REPLAY_HOST is Melange's ops/compute/http_replay.py}", target: /melange-replay/ops/compute/http_replay.py, read_only: true, bind: {create_host_path: false}}
 
+# D075: the downstream collector never calls the provider itself, so its replay is not a proxy in front of it. The SAME evidence broker (api_host_pool.EvidenceBroker) runs
+# inside the container on 127.0.0.1, with dummy keys, a scratch quota ledger in /tmp and a cassette built from archived responses (tools/archive_cassette.py) in place of the
+# provider; the job's collector talks to it exactly as it talks to the host broker. /hoststate and /export are SCRATCH folders here (writable); the frontier volume is a
+# scratch volume that must not be the production one. A request the cassette lacks is a miss, and a miss is fatal (exit 3).
+x-replay-downstream: &replay-downstream
+  network_mode: none
+  networks: !reset null
+  entrypoint: ["python", "/mentat/mentat/tools/replay_downstream.py", "--cassette", "/replay/cassette", "--dummy-keys", "/run/secrets/fec_request_pool", "--archive-root", "/hoststate", "--", "python", "/mentat/mentat/tools/compute_job.py"]
+
 x-replay: &replay
   network_mode: none
   networks: !reset null
@@ -40,6 +49,25 @@ services:
       - *m-cassette
       - *m-tls
       - *m-http-replay
+
+  collect-downstream:
+    <<: *replay-downstream
+    environment:
+      MENTAT_REQUEST_POOL_CONFIG: /tmp/broker/request-pool.json     # written by the in-container broker (reach: loopback)
+      MENTAT_STORED_PATH_MAP: "${REPLAY_STORED_MAP:?REPLAY_STORED_MAP is the stored-path map of the scratch state folder}"
+      MENTAT_DOWNSTREAM_VOLUME: "${REPLAY_FRONTIER_VOLUME:?REPLAY_FRONTIER_VOLUME is a scratch volume name (never the production ledger volume)}"      # what EXPORT.json records
+      REPLAY_REPORT: /localappdata/Mentat/compute/receipts/replay-report.json
+    volumes:
+      - *m-cassette
+      - {type: volume, source: frontier, target: /frontier}         # same target as the base: replaces it, but the volume itself is the scratch one (see `volumes` below)
+      - {type: bind, source: "${REPLAY_STATE_HOST:?REPLAY_STATE_HOST is a scratch folder}", target: /hoststate, bind: {create_host_path: false}}      # writable in replay only
+      - {type: bind, source: "${REPLAY_EXPORT_HOST:?REPLAY_EXPORT_HOST is a scratch folder}", target: /export, bind: {create_host_path: false}}
+
+# The scratch volume of the downstream replay. The production name is never the default here and the policy test refuses it.
+volumes:
+  frontier:
+    name: "${REPLAY_FRONTIER_VOLUME:?REPLAY_FRONTIER_VOLUME is a scratch volume name (never the production ledger volume)}"
+    external: true
 
 # The dummy keys file (replay-dummy-0001, ...; as many as the recording used). Replaces compute.compose.yaml's FEC_KEYS_FILE.
 secrets:

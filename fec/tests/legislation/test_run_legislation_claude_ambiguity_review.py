@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 import importlib.util
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -411,12 +412,17 @@ def test_cli_transport_lockdown_flags_match_the_classifier_runtime_sibling(monke
 
     classifier = {}
 
-    def fake_run(command, **kwargs):
-        classifier["command"] = command
-        return SimpleNamespace(returncode=0, stdout=json.dumps({"structured_output": {"ok": 1}}), stderr="")
+    class FakePopen:
+        # classify_json spawns via Popen (DE-026) with temp files for stdio; no real process ever starts.
+        def __init__(self, command, stdin, stdout, stderr, **kwargs):
+            classifier["command"] = command
+            stdout.write(json.dumps({"structured_output": {"ok": 1}}).encode())
+
+        def wait(self, timeout=None):
+            return 0
 
     monkeypatch.setenv("MELANGE_CLASSIFIER_COMMAND", "claude")
-    monkeypatch.setattr(classifier_runtime.subprocess, "run", fake_run)
+    monkeypatch.setattr(classifier_runtime.subprocess, "Popen", FakePopen)
     classifier_runtime.classify_json("Policy", "Evidence", {"type": "object"})
     sibling = classifier["command"]
     lockdown = sibling[sibling.index("-p") + 1 : sibling.index("--output-format")]
@@ -424,3 +430,28 @@ def test_cli_transport_lockdown_flags_match_the_classifier_runtime_sibling(monke
     seen, _ = run_cli_transport(monkeypatch)
     command = seen["command"]
     assert command[command.index("-p") + 1 : command.index("--output-format")] == lockdown
+
+
+def test_classifier_runtime_disables_prompt_caching_in_the_child_env_only(monkeypatch):
+    import classifier_runtime
+
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, command, stdin, stdout, stderr, **kwargs):
+            seen["env"] = kwargs["env"]
+            stdout.write(json.dumps({"structured_output": {"ok": 1}}).encode())
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.delenv("DISABLE_PROMPT_CACHING", raising=False)
+    monkeypatch.setenv("MELANGE_PROBE", "kept")
+    monkeypatch.setenv("MELANGE_CLASSIFIER_COMMAND", "claude")
+    monkeypatch.setattr(classifier_runtime.subprocess, "Popen", FakePopen)
+    before = dict(os.environ)
+    classifier_runtime.classify_json("Policy", "Evidence", {"type": "object"})
+    assert seen["env"]["DISABLE_PROMPT_CACHING"] == "1"
+    assert seen["env"]["MELANGE_PROBE"] == "kept"  # the child still inherits the login and everything else
+    assert seen["env"] is not os.environ
+    assert "DISABLE_PROMPT_CACHING" not in os.environ and dict(os.environ) == before  # a copy, never a mutation

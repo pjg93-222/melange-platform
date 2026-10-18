@@ -169,6 +169,39 @@ class AllocationReplay(unittest.TestCase):
             self.assertIn('blocked write outside shadow output',run.stderr)
             self.assertFalse(forbidden.exists())
 
+    def test_flip_replay_writes_dials_sidecar_against_replayed_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root=Path(directory);source=root/'source';shadow=root/'shadow';output=shadow/'worker'
+            (source/'fec'/'engine').mkdir(parents=True);shadow.mkdir()
+            (source/'fec'/'moneyball_core.py').write_text('\n'.join([
+                'import json,hashlib,os',
+                'def primacy_engine_state(roster=None): return ({},{},{})',
+                'def dump_atomic(obj,path,**kw): open(path,"w").write(json.dumps(obj))',
+                'def write_engine_dials(artifact_path,sidecar_path=None):',
+                '    sidecar_path=sidecar_path or os.path.splitext(artifact_path)[0]+".dials.json"',
+                '    sha=hashlib.sha256(open(artifact_path,"rb").read()).hexdigest()',
+                '    dump_atomic({"artifact_sha256":sha},sidecar_path)',
+                '']))
+            (source/'fec'/'engine'/'per_topic_flip.py').write_text('\n'.join([
+                'import moneyball_core as MC',
+                'outf='+repr(str(source/'per_topic_alloc.json')),
+                'MC.dump_atomic({"x":{"A":1}},outf)',
+                'MC.write_engine_dials(outf)',
+                '']))
+            board={'schema':'effectiveness-board-priority-comparison-v1','status':'shadow_candidate','members':{},
+                   'source_sha256':'x','summary':{}}
+            (shadow/'board.json').write_text(json.dumps(board))
+            command=[sys.executable,str(FEC/'engine'/'replay_effectiveness_allocations.py'),
+                     '--source-root',str(source),'--board',str(shadow/'board.json'),'--shadow-root',str(shadow),
+                     '--output',str(output),'--engine','flip','--variant','baseline']
+            run=subprocess.run(command,capture_output=True,text=True)
+            self.assertEqual(run.returncode,0,run.stderr)
+            self.assertFalse((source/'per_topic_alloc.json').exists())
+            sidecar=json.loads((output/'per_topic_alloc.dials.json').read_text())
+            receipt=json.loads((output/'receipt.json').read_text())
+            artifact_sha=receipt['output_sha256'][str(output/'per_topic_alloc.json')]
+            self.assertEqual(sidecar['artifact_sha256'],artifact_sha)
+            self.assertIn(str(output/'per_topic_alloc.dials.json'),receipt['sidecar_sha256'])
 
 class Explanations(unittest.TestCase):
     def test_shared_explanations_render_sources_and_escape_text(self):

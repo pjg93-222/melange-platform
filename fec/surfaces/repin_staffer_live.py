@@ -28,6 +28,8 @@ Standard library only.
 from __future__ import annotations
 
 import argparse
+import ctypes
+import shutil
 import datetime as _dt
 import hashlib
 import json
@@ -253,8 +255,13 @@ def run_checks(source_root: Path, python: str | None = None) -> tuple[bool, str,
     cmd = [python, "-m", "pytest", *CHECK_FILES, "-q", "-p", "no:cacheprovider"]
     env = dict(os.environ)
     env["STAFFER_GRAPH_TEST_SOURCE"] = str(source_root)
-    proc = subprocess.run(cmd, cwd=str(source_root), env=env, capture_output=True,
-                           text=True, timeout=3600)
+    try:
+        proc = subprocess.run(cmd, cwd=str(source_root), env=env, capture_output=True,
+                              text=True, timeout=3600)
+    except subprocess.TimeoutExpired as exc:
+        raise RepinHalt('source integration checks timed out', {'timeout_seconds': 3600}, exit_code=2) from exc
+    except OSError as exc:
+        raise RepinHalt('source integration checks could not start', exit_code=2) from exc
     output = (proc.stdout or "") + (proc.stderr or "")
     lines = [line for line in output.splitlines() if line.strip()]
     tail = lines[-1] if lines else ""
@@ -316,17 +323,83 @@ def lookup_command_line(pid: int) -> str | None:
     return out or None
 
 
-def confirm_pid_is_sidecar(pid: int, lookup: Callable[[int], str | None] = lookup_command_line,
-                            marker: str = SERVER_PROCESS_MARKER) -> str:
-    """Refuse (raise RepinHalt, exit_code=3) unless PID's command line contains marker."""
-    cmdline = lookup(pid)
-    if not cmdline or marker not in cmdline:
-        raise RepinHalt(
-            f"PID {pid} command line does not contain {marker!r}; refusing to touch a process "
-            "this runner cannot identify as the staffer-live sidecar",
-            {"pid": pid, "command_line": cmdline}, exit_code=3,
-        )
-    return cmdline
+def lookup_process_identity(pid: int) -> dict[str, Any] | None:
+    """Read actual executable, creation identity and argv together; never print argv."""
+    if type(pid) is not int or pid <= 0:
+        return None
+    script = (f'$p=Get-CimInstance Win32_Process -Filter "ProcessId={pid}"; '
+              'if($p){[pscustomobject]@{pid=[int]$p.ProcessId;executable=[string]$p.ExecutablePath;'
+              'command_line=[string]$p.CommandLine;created_at=$p.CreationDate.ToUniversalTime().ToString("o")} | ConvertTo-Json -Compress}')
+    try:
+        proc = subprocess.run(['powershell', '-NoProfile', '-Command', script],
+                              capture_output=True, text=True, timeout=30)
+        value = json.loads(proc.stdout or '') if proc.returncode == 0 else None
+        return value if isinstance(value, dict) else None
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return None
+
+
+def _windows_command_argv(command_line):
+    if (os.name != 'nt' or not isinstance(command_line, str)
+            or not 0 < len(command_line) <= 32768 or '\x00' in command_line):
+        raise ValueError('Process command line is unavailable or unsupported')
+    shell = ctypes.WinDLL('shell32', use_last_error=True)
+    kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+    shell.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    shell.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    kernel.LocalFree.argtypes = [ctypes.c_void_p]
+    kernel.LocalFree.restype = ctypes.c_void_p
+    count = ctypes.c_int()
+    pointer = shell.CommandLineToArgvW(command_line, ctypes.byref(count))
+    if not pointer:
+        raise ValueError('Process command line cannot be parsed')
+    try:
+        if not 0 < count.value <= 32:
+            raise ValueError('Process argument count is unsupported')
+        return [pointer[index] for index in range(count.value)]
+    finally:
+        kernel.LocalFree(ctypes.cast(pointer, ctypes.c_void_p))
+
+
+def confirm_pid_is_sidecar(pid: int, lookup=lookup_process_identity, *,
+                            source_root=None, port=None, expected_python=None) -> str:
+    """Require this launcher's executable, exact script/root/port and unchanged identity.
+
+    Re-reading CreationDate rejects a detected PID reuse. It cannot close the
+    later PID/taskkill race or prove descendant-tree ownership; no such claim.
+    """
+    def refuse():
+        raise RepinHalt('Recorded PID does not match the exact owned sidecar launch; refusing process control',
+                        {'pid': pid}, exit_code=3)
+    if type(pid) is not int or pid <= 0 or source_root is None or type(port) is not int or not 1 <= port <= 65535:
+        refuse()
+    identity = lookup(pid)
+    if (not isinstance(identity, dict) or set(identity) != {'pid', 'executable', 'command_line', 'created_at'}
+            or type(identity.get('pid')) is not int or identity['pid'] != pid):
+        refuse()
+    try:
+        def canonical(value):
+            candidate = Path(value)
+            if not candidate.is_absolute():
+                raise ValueError('Process paths must be absolute')
+            return os.path.normcase(str(candidate.resolve(strict=True)))
+        python = expected_python or shutil.which('python')
+        root = canonical(source_root)
+        executable = canonical(python)
+        script = canonical(Path(source_root) / 'fec/surfaces/staffer_live_server.py')
+        created = _dt.datetime.fromisoformat(identity['created_at'])
+        argv = _windows_command_argv(identity['command_line'])
+        valid = (created.tzinfo is not None and len(argv) == 8
+                 and canonical(identity['executable']) == executable and canonical(argv[0]) == executable
+                 and canonical(argv[1]) == script
+                 and argv[2] == '--source-root' and canonical(argv[3]) == root
+                 and argv[4] == '--port' and argv[5] == str(port)
+                 and argv[6] == '--dashboard-file' and argv[7] in ('Moneyball.html', 'Moneyball_Redesign.html'))
+    except (OSError, TypeError, ValueError, AttributeError):
+        refuse()
+    if not valid or lookup(pid) != identity:
+        refuse()
+    return identity['command_line']
 
 
 def kill_pid(pid: int) -> subprocess.CompletedProcess:
@@ -370,7 +443,7 @@ def read_new_pid(server_json_path: Path, timeout_s: float = 30.0, poll_s: float 
 
 
 def restart_sidecar(source_root: Path, port: int, *,
-                     lookup: Callable[[int], str | None] = lookup_command_line) -> tuple[int | None, int | None]:
+                     lookup: Callable[[int], dict[str, Any] | None] = lookup_process_identity) -> tuple[int | None, int | None]:
     """Step 4.  Returns (old_pid, new_pid).  Raises RepinHalt (exit_code=3) on a foreign PID."""
     server_json_path = source_root / SERVER_JSON_RELATIVE
     old_pid = read_pid(server_json_path)
@@ -384,7 +457,7 @@ def restart_sidecar(source_root: Path, port: int, *,
         raise RepinHalt(f"port {port} has a listener but no PID is recorded in {server_json_path}; "
                          "refusing to touch an unidentified process", {"port": port}, exit_code=3)
     else:
-        confirm_pid_is_sidecar(old_pid, lookup=lookup)
+        confirm_pid_is_sidecar(old_pid, lookup=lookup, source_root=source_root, port=port)
         kill_pid(old_pid)
         if not wait_port_free(port):
             raise RepinHalt(f"port {port} did not free up after stopping PID {old_pid}",
@@ -549,8 +622,8 @@ def plan(args: argparse.Namespace) -> int:
         print("Would skip Step 3 tests (--skip-tests).")
 
     print()
-    print("Would confirm the recorded PID's command line contains "
-          f"{SERVER_PROCESS_MARKER!r} via Get-CimInstance, then run:")
+    print("Would confirm the recorded PID's actual executable, exact script/root/port argv "
+          "and unchanged creation identity via Get-CimInstance, then run:")
     print(f"  taskkill /PID <pid> /T /F")
     print("  and wait for the port to free, then run:")
     print(f'  powershell -NoProfile -ExecutionPolicy Bypass -File "{start_script}" '
@@ -687,7 +760,7 @@ def _rollback(source_root: Path, snapshot_path: Path, backup_path: Path,
         current_pid = read_pid(server_json_path) or bad_pid
         if current_pid is not None:
             try:
-                confirm_pid_is_sidecar(current_pid)
+                confirm_pid_is_sidecar(current_pid, source_root=source_root, port=args.port)
                 kill_pid(current_pid)
                 wait_port_free(args.port)
             except RepinHalt as exc:

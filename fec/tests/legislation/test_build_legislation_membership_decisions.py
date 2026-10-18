@@ -146,11 +146,21 @@ class MembershipDecisionProjectionTests(unittest.TestCase):
         self.assertEqual(dropped[0]["canonical_key"], "118:hr:9")
         self.assertIn("not in the discovery membership universe", dropped[0]["reason"])
 
-    def test_duplicate_resolved_edges_are_dropped_not_silently_merged(self) -> None:
+    def test_conflicting_duplicate_edges_raise(self) -> None:
+        with self.assertRaises(builder.DecisionBuildError):
+            self.run_build(
+                [
+                    ledger_row("117:hr:1", "q_a", "include"),
+                    ledger_row("117:hr:1", "q_a", "exclude_false_positive"),
+                ],
+                [{"canonical_key": "117:hr:1", "query_id": "q_a"}],
+            )
+
+    def test_same_disposition_duplicate_edges_are_dropped_and_counted(self) -> None:
         receipt = self.run_build(
             [
                 ledger_row("117:hr:1", "q_a", "include"),
-                ledger_row("117:hr:1", "q_a", "exclude_false_positive"),
+                ledger_row("117:hr:1", "q_a", "include"),
             ],
             [{"canonical_key": "117:hr:1", "query_id": "q_a"}],
         )
@@ -182,6 +192,16 @@ class MembershipDecisionProjectionTests(unittest.TestCase):
                 )
             ],
             [{"canonical_key": "117:hr:1", "query_id": "q_a"}],
+        )
+        self.assertIs(
+            self.emitted()[0]["absence_used_as_exclusion_evidence"], True
+        )
+
+        self.setUp()
+        row = ledger_row("117:hr:1", "q_a", "exclude_false_positive")
+        del row["article_absence_is_never_exclusion_evidence"]
+        self.run_build(
+            [row], [{"canonical_key": "117:hr:1", "query_id": "q_a"}]
         )
         self.assertIs(
             self.emitted()[0]["absence_used_as_exclusion_evidence"], True

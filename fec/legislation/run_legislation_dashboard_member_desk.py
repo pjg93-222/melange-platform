@@ -23,6 +23,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -64,6 +65,9 @@ SECOND_RECEIPT_MIRROR = (
 )
 SECOND_PASS_STARTED = (
     Path("intermediate") / "dashboard_member_desk_second_pass.started"
+)
+FRESHNESS_PIN = (
+    Path("intermediate") / "dashboard_producer" / "member_desk_freshness_pin.json"
 )
 
 NETWORK_OUTPUTS = (
@@ -711,6 +715,7 @@ def run_producer(
         "EFFICIENCY_LAYERS_PATH",
         "FRONTIER_OUT",
         "OPT_OUT",
+        "DESK_FRESHNESS_PIN",
     ):
         environment.pop(name, None)
     environment.update(PINNED_ENVIRONMENT)
@@ -762,36 +767,40 @@ def json_for_script(value: Any) -> str:
     )
 
 
-def canonicalize_member_desk_freshness(
-    run_dir: Path,
-    generation_id: str,
-    inputs: Mapping[str, Mapping[str, Any]],
-    *,
-    workspace_root: Path = REPO_ROOT,
-) -> None:
-    bundle_path = safe_child(run_dir, "member_desk_bundle.json")
-    bundle = read_object(bundle_path)
-    bundle["freshness"] = {
+def member_desk_freshness(
+    generation_id: str, inputs: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    return {
         "generated_at": f"hash-bound shadow generation {generation_id}",
         "source_sha256": {
             key: str(value["sha256"])
             for key, value in sorted(inputs.items())
         },
     }
-    atomic_bytes(
-        bundle_path,
-        json.dumps(
-            bundle, ensure_ascii=False, separators=(",", ":")
-        ).encode("utf-8"),
-    )
-    template = (
-        workspace_root / "fec" / "surfaces" / "templates" / "make_member_desk_00.tpl"
-    ).read_text(encoding="utf-8")
-    html = template.replace("__BUNDLE__", json_for_script(bundle))
-    atomic_bytes(
-        safe_child(run_dir, "cu-member-desk.html"),
-        html.encode("utf-8"),
-    )
+
+
+def write_freshness_pin(
+    run_dir: Path,
+    generation_id: str,
+    inputs: Mapping[str, Mapping[str, Any]],
+) -> Path:
+    # make_member_desk.py reads this file (DESK_FRESHNESS_PIN) and uses it as
+    # bundle["freshness"], so every desk output is deterministic at the source.
+    path = safe_child(run_dir, FRESHNESS_PIN)
+    atomic_json(path, member_desk_freshness(generation_id, inputs))
+    return path
+
+
+def verify_member_desk_freshness(
+    run_dir: Path,
+    generation_id: str,
+    inputs: Mapping[str, Mapping[str, Any]],
+) -> None:
+    bundle = read_object(safe_child(run_dir, "member_desk_bundle.json"))
+    if bundle.get("freshness") != member_desk_freshness(generation_id, inputs):
+        raise DashboardBranchError(
+            "member desk freshness is not the pinned hash-bound value"
+        )
 
 
 def validate_outputs(run_dir: Path) -> dict[str, Any]:
@@ -884,6 +893,10 @@ def validate_outputs(run_dir: Path) -> dict[str, Any]:
         text = safe_child(run_dir, relative).read_text(encoding="utf-8")
         if first not in text or second not in text or forbidden in text:
             raise DashboardBranchError(f"invalid/incomplete HTML: {relative}")
+        if re.search(r"__[A-Z][A-Z_]*__", text):
+            raise DashboardBranchError(
+                f"unreplaced template placeholder in HTML: {relative}"
+            )
     return {
         "members": len(names),
         "issues": len(issues),
@@ -1129,18 +1142,19 @@ def run_dashboard_branch(
             workspace_root=workspace_root,
         )
     )
+    freshness_pin = write_freshness_pin(
+        run_dir, generation_id, {**static, **dynamic}
+    )
     executions.append(
         run_producer(
             "fec/surfaces/make_member_desk.py",
             run_dir,
             workspace_root=workspace_root,
+            extra_environment={"DESK_FRESHNESS_PIN": str(freshness_pin)},
         )
     )
-    canonicalize_member_desk_freshness(
-        run_dir,
-        generation_id,
-        {**static, **dynamic},
-        workspace_root=workspace_root,
+    verify_member_desk_freshness(
+        run_dir, generation_id, {**static, **dynamic}
     )
     executions.append(
         run_producer(

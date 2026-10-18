@@ -326,7 +326,9 @@ def dump_atomic(obj,path,**kw):
     d=os.path.dirname(path) or '.'
     fd,tmp=_t.mkstemp(dir=d,suffix='.tmp')
     try:
-        with os.fdopen(fd,'w',encoding='utf-8', newline='\r\n') as fh: _j.dump(obj,fh,**kw)
+        with os.fdopen(fd,'w',encoding='utf-8', newline='\r\n') as fh:
+            _j.dump(obj,fh,**kw)
+            fh.flush(); os.fsync(fh.fileno())  # data on disk before the rename (hard power-offs)
         os.replace(tmp,path)
     except BaseException:
         try: os.remove(tmp)
@@ -338,7 +340,9 @@ def write_text_atomic(text,path,encoding='utf-8'):
     d=os.path.dirname(path) or '.'
     fd,tmp=_t.mkstemp(dir=d,suffix='.tmp')
     try:
-        with os.fdopen(fd,'w',encoding=encoding,newline='') as fh: fh.write(text)
+        with os.fdopen(fd,'w',encoding=encoding,newline='') as fh:
+            fh.write(text)
+            fh.flush(); os.fsync(fh.fileno())  # data on disk before the rename (hard power-offs)
         os.replace(tmp,path)
     except BaseException:
         try: os.remove(tmp)
@@ -361,6 +365,7 @@ def save_workbook_atomic(workbook,path):
     fd,tmp=_t.mkstemp(dir=d,suffix='.xlsx.tmp'); os.close(fd)
     try:
         workbook.save(tmp)
+        with open(tmp,'rb+') as _fh: os.fsync(_fh.fileno())  # data on disk before verify + rename
         with _z.ZipFile(tmp,'r') as archive:
             bad=archive.testzip()
             if bad: raise IOError('workbook ZIP verification failed at '+bad)

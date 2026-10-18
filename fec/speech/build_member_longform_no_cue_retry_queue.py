@@ -140,7 +140,10 @@ def main() -> int:
             "cues_sha256": SMR.sha256_file(args.cues),
             "discovery_sha256": SMR.sha256_file(args.discovery),
             "acquisition_sha256": SMR.sha256_file(args.acquisition),
-            "overrides_sha256": SMR.sha256_file(args.overrides),
+            "overrides_sha256": (
+                SMR.sha256_file(args.overrides)
+                if args.overrides.is_file() else None
+            ),
         },
         "output": {"path": str(args.out.resolve()), "sha256": SMR.sha256_file(args.out)},
     }

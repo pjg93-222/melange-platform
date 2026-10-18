@@ -81,7 +81,7 @@ def ensure_inputs(handoff_path, source_workbook_path):
                 and cached.get("source_workbook_sha256") == sha256_file(source_workbook_path)
             ):
                 return handoff_path
-        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        except (OSError, ValueError, TypeError, AttributeError, json.JSONDecodeError):
             pass
     from moneyball_core import dump_atomic
     doc = extract(source_workbook_path)

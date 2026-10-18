@@ -716,7 +716,40 @@ materialize_press_outputs <- function(full, failure_status, rewrite_fulltext = T
     write_rds_atomic(outputs[[name]], file.path(run_root, paste0("press_delta_", name, ".rds")))
     write_csv_atomic(outputs[[name]], file.path(run_root, paste0("press_delta_", name, ".csv")))
   }
+
+  # Owner ruling D-219 (2026-10-15), matching the ratified history (Draft Systems run_stage5.R:73-76):
+  # an UNDATED release is kept and scored (the date floor applies only to dated rows), and a release
+  # whose body is empty or a shell is scored on its TITLE instead of dropping out as a failure.  Only
+  # an exhausted failure qualifies: a body_pending_network_attempt row was not fetched yet (it is
+  # carried and retried, never scored from a title) and a mention slice is never a stance row.  The
+  # audited dated / undated / failed_bodies partitions above are untouched; this only widens what
+  # reaches stage_score() and tags the title-scored rows body_fallback = "title".
+  title_text <- if ("title" %in% names(failures))
+    trimws(ifelse(is.na(failures$title), "", failures$title)) else rep("", nrow(failures))
+  in_scope <- is.na(failures$date_final) |
+    (failures$date_final >= DATE_FLOOR & failures$date_final <= upper_date)
+  eligible <- !mention_failure & failures$collection_status != "body_pending_network_attempt" &
+    nzchar(title_text) & in_scope
+  fallback <- failures[eligible, , drop = FALSE]
+  if (nrow(fallback)) fallback$body <- rep("", nrow(fallback))
+  tag_body_fallback <- function(frame, value) {
+    frame$body_fallback <- rep(value, nrow(frame))
+    frame
+  }
+  outputs$scorable <- dplyr::bind_rows(
+    tag_body_fallback(dated, ""), tag_body_fallback(unresolved, ""),
+    tag_body_fallback(fallback, "title"))
   outputs
+}
+
+# Score the rows materialize_press_outputs() marks scorable (never an OFFICIAL_MENTION relationship) and
+# carry the body_fallback tag onto the scored rows, keyed by url as stage_score() itself is.
+score_scorable_press_rows <- function(scorable) {
+  scoring <- scorable[is.na(scorable$source) | scorable$source != "OFFICIAL_MENTION", , drop = FALSE]
+  if (!nrow(scoring)) return(data.frame())
+  scored <- stage_score(scoring)
+  scored$body_fallback <- ifelse(scored$url %in% scoring$url[scoring$body_fallback == "title"], "title", "")
+  scored
 }
 
 future::plan(future::multisession, workers = FUTURE_WORKERS)
@@ -829,11 +862,7 @@ if (!is.na(retry_from)) {
   # status suffix so the intake gate can prove that no failure was silently
   # skipped.
   materialized <- materialize_press_outputs(full, "after_network_retry")
-  scoring_dated <- materialized$dated[
-    is.na(materialized$dated$source) | materialized$dated$source != "OFFICIAL_MENTION",
-    , drop = FALSE
-  ]
-  scored <- if (nrow(scoring_dated)) stage_score(scoring_dated) else data.frame()
+  scored <- score_scorable_press_rows(materialized$scorable)
   write_rds_atomic(scored, file.path(run_root, "press_delta_scored.rds"))
   write_csv_atomic(scored, file.path(run_root, "press_delta_scored.csv"))
   completion <- write_retry_receipt(materialized)
@@ -855,10 +884,7 @@ if (score_only) {
     rewrite_fulltext = FALSE
   )
   dated <- materialized$dated
-  scoring_dated <- dated[
-    is.na(dated$source) | dated$source != "OFFICIAL_MENTION", , drop = FALSE
-  ]
-  scored <- stage_score(scoring_dated)
+  scored <- score_scorable_press_rows(materialized$scorable)
   write_rds_atomic(scored, file.path(run_root, "press_delta_scored.rds"))
   write_csv_atomic(scored, file.path(run_root, "press_delta_scored.csv"))
   message(
@@ -968,14 +994,7 @@ exit_code <- tryCatch({
       )
       dated <- materialized$dated
 
-      if (nrow(dated) > 0L) {
-        scoring_dated <- dated[
-          is.na(dated$source) | dated$source != "OFFICIAL_MENTION", , drop = FALSE
-        ]
-        scored <- stage_score(scoring_dated)
-      } else {
-        scored <- data.frame()
-      }
+      scored <- score_scorable_press_rows(materialized$scorable)
       write_rds_atomic(scored, file.path(run_root, "press_delta_scored.rds"))
       write_csv_atomic(scored, file.path(run_root, "press_delta_scored.csv"))
       completion <- write_retry_receipt(materialized)

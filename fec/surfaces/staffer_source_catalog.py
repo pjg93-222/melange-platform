@@ -13,6 +13,10 @@ import os
 import sqlite3
 import shutil
 import zlib
+try:
+    from .source_capture import SourceCapture, publish_new_files
+except ImportError:
+    from source_capture import SourceCapture, publish_new_files  # stale-ok: script-execution fallback, fec/surfaces is sys.path[0]
 
 DATA_ROOT = Path(os.environ.get('LOCALAPPDATA', str(Path.home() / 'AppData/Local'))) / 'Melange/staffer_network'
 CORPUS = DATA_ROOT / 'normalized/source-native-corpus/generation-20260830T070500Z-d'
@@ -32,6 +36,40 @@ def records(path):
                 yield json.loads(line)
 
 def build_catalog(output=CATALOG, corpus=CORPUS, raw=None):
+    output, corpus = Path(output), Path(corpus)
+    seal_path = output.with_suffix('.receipt.json')
+    if output.exists() or seal_path.exists():
+        raise FileExistsError('Preserve existing catalog or seal: ' + str(output))
+    output.parent.mkdir(parents=True, exist_ok=True)
+    raw = Path(raw) if raw else DATA_ROOT / 'raw/littlesis/snapshot-20260830T062400Z/relationships.json.gz'
+    with SourceCapture(output.parent) as captured:
+        receipt_path = corpus / 'source_native_corpus_receipt.json'
+        receipt_copy = captured.capture(receipt_path, 'corpus/source_native_corpus_receipt.json')
+        receipt = json.loads(receipt_copy.read_text(encoding='utf-8'))
+        if receipt.get('status') != 'PASS' or receipt.get('failures'):
+            raise ValueError('Source corpus receipt failed')
+        requests = ((corpus / 'littlesis_entities.ndjson.gz', 'corpus/littlesis_entities.ndjson.gz', 'littlesis-entities', receipt['record_files']),
+                    (corpus / 'quorum_legacy_source_native_seed.ndjson', 'corpus/quorum_legacy_source_native_seed.ndjson', 'quorum-legacy-source-native-seed', receipt['record_files']),
+                    (raw, 'raw/relationships.json.gz', 'relationships', receipt['input_files']))
+        specs = [(path, relative, next(s for s in entries if s['role'] == role)) for path, relative, role, entries in requests]
+        if any(type(s['bytes']) is not int or s['bytes'] < 0 for _, _, s in specs):
+            raise ValueError('Source catalog input size must be a nonnegative integer')
+        captured.reserve(sum(s['bytes'] for _, _, s in specs))
+        source_paths = {str(receipt_copy): str(receipt_path)}
+        for path, relative, spec in specs:
+            copied = captured.capture(path, relative, expected_bytes=spec['bytes'], expected_sha256=spec['sha256'])
+            source_paths[str(copied)] = str(path)
+        staged = captured.root / 'catalog.sqlite'
+        seal = _build_catalog_captured(staged, receipt_copy.parent, captured.root / 'raw/relationships.json.gz', source_paths)
+        seal['path'] = str(output)
+        staged_seal = staged.with_suffix('.receipt.json')
+        staged_seal.write_text(json.dumps(seal, indent=2), encoding='utf-8')
+        captured.verify_unchanged()
+        publish_new_files(((staged, output), (staged_seal, seal_path)))
+        return seal
+
+
+def _build_catalog_captured(output, corpus, raw, source_paths):
     """New immutable output only; every admitted input is byte-bound in its receipt."""
     from fec.staffer_network.littlesis_contract import stream_json_array
     from fec.staffer_network.source_native_corpus import _relationship_assertion, _restricted_text, SourceNativeCorpusError
@@ -54,86 +92,94 @@ def build_catalog(output=CATALOG, corpus=CORPUS, raw=None):
         spec = next(s for s in specs if s['role'] == role)
         if path.stat().st_size != spec['bytes'] or sha(path) != spec['sha256']:
             raise ValueError('Source catalog input mismatch: ' + role)
-        inputs.append({**spec, 'path': str(path)})
+        inputs.append({**spec, 'path': source_paths[str(path)]})
     output.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(output)
-    db.executescript('''PRAGMA journal_mode=OFF; PRAGMA temp_store=MEMORY;
-        CREATE TABLE chunks(id INTEGER PRIMARY KEY, payload BLOB NOT NULL);
-        CREATE TABLE entities(id TEXT PRIMARY KEY, label TEXT, kind TEXT, source TEXT, summary TEXT, chunk INTEGER, ordinal INTEGER);
-        CREATE TABLE relationships(id INTEGER PRIMARY KEY, subject TEXT, object TEXT, category TEXT, chunk INTEGER, ordinal INTEGER);
-        CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT);''')
-    entity_ids, counts, categories = set(), Counter(), Counter()
-    chunk, batch, redactions, boss_redactions = 0, [], [0], [0]
+    try:
+        db.executescript('''PRAGMA journal_mode=OFF; PRAGMA temp_store=MEMORY;
+            CREATE TABLE chunks(id INTEGER PRIMARY KEY, payload BLOB NOT NULL);
+            CREATE TABLE entities(id TEXT PRIMARY KEY, label TEXT, kind TEXT, source TEXT, summary TEXT, chunk INTEGER, ordinal INTEGER);
+            CREATE TABLE relationships(id INTEGER PRIMARY KEY, subject TEXT, object TEXT, category TEXT, chunk INTEGER, ordinal INTEGER);
+            CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT);''')
+        entity_ids, counts, categories = set(), Counter(), Counter()
+        chunk, batch, redactions, boss_redactions = 0, [], [0], [0]
 
-    def flush():
-        nonlocal chunk, batch
-        if batch:
-            if shutil.disk_usage(output.parent).free < 256 * 1024**2:
-                raise OSError('Stopping unpublished catalog before exhausting the disk reserve')
-            db.execute('INSERT INTO chunks VALUES (?,?)', (chunk, zlib.compress(json.dumps(batch, ensure_ascii=False, separators=(',', ':')).encode(), 6)))
-            db.commit()
-            chunk += 1
-            batch = []
+        def flush():
+            nonlocal chunk, batch
+            if batch:
+                if shutil.disk_usage(output.parent).free < 2 * 1024**3 + 2 * len(json.dumps(batch, ensure_ascii=False).encode()):
+                    raise OSError('Stopping unpublished catalog before exhausting the disk reserve')
+                db.execute('INSERT INTO chunks VALUES (?,?)', (chunk, zlib.compress(json.dumps(batch, ensure_ascii=False, separators=(',', ':')).encode(), 6)))
+                db.commit()
+                chunk += 1
+                batch = []
 
-    def put_entity(ident, label, kind, source, summary, row):
-        db.execute('INSERT INTO entities VALUES (?,?,?,?,?,?,?)', (ident, label, kind, source, summary or '', chunk, len(batch)))
-        batch.append(row)
-        counts[source + '_' + kind] += 1
-        if len(batch) >= 1000:
-            flush()
+        def put_entity(ident, label, kind, source, summary, row):
+            if shutil.disk_usage(output.parent).free < 2 * 1024**3 + 2 * len(json.dumps(row, ensure_ascii=False).encode()):
+                raise OSError('Catalog entity write would cross the 2 GiB reserve')
+            db.execute('INSERT INTO entities VALUES (?,?,?,?,?,?,?)', (ident, label, kind, source, summary or '', chunk, len(batch)))
+            batch.append(row)
+            counts[source + '_' + kind] += 1
+            if len(batch) >= 1000:
+                flush()
 
-    for row in records(entities):
-        entity_ids.add(row['source_numeric_id'])
-        put_entity(row['source_entity_id'], row.get('name') or 'Name unavailable',
-                   'person' if row['primary_ext'] == 'Person' else 'organization', 'LittleSis', row.get('blurb'), row)
-    flush()
-    for row in records(quorum):
-        put_entity('quorum:' + str(row['source_entity_id']), row['display_name'], 'person', 'Quorum',
-                   ' · '.join(filter(None, [row.get('title'), row.get('member_office_source_key')])), row)
-    flush()
-    for record in stream_json_array(raw):
-        try:
-            row = _relationship_assertion(record, redactions, entity_ids, boss_redactions)
-        except SourceNativeCorpusError as exc:
-            if 'date precision' not in str(exc):
-                raise
-            safe = {**record, 'attributes': {**record['attributes'], 'start_date': None, 'end_date': None}}
-            row = _relationship_assertion(safe, redactions, entity_ids, boss_redactions)
-            row.update(raw_start_date=record['attributes'].get('start_date'), raw_end_date=record['attributes'].get('end_date'),
-                       precision_bucket='invalid_source_date', date_validation_error=str(exc))
-            counts['relationships_with_invalid_source_dates'] += 1
-        # Retain financial/category facts across all native categories as source assertions.
-        attrs = record['attributes']
-        row['source_amount'] = attrs.get('amount')
-        row['source_currency'] = _restricted_text(attrs.get('currency'), redactions)
-        row['endpoint_missing'] = any(int(attrs[k]) not in entity_ids for k in ('entity1_id','entity2_id'))
-        row['operator_included'] = False
-        db.execute('INSERT INTO relationships VALUES (?,?,?,?,?,?)',
-                   (row['source_numeric_id'], row['subject_source_entity_id'], row['object_source_entity_id'], row['category_name'], chunk, len(batch)))
-        batch.append(row)
-        categories[row['category_name']] += 1
-        counts['relationships'] += 1
-        counts['relationships_with_missing_endpoint'] += int(row['endpoint_missing'])
-        if len(batch) >= 1000:
-            flush()
-        if counts['relationships'] % 250000 == 0:
-            print('Indexed relationships:', counts['relationships'], flush=True)
-    flush()
-    if len(entity_ids) != receipt['entity_observed'] or counts['relationships'] != receipt['relationship_observed'] or counts['Quorum_person'] != next(s['records'] for s in receipt['record_files'] if s['role'].startswith('quorum')):
-        raise ValueError('Source catalog conservation failed')
-    db.executescript('CREATE INDEX relationship_subject ON relationships(subject,id); CREATE INDEX relationship_object ON relationships(object,id); CREATE INDEX entity_label ON entities(label COLLATE NOCASE);')
-    report = {'schema':'staffer-source-catalog-v1', 'status':'PASS', 'inputs':inputs,
-              'corpus_receipt':str(receipt_path), 'corpus_receipt_sha256':sha(receipt_path),
-              'counts':dict(counts), 'categories':dict(categories),
-              'contact_redactions':redactions[0], 'missing_boss_references':boss_redactions[0],
-              'scope':'All held LittleSis entities and relationship categories plus every Quorum directory ID. Source assertions only; no inferred identities, dates or model weights.',
-              'missing_endpoint_policy':'Retained and marked; unresolved endpoint is never invented.',
-              'identity_policy':'Source IDs stay separate from other sources until an evidenced identity decision.',
-              'builder_sha256':sha(Path(__file__))}
-    db.execute('INSERT INTO metadata VALUES (?,?)', ('receipt', json.dumps(report)))
-    db.commit()
-    check = db.execute('PRAGMA integrity_check').fetchone()[0]
-    db.close()
+        for row in records(entities):
+            entity_ids.add(row['source_numeric_id'])
+            put_entity(row['source_entity_id'], row.get('name') or 'Name unavailable',
+                       'person' if row['primary_ext'] == 'Person' else 'organization', 'LittleSis', row.get('blurb'), row)
+        flush()
+        for row in records(quorum):
+            put_entity('quorum:' + str(row['source_entity_id']), row['display_name'], 'person', 'Quorum',
+                       ' · '.join(filter(None, [row.get('title'), row.get('member_office_source_key')])), row)
+        flush()
+        for record in stream_json_array(raw):
+            try:
+                row = _relationship_assertion(record, redactions, entity_ids, boss_redactions)
+            except SourceNativeCorpusError as exc:
+                if 'date precision' not in str(exc):
+                    raise
+                safe = {**record, 'attributes': {**record['attributes'], 'start_date': None, 'end_date': None}}
+                row = _relationship_assertion(safe, redactions, entity_ids, boss_redactions)
+                row.update(raw_start_date=record['attributes'].get('start_date'), raw_end_date=record['attributes'].get('end_date'),
+                           precision_bucket='invalid_source_date', date_validation_error=str(exc))
+                counts['relationships_with_invalid_source_dates'] += 1
+            # Retain financial/category facts across all native categories as source assertions.
+            attrs = record['attributes']
+            row['source_amount'] = attrs.get('amount')
+            row['source_currency'] = _restricted_text(attrs.get('currency'), redactions)
+            row['endpoint_missing'] = any(int(attrs[k]) not in entity_ids for k in ('entity1_id','entity2_id'))
+            row['operator_included'] = False
+            if shutil.disk_usage(output.parent).free < 2 * 1024**3 + 2 * len(json.dumps(row, ensure_ascii=False).encode()):
+                raise OSError('Catalog relationship write would cross the 2 GiB reserve')
+            db.execute('INSERT INTO relationships VALUES (?,?,?,?,?,?)',
+                       (row['source_numeric_id'], row['subject_source_entity_id'], row['object_source_entity_id'], row['category_name'], chunk, len(batch)))
+            batch.append(row)
+            categories[row['category_name']] += 1
+            counts['relationships'] += 1
+            counts['relationships_with_missing_endpoint'] += int(row['endpoint_missing'])
+            if len(batch) >= 1000:
+                flush()
+            if counts['relationships'] % 250000 == 0:
+                print('Indexed relationships:', counts['relationships'], flush=True)
+        flush()
+        if len(entity_ids) != receipt['entity_observed'] or counts['relationships'] != receipt['relationship_observed'] or counts['Quorum_person'] != next(s['records'] for s in receipt['record_files'] if s['role'].startswith('quorum')):
+            raise ValueError('Source catalog conservation failed')
+        if shutil.disk_usage(output.parent).free < 2 * 1024**3 + 2 * output.stat().st_size:
+            raise OSError('Catalog index build would cross its conservative disk reserve')
+        db.executescript('CREATE INDEX relationship_subject ON relationships(subject,id); CREATE INDEX relationship_object ON relationships(object,id); CREATE INDEX entity_label ON entities(label COLLATE NOCASE);')
+        report = {'schema':'staffer-source-catalog-v1', 'status':'PASS', 'inputs':inputs,
+                  'corpus_receipt':source_paths[str(receipt_path)], 'corpus_receipt_sha256':sha(receipt_path),
+                  'counts':dict(counts), 'categories':dict(categories),
+                  'contact_redactions':redactions[0], 'missing_boss_references':boss_redactions[0],
+                  'scope':'All held LittleSis entities and relationship categories plus every Quorum directory ID. Source assertions only; no inferred identities, dates or model weights.',
+                  'missing_endpoint_policy':'Retained and marked; unresolved endpoint is never invented.',
+                  'identity_policy':'Source IDs stay separate from other sources until an evidenced identity decision.',
+                  'builder_sha256':sha(Path(__file__))}
+        db.execute('INSERT INTO metadata VALUES (?,?)', ('receipt', json.dumps(report)))
+        db.commit()
+        check = db.execute('PRAGMA integrity_check').fetchone()[0]
+    finally:
+        db.close()
     if check != 'ok':
         raise ValueError(check)
     seal = {**report, 'path':str(output), 'bytes':output.stat().st_size, 'sha256':sha(output)}

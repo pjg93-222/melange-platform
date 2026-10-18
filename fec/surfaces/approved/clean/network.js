@@ -8,6 +8,9 @@
    Routes). The engine's #mpanel blocks are MOVED into the tabs (same nodes, ids and listeners); Overview is a new
    summary computed from the engine's own data and label functions. The canvas chip goes (Open profile replaces it),
    the hover tooltip shrinks to the name, and the issue summary becomes a legend strip along the canvas bottom. */
+/* Build 10 (Paul, 2026-09-24): the Standard layout opens on the linked core (Fit still frames everyone), the legend card
+   folds from its header, the Targets panel hides and reopens from the canvas, and the engine's self-check badge shows
+   only with a result. The two remembered choices live in localStorage under melange-influence-*. */
 (() => {
 'use strict';
 const query = new URLSearchParams(location.search);
@@ -29,7 +32,7 @@ document.addEventListener('click', e => {
  const href = (window.MLK && MLK.url) ? MLK.url('profile', {m: name, tab: 'overview'}) : '/?view=profile&m=' + encodeURIComponent(name);
  if (window.MLK && MLK.navigate) MLK.navigate(href); else parent.location.href = href;
 });
-document.addEventListener('visibilitychange', () => { if (!document.hidden){ resize(); draw(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden){ layoutResize(); draw(); } });
 
 const ICON_FILTER = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 3h12l-4.6 5.4V13L6.6 14V8.4z"/></svg>';
 const ICON_FIT = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/><rect x="6" y="6" width="4" height="4"/></svg>';
@@ -40,6 +43,9 @@ function onBtn(sel){ const b = document.querySelector(sel + ' button.on'); retur
 
 let built = false, card, foot, tabsEl, lastInfo = '', cuFrameText = '';
 const ui = {};
+// 10: the legend fold and the Targets panel, remembered per browser; both open unless a reader closed them
+const PREF_LEGEND = 'melange-influence-legend', PREF_RAIL = 'melange-influence-rail';
+let legendOpen = readPref(PREF_LEGEND) !== 'closed', railOpen = readPref(PREF_RAIL) !== 'closed';
 
 function makeSelect(label, cls, options, onPick){
  const lab = el('label', 'mlk-select ' + cls);
@@ -93,6 +99,7 @@ function build(){
  const lybar = $('lybar');
  [...lybar.querySelectorAll(':scope > label')].forEach(l => { const i = l.querySelector('input'); if (i) i.classList.add('mlk-check'); pop.append(l); });
  pop.addEventListener('change', sync);
+ pop.addEventListener('change', autoReframe);                               // 10: the linked core follows the Links layers
 
  const find = el('div', 'mlk-search mlk-v8-find', SEARCH_ICON);
  const search = $('search'); search.classList.add('mlk-search__input'); search.placeholder = 'Find member';
@@ -128,7 +135,8 @@ function build(){
  paneB.append($('budgetwrap'), $('optcard'));
  rtog.classList.add('mlk-seg', 'mlk-seg--accent'); rtog.setAttribute('role', 'group'); rtog.setAttribute('aria-label', 'Target list');
  foot = el('div', 'mlk-v8-foot'); foot.id = 'mlk-v8-foot';
- right.prepend(tabsEl, paneT, paneB); right.append(foot);
+ buildRailControls();
+ right.prepend(tabsEl, ui.railHide, paneT, paneB); right.append(foot);
  tabsEl.addEventListener('click', e => { const b = e.target.closest('[role=tab]'); if (b) selectTab(b.dataset.tab); });
  tabsEl.addEventListener('keydown', e => {
   const tabs = [...tabsEl.querySelectorAll('[role=tab]')], i = tabs.indexOf(document.activeElement); if (i < 0) return;
@@ -140,13 +148,14 @@ function build(){
  // ---- canvas furniture: summary card (+ the engine's member chip) top left, engine notes top right, caption, zoom ----
  const tl = el('div', 'mlk-v8-tl');
  card = el('section', 'mlk-v8-card'); card.id = 'mlk-v8-card'; card.setAttribute('aria-label', 'Issue summary');
+ card.addEventListener('click', e => { if (e.target.closest && e.target.closest('.mlk-v8-card__toggle')) toggleLegend(); });   // 10: the header folds the rows
  tl.append(card, $('mdlink'));
  renderCard({loading: true});
- const tr = el('div', 'mlk-v8-tr'); tr.append($('engchk'), $('layoutnote'), $('netnote'));
+ const tr = el('div', 'mlk-v8-tr'); tr.append(ui.railShow, $('engchk'), $('layoutnote'), $('netnote'));
  const cap = el('p', 'mlk-v8-caption', 'white ring = funded · dot size = $ · scroll to zoom'); cap.id = 'mlk-v8-caption';
  const z = el('div', 'mlk-v8-zoom'); z.id = 'network-zoom'; z.setAttribute('role', 'group'); z.setAttribute('aria-label', 'Zoom');
  z.innerHTML = '<button type="button" class="mlk-btn mlk-btn--icon" aria-label="Zoom in">+</button><button type="button" class="mlk-btn mlk-btn--icon" aria-label="Zoom out">−</button><button type="button" class="mlk-btn mlk-btn--icon" aria-label="Fit">' + ICON_FIT + '</button>';
- z.children[0].onclick = () => zoomBy(1.2); z.children[1].onclick = () => zoomBy(1 / 1.2); z.children[2].onclick = () => { fit(); draw(); };
+ z.children[0].onclick = () => zoomBy(1.2); z.children[1].onclick = () => zoomBy(1 / 1.2); z.children[2].onclick = () => { fitEveryone(); draw(); };   // 10: Fit frames all members
  wrap.append(tl, tr, cap, z);
  built = true;
  fitBar();
@@ -196,9 +205,14 @@ const fmtDate = s => { const d = s ? new Date(String(s).slice(0, 10) + 'T12:00:0
 const SKELETON = '<div class="mlk-skel-row"><span class="mlk-skel"></span><span class="mlk-skel"></span></div>'.repeat(6);
 // 09: the legend strip's tail. It is the rows' last item, so a wrapped strip can carry it on its last line.
 const STRIP_CAP = 'white ring = funded · dot size = $';
+// 10: the card's header is a real disclosure button; the rows and the footer sit in one body it shows or hides (open by
+// default, remembered). While a member is selected the rows still show as the legend strip, folded or not (network.css).
+const CHEVRON = (window.MLK && MLK.icon && MLK.icon('chevron')) || '<svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>';
+const cardHead = title => `<h2 class="mlk-v8-card__title"><button type="button" class="mlk-v8-card__toggle" id="mlk-v8-card-toggle" aria-controls="mlk-v8-card-body" aria-expanded="${legendOpen ? 'true' : 'false'}"><span class="mlk-v8-card__name">${esc(title)}</span>${CHEVRON}</button></h2>`;
+const cardBody = html => `<div class="mlk-v8-card__body" id="mlk-v8-card-body">${html}</div>`;
 function renderCard(opts){
  if (!card) return;
- if (opts && opts.loading){ card.setAttribute('aria-busy', 'true'); card.innerHTML = '<h2 class="mlk-v8-card__title">Issue summary</h2>' + SKELETON; return; }
+ if (opts && opts.loading){ card.setAttribute('aria-busy', 'true'); card.innerHTML = cardHead('Issue summary') + cardBody(SKELETON); paintFold(); return; }
  card.removeAttribute('aria-busy');
  try {
   const rows = [...document.querySelectorAll('#istats .stat')].filter(r => r.querySelector('.pill'));
@@ -209,12 +223,60 @@ function renderCard(opts){
    return `<li class="mlk-v8-card__row"><span class="mlk-dot" style="--mlk-dot:${esc(pill.style.backgroundColor)}"></span><span class="mlk-v8-card__label">${esc(label)}</span><span class="mlk-v8-card__n">${esc(n.trim())}</span></li>`;
   }).join('') + '<li class="mlk-v9-cap">' + STRIP_CAP + '</li></ul>'
    : '<p class="mlk-v8-card__state">No members counted on this issue</p><p class="mlk-v9-cap">' + STRIP_CAP + '</p>';
-  card.innerHTML = `<h2 class="mlk-v8-card__title">${esc(title)}</h2>${body}<p class="mlk-v8-card__foot">${esc(N)} members${asOf ? ' · as of ' + esc(asOf) : ''}</p>`;
+  card.innerHTML = cardHead(title) + cardBody(`${body}<p class="mlk-v8-card__foot">${esc(N)} members${asOf ? ' · as of ' + esc(asOf) : ''}</p>`);
  } catch (err) {
-  card.innerHTML = '<h2 class="mlk-v8-card__title">Issue summary</h2><p class="mlk-v8-card__state mlk-v8-card__state--error" role="alert">Summary could not be computed</p><button type="button" class="mlk-btn mlk-btn--sm" data-mlk-v8-retry>Retry</button>';
+  card.innerHTML = cardHead('Issue summary') + cardBody('<p class="mlk-v8-card__state mlk-v8-card__state--error" role="alert">Summary could not be computed</p><button type="button" class="mlk-btn mlk-btn--sm" data-mlk-v8-retry>Retry</button>');
   const b = card.querySelector('[data-mlk-v8-retry]'); if (b) b.onclick = () => { refresh(); };
  }
+ paintFold();
  placeStrip();
+}
+
+// ---- 10: legend fold and Targets panel hide/show, both remembered per browser (storage may throw: then per page) ----
+function readPref(key){ try { return window.localStorage.getItem(key); } catch (e) { return null; } }
+function writePref(key, value){ try { window.localStorage.setItem(key, value); } catch (e) { /* no storage: the choice lasts this page */ } }
+function paintFold(){
+ if (!card) return;
+ card.classList.toggle('is-folded', !legendOpen);
+ const b = card.querySelector('.mlk-v8-card__toggle'); if (b) b.setAttribute('aria-expanded', legendOpen ? 'true' : 'false');
+}
+function toggleLegend(){ legendOpen = !legendOpen; writePref(PREF_LEGEND, legendOpen ? 'open' : 'closed'); paintFold(); placeStrip(); autoReframe(); }   // the open card reserves the canvas's left side
+
+const ICON_PANEL = '<svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M10 3v10"/></svg>';
+// "Hide panel" sits at the right end of the rail's Targets | Budget split row (after the tabs in focus order);
+// "Targets panel" (canvas top right) reopens the rail.
+function buildRailControls(){
+ const hide = el('button', 'mlk-btn mlk-btn--sm mlk-btn--text mlk-v8-railbtn', ICON_PANEL + '<span>Hide panel</span>');
+ hide.type = 'button'; hide.id = 'mlk-v8-railhide'; hide.setAttribute('aria-controls', 'right'); hide.setAttribute('aria-expanded', 'true');
+ hide.addEventListener('click', () => setRail(false, true));
+ const show = el('button', 'mlk-btn mlk-btn--sm mlk-v8-railopen', ICON_PANEL + '<span>Targets panel</span>');
+ show.type = 'button'; show.id = 'mlk-v8-railshow'; show.setAttribute('aria-controls', 'right'); show.setAttribute('aria-expanded', 'false'); show.hidden = true;
+ show.addEventListener('click', () => setRail(true, true));
+ ui.railHide = hide; ui.railShow = show;
+}
+// Collapsed: #main.mlk-v8-railoff gives the canvas the whole width (network.css); a selected member's panel still opens
+// (the rail shows while #main.mlk-v9-member) and the rail folds away again when it closes. The canvas follows through the
+// #netwrap ResizeObserver (layoutResize), which keeps a camera the reader moved.
+function setRail(open, focus){
+ railOpen = !!open; writePref(PREF_RAIL, railOpen ? 'open' : 'closed');
+ paintRail();
+ if (focus){ const t = railOpen ? ui.railHide : ui.railShow; if (t && !t.hidden && t.offsetParent) t.focus(); }
+}
+function paintRail(){
+ const main = $('main'); if (!main || !ui.railHide) return;
+ if (main.classList.contains('mlk-v8-railoff') === railOpen) main.classList.toggle('mlk-v8-railoff', !railOpen);
+ const showOpen = !railOpen && !main.classList.contains('mlk-v9-member');
+ if (ui.railShow.hidden === showOpen) ui.railShow.hidden = !showOpen;
+ const exp = railOpen ? 'true' : 'false';
+ if (ui.railHide.getAttribute('aria-expanded') !== exp) ui.railHide.setAttribute('aria-expanded', exp);
+}
+
+// ---- 10: the engine's self-check badge shows only a real result (✓ or a warning), never the Overall view's "—" ----
+function watchCheck(){
+ const ec = $('engchk'); if (!ec) return;
+ const paint = () => { const idle = /^[\s—–-]*$/.test(ec.textContent || ''); if (ec.classList.contains('mlk-v8-idle') !== idle) ec.classList.toggle('mlk-v8-idle', idle); };
+ new MutationObserver(paint).observe(ec, {childList: true, characterData: true, subtree: true});
+ paint();
 }
 
 function renderFoot(){
@@ -291,6 +353,7 @@ function sync(){
   if (right.classList.contains('is-member') !== member){
    right.classList.toggle('is-member', member);
    const main = $('main'); if (main) main.classList.toggle('mlk-v9-member', member);
+   paintRail();
    placeStrip();
    if (member) schedulePaint();
   }
@@ -298,6 +361,128 @@ function sync(){
 }
 
 function afterRefresh(){ paintTargets(); renderCard(); updateInfo(); syncLegend(); sync(); }
+
+// ---------------------------------------------------------------------------------------------------------------
+// 10 (Paul, 2026-09-24): open on the linked core. In the Standard layout the automatic camera frames the bounding box of
+// EVERY member with at least one drawn link (the Links layers now on; no trimming), so no linked member starts off the
+// canvas, with fit()'s padding; while the legend card is open its right edge + 12 px is the frame's left edge. If that
+// zooms in less than 1.15x past fit(), or the links cannot be read, the camera is fit() itself (everyone). Group by
+// Policy Area and Committees keep fit(); the Fit button frames everyone. fit() is a global function of the engine's
+// classic script, called unqualified by resize(), backToTargets() and the Cascade path mode, so reassigning the binding
+// reaches every automatic call. Re-frames the overlay starts (layout or network switch, Links change, legend fold, a
+// canvas size change from the rail, the member panel or a frame shown again) happen only while the camera is still the
+// automatic one: a camera the reader moved (wheel, drag, zoom buttons, a route's fitCam) stays until the engine's own
+// next auto-fit.
+// ---------------------------------------------------------------------------------------------------------------
+const CORE_PCT = [0, 1], MIN_GAIN = 1.15;
+const view = {origFit: null, last: null, anim: null, overlayResize: false, seenW: 0, seenH: 0, tween: null, tweens: 0};
+const lastKind = () => view.last ? view.last.kind : '';
+
+// Members with at least one link drawn now, by the engine's draw() layer rules. View filters are left out on purpose:
+// a tier or standing filter only fades members and must not re-aim the camera.
+function linkedMembers(){
+ const on = id => { const b = $(id); return !b || b.checked; };
+ const lay = {c: on('ly_c'), s: on('ly_s'), h: on('ly_h'), e: on('ly_e'), p: on('ly_a')}; lay.m = lay.c || lay.s;
+ const out = new Set();
+ for (let k = 0; k < EDGES.length; k++){ if (ELAYS && !lay[ELAYS[k]]) continue; out.add(EDGES[k][0]); out.add(EDGES[k][1]); }
+ const a = $('ly_a'), r = $('ly_r');
+ if (a && a.checked && DATA.coap) for (const e of DATA.coap){ out.add(e[0]); out.add(e[1]); }
+ if (r && r.checked && DATA.refs) for (const e of DATA.refs){ out.add(e[0]); out.add(e[1]); }
+ return out;
+}
+// Percentile box (the engine's own index rule: floor at the low end, ceil at the high end) and fit()'s camera for a box.
+function boxOf(ids, X, Y, lo, hi){
+ const xs = ids.map(i => X[i]).filter(Number.isFinite).sort((a, b) => a - b), ys = ids.map(i => Y[i]).filter(Number.isFinite).sort((a, b) => a - b);
+ if (!xs.length || !ys.length) return null;
+ const at = (v, p, up) => v[up ? Math.ceil(p * (v.length - 1)) : Math.floor(p * (v.length - 1))];
+ return [at(xs, lo), at(xs, hi, true), at(ys, lo), at(ys, hi, true)];
+}
+// fit()'s camera for a box: 24 px each side, 36 px top and bottom. `left` (the open legend's reserve) moves the left edge
+// right; a reserve that would leave less than half the canvas is dropped (narrow windows keep the whole width).
+function camFor(b, left){
+ const x1 = W - 24, x0 = left > 24 && x1 - left >= W / 2 ? left : 24;
+ const s = Math.min((x1 - x0) / Math.max(1, b[1] - b[0]), (H - 72) / Math.max(1, b[3] - b[2]));
+ return {s, tx: (x0 + x1) / 2 - (b[0] + b[1]) * s / 2, ty: H / 2 - (b[2] + b[3]) * s / 2};
+}
+// The open legend card's right edge relative to #cv, + 12 px. 0 while it is folded, while a member is selected (the card
+// is then the legend strip along the bottom) or while it is not shown.
+function legendInset(){
+ const main = $('main');
+ if (!card || !legendOpen || (main && main.classList.contains('mlk-v9-member'))) return 0;
+ const c = card.getBoundingClientRect(), v = cv.getBoundingClientRect();
+ return c.width && c.height ? c.right - v.left + 12 : 0;
+}
+// The automatic camera for positions X/Y. Default: where a tween in flight takes the nodes (the engine moves them only by
+// tweenTo, and a tween's frames can lag far behind the clock while the page is busy), else where they are.
+function autoCamera(X, Y, everyone){
+ if (!X){ const t = view.tween; [X, Y] = t ? [t.X, t.Y] : [LX, LY]; }
+ const all = [...Array(N).keys()], whole = boxOf(all, X, Y, 0, 1);
+ if (!whole) return null;
+ const fitAll = Object.assign(camFor(whole), {kind: everyone ? 'all' : 'fit'});
+ if (everyone || safe(() => layout, 'cosp') !== 'cosp') return fitAll;
+ const core = safe(() => { const ids = [...linkedMembers()], b = ids.length > 1 ? boxOf(ids, X, Y, CORE_PCT[0], CORE_PCT[1]) : null; return b ? camFor(b, legendInset()) : null; }, null);
+ return core && core.s >= MIN_GAIN * fitAll.s ? Object.assign(core, {kind: 'core'}) : fitAll;
+}
+function putCamera(c){ cam.s = c.s; cam.tx = c.tx; cam.ty = c.ty; view.last = {kind: c.kind, s: c.s, tx: c.tx, ty: c.ty}; }
+// True once anything but this code moved the camera since the last automatic framing (or the glide in progress).
+function readerMoved(){ const w = view.anim ? view.anim.wrote : view.last; return !!w && (cam.s !== w.s || cam.tx !== w.tx || cam.ty !== w.ty); }
+const autoHeld = () => !readerMoved() && safe(() => sel, -1) < 0 && !safe(() => route, null);
+function stopGlide(){ if (view.anim){ cancelAnimationFrame(view.anim.raf); view.anim = null; } }
+// Ease the camera to c on the engine's tween curve; any other camera write (the reader) ends the glide where it is.
+function glide(c, ms){
+ stopGlide();
+ if (safe(() => RMQ, false) || !(ms > 16)){ putCamera(c); draw(); return; }
+ const from = {s: cam.s, tx: cam.tx, ty: cam.ty}, t0 = performance.now(), a = {wrote: from, raf: 0};
+ view.anim = a;
+ const step = now => {
+  if (view.anim !== a) return;
+  if (cam.s !== a.wrote.s || cam.tx !== a.wrote.tx || cam.ty !== a.wrote.ty){ view.anim = null; return; }
+  const k = Math.min(1, Math.max(0, (now - t0) / ms)), e = k < .5 ? 2 * k * k : 1 - Math.pow(-2 * k + 2, 2) / 2;
+  if (k >= 1){ view.anim = null; putCamera(c); }
+  else { cam.s = from.s + (c.s - from.s) * e; cam.tx = from.tx + (c.tx - from.tx) * e; cam.ty = from.ty + (c.ty - from.ty) * e; a.wrote = {s: cam.s, tx: cam.tx, ty: cam.ty}; a.raf = requestAnimationFrame(step); }
+  draw();
+ };
+ a.raf = requestAnimationFrame(step);
+}
+// The Fit button: every member, by the engine's own fit(). A later canvas size change keeps everyone framed.
+function fitEveryone(){ if (!Number.isFinite(W) || !Number.isFinite(H) || W <= 48 || H <= 72) return; stopGlide(); (view.origFit || fit)(); view.last = {kind: 'all', s: cam.s, tx: cam.tx, ty: cam.ty}; }   // fit()'s full guard: the served engine fit() checks only W <= 48 || H <= 72 (2026-09-25)
+// A canvas size change the overlay caused (rail, member panel, a frame shown again) runs the engine's resize() with this
+// flag, so the fit() inside it keeps a moved camera (same scale, same view centre) instead of framing again.
+function layoutResize(){ view.overlayResize = true; try { resize(); } finally { view.overlayResize = false; } }
+// A Links change or a legend fold changes the Standard layout's automatic frame; the camera glides only if still automatic.
+function autoReframe(){ if (view.origFit && autoHeld() && lastKind() !== 'all' && safe(() => layout, '') === 'cosp'){ const c = autoCamera(); if (c) glide(c, 450); } }
+
+function installFraming(){
+ const engineFit = typeof fit === 'function' ? fit : null, engineTween = typeof tweenTo === 'function' ? tweenTo : null,
+  engineNet = typeof setNetConfig === 'function' ? setNetConfig : null;          // typeof: an engine without one never throws here
+ if (!engineFit) throw new Error('engine fit() not found');
+ view.origFit = engineFit;
+ fit = function(){
+  if (!Number.isFinite(W) || !Number.isFinite(H) || W <= 48 || H <= 72) return;   // the engine's own guard, exactly: a hidden, collapsed or unmeasured canvas (2026-09-25)
+  const pw = view.seenW, ph = view.seenH; view.seenW = W; view.seenH = H;
+  if (view.overlayResize && view.last){
+   if (readerMoved()){ stopGlide(); if (pw && ph){ cam.tx += (W - pw) / 2; cam.ty += (H - ph) / 2; } return; }
+   if (lastKind() === 'all'){ stopGlide(); const e = autoCamera(null, null, true); if (e) putCamera(e); return; }
+  }
+  stopGlide();
+  const c = autoCamera(); if (c) putCamera(c);
+ };
+ // Layout and network switches tween the nodes; a camera that is still automatic glides along to the new frame.
+ if (engineTween) tweenTo = function(tx, ty, dur){
+  const held = autoHeld(), r = engineTween.apply(this, arguments), ms = safe(() => RMQ, false) ? 1 : (dur || 850);
+  const t = view.tween = {X: tx, Y: ty}; view.tweens++;
+  // The engine keeps no in-flight flag: view.tween goes on the frame LX/LY reach every finite target, to rounding, never by the clock (2026-09-25).
+  const off = (a, b) => Number.isFinite(b) && Math.abs(a - b) > 1e-9 * (1 + Math.abs(b)), land = () => { if (view.tween !== t) return; for (let i = 0; i < N; i++) if (off(LX[i], tx[i]) || off(LY[i], ty[i])) return void requestAnimationFrame(land); view.tween = null; }; requestAnimationFrame(land);
+  if (held){ const c = autoCamera(tx, ty, lastKind() === 'all'); if (c) glide(c, ms); }
+  return r;
+ };
+ // A network switch that keeps the positions (no tween) still changes the drawn links: the core is framed again.
+ if (engineNet) setNetConfig = function(){
+  const held = autoHeld(), n = view.tweens, r = engineNet.apply(this, arguments);
+  if (held && n === view.tweens && lastKind() !== 'all' && safe(() => layout, '') === 'cosp'){ const c = autoCamera(); if (c) glide(c, 600); }
+  return r;
+ };
+}
 
 // ---- URL parameters from the shell (01): issue, net, color, links, layout, member ----
 function issueIndex(v){
@@ -464,7 +649,7 @@ function selectPanelTab(name, focus){
 function closePanel(){
  backToTargets();
  sync();
- const t = $('mlk-v8-tab-targets'); if (t) setTimeout(() => t.focus(), 0);
+ const t = railOpen ? $('mlk-v8-tab-targets') : ui.railShow; if (t) setTimeout(() => t.focus(), 0);   // 10: a collapsed rail folds away again
 }
 
 function shrinkTip(){
@@ -570,6 +755,9 @@ function togglePin(){
 
 try {
  build();
+ try { installFraming(); } catch (err) { console.warn('Influence framing (10) not applied:', err); }
+ try { watchCheck(); } catch (err) { console.warn('Influence self-check badge (10) not applied:', err); }
+ paintRail();
  const oldRefresh = refresh;
  refresh = function(){ const r = oldRefresh.apply(this, arguments); afterRefresh(); return r; };
  const oldLegend = legend;
@@ -580,8 +768,10 @@ try {
  applyParams();
  afterRefresh();
  let lastBox = '';
- new ResizeObserver(() => { const r = $('netwrap').getBoundingClientRect(), k = Math.round(r.width) + 'x' + Math.round(r.height); if (k !== lastBox){ lastBox = k; fitBar(); resize(); placeStrip(); } }).observe($('netwrap'));
- window.MelangeInfluence = {version: '09', sync, selectTab, renderCard, refreshInfo: () => { lastInfo = ''; updateInfo(); }, issueIndex,
+ new ResizeObserver(() => { const r = $('netwrap').getBoundingClientRect(), k = Math.round(r.width) + 'x' + Math.round(r.height); if (k !== lastBox){ lastBox = k; fitBar(); layoutResize(); placeStrip(); } }).observe($('netwrap'));
+ window.MelangeInfluence = {version: '10', sync, selectTab, renderCard, refreshInfo: () => { lastInfo = ''; updateInfo(); }, issueIndex,
+  camera: () => ({kind: lastKind(), moved: readerMoved(), gliding: !!view.anim, s: cam.s}), fitEveryone,   // 10: proof hooks
+  rail: {open: () => railOpen, set: open => setRail(open)}, legend: {open: () => legendOpen, toggle: toggleLegend},
   memberIndex, memberPanel: {paint: paintPanel, selectTab: selectPanelTab, close: closePanel, tab: () => mp.tab, catalogState: () => mp.cat,
   _forceCatalog: s => { mp.cat = s; if (s !== 'ready') mp.byName = null; paintPanel(); }}};   // proof hook: loading / error states
 } catch (err) {

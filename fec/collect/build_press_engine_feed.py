@@ -5,6 +5,13 @@
 Only CU-scored host-article/member rows become tone inputs.  Expanded
 ``OFFICIAL_MENTION`` relationships are written separately for reference discovery and can
 never become stance rows or attributed speech turns.
+
+Owner ruling D-219 (2026-10-15): the stance of a refresh row is the ratified Stage 5 (local
+fine-tuned DEBATE + Paul's human overlay + LSD tone, ``stance.press_stage5``), never the retired
+``press_refresh_rules_v1`` polarity.  The command line runs it by default (``--no-stage5`` turns it
+off); the library entry points ``build``/``build_cumulative`` run it only when handed a scorer or
+``stage5=True``, so a caller that does not ask for it gets the rules columns unchanged.  A scored
+release with no usable body falls back to its title (as run_stage5.R does) instead of failing.
 """
 from __future__ import annotations
 
@@ -30,7 +37,7 @@ TONE_FIELDS = [
     "categories", "relevance", "score", "score_graded", "score_label", "stance",
     "stance_sign", "p_support", "p_oppose", "p_neutral", "stance_conf", "n_words",
     "lsd_pos", "lsd_neg", "lsd_net", "lsd_net_norm", "lsd_charge", "stance_src",
-    "press_value", "recency_weight", "source_run", "source",
+    "press_value", "recency_weight", "source_run", "source", "body_fallback",
 ]
 
 
@@ -123,9 +130,10 @@ def validate_body_completion(path, receipt, *, require_complete=False):
     """Validate new coverage proof while retaining historical receipt readability.
 
     Returns the completion proof this run rests on: empty when the walk proved
-    the backlog complete the usual way, and the tombstone counts when it was
-    accepted with deferred rows.  Callers that only need accept/refuse can keep
-    ignoring the return -- a refusal is still an exception.
+    the backlog complete the usual way, and the carried-pending counts (plus
+    report-only tombstone counts) when it was accepted as a sealed PARTIAL.
+    Callers that only need accept/refuse can keep ignoring the return -- a
+    refusal is still an exception.
     """
     completion = {}
     if "pending_body_urls" not in receipt and "status" not in receipt:
@@ -134,13 +142,13 @@ def validate_body_completion(path, receipt, *, require_complete=False):
         return completion
     if (receipt.get("status") != "PASS" or type(receipt.get("pending_body_urls")) is not int
             or receipt["pending_body_urls"] != 0):
-        # Paul 2026-09-19: a body URL the walk lists pending without ever attempting it must
-        # stop refusing the whole generation after three consecutive runs.  The walk still
-        # lists and retries it every run -- only its veto over intake is withdrawn, and only
-        # once the ledger can prove the streak.  Imported here because the tombstone module
-        # reaches this one through press_baseline_fold.
-        from collect.press_pending_tombstones import pending_is_tombstoned_only
-        accepted, detail = pending_is_tombstoned_only(path, receipt)
+        # Owner ruling 2026-10-15: press must never back up.  A sealed PARTIAL promotes the
+        # bodies it fetched and CARRIES its pending URLs to the next run, which retries them.
+        # The pending list must be exactly the sealed one (hash-checked below, counted and
+        # keyed here); tombstones are report-only.  Imported here because the tombstone
+        # module reaches this one through press_baseline_fold.
+        from collect.press_pending_tombstones import carried_pending_proof
+        accepted, detail = carried_pending_proof(path, receipt)
         if not accepted:
             raise ReceiptRejected("PENDING_BODY_ATTEMPTS", detail)
         completion = dict(detail)
@@ -403,12 +411,38 @@ def tone_row(row, run_name):
         "lsd_charge": "", "stance_src": "press_refresh_rules_v1",
         "press_value": ("%.12g" % intensity),
         "recency_weight": row.get("recency_weight") or "", "source_run": run_name,
-        "source": "PRESS_REFRESH_HOST_ARTICLE",
+        "source": "PRESS_REFRESH_HOST_ARTICLE", "body_fallback": row.get("body_fallback") or "",
     }
 
 
+def _stage5_scorer(stage5):
+    """``None``/``False`` -> no Stage 5; ``True`` -> the real one; a callable ``(tone, fulltext) -> (rows, report)`` as given."""
+    if stage5 is True:
+        from stance import press_stage5
+        return press_stage5.make_scorer()
+    return stage5 or None
+
+
+def _coverage(root, retry):
+    """What this run left pending: explicit, hash-bound, retried next run (owner ruling 2026-10-15)."""
+    pending = retry.get("pending_body_urls")
+    carried = pending if type(pending) is int else 0
+    members = {}
+    if carried:
+        pending_path = Path(root) / "press_delta_pending.csv"
+        if retry.get("pending_body_urls_sha256") != sha256_file(pending_path):
+            raise RuntimeError("press pending artifact is not hash-bound to the retry receipt")
+        for row in read_csv(pending_path):
+            member = (row.get("bioguide") or "").strip().upper()
+            if member:
+                members[member] = members.get(member, 0) + 1
+    return {"complete": pending == 0, "pending_body_urls_carried": carried,
+            "pending_body_urls_sha256": retry.get("pending_body_urls_sha256"),
+            "pending_members": dict(sorted(members.items()))}
+
+
 def build(source_root, tone_output, fulltext_output, mentions_output, receipt_output,
-          intake_receipt_path):
+          intake_receipt_path, stage5=None):
     root = Path(source_root)
     intake_receipt_path = Path(intake_receipt_path)
     if not intake_receipt_path.is_file():
@@ -448,6 +482,7 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
     scored = read_csv(root / "press_delta_scored.csv")
     if any((row.get("source") or "").upper() == "OFFICIAL_MENTION" for row in scored):
         raise RuntimeError("OFFICIAL_MENTION relationship leaked into press_delta_scored.csv")
+    coverage = _coverage(root, retry)
 
     host_by_turn = {turn_key(row): row for row in hosts}
     hosts_by_url = {}
@@ -456,7 +491,7 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
 
     tone = [tone_row(row, root.name) for row in scored]
     fulltext = []
-    missing_text = []
+    title_fallback = set()
     for row in scored:
         host = host_by_turn.get(turn_key(row))
         if host is None:
@@ -464,7 +499,9 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
             host = choices[0] if len(choices) == 1 else None
         body = (host or {}).get("body") or ""
         if len(body.split()) < 20:
-            missing_text.append((row.get("url") or "")[:160])
+            # D-219: the ratified history scores a release whose body is empty or a shell on its title
+            # (run_stage5.R:73-76); it is marked body_fallback='title', not a failure of the run.
+            title_fallback.add(turn_key(row))
             continue
         fulltext.append({
             "url": row.get("url") or "", "title": row.get("title") or "", "text": body,
@@ -472,8 +509,14 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
             "source": "PRESS_REFRESH_HOST_ARTICLE", "source_run": root.name,
             "body_sha256": hashlib.sha256(body.encode("utf-8", "replace")).hexdigest(),
         })
-    if missing_text:
-        raise RuntimeError("%d scored press rows lack a >=20-word host body" % len(missing_text))
+    for row in tone:
+        if turn_key(row) in title_fallback:
+            row["body_fallback"] = "title"
+    scorer = _stage5_scorer(stage5)
+    stage5_report = {"enabled": False, "scorer": "press_refresh_rules_v1"}
+    if scorer:
+        tone, stage5_report = scorer(tone, fulltext)
+        stage5_report = {"enabled": True, **stage5_report}
 
     typed_mentions = []
     host_resolved = 0
@@ -520,7 +563,11 @@ def build(source_root, tone_output, fulltext_output, mentions_output, receipt_ou
                 "official_mentions_enter_speech_turns": False,
                 "official_mentions_are_reference_discovery_only": True,
                 "historical_corpus_precedence_on_exact_collision": True,
+                "partial_coverage_is_explicit": True,
             },
+            "coverage": coverage,
+            "stage5": stage5_report,
+            "title_fallback_rows": sum(row.get("body_fallback") == "title" for row in tone),
             "counts": {"tone_rows": len(tone), "fulltext_rows": len(fulltext),
                        "official_mentions": len(typed_mentions),
                        "official_mentions_with_unique_host_member": host_resolved},
@@ -609,7 +656,7 @@ def _read_jsonl(path):
 
 
 def build_cumulative(tone_output, fulltext_output, mentions_output, receipt_output,
-                     current_intake_receipt, accepted_receipts_dir):
+                     current_intake_receipt, accepted_receipts_dir, stage5=None):
     """Rebuild the active supplement from every accepted run, oldest evidence first.
 
     The baseline fold may make future collection incremental, so a one-run overwrite
@@ -631,33 +678,47 @@ def build_cumulative(tone_output, fulltext_output, mentions_output, receipt_outp
             fulltext_path = run_stage / "fulltext.jsonl"
             mentions_path = run_stage / "mentions.jsonl"
             receipt_path = run_stage / "receipt.json"
+            # Stage 5 runs once on the merged ledger below, not once per accepted run.
             run_receipt = build(
                 root, tone_path, fulltext_path, mentions_path, receipt_path, intake_path)
 
             tone_rows = read_csv(tone_path)
             fulltext_rows = _read_jsonl(fulltext_path)
             mention_rows = _read_jsonl(mentions_path)
+            # Runs arrive oldest -> newest, so a repeated key is overwritten: the LATEST
+            # accepted run's row wins (owner ruling 2026-10-15) and recency_weight stays
+            # current. The key keeps its first insertion slot, so row count and order hold.
             for row in tone_rows:
-                tone_by_key.setdefault(turn_key(row), row)
+                tone_by_key[turn_key(row)] = row
             for row in fulltext_rows:
                 key = (canonical_url(row.get("url"), keep_fragment=False),
                        (row.get("bioguide") or "").strip().upper())
-                fulltext_by_key.setdefault(key, row)
+                fulltext_by_key[key] = row
             for row in mention_rows:
                 key = (canonical_url(row.get("article_url"), keep_fragment=False),
                        (row.get("mentioned_bioguide") or "").strip().upper())
-                mentions_by_key.setdefault(key, row)
+                mentions_by_key[key] = row
             ledger.append({
                 "source_run": str(root.resolve()),
                 "source_retry_completed_at": run_receipt["source_retry_completed_at"],
                 "collection_intake": run_receipt["collection_intake"],
                 "source_sha256": run_receipt["source_sha256"],
                 "counts_before_deduplication": run_receipt["counts"],
+                "coverage": run_receipt["coverage"],
             })
 
     tone = list(tone_by_key.values())
     fulltext = list(fulltext_by_key.values())
     mentions = list(mentions_by_key.values())
+    scorer = _stage5_scorer(stage5)
+    stage5_report = {"enabled": False, "scorer": "press_refresh_rules_v1"}
+    if scorer:
+        tone, stage5_report = scorer(tone, fulltext)
+        stage5_report = {"enabled": True, **stage5_report}
+    # The newest accepted run states what is still carried; older entries keep their own.
+    latest = ledger[-1]["coverage"]
+    coverage = {"status": "COMPLETE" if latest["complete"] else "PARTIAL_CARRIED_PENDING",
+                "as_of_run": Path(accepted[-1][0]).name, **latest}
     # Stage, hash the staged bytes, replace the outputs, receipt last (see build()).
     finals = (tone_output, fulltext_output, mentions_output, receipt_output)
     try:
@@ -679,8 +740,12 @@ def build_cumulative(tone_output, fulltext_output, mentions_output, receipt_outp
                 "official_mentions_are_reference_discovery_only": True,
                 "historical_corpus_precedence_on_exact_collision": True,
                 "accepted_runs_are_cumulative": True,
-                "earliest_accepted_run_wins_exact_refresh_collision": True,
+                "latest_accepted_run_wins": True,
+                "partial_coverage_is_explicit": True,
             },
+            "coverage": coverage,
+            "stage5": stage5_report,
+            "title_fallback_rows": sum(row.get("body_fallback") == "title" for row in tone),
             "counts": {
                 "accepted_runs": len(ledger),
                 "tone_rows": len(tone),
@@ -718,25 +783,38 @@ def parse_args(argv=None):
                         default=Path(ROOT) / "data/engine/collection_intake_receipt.json")
     parser.add_argument("--accepted-receipts-dir", type=Path,
                         default=Path(ROOT) / "data/engine/press_collection_receipts")
+    parser.add_argument("--no-stage5", action="store_true",
+                        help="keep the rules_v1 columns (tests only; Stage 5 is the ratified scorer and runs by default)")
+    parser.add_argument("--stage5-batch", type=int, default=400,
+                        help="rows newly scored per invocation; the rest are withheld until the next run")
+    parser.add_argument("--stage5-cache", type=Path, default=Path(ROOT) / "data/stance/press_stage5_cache.jsonl")
     return parser.parse_args(argv)
 
 
 def main(argv=None):
     args = parse_args(argv)
+    stage5 = None
+    if not args.no_stage5:
+        from stance import press_stage5
+        stage5 = press_stage5.make_scorer(batch_limit=args.stage5_batch, cache_path=str(args.stage5_cache))
     if args.source_root is not None:
         source_root = args.source_root
         if valid_run(source_root) is None:
             raise RuntimeError("specified source root lacks a valid live-network retry receipt")
         receipt = build(source_root, args.tone_output, args.fulltext_output,
-                        args.mentions_output, args.receipt_output, args.intake_receipt)
+                        args.mentions_output, args.receipt_output, args.intake_receipt, stage5=stage5)
         source_label = stored_name(receipt["source_run"])
     else:
         receipt = build_cumulative(
             args.tone_output, args.fulltext_output, args.mentions_output,
-            args.receipt_output, args.intake_receipt, args.accepted_receipts_dir)
+            args.receipt_output, args.intake_receipt, args.accepted_receipts_dir, stage5=stage5)
         source_label = "%d accepted runs" % receipt["counts"]["accepted_runs"]
     print("press refresh feed: %d stance rows + %d typed official mentions from %s" % (
         receipt["counts"]["tone_rows"], receipt["counts"]["official_mentions"], source_label))
+    report = receipt["stage5"]
+    if report["enabled"]:
+        print("stage 5 (%s): %d scored now, %d cached, %d withheld until the next run" % (
+            report["scorer"], report["rows_scored"], report["rows_cached"], report["rows_pending"]))
     return 0
 
 

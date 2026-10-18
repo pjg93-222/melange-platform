@@ -41,13 +41,13 @@ def employment_overlap(left, right):
     return (lo, hi) if lo < hi else None
 
 
-def load_payroll_identity(root, config_path=CONFIG):
+def load_payroll_identity(root, config_path=None):
     """Read a pinned generated evidence bundle and verify its native inputs once."""
     root = Path(root)
     # This is an installation-presence check, never generation selection.
     # A newer spine must not enable the fixture fallback when its bundle is lost.
     installed = any(p.is_dir() for p in (root / 'audits/staffer_network').glob('hill_personnel_spine_*_primary'))
-    config_path = Path(config_path)
+    config_path = Path(CONFIG if config_path is None else config_path)
     if not config_path.is_file():
         if installed:
             raise ValueError('Payroll identity configuration missing from installed spine: ' + str(config_path))

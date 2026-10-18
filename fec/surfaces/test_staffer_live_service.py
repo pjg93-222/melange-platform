@@ -5,6 +5,7 @@ import gzip
 import json
 from pathlib import Path
 from types import SimpleNamespace
+import tempfile
 import time
 from types import SimpleNamespace
 import unittest
@@ -63,6 +64,17 @@ def fixture_graph():
 
 class LiveServiceTests(unittest.TestCase):
     def setUp(self):
+        # Synthetic, empty user-assertion store: the real one is private and not published,
+        # and a test that records a decision must never write to it.
+        store_dir = tempfile.TemporaryDirectory()
+        self.addCleanup(store_dir.cleanup)
+        store = Path(store_dir.name) / "staffer_user_assertions.json"
+        store.write_text(json.dumps({"coworker_assertions": [], "identity_groups": []}), encoding="utf-8")
+        for target in ("fec.surfaces.staffer_identity_resolution.USER_ASSERTIONS",
+                       "fec.surfaces.staffer_person_inventory.USER_ASSERTIONS"):
+            patcher = patch(target, store)
+            patcher.start()
+            self.addCleanup(patcher.stop)
         self.graph = fixture_graph()
         self.service = LiveService("fixture", self.graph)
         self.service.profiles = ProfilesFixture()

@@ -2,13 +2,16 @@
 """Contract tests for the deferred-body tombstone ledger and the gate it relaxes.
 
 This is the only thing in the press lane that makes an evidence gate MORE
-permissive, so every test below is a negative control on that permission:
+permissive, so every test below is a negative control on that permission.
+Owner ruling 2026-10-15: press never backs up, so a sealed PARTIAL is accepted
+and its pending URLs are CARRIED to the next run; tombstones are report-only.
 
   * a receipt that is not the walk's own PARTIAL shape is refused
   * a pending artifact whose hash differs from the receipt is refused
-  * ONE row short of tombstoned refuses the whole run
   * a row count that disagrees with the receipt is refused
-  * a row whose member/URL identity is unusable is never tombstoned
+  * a row whose member/URL identity is unusable, or a repeated key, is refused
+  * a row that is NOT tombstoned no longer refuses: it is carried and counted
+  * an unreadable tombstone ledger costs the report, never the run
   * the complete-walk path is unchanged: PASS with rows still refuses
 
 and on the ledger's own arithmetic: three CONSECUTIVE runs, a streak that a
@@ -40,7 +43,7 @@ from collect.build_press_engine_feed import (  # noqa: E402
 )
 from collect.fold_promoted_press_runs import fold_promoted, promoted_roots  # noqa: E402
 from collect.press_pending_tombstones import (  # noqa: E402
-    CONSECUTIVE_DEFERRALS_FOR_TOMBSTONE, PendingArtifactError, load,
+    CONSECUTIVE_DEFERRALS_FOR_TOMBSTONE, PendingArtifactError, carried_pending_proof, load,
     pending_is_tombstoned_only, record_key, tombstoned_keys, tombstoned_members, update,
 )
 
@@ -363,6 +366,8 @@ class CompletionGateTests(unittest.TestCase):
         self._history(pairs)
         run, receipt = self._target(pairs)
         proof = validate_body_completion(run, receipt)
+        self.assertEqual(proof["pending_body_urls_carried"], 2)
+        self.assertEqual(proof["pending_members"], {"H001068": 1, "T000472": 1})
         self.assertEqual(proof["pending_body_urls_tombstoned"], 2)
         self.assertEqual(proof["excused_by_url"], 2)
         self.assertEqual(proof["excused_by_member"], 0)
@@ -382,32 +387,56 @@ class CompletionGateTests(unittest.TestCase):
         self.assertEqual(proof["excused_by_member"], 1)
         self.assertEqual(proof["tombstoned_members"], ["H001068"])
 
-    def test_a_healthy_members_first_pending_url_still_refuses(self):
-        # The member clause must not excuse a member nobody has seen stuck.
+    def test_a_healthy_members_first_pending_url_is_carried_and_only_counted_untombstoned(self):
+        # The member clause now only REPORTS: a member nobody has seen stuck is carried too.
         for index, name in enumerate(("press_refresh_20260901", "press_refresh_20260902")):
             _write_pending(os.path.join(self.outputs, name),
                            [("H001068", "%s-%d" % (URL_A, index))])
         run, receipt = self._target([("H001068", URL_A + "-fresh"), ("A000001", URL_B)])
-        with self.assertRaises(ReceiptRejected) as caught:
-            validate_body_completion(run, receipt)
-        self.assertEqual(caught.exception.reason, "PENDING_BODY_ATTEMPTS")
-        self.assertIn("1 of 2", str(caught.exception))
+        proof = validate_body_completion(run, receipt)
+        self.assertEqual(proof["pending_body_urls_carried"], 2)
+        self.assertEqual(proof["pending_members"], {"A000001": 1, "H001068": 1})
+        self.assertEqual(proof["pending_body_urls_tombstoned"], 1)
+        self.assertEqual(proof["excused_by_member"], 1)
+        self.assertEqual(proof["tombstoned_members"], ["H001068"])
 
-    def test_one_row_short_of_tombstoned_refuses_the_whole_run(self):
+    def test_a_row_short_of_tombstoned_no_longer_refuses_the_run(self):
         self._history([("H001068", URL_A)])
         run, receipt = self._target([("H001068", URL_A), ("T000472", URL_B)])
-        with self.assertRaises(ReceiptRejected) as caught:
-            validate_body_completion(run, receipt)
-        self.assertEqual(caught.exception.reason, "PENDING_BODY_ATTEMPTS")
-        self.assertIn("1 of 2", str(caught.exception))
+        proof = validate_body_completion(run, receipt)
+        self.assertEqual(proof["pending_body_urls_carried"], 2)
+        self.assertEqual((proof["pending_body_urls_tombstoned"], proof["excused_by_url"]), (1, 1))
 
-    def test_two_consecutive_deferrals_are_not_enough(self):
+    def test_two_consecutive_deferrals_are_carried_not_refused(self):
         pairs = [("H001068", URL_A)]
         self._history(pairs, runs=("press_refresh_20260901",))
+        run, receipt = self._target(pairs)
+        proof = validate_body_completion(run, receipt)
+        self.assertEqual(proof["pending_body_urls_carried"], 1)
+        self.assertEqual(proof["pending_body_urls_tombstoned"], 0)
+
+    def test_a_repeated_member_url_key_is_refused(self):
+        # Two rows for one member/URL (the second differs only by a trailing slash and the
+        # member's case) would be carried twice and could hide a missing URL: refuse.
+        pairs = [("H001068", URL_A), ("h001068", URL_A + "/")]
         run, receipt = self._target(pairs)
         with self.assertRaises(ReceiptRejected) as caught:
             validate_body_completion(run, receipt)
         self.assertEqual(caught.exception.reason, "PENDING_BODY_ATTEMPTS")
+        self.assertIn("repeats 1", str(caught.exception))
+
+    def test_an_unreadable_ledger_costs_the_report_never_the_run(self):
+        pairs = [("H001068", URL_A)]
+        self._history(pairs)
+        run, receipt = self._target(pairs)
+        with io.open(self.ledger, "w", encoding="utf-8") as handle:
+            handle.write("{truncated")
+        proof = validate_body_completion(run, receipt)
+        self.assertEqual(proof["pending_body_urls_carried"], 1)
+        self.assertEqual(proof["pending_members"], {"H001068": 1})
+        self.assertIn("tombstone_ledger_error", proof)
+        self.assertNotIn("pending_body_urls_tombstoned", proof)
+        self.assertEqual(carried_pending_proof(run, receipt, self.ledger)[1]["pending_body_urls_carried"], 1)
 
     def test_a_failed_walk_is_never_excused(self):
         # An rc-2 walk writes no PARTIAL status.  Only the walk's own budgeted
@@ -615,8 +644,8 @@ class CompletionGateTests(unittest.TestCase):
         excused = self._arm()
         self._history_and_today([("H001068", URL_A), ("T000472", URL_B)])
         self.assertIs(True, excused(3, self.started), self.logs)
-        self.assertIn("press PARTIAL excused", self.logs[-1])
-        self.assertIn("all 2 pending body URL(s)", self.logs[-1])
+        self.assertIn("press PARTIAL accepted", self.logs[-1])
+        self.assertIn("2 pending body URL(s) carried to the next run", self.logs[-1])
         self.assertEqual(("refresh.step", "partial"), self.emits[0][:2])
         self.assertEqual(2, self.emits[0][3]["metadata"]["pending_body_urls"])
         self.assertEqual(os.path.join(self.outputs, self._day(0)[0]),
@@ -630,12 +659,19 @@ class CompletionGateTests(unittest.TestCase):
         self.assertIs(True, excused(3, self.started), self.logs)
         self.assertEqual(("refresh.step", "partial"), self.emits[0][:2])
 
-    def test_weekly_excusal_refuses_a_run_with_one_unexcused_row(self):
+    def test_weekly_excusal_accepts_a_run_with_an_untombstoned_row_as_carried(self):
         excused = self._arm()
         for offset in (-2, -1):
             self._seal(offset, [("H001068", URL_A)])
         self._seal(0, [("H001068", URL_A), ("M000312", URL_B)])
-        self._assert_refused(excused, "PENDING_BODY_ATTEMPTS")
+        self.assertIs(True, excused(3, self.started), self.logs)
+        self.assertIn("2 pending body URL(s) carried to the next run", self.logs[-1])
+        self.assertEqual(2, self.emits[0][3]["metadata"]["pending_body_urls"])
+
+    def test_weekly_excusal_refuses_a_run_that_repeats_a_pending_key(self):
+        excused = self._arm()
+        self._seal(0, [("H001068", URL_A), ("H001068", URL_A)])
+        self._assert_refused(excused, "repeats 1")
 
     def test_weekly_excusal_refuses_a_receipt_older_than_the_step(self):
         excused = self._arm()
@@ -675,19 +711,21 @@ class CompletionGateTests(unittest.TestCase):
             self._seal(offset, [("H001068", URL_A)])
         self._assert_refused(excused, "MISSING_RUN_FILES")
 
-    def test_weekly_excusal_refuses_though_discover_run_would_audit_last_weeks_run(self):
-        # M000312 is pending 14 and 7 days ago and again today, but today also carries a brand
-        # new member at streak 1.  Today's run is invalid; the ledger replay then makes LAST
-        # WEEK's run (M000312 only) valid retroactively, and discover_run -- what the press
-        # intake audit uses -- hands the intake that older run.  The helper must not excuse
-        # the exit 3: the audit would not be auditing this step's run.
+    def test_weekly_excusal_and_discover_run_agree_on_todays_run_when_it_carries_a_new_member(self):
+        # M000312 is pending 14 and 7 days ago and again today, and today also carries a brand
+        # new member at streak 1.  Before the 2026-10-15 ruling today's run was refused and
+        # discover_run handed the intake LAST WEEK's run instead; a sealed PARTIAL is now
+        # accepted whatever its streaks, so the audit and this helper both take today's run.
         excused = self._arm()
         self._seal(-14, [("M000312", URL_A + "-w1")])
         self._seal(-7, [("M000312", URL_A + "-w2")])
         self._seal(0, [("M000312", URL_A + "-w3"), ("M001176", URL_B)])
-        picked, _ = discover_run(self.outputs)
-        self.assertEqual(self._day(-7)[0], os.path.basename(str(picked)))
-        self._assert_refused(excused, "PENDING_BODY_ATTEMPTS")
+        picked, receipt = discover_run(self.outputs)
+        self.assertEqual(self._day(0)[0], os.path.basename(str(picked)))
+        self.assertEqual(2, receipt["pending_body_urls"])
+        self.assertIs(True, excused(3, self.started), self.logs)
+        self.assertEqual(self.emits[0][3]["metadata"]["run_root"],
+                         os.path.join(self.outputs, self._day(0)[0]))
 
 
 class FoldSkipTests(unittest.TestCase):

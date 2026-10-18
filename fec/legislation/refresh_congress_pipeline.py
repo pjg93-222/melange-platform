@@ -48,6 +48,9 @@ HEARTBEAT_SECONDS = 60
 # discovery is retried; every other step keeps stop-on-first-failure.
 DISCOVERY_RETRY_DELAY_SECONDS = 300
 RETRYABLE_STEPS = ("discovery",)
+# 2026-10-15 owner ruling (cap: interactive + $150/month): 48 calls/day x ~$0.075 (caching off) x 30 days = ~$108/month.
+ADMISSION_KEY_LIMIT = 80
+ADMISSION_CALL_BUDGET = 48
 # The two combined dashboards are ~98 MB each. Copying them into the before-image
 # cost 287 MB and eleven silent minutes per run, and nothing ever reads the copy:
 # rank_changes reads before/ranks_python.json and nothing else opens before/*.html.
@@ -102,6 +105,26 @@ def write(path, value):
     replace_atomic(temp, path)
 
 
+def write_status(root, state, final=False):
+    """Write the status marker without ever being able to fail the run.
+
+    STATUS is an advisory snapshot for the live watcher and --status. The daily wrapper
+    decides success from the exit code and the run-dir receipt.json, never from this file,
+    so a denied rename (WinError 5 from a reader, OneDrive or a scanner; it killed 2 of the
+    last 5 daily runs) is logged and the next heartbeat rewrites it. The terminal marker
+    gets one more attempt. Receipts and artifacts keep using write() and still raise.
+    """
+    attempts = 2 if final else 1
+    for attempt in range(1, attempts + 1):
+        try:
+            write(Path(root) / STATUS, state)
+            return True
+        except OSError as exc:
+            live_log(root, "status", "WRITE_FAILED", None,
+                     "attempt %d of %d: %s: %s" % (attempt, attempts, type(exc).__name__, exc))
+    return False
+
+
 def health(root=ROOT):
     path = Path(root) / STATUS
     if not path.is_file():
@@ -126,8 +149,10 @@ def steps(admission_limit, include_media=False, smoke=False):
     # budget bounds a hang; it should not cost a whole daily attempt to I/O.
     result = [("calibration", "calibration_guard.py", [], 900)]
     result.append(("discovery", None if smoke else "legislation/refresh_legislation_discovery.py", [], 21600))
+    # Cost (2026-10-15): --limit bounds the keys looked at; --max-classifier-calls bounds the paid model calls among
+    # them (a budget stop is a normal PASS; unattempted keys wait for the next run).
     admissions = (["--limit", "1", "--no-llm", "--no-install"] if smoke
-                  else ["--limit", str(admission_limit)])
+                  else ["--limit", str(admission_limit), "--max-classifier-calls", str(ADMISSION_CALL_BUDGET)])
     result.extend([
         ("admissions", "legislation/refresh_sentinel_admissions.py", admissions, 14400),
         ("votes", "legislation/refresh_vote_sources.py", [], 1800),
@@ -202,10 +227,13 @@ def validated_media_snapshot(root, started):
     # Windows file-write times can trail the precise process clock. The exact
     # producer completion timestamp proves freshness; metadata remains a coarse
     # independent check, never the sole evidence that an old PASS is current.
-    if (media.get("schema") != "daily-media-refresh-receipt-v1" or media.get("status") != "PASS"
+    # PARTIAL (a budgeted press backlog the next run resumes) is a non-fatal success;
+    # FAIL, RUNNING and anything else are still refused.
+    if (media.get("schema") != "daily-media-refresh-receipt-v1"
+            or media.get("status") not in ("PASS", "PARTIAL")
             or not started <= completed_at <= time.time()
             or after.st_mtime <= started - 1):
-        raise RuntimeError("Media collection did not produce a fresh verified PASS receipt")
+        raise RuntimeError("Media collection did not produce a fresh verified PASS or PARTIAL receipt")
     return media, {"sha256": hashlib.sha256(contents).hexdigest(), "size": len(contents)}
 
 
@@ -305,7 +333,7 @@ def terminate_tree(process):
     process.wait()
 
 
-def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
+def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smoke=False):
     root = Path(root)
     # Smoke runs the media and canonical stages, so it takes the include_media
     # argument shape; "mode" is what keeps it out of the day's completion.
@@ -349,7 +377,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                             process.wait(timeout=15)
                         except subprocess.TimeoutExpired:
                             state.update(heartbeat_at=now(), child_pid=process.pid)
-                            write(root / STATUS, state)
+                            write_status(root, state)
                             elapsed = time.time() - step_start
                             if elapsed - last_beat >= HEARTBEAT_SECONDS:
                                 last_beat = elapsed
@@ -413,7 +441,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                 if script is None:
                     state["steps"].append({"step": name, "status": "SKIPPED_SMOKE",
                                            "returncode": None, "duration_seconds": 0})
-                    write(root / STATUS, state)
+                    write_status(root, state)
                     print(f"{now()} {name}: skipped (smoke)", flush=True)
                     _emit("refresh.step", "skipped", f"Congress pipeline: {name} skipped in smoke mode",
                           stage=name, run_id=stream_id, source="congress-pipeline",
@@ -421,7 +449,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                     live_log(root, name, "SKIPPED_SMOKE", 0, "smoke mode")
                     continue
                 state.update(active_step=name, heartbeat_at=now())
-                write(root / STATUS, state)
+                write_status(root, state)
                 print(f"{now()} {name}: starting", flush=True)
                 _emit("refresh.step", "running", f"Congress pipeline: {name}",
                       stage=name, run_id=stream_id, source="congress-pipeline",
@@ -468,7 +496,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                     acknowledged = names
                 if row.get("status") == "DEFERRED":
                     state["deferred_steps"] = state["deferred_steps"] + [name]
-                    write(root / STATUS, state)
+                    write_status(root, state)
                     print(f"{now()} {name}: DEFERRED ({row['duration_seconds']}s)", flush=True)
                     _emit("refresh.step", "deferred", f"Congress pipeline: {row['note']}",
                           stage=name, run_id=stream_id, source="congress-pipeline",
@@ -481,11 +509,13 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
                     note = "recovered on retry (first exit %s)" % row["first_returncode"]
                 if name == "media":
                     media_document, media_binding = validated_media_snapshot(root, step_start)
-                    # A PASS media receipt can still carry incomplete press
-                    # coverage. Surface that here rather than let PASS read as
-                    # complete collection.
+                    # A PARTIAL media receipt is a non-fatal success carrying incomplete
+                    # press coverage. Record it here so this run's PASS never reads as
+                    # complete collection; the congress status itself stays PASS.
                     partial_sources = media_document.get("partial_sources") or []
                     parked_steps = media_document.get("parked_steps") or []
+                    state["media_status"] = media_document["status"]
+                    state["partial_sources"] = list(partial_sources)
                     if partial_sources or parked_steps:
                         row["partial_sources"] = partial_sources
                         row["press_partial"] = media_document.get("press_partial")
@@ -523,15 +553,19 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
             # It never becomes the last verified successful production receipt.
             if not smoke:
                 write(root / RECEIPT, state)
-            write(root / STATUS, state)
+            write_status(root, state, final=True)
             summary = "Congress collection, Excel and dashboard verified"
             if state["deferred_steps"]:
                 summary += " - PASS with deferred: " + ", ".join(state["deferred_steps"])
+            if state.get("media_status") == "PARTIAL":
+                summary += " - media PARTIAL: " + ", ".join(state["partial_sources"])
             _emit("refresh.run", "completed", summary,
                   run_id=stream_id, source="congress-pipeline", current=total, total=total)
             live_log(root, "run", "PASS", time.time() - started,
                      "mode=%s rank_changes=%d deferred=%s"
-                     % (state["mode"], len(movers), ",".join(state["deferred_steps"]) or "none"))
+                     % (state["mode"], len(movers), ",".join(state["deferred_steps"]) or "none")
+                     + (" media=PARTIAL:" + ",".join(state["partial_sources"])
+                        if state.get("media_status") == "PARTIAL" else ""))
             print(json.dumps({"status": "PASS", "mode": state["mode"],
                               "deferred_steps": state["deferred_steps"],
                               "receipt": str(run_dir / "receipt.json") if smoke else str(root / RECEIPT),
@@ -541,7 +575,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
             state.update(status="FAILED", completed_at=now(), error=f"{type(exc).__name__}: {exc}")
             state.update(rollback_unbound_repository(root, run_dir))
             write(run_dir / "receipt.json", state)
-            write(root / STATUS, state)
+            write_status(root, state, final=True)
             _emit("refresh.run", "failed", state["error"], run_id=stream_id, source="congress-pipeline")
             live_log(root, "run", "FAILED", None, state["error"][:200])
             print(state["error"], file=sys.stderr, flush=True)
@@ -554,7 +588,7 @@ def run(root=ROOT, admission_limit=32, include_media=False, smoke=False):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--status", action="store_true")
-    parser.add_argument("--admission-limit", type=int, default=32)
+    parser.add_argument("--admission-limit", type=int, default=ADMISSION_KEY_LIMIT)
     parser.add_argument("--include-media", action="store_true", help="Collect media and run the complete canonical pipeline after bill collection")
     parser.add_argument("--smoke", action="store_true",
                         help="Cheap end-to-end shakeout: skip discovery, one no-model admission candidate, "

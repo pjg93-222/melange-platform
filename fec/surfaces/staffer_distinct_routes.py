@@ -148,7 +148,8 @@ def distinct_routes(router, origin, targets, options, progress):
             break
     return {**first, 'routes': accepted, 'routes_requested': count,
             'routes_returned': len(accepted), 'alternative_strategy': strategy,
-            'portfolio_optimal': False, 'alternatives_complete': True,
+            'portfolio_optimal': False,
+            'alternatives_complete': not (last and last['status'] not in ('found', 'unreachable')),
             'alternatives_stop_reason': ('requested_count' if len(accepted) == count else
                 'search_error' if last and last['status'] not in ('found', 'unreachable') else
                 'no_further_route_under_accumulated_exclusions'),

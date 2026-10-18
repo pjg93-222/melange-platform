@@ -158,9 +158,14 @@ def transcode(source: Path, target: Path) -> None:
         "-i", str(source), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
         "-threads", "1", str(temporary),
     ]
-    process = subprocess.run(command, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace")
+    try:
+        process = subprocess.run(command, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=3600)
+    except subprocess.TimeoutExpired:
+        temporary.unlink(missing_ok=True)
+        raise RuntimeError("ffmpeg conversion timed out after 3600 s")
     if process.returncode or not temporary.exists():
+        temporary.unlink(missing_ok=True)
         raise RuntimeError("ffmpeg conversion failed: " + process.stderr[-400:])
     os.replace(temporary, target)
 
@@ -392,7 +397,7 @@ def main() -> int:
     queue = read_jsonl(args.queue)
     queue_sha256 = SMR.sha256_file(args.queue)
     verified_sources = {str(row["video_id"]): row for row in read_jsonl(args.verified_sources)}
-    existing = {row["member"]: row for row in read_jsonl(args.out)} if args.resume else {}
+    existing = {row["member"]: row for row in read_jsonl(args.out)} if (args.resume or args.member or args.limit) else {}
     media_cache = {}
     selected = queue
     if args.member:

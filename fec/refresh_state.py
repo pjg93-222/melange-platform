@@ -29,6 +29,13 @@ is empty, or is gone -- ends the step FAILED with ``coverage=SUSPECT`` and an en
 in the review file, as information only: there is no per-source data yet from which to set a
 threshold, and a guessed threshold that blocks publication is worse than no threshold at all.
 
+FAILURE CLASSES AND FRESHNESS LABELS (2026-10-15 tiered degrade).  A failed step records WHAT KIND
+of failure it was (``failure_class``: TRANSIENT, SOURCE_OUTAGE, BUDGET_QUOTA, DATA_CONTRACT -- the
+classifier is ``fec/refresh_failure.py``), when it may next be tried (``next_attempt_utc``), the
+attempts of the last 24 h (``recent_attempts_utc``), and for a data-contract refusal the input
+generations it was refused on (``dead_letter``).  :func:`freshness_record` turns one entry into the
+label the dashboard reads from ``data/engine/source_freshness.json``.
+
 Import-safe and stdlib-only: nothing here reads the environment, launches anything or touches a
 path the caller did not pass in.
 """
@@ -76,6 +83,35 @@ DEPENDENCY = 'DEPENDENCY'
 # ---- coverage verdicts -----------------------------------------------------------------------
 COVERAGE_OK = 'OK'
 COVERAGE_SUSPECT = 'SUSPECT'
+
+# ---- failure classes: what a failed step MEANS, and so what the runner may do next ----------------
+TRANSIENT = 'TRANSIENT'              # timeout, 5xx, network reset, sharing violation: backoff + daily cap
+SOURCE_OUTAGE = 'SOURCE_OUTAGE'      # the source is down: keep last-good, probe on cadence
+BUDGET_QUOTA = 'BUDGET_QUOTA'        # a provider quota/spend limit: the step FAILED (D-211); one attempt per daily window
+DATA_CONTRACT = 'DATA_CONTRACT'      # a contract refusal: dead-letter, never retried automatically
+FAILURE_CLASSES = (TRANSIENT, SOURCE_OUTAGE, BUDGET_QUOTA, DATA_CONTRACT)
+# The two stops the admissions producer reports, and they are NOT the same thing (D-211):
+#   BUDGET_QUOTA  aborted_reason CLASSIFIER_QUOTA_EXHAUSTED, exit non-zero: the provider refused, the
+#                 generation was NOT installed.  A FAILED step -- never PASS, never PARTIAL -- whose
+#                 last-good generation is served and labelled STALE_LABELLED; not retried before the
+#                 next daily window (a retry would only meet the same limit), then one attempt per window.
+#   BUDGET_CALLS  aborted_reason CLASSIFIER_CALL_BUDGET, exit 0: an intentional bounded run that
+#                 INSTALLED its generation.  A PASS at the normal cadence; the unattempted keys stay in
+#                 the pool.  It is not a failure class, only a note on a success (``budget_stop``).
+BUDGET_CALLS = 'BUDGET_CALLS'
+STOP_QUOTA = 'CLASSIFIER_QUOTA_EXHAUSTED'
+STOP_CALLS = 'CLASSIFIER_CALL_BUDGET'
+
+# ---- freshness labels (data/engine/source_freshness.json) -----------------------------------------
+FRESH = 'FRESH'
+STALE_LABELLED = 'STALE_LABELLED'    # last-good served past its cadence/window; nothing known to be failing
+DEGRADED = 'DEGRADED'                # last-good (or nothing) served because the latest attempt failed
+DEAD_LETTER = 'DEAD_LETTER'          # quarantined data-contract refusal; waits for an input to change
+FRESHNESS_STATUSES = (FRESH, STALE_LABELLED, DEGRADED, DEAD_LETTER)
+FRESHNESS_SCHEMA = 1
+# How many attempts a step may start inside one rolling day, and how many stamps are remembered.
+ATTEMPT_WINDOW_HOURS = 24.0
+ATTEMPTS_REMEMBERED = 12
 
 # A file that carried this many rows and now carries none is the plausible-zeros failure.
 ZERO_FLOOR_ROWS = 50
@@ -314,14 +350,18 @@ def snapshot(base, recursive=(), top_level=(), extra_files=(), exclude=None):
             return
         try:
             info = os.stat(full)
-        except OSError:
+        except FileNotFoundError:
             # A file that vanished between the walk and the stat is not in this snapshot; if it
             # mattered it will show as a difference against the other side.
             return
         found[key] = (info.st_size, info.st_mtime_ns)
 
+    def walk_error(error):
+        if not isinstance(error, FileNotFoundError):
+            raise error
+
     for root in recursive:
-        for directory, subdirectories, files in os.walk(os.path.abspath(str(root))):
+        for directory, subdirectories, files in os.walk(os.path.abspath(str(root)), onerror=walk_error):
             subdirectories[:] = sorted(name for name in subdirectories
                                        if name not in ('.git', '__pycache__'))
             for name in sorted(files):
@@ -330,13 +370,13 @@ def snapshot(base, recursive=(), top_level=(), extra_files=(), exclude=None):
         root = os.path.abspath(str(root))
         try:
             entries = sorted(os.scandir(root), key=lambda entry: entry.name)
-        except OSError:
+        except FileNotFoundError:
             continue
         for entry in entries:
             try:
                 if entry.is_file(follow_symlinks=False):
                     take(entry.path)
-            except OSError:
+            except FileNotFoundError:
                 continue
     for path in extra_files:
         take(os.path.abspath(str(path)))
@@ -360,6 +400,18 @@ def diff(pre, post):
     if pre is None:
         pre = {}
     return sorted(name for name, value in post.items() if pre.get(name) != value)
+
+
+def removed(pre, post):
+    """Relative paths present in ``pre`` but gone from ``post``, sorted.
+
+    Kept apart from :func:`diff`: the commit path treats ``diff`` as "files this step wrote".
+    The failure and reconcile paths union the two, because a step that deleted a file before it
+    died wrote to the tree and its outputs are TORN.
+    """
+    if pre is None:
+        return []
+    return sorted(name for name in pre if name not in post)
 
 
 def file_rows(path):
@@ -460,7 +512,7 @@ def verify_manifest(base, payload):
             bad.append(key)
             continue
         expected = (entry or {}).get('sha256')
-        if expected and sha256_file(full) != expected:
+        if not expected or sha256_file(full) != expected:
             bad.append(key)
     return bad
 
@@ -506,7 +558,99 @@ def coverage_review(previous_files, current_files):
 def blank_step():
     return {'state': NEVER, 'last_ok_utc': None, 'last_attempt_utc': None,
             'attempts_since_ok': 0, 'failure': None, 'duration_s': None, 'generation': 0,
-            'manifest_sha': None, 'torn': False, 'coverage': COVERAGE_OK}
+            'manifest_sha': None, 'torn': False, 'coverage': COVERAGE_OK,
+            'failure_class': None, 'next_attempt_utc': None, 'recent_attempts_utc': [],
+            'dead_letter': None, 'budget_stop': None, 'quota_stop_utc': None}
+
+
+def recent_attempts(stamps, now, window_hours=ATTEMPT_WINDOW_HOURS):
+    """The attempt stamps still inside the rolling window.
+
+    A stamp up to an hour in the FUTURE still counts (the clock stepped back a little, and the
+    conservative reading is "that attempt happened"); one further ahead is clock damage, not an
+    attempt, and is dropped so a bad step cannot hold a step off for days.
+    """
+    kept = []
+    for text in stamps or ():
+        age = hours_since(text, now)
+        if age is not None and -1.0 <= age <= window_hours:
+            kept.append(text)
+    return kept
+
+
+def record_attempt(stamps, now):
+    """``stamps`` pruned to the rolling window, plus ``now``; bounded so the state stays small."""
+    kept = recent_attempts(stamps, now) + [stamp(now)]
+    return kept[-ATTEMPTS_REMEMBERED:]
+
+
+def freshness_record(tier, cadence_h, entry, now, window_days, manifest_unreadable=False):
+    """One source's label for ``source_freshness.json``.  Pure: it reads one state entry.
+
+    The rule, in order.  A quarantined contract refusal is DEAD_LETTER whatever its age.  A source
+    with no readable last success, torn or unreconciled outputs or a suspect coverage is DEGRADED:
+    what is served is not a current, whole generation.  A provider quota stop (BUDGET_QUOTA) is
+    STALE_LABELLED whatever its age: the latest generation was never installed and the last-good one
+    is served knowingly (D-211).  Past its cadence it is DEGRADED when the latest attempt failed (the
+    system KNOWS it is behind) and STALE_LABELLED when nothing is known to be failing; inside its
+    cadence it is FRESH even if the latest attempt failed, because the data still describes the
+    interval it promises.  A bounded call-budget run (BUDGET_CALLS) is a PASS at the normal
+    cadence; ``partial`` says its backlog is not drained.  A source whose manifest could not be
+    opened this tick (``manifest_unreadable``) is DEGRADED: its last recorded generation is what is
+    served, and nothing this tick could verify it (D-212).
+    """
+    last_ok = entry.get('last_ok_utc')
+    age = hours_since(last_ok, now)
+    state = entry.get('state') or NEVER
+    failed = state in (FAILED, RUNNING)
+    failure = entry.get('failure') if isinstance(entry.get('failure'), dict) else {}
+    # Only a classified exit or timeout carries a class; a killed or interrupted step's stale class
+    # from an earlier failure would otherwise be reported as the reason it is behind.
+    klass = (entry.get('failure_class')
+             if state == FAILED and failure.get('kind') in (EXIT, TIMEOUT) else None)
+    budget = entry.get('budget_stop') if isinstance(entry.get('budget_stop'), dict) else None
+    dead = entry.get('dead_letter') if isinstance(entry.get('dead_letter'), dict) else None
+    detail = ''
+    if state == FAILED and klass == DATA_CONTRACT and dead:
+        status = DEAD_LETTER
+        detail = ('data-contract refusal dead-lettered at %s; no automatic retry until an input '
+                  'generation changes' % dead.get('at'))
+    elif age is None:
+        status = DEGRADED
+        detail = 'has never succeeded' if not last_ok else 'the last success stamp is unreadable'
+    elif manifest_unreadable:
+        status = DEGRADED
+        detail = ('its manifest could not be opened this tick: the last recorded generation is '
+                  'served UNVERIFIED')
+    elif entry.get('torn') is not False:
+        status = DEGRADED
+        detail = ('outputs are torn' if entry.get('torn')
+                  else 'outputs await complete snapshot reconciliation')
+    elif entry.get('coverage') != COVERAGE_OK:
+        status, detail = DEGRADED, 'coverage is %s' % entry.get('coverage')
+    elif klass == BUDGET_QUOTA:
+        status = STALE_LABELLED
+        detail = ('classifier quota exhausted (%s): the new generation was NOT installed, the '
+                  'last-good one is served; one attempt per daily window'
+                  % (budget or {}).get('reason', STOP_QUOTA))
+    elif cadence_h and age >= cadence_h:
+        status = DEGRADED if failed else STALE_LABELLED
+        detail = 'last success %.1f h ago, cadence %d h' % (age, cadence_h)
+        if failed:
+            detail += '; the latest attempt failed (%s)' % (klass or 'unclassified')
+        if age > window_days * 24:
+            detail += '; past the %d-day window' % window_days
+    else:
+        status = FRESH
+    return {'tier': tier, 'cadence_h': cadence_h, 'last_success_utc': last_ok,
+            'age_h': None if age is None else round(age, 2), 'status': status, 'detail': detail,
+            'state': state, 'generation': int(entry.get('generation') or 0),
+            'failure_class': klass, 'next_attempt_utc': entry.get('next_attempt_utc') if failed
+            else None,
+            'attempts_24h': len(recent_attempts(entry.get('recent_attempts_utc'), now)),
+            'partial': state == PARTIAL or bool(budget and budget.get('reason') == STOP_CALLS),
+            'budget_stop': budget['reason'] if budget else None,
+            'served_last_good': status != FRESH and last_ok is not None}
 
 
 class RefreshState(object):

@@ -1,4 +1,4 @@
-"""Explicit F/H4 page contracts; pure metadata, no I/O or collection at import.
+"""Explicit F/H4 page contracts (plus the unpinned totals and candidate_committees shapes); pure metadata, no I/O or collection at import.
 
 The driver must archive and retain a page BEFORE applying inspect_page issues.
 These observations never certify a unit by themselves. Enable/activation is an
@@ -25,6 +25,22 @@ CONTRACTS={
        'beneficiary_fields':(),'source_or_reporting_fields':('committee_id','spender_committee_name'),
        'official_source_sha256':'245cc2039b130780f075acc6fd367d29ba383c2807cf12a2aad0c3ccdd578f97'}
 }
+UNPINNED_NOTE=('UNPINNED: not covered by the retained official source pin '+OFFICIAL_COMMIT+' (webservices/resources/totals.py and candidates.py are '
+               'not retained; rest.py only registers the views). The request shape is retained schema knowledge, verified only by an archived live response.')
+# Totals are a per-unit family that never creates payees, edges or candidate links; candidate_committees is a per-candidate lookup, not an endpoint family.
+CONTRACTS['totals']={'contract_id':'openfec-unpinned-totals-numbered-v1',
+      'endpoint':'committee/{committee_id}/totals/','amount_field':'totals_not_a_payment','id_field':None,
+      'cycle_selector':'cycle','pagination_family':'offset','default_sort':None,'scope':'unit','creates_missing_endpoint_rows':True,
+      'official_commit':None,'pin_status':UNPINNED_NOTE,
+      'paid_recipient_committee_fields':(),'beneficiary_fields':(),'source_or_reporting_fields':('committee_id',),
+      'official_source_sha256':None}
+CONTRACTS['candidate_committees']={'contract_id':'openfec-unpinned-candidate-committees-numbered-v1',
+      'endpoint':'candidate/{candidate_id}/committees/','amount_field':None,'id_field':'committee_id',
+      'cycle_selector':'cycle','pagination_family':'offset','default_sort':None,'scope':'candidate','designation':'P',
+      'official_commit':None,'pin_status':UNPINNED_NOTE,
+      'paid_recipient_committee_fields':(),'beneficiary_fields':(),'source_or_reporting_fields':(),
+      'official_source_sha256':None}
+PER_UNIT_KINDS=tuple(kind for kind,value in CONTRACTS.items() if value.get('scope','unit')=='unit')
 LEGACY_CURSOR_FIELDS={
  'A':{'last_index','last_contribution_receipt_date','last_contribution_receipt_amount'},
  'B':{'last_index','last_disbursement_amount','last_disbursement_date'},
@@ -58,7 +74,7 @@ def legacy_cursor_valid(kind,cursor,*,stored_or_generated_page=False):
 
 def binding(kind):
     value=CONTRACTS[kind]
-    metadata={**value,'official_commit':OFFICIAL_COMMIT}
+    metadata={**value,'official_commit':value.get('official_commit',OFFICIAL_COMMIT)}
     raw=json.dumps(metadata,sort_keys=True,separators=(',',':')).encode()
     return {**metadata,'contract_metadata_sha256':hashlib.sha256(raw).hexdigest()}
 
@@ -73,6 +89,12 @@ def query(kind,committee,cycle,*,per_page=100,cursor=None):
         raise ValueError('Page size must be an integer from1through100.')
     cursor={} if cursor is None else cursor
     if not isinstance(cursor,dict):raise ValueError('Cursor object required.')
+    if kind=='totals':
+        # The committee is a path component of the endpoint template, never a query selector; no sort is sent for an unpinned shape.
+        if set(cursor)-{'page'} or type(cursor.get('page',1)) is not int or cursor.get('page',1)<1:
+            raise ValueError('totals requires positive numbered pages, not keyset indexes.')
+        return {'cycle':cycle,'per_page':per_page,'page':cursor.get('page',1)}
+    if spec.get('scope','unit')!='unit':raise ValueError('Not a per-committee endpoint contract.')
     result={'committee_id':committee,'cycle':cycle,'per_page':per_page,
             'sort':spec['default_sort'],'sort_hide_null':'false','sort_null_only':'false'}
     if kind=='F':
@@ -90,8 +112,64 @@ def query(kind,committee,cycle,*,per_page=100,cursor=None):
     return result
 
 
+def candidate_committees_query(candidate,cycle,*,per_page=100,cursor=None):
+    """Principal-committee lookup for one candidate/cycle: designation P is part of the pinned request, never a post-filter choice."""
+    if not isinstance(candidate,str) or not re.fullmatch('[HSP][A-Z0-9]{8}',candidate):
+        raise ValueError('Exact candidate ID required.')
+    if type(cycle) is not int or cycle not in (2022,2024,2026):
+        raise ValueError('Exact authorized activity cycle required.')
+    if type(per_page) is not int or not 1<=per_page<=100:
+        raise ValueError('Page size must be an integer from1through100.')
+    cursor={} if cursor is None else cursor
+    if not isinstance(cursor,dict) or set(cursor)-{'page'} or type(cursor.get('page',1)) is not int or cursor.get('page',1)<1:
+        raise ValueError('candidate_committees requires positive numbered pages.')
+    return {'designation':CONTRACTS['candidate_committees']['designation'],'cycle':cycle,'per_page':per_page,'page':cursor.get('page',1)}
+
+
+def _numbered_progress(request,payload):
+    """Shared numbered-page reading for the unpinned totals/candidate_committees shapes.
+
+    A response is retrieved when it parses to an object with a result array; a following page
+    is requested only when the provider itself reports more pages. Returns (rows, issues, next_cursor)."""
+    issues=[]
+    if not isinstance(payload,dict):return [],['response_not_object'],{}
+    rows=payload.get('results');pagination=payload.get('pagination')
+    if not isinstance(rows,list):rows=[];issues.append('results_not_array')
+    if any(not isinstance(row,dict) for row in rows):issues.append('result_row_not_object')
+    page=request.get('page',1);cursor={}
+    if isinstance(pagination,dict) and pagination:
+        pages=pagination.get('pages')
+        if 'page' in pagination and pagination['page']!=page:issues.append('wrong_numbered_page')
+        if 'pages' in pagination and not (type(pages) is int and pages>=0):issues.append('invalid_numbered_pages')
+        elif type(pages) is int and page<pages:
+            if not rows:issues.append('empty_before_final_page')
+            elif not issues:cursor={'page':page+1}
+    return rows,issues,cursor
+
+
+def inspect_totals_page(request,payload):
+    rows,issues,cursor=_numbered_progress(request,payload)
+    return {'count':None,'record_count':len(rows),'next_cursor':cursor,'page_end_matches_count':not issues and not cursor,
+            'issues':sorted(set(issues)),'contract_id':CONTRACTS['totals']['contract_id']}
+
+
+def inspect_candidate_committees_page(request,payload):
+    """Principal-designation committee IDs on this page. Rows with another designation are counted, not kept; a row without an exact C ID is an issue."""
+    rows,issues,cursor=_numbered_progress(request,payload)
+    found=[];ignored=0;wanted=CONTRACTS['candidate_committees']['designation']
+    for row in rows:
+        if not isinstance(row,dict):continue
+        identifier=row.get('committee_id')
+        if not isinstance(identifier,str) or not re.fullmatch('C[0-9]{8}',identifier):issues.append('missing_or_invalid_committee_id');continue
+        if row.get('designation')!=wanted:ignored+=1;continue
+        if identifier not in found:found.append(identifier)
+    return {'committee_ids':found,'record_count':len(rows),'ignored_non_principal_rows':ignored,'next_cursor':cursor,'issues':sorted(set(issues)),
+            'contract_id':CONTRACTS['candidate_committees']['contract_id']}
+
+
 def inspect_page(kind,request,payload,*,rows_before=0,expected_count=None,seen_ids=()):
     """Return page observations/issues AFTER retention; never drop or mutate rows."""
+    if kind=='totals':return inspect_totals_page(request,payload)
     spec=CONTRACTS[kind];issues=[]
     if not isinstance(payload,dict):return {'count':None,'record_count':0,'issues':['response_not_object'],'next_cursor':{},'page_end_matches_count':False,'contract_id':spec['contract_id']}
     rows=payload.get('results');pagination=payload.get('pagination')
@@ -190,60 +268,142 @@ class EndpointContractRefused(ValueError):
     pass
 
 
-def bind_enablement(connection,ledger_path,enabled_contract_ids):
+def intent_path(ledger_path,version=1):
+    """Version 1 is the original intent file name; later versions are append-only siblings (frontier.endpoint-contracts.v2.json, ...)."""
+    from pathlib import Path
+    base=Path(ledger_path).with_suffix('.endpoint-contracts.json')
+    return base if version==1 else base.with_name(base.name[:-len('.json')]+'.v'+str(version)+'.json')
+
+
+def _intent_bytes(enabled,module_sha,contracts,version=1,previous=None):
+    document={'schema_version':1,'purpose':'explicit-spending-endpoint-contract-intent',
+              'enabled_contract_ids':enabled,'module_sha256':module_sha,'contracts':contracts}
+    if version>1:
+        document.update(version=version,supersedes={'version':version-1,'file':previous['path'].name,'sha256':previous['sha256'],
+                                                    'enabled_contract_ids':previous['document']['enabled_contract_ids'],
+                                                    'module_sha256':previous['document']['module_sha256']})
+    return (json.dumps(document,sort_keys=True,separators=(',',':'))+'\n').encode()
+
+
+def intent_chain(ledger_path):
+    """The verified append-only chain of intent files, oldest first: [{version,path,raw,sha256,document}].
+
+    Every file must be a regular file under 64 KiB; versions must be contiguous (a stray v3 beside v1 is refused); each later version must
+    name the exact bytes of its predecessor and carry a SUPERSET of its contract IDs. Anything else raises EndpointContractRefused."""
+    import re
+    ids={value['contract_id'] for value in CONTRACTS.values()}
+    chain=[];version=1
+    while True:
+        path=intent_path(ledger_path,version)
+        if path.is_symlink():raise EndpointContractRefused('Endpoint binding must be a regular file; collection refused.')
+        if not path.exists():break
+        if path.stat().st_size>64*1024:raise EndpointContractRefused('Endpoint intent is oversized; collection refused.')
+        raw=path.read_bytes()
+        try:document=json.loads(raw)
+        except ValueError:raise EndpointContractRefused('Endpoint intent is not valid JSON; collection refused.')from None
+        enabled=document.get('enabled_contract_ids') if isinstance(document,dict) else None
+        if (not isinstance(enabled,list) or enabled!=sorted(set(enabled)) or not set(enabled)<=ids or document.get('schema_version')!=1
+                or not isinstance(document.get('module_sha256'),str) or not isinstance(document.get('contracts'),list)):
+            raise EndpointContractRefused('Endpoint intent is malformed; collection refused.')
+        if version>1:
+            previous=chain[-1];link=document.get('supersedes')
+            if (document.get('version')!=version or not isinstance(link,dict) or link.get('version')!=version-1 or link.get('sha256')!=previous['sha256']
+                    or link.get('file')!=previous['path'].name or not set(previous['document']['enabled_contract_ids'])<=set(enabled)):
+                raise EndpointContractRefused('Endpoint intent chain is broken or removes a contract ID; collection refused.')
+        chain.append({'version':version,'path':path,'raw':raw,'sha256':hashlib.sha256(raw).hexdigest(),'document':document})
+        version+=1
+    base=intent_path(ledger_path,1).name[:-len('.json')]
+    pattern=re.compile(re.escape(base)+r'\.v([0-9]+)\.json')
+    stray=sorted(int(match.group(1)) for item in intent_path(ledger_path,1).parent.glob(base+'.v*.json') for match in [pattern.fullmatch(item.name)] if match)
+    if stray and stray!=list(range(2,len(chain)+1)):raise EndpointContractRefused('Endpoint intent chain has a gap or an unlinked version; collection refused.')
+    return chain
+
+
+def _publish_intent(path,raw):
+    import os
+    import uuid
+    pending=path.with_name(path.name+'.pending-'+uuid.uuid4().hex)
+    try:
+        with pending.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
+        # Exclusive hard-link publication never overwrites another
+        # binding; unsupported filesystems fail before DB promotion.
+        os.link(pending,path)
+        try:
+            descriptor=os.open(str(path.parent),os.O_RDONLY)
+        except OSError:descriptor=None  # Windows cannot open a directory; the file itself is fsynced.
+        if descriptor is not None:
+            try:os.fsync(descriptor)
+            except OSError:pass
+            finally:os.close(descriptor)
+    finally:pending.unlink(missing_ok=True)
+
+
+def bind_enablement(connection,ledger_path,enabled_contract_ids,*,rebind=False):
     """Called before credential/admission; an enabling call runs inside the driver's writer transaction.
 
     Publish immutable intent first, then promote clean rows. This is not an
     atomic file/DB pair: an intact intent left by rollback is replayed only
     with the exact same enabled IDs and module bytes. Unknown state is held.
-    Without enabled IDs it only reads and refuses any existing binding or active F/H4 state.
+    Without enabled IDs it only reads and refuses any existing binding or active per-unit endpoint state.
+
+    One intent is one exact set, and any later change of the set or of this module's bytes is refused, unless the caller passes
+    rebind=True (collector flag --rebind-endpoint-contracts): that appends a NEW version (frontier.endpoint-contracts.vN.json) whose
+    ID list is a superset of the prior one and which binds this module's current hash. The prior intent file is kept and named in the
+    new one by sha256; removing an ID is never allowed. A re-bind that changes nothing writes nothing.
     """
     from pathlib import Path
-    import os
-    import uuid
     plan=activation_plan([],enabled_contract_ids)
     enabled=plan['enabled_contract_ids']
-    marker=Path(ledger_path).with_suffix('.endpoint-contracts.json')
-    active=connection.execute("SELECT COUNT(*) FROM endpoints WHERE kind IN('F','H4') AND status!='unsupported'").fetchone()[0]
+    marks=','.join('?'*len(PER_UNIT_KINDS))
+    active=connection.execute("SELECT COUNT(*) FROM endpoints WHERE kind IN("+marks+") AND status!='unsupported'",PER_UNIT_KINDS).fetchone()[0]
+    chain=intent_chain(ledger_path)
     if not enabled:
-        if marker.exists() or active:raise EndpointContractRefused('Pinned F/H4 enablement is required before collection; no fallback.')
+        if rebind:raise EndpointContractRefused('Re-binding needs the full enabled ID set; removing every contract ID is never allowed.')
+        if chain or active:raise EndpointContractRefused('Pinned F/H4 enablement is required before collection; no fallback.')
         return {'enabled_contract_ids':[],'activated_existing_endpoints':0,'blocked_existing_endpoints':0,'binding':None}
     module_sha=hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
-    desired={'schema_version':1,'purpose':'explicit-spending-endpoint-contract-intent',
-             'enabled_contract_ids':enabled,'module_sha256':module_sha,'contracts':plan['contracts']}
-    raw=(json.dumps(desired,sort_keys=True,separators=(',',':'))+'\n').encode()
+    rebound=None
     try:
-        if marker.is_symlink():raise EndpointContractRefused('Endpoint binding must be a regular file; collection refused.')
-        if marker.exists():
-            if marker.stat().st_size>64*1024 or marker.read_bytes()!=raw:
-                raise EndpointContractRefused('Pinned endpoint binding differs from enabled IDs/module; collection refused.')
-        else:
+        if not chain:
+            if rebind:raise EndpointContractRefused('Nothing to re-bind: no prior endpoint intent exists for this ledger.')
             if active:raise EndpointContractRefused('Active F/H4 state has no durable contract binding; collection refused.')
-            pending=marker.with_name(marker.name+'.pending-'+uuid.uuid4().hex)
-            try:
-                with pending.open('xb') as stream:stream.write(raw);stream.flush();os.fsync(stream.fileno())
-                # Exclusive hard-link publication never overwrites another
-                # binding; unsupported filesystems fail before DB promotion.
-                os.link(pending,marker)
-                try:
-                    descriptor=os.open(str(marker.parent),os.O_RDONLY)
-                except OSError:descriptor=None  # Windows cannot open a directory; the file itself is fsynced.
-                if descriptor is not None:
-                    try:os.fsync(descriptor)
-                    except OSError:pass
-                    finally:os.close(descriptor)
-            finally:pending.unlink(missing_ok=True)
+            _publish_intent(intent_path(ledger_path,1),_intent_bytes(enabled,module_sha,plan['contracts']))
+            chain=intent_chain(ledger_path)
+        else:
+            latest=chain[-1]
+            same=latest['raw']==_intent_bytes(enabled,module_sha,plan['contracts'],latest['version'],chain[-2] if latest['version']>1 else None)
+            if not same:
+                if not rebind:
+                    raise EndpointContractRefused('Pinned endpoint binding differs from enabled IDs/module; collection refused. A superset of the prior IDs or a changed '
+                                                  'module needs an explicit --rebind-endpoint-contracts (append-only; removal is never allowed).')
+                if not set(latest['document']['enabled_contract_ids'])<=set(enabled):
+                    raise EndpointContractRefused('Re-bind may only add contract IDs; removing one is never allowed. Collection refused.')
+                version=latest['version']+1
+                _publish_intent(intent_path(ledger_path,version),_intent_bytes(enabled,module_sha,plan['contracts'],version,latest))
+                chain=intent_chain(ledger_path)
+                rebound={'new_version':version,'file':chain[-1]['path'].name,'supersedes_file':latest['path'].name,'supersedes_sha256':latest['sha256'],
+                         'added_contract_ids':sorted(set(enabled)-set(latest['document']['enabled_contract_ids'])),'module_sha256_changed':latest['document']['module_sha256']!=module_sha}
     except EndpointContractRefused:raise
     except OSError:raise EndpointContractRefused('Endpoint intent could not be durably published; collection refused.')from None
-    rows=[dict(row) for row in connection.execute("SELECT * FROM endpoints WHERE kind IN('F','H4')")]
+    latest=chain[-1]
+    rows=[dict(row) for row in connection.execute("SELECT * FROM endpoints WHERE kind IN("+marks+")",PER_UNIT_KINDS)]
     plan=activation_plan(rows,enabled)
     for change in plan['changes']:
         connection.execute("UPDATE endpoints SET status='pending',last_error=NULL WHERE committee_id=? AND cycle=? AND kind=? AND status='unsupported'",
                            tuple(change[field] for field in ('committee_id','cycle','kind')))
-    return {'enabled_contract_ids':enabled,'activated_existing_endpoints':len(plan['changes']),
+    # A family that older ledgers never had a row for (totals) is added, pending, for every existing unit. Additive and idempotent: existing rows are never touched.
+    created=0
+    for kind in PER_UNIT_KINDS:
+        if CONTRACTS[kind]['contract_id'] in enabled and CONTRACTS[kind].get('creates_missing_endpoint_rows'):
+            created+=connection.execute("INSERT OR IGNORE INTO endpoints(committee_id,cycle,kind,status) SELECT committee_id,cycle,?,'pending' FROM units",(kind,)).rowcount
+    result={'enabled_contract_ids':enabled,'activated_existing_endpoints':len(plan['changes']),'created_existing_endpoints':created,
             'blocked_existing_endpoints':len(plan['blocked']),
-            'binding':{'path':str(marker),'sha256':hashlib.sha256(raw).hexdigest(),'module_sha256':module_sha},
+            'binding':{'path':str(latest['path']),'sha256':latest['sha256'],'module_sha256':module_sha,'version':latest['version'],
+                       'chain':[{'version':item['version'],'file':item['path'].name,'sha256':item['sha256'],'enabled_contract_ids':item['document']['enabled_contract_ids'],
+                                 'module_sha256':item['document']['module_sha256']}for item in chain]},
             'contract_metadata':[binding(kind)for kind,value in CONTRACTS.items()if value['contract_id']in enabled]}
+    if rebound:result['rebind']=rebound
+    return result
 
 
 def verify_enablement(receipt):

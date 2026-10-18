@@ -56,6 +56,12 @@
 .mlk-select:not(#mlk)>select:focus-visible{outline:0}
 .mlk-select:not(#mlk):focus-within{outline:2px solid var(--ml-accent);outline-offset:2px}
 .mlk-select--sm:not(#mlk){height:28px;font-size:12px}
+/* The open list (2026-09-24): the browser paints a native <select>'s list from each <option>'s own colours, and the kit's
+   select is transparent (the label box paints the control), so the list fell back to the browser's white under the
+   control's text colour: cream on white in the dark Influence toolbar. Options get the surface they drop from; the
+   closed control is unchanged. Dark contexts: see the dark variant below. */
+.mlk-select:not(#mlk)>select :is(option,optgroup){background-color:var(--ml-surface);color:var(--ml-ink)}
+.mlk-select:not(#mlk)>select option:disabled{color:var(--ml-muted)}
 
 /* ---------- search field ---------- */
 .mlk-search:not(#mlk){position:relative;display:inline-flex;align-items:center;box-sizing:border-box;width:280px;max-width:100%;margin:0}
@@ -235,6 +241,9 @@ button.mlk-chip:not(#mlk):hover,a.mlk-chip:not(#mlk):hover{background:var(--ml-s
 .mlk-dark .mlk-btn--accent:not(#mlk){background:var(--ml-accent);border-color:var(--ml-accent);color:var(--ml-ink)}
 .mlk-dark .mlk-btn--text:not(#mlk){background:transparent;border-color:transparent}
 .mlk-dark .mlk-select:not(#mlk)>select,.mlk-dark .mlk-select__label:not(#mlk){color:var(--ml-on-dark)}
+.mlk-dark .mlk-select:not(#mlk)>select{color-scheme:dark}
+.mlk-dark .mlk-select:not(#mlk)>select :is(option,optgroup){background-color:var(--ml-dark-panel);color:var(--ml-on-dark)}
+.mlk-dark .mlk-select:not(#mlk)>select option:disabled{color:var(--ml-on-dark-muted)}
 .mlk-dark .mlk-search__input:not(#mlk){background:var(--ml-dark-panel);border-color:var(--ml-dark-control);color:var(--ml-on-dark);caret-color:var(--ml-on-dark)}
 .mlk-dark .mlk-search__input:not(#mlk)::placeholder{color:var(--ml-on-dark-muted)}
 .mlk-dark .mlk-search__icon:not(#mlk){stroke:var(--ml-on-dark-muted)}

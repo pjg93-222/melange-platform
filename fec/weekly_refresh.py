@@ -220,6 +220,7 @@ def _kill_live_child():
         _LIVE_CHILD[0]=None
 atexit.register(_kill_live_child)
 _tolerated=[]
+_soft_failures=[]   # non-hard steps that failed/timed out: reported in status + Glass Box, never a gate (last_outcome/failures unchanged)
 log('===== WEEKLY REFRESH START =====')
 _started_at=datetime.datetime.now()
 _refresh_complete=False
@@ -318,6 +319,11 @@ def _hard_abort(name,failures,why):
 # refresh open, kept the lease, and made Task Scheduler skip every later run. PIPEs added a second
 # hold: a detached grandchild that inherited one keeps the reader alive after the child is gone.
 # bounded_subprocess.run_bounded is the fix — REAL temp files, wait(timeout), bounded tree kill.
+def _soft_fail(name,why,t):
+    _soft_failures.append(name)
+    _emit('refresh.step','failed','%s: %s (non-hard, refresh continues)'%(name,why),stage=name,
+          duration_ms=int((time.time()-t)*1000),metadata={'step':name,'reason':why,'hard':False})
+    _write_status(soft_failures=list(_soft_failures))
 def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
     t=time.time()
     _write_status(active_step=name,last_heartbeat=datetime.datetime.now().isoformat(),owner_pid=os.getpid())
@@ -343,6 +349,7 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
             log('%-28s TIMEOUT after %ds%s'%(name,timeout,' — aborting' if hard else ' — continuing'))
             log('   '+run.timeout_note)
             if hard: _hard_abort(name,[],'timeout after %ds'%timeout)
+            _soft_fail(name,'timeout after %ds'%timeout,t)
             return False   # gate is NOT consulted on a timeout: 124 is never a known dissent
         tail=(stdout or '').strip().splitlines()[-1:] or ['']
         ok=run.returncode==0
@@ -369,17 +376,20 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
                     return True   # soft-complete: audit_full is the chain's LAST step, so every
                                   # producer already wrote; only the audit's verdict dissented
                 _hard_abort(name,failures,'step exited %s'%run.returncode)
+            else: _soft_fail(name,'step exited %s'%run.returncode,t)
         return ok
     except Exception as e:   # a launch failure (missing producer) still lands here; run_bounded
                              # handles TimeoutExpired itself and never re-raises it to step()
         log('%-28s ERROR %s'%(name,str(e)[:120]))
         if hard: _hard_abort(name,[],'%s: %s'%(type(e).__name__,str(e)[:120]))
+        _soft_fail(name,'%s: %s'%(type(e).__name__,str(e)[:120]),t)
         return False
 # ---- press PARTIAL excusal --------------------------------------------------------------------
-# refresh_press_delta.R exits 3 whenever ANY body is still pending (:843, :990), and its pending
-# set (press_backlog.R:260-282) knows nothing of Paul's 2026-09-19 three-run tombstones (kept by
-# D-159), so a run the intake proof accepts still exits 3 and this hard step aborted every Sunday
-# from 2026-09-20 to 10-11 before the intake could rule. Exit 3 is excused ONLY for the run THIS
+# refresh_press_delta.R exits 3 whenever ANY body is still pending (:843, :990), while the intake
+# proof accepts a sealed PARTIAL and carries its pending URLs to the next run (owner ruling
+# 2026-10-15; Paul's 2026-09-19 three-run tombstones, kept by D-159, are report-only), so a run the
+# intake proof accepts still exits 3 and this hard step aborted every Sunday from 2026-09-20 to
+# 10-11 before the intake could rule. Exit 3 is excused ONLY for the run THIS
 # step sealed, and only through build_press_engine_feed.inspect_run -- the test the intake's
 # discover_run applies, whose completion proof is the intake's own -- so 'press intake audit'
 # below audits exactly this run and stays the hard authority. Any doubt falls through to the
@@ -396,8 +406,8 @@ def _press_partial_excused(returncode,started):
     except Exception as e:
         log('   press PARTIAL not excused — %s: %s'%(type(e).__name__,str(e)[:300]))
         return False
-    log('   press PARTIAL excused: all %s pending body URL(s) tombstoned — press intake audit rules'%receipt.get('pending_body_urls'))
-    _emit('refresh.step','partial','press delta refresh: %s pending body URL(s) excused by the intake proof'%receipt.get('pending_body_urls'),
+    log('   press PARTIAL accepted: %s pending body URL(s) carried to the next run'%receipt.get('pending_body_urls'))
+    _emit('refresh.step','partial','press delta refresh: %s pending body URL(s) carried to the next run'%receipt.get('pending_body_urls'),
           stage='press delta refresh',metadata={'run_root':root,'pending_body_urls':receipt.get('pending_body_urls')})
     return True
 try:   # user directive 2026-07-06: hold a system wake lock for the refresh's lifetime (the 01:10
@@ -426,8 +436,8 @@ if not step('Congress.gov bill discovery',[
     # cannot score, so a failed or timed-out walk leaves every scored input untouched. The
     # collector resumes (--resume), so the stale candidate set simply carries to next week;
     # aborting the whole refresh over it would strand complete press/interview evidence.
-    log('   FAIL: Congress.gov bill discovery incomplete -- last-good candidate set retained')
-    _deferred_collection_failures.append('Congress.gov bill discovery')
+    # step() has already recorded it in the status marker's soft_failures and the completion summary.
+    log('   FAIL: Congress.gov bill discovery incomplete -- last-good candidate set retained; soft failure, not a gate')
 if not step('Official bill evidence and automatic scoring admission',[
     'legislation/refresh_sentinel_admissions.py',
 ],timeout=14400,hard=False):
@@ -597,11 +607,12 @@ _refresh_complete=True
 _rank_summary=('rank movement %d/%d members'%(_rank_moves['moved'],_rank_moves['members'])
                if _rank_moves else 'rank movement not measured')
 _write_status(last_outcome='COMPLETE_WITH_KNOWN_GATED_FAILURES' if _tolerated else 'COMPLETE',
-              failures=list(_tolerated),rank_moves=_rank_moves)
+              failures=list(_tolerated),rank_moves=_rank_moves,soft_failures=list(_soft_failures))
 _emit('refresh.run','completed',
       'WEEKLY REFRESH COMPLETE — dashboards regenerated; %s%s'%(
-          _rank_summary,'; %d known Paul-gated audit item(s) tolerated'%len(_tolerated) if _tolerated else ''),
+          _rank_summary,'; %d known Paul-gated audit item(s) tolerated'%len(_tolerated) if _tolerated else '')
+      +('; %d non-hard step(s) failed: %s'%(len(_soft_failures),', '.join(_soft_failures)) if _soft_failures else ''),
       stage='weekly_refresh',detail='; '.join(_tolerated)[:2000],
       duration_ms=int((datetime.datetime.now()-_started_at).total_seconds()*1000),
       metadata={'rank_moves':_rank_moves,'failures':list(_tolerated),
-                'tolerated':bool(_tolerated)})
+                'tolerated':bool(_tolerated),'soft_failures':list(_soft_failures)})

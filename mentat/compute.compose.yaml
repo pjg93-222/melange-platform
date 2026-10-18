@@ -3,8 +3,10 @@
 # The image is built in CI (ghcr.io/pjg93-222/compute-mentat) and runs by digest only; code and data are mounted, never baked
 # (D-175), so the container runs the tree that is on disk, exactly as the Windows job does. tests/test_compute_job.py enforces:
 #   - every service: read-only root, uid 10001, cap_drop ALL, no-new-privileges, tmpfs /tmp, memory/cpu/pid limits, no ports;
-#   - network only for the two jobs that call the FEC API (collect-fanout, pac-evidence); every other service has none;
-#   - the FEC keys are a Docker secret file (read-only, /run/secrets/fec_api_keys), staged per run by compute_secrets.py;
+#   - network only for the jobs that call the FEC API (collect-fanout, pac-evidence) or reach the host broker that does (collect-downstream); every other service has none;
+#   - the FEC keys are a Docker secret file (read-only, /run/secrets/fec_api_keys), staged per run by compute_secrets.py, for the jobs that hold keys. collect-downstream holds NONE:
+#     it mounts only the key-free descriptor of the host evidence broker (/run/secrets/fec_request_pool);
+#   - the one non-bind mount is the external named volume `frontier` at /frontier, for the three downstream services (D075);
 #   - /mentat (code, state, inputs, caches) is read-only; each job gets a rw mount only where it writes, and no bind mount is
 #     ever created on the host by Docker (create_host_path: false).
 # Host paths arrive as forward-slash variables from run_job.ps1: DIGEST, MENTAT_HOST (C:/Users/pgoff/Mentat), LOCALAPPDATA_HOST,
@@ -43,6 +45,12 @@ x-mounts:
   glassbox: &m-glassbox {type: bind, source: "${GLASSBOX_HOST:?GLASSBOX_HOST is the Glass Box events folder}", target: /glassbox/events, bind: {create_host_path: false}}
   reports: &m-reports {type: bind, source: "${REPORTS_HOST:-/unset/REPORTS_HOST}", target: /reports, read_only: true, bind: {create_host_path: false}}
   refit-runtime: &m-refit-runtime {type: bind, source: "${LOCALAPPDATA_HOST}/Mentat/forecast/refit", target: /localappdata/Mentat/forecast/refit, bind: {create_host_path: false}}
+  # D075: the downstream frontier. The ledger lives in the named volume; the host state folder is read-only here (the host broker writes the archive there); /export gets the
+  # hash-checked export of every run; /inputs is the folder the host prepared for this batch (the seed file).
+  frontier: &m-frontier {type: volume, source: frontier, target: /frontier}
+  hoststate: &m-hoststate {type: bind, source: "${DOWNSTREAM_STATE_HOST:-/unset/DOWNSTREAM_STATE_HOST}", target: /hoststate, read_only: true, bind: {create_host_path: false}}
+  export: &m-export {type: bind, source: "${DOWNSTREAM_EXPORT_HOST:-/unset/DOWNSTREAM_EXPORT_HOST}", target: /export, bind: {create_host_path: false}}
+  inputs: &m-inputs {type: bind, source: "${DOWNSTREAM_INPUTS_HOST:-/unset/DOWNSTREAM_INPUTS_HOST}", target: /inputs, read_only: true, bind: {create_host_path: false}}
 
 services:
   # MentatNightlyAnchors (03:30, 45 min). Reads the published workbooks, the analytics indexes, the FEC bulk files and Melange's LDA
@@ -164,8 +172,77 @@ services:
       - *m-receipts
       - *m-glassbox
 
+  # Downstream spending frontier (D075 phase 2; opt-in: run_job.ps1 -Runtime container, host-native stays the default). NO FEC key enters this container: the host broker
+  # (api_host_pool.py --scope spending-evidence-v2, per-run token bound to this run id, its endpoint families and its physical cap) charges the shared quota ledger, calls the
+  # provider, archives and fsyncs the original bytes on the host, and only then returns them. The network is the `collect` network only to reach host.docker.internal.
+  collect-downstream:
+    <<: *job
+    command: ["run", "collect-downstream"]
+    networks: [collect]
+    secrets: [fec_request_pool]                       # never fec_api_keys
+    environment:
+      <<: *env
+      MENTAT_REQUEST_POOL_CONFIG: /run/secrets/fec_request_pool
+      MENTAT_STORED_PATH_MAP: "${DOWNSTREAM_STORED_MAP:-}"
+      MENTAT_IMAGE_DIGEST: "${DIGEST}"
+      MENTAT_DOWNSTREAM_VOLUME: "${DOWNSTREAM_VOLUME:-mentat-downstream-frontier}"
+    mem_limit: 4g
+    cpus: 3
+    pids_limit: 256
+    volumes:
+      - *m-mentat
+      - *m-frontier
+      - *m-hoststate
+      - *m-export
+      - *m-inputs
+      - *m-receipts
+      - *m-glassbox
+
+  # Crash recovery inside the volume (D071 section 6.3): replays the complete unreferenced archive pairs of the one unresolved run, read through /hoststate. No network, no secret.
+  collect-downstream-recover:
+    <<: *job
+    command: ["run", "collect-downstream-recover"]
+    network_mode: none
+    environment:
+      <<: *env
+      MENTAT_STORED_PATH_MAP: "${DOWNSTREAM_STORED_MAP:-}"
+      MENTAT_IMAGE_DIGEST: "${DIGEST}"
+      MENTAT_DOWNSTREAM_VOLUME: "${DOWNSTREAM_VOLUME:-mentat-downstream-frontier}"
+    mem_limit: 4g
+    cpus: 3
+    pids_limit: 256
+    volumes:
+      - *m-mentat
+      - *m-frontier
+      - *m-hoststate
+      - *m-export
+      - *m-inputs
+      - *m-receipts
+      - *m-glassbox
+
+  # Seed an EMPTY volume from a host snapshot (exclusive create, hash equality with the hash the caller names). No network, no secret.
+  collect-downstream-import:
+    <<: *job
+    command: ["run", "collect-downstream-import"]
+    network_mode: none
+    mem_limit: 1g
+    cpus: 1
+    volumes:
+      - *m-mentat
+      - *m-frontier
+      - {type: bind, source: "${DOWNSTREAM_IMPORT_HOST:-/unset/DOWNSTREAM_IMPORT_HOST}", target: /import, read_only: true, bind: {create_host_path: false}}
+      - *m-receipts
+      - *m-glassbox
+
 networks:
   collect: {}
+
+# D075: the live downstream ledger. External, so compose never creates it: a mistyped name cannot start an empty ledger. Created once by run_job.ps1 -InitVolume (label
+# com.mentat.keep=true); never `docker volume prune` it (it is unused between runs) and never "Clean / Purge data" in Docker Desktop: every run is exported to the host, but only once.
+volumes:
+  frontier:
+    name: "${DOWNSTREAM_VOLUME:-mentat-downstream-frontier}"
+    external: true
 
 # One file per run, written by compute_secrets.py under %LOCALAPPDATA%\Melange\compute\run\<id>\ and deleted when the run ends.
 # The default is only so a run that needs no keys can load this file; a collecting job refuses an empty secret.

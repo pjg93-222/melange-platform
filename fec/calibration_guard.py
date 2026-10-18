@@ -116,9 +116,10 @@ def check(ack=None):
     for key, (label, code_fn, pub_fn) in sorted(GUARDED.items()):
         try:
             code_val = code_fn()
-        except Exception as exc:                      # a guard must never be the thing that breaks a run
-            print('  guard: SKIP %s (could not read code value: %s)' % (key, exc))
-            continue
+        except Exception as exc:
+            # Unreadable is not unchanged; CALIB_ACK only acknowledges known drift.
+            raise RuntimeError('calibration guard cannot read code value for %s; '
+                               'refusing an unverified run' % key) from exc
         pub_val = pub_fn()
         checked.append(key)
         if pub_val is None:

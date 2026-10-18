@@ -31,6 +31,7 @@ from typing import Any, Mapping, Sequence
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from paths import ROOT as MB_ROOT  # noqa: E402 - audited root-aware contract
+from bounded_subprocess import run_bounded  # noqa: E402 - bounded child tree
 from legislation import run_legislation_network_dependents as network  # noqa: E402
 from legislation import run_legislation_dashboard_member_desk as dashboard  # noqa: E402
 from legislation import run_legislation_say_do_first_pass as say_do_runner  # noqa: E402
@@ -667,6 +668,15 @@ def network_receipt_relative() -> Path:
     raise SecondPassError("network wrapper exposes no receipt path")
 
 
+def _child_timeout_seconds() -> float:
+    """Wall-clock cap per child; env-overridable, default 6 hours."""
+    try:
+        value = float(os.environ.get("LEGISLATION_CHILD_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return 6 * 3600.0
+    return value if 0 < value < float("inf") else 6 * 3600.0
+
+
 def run_child(
     run_dir: Path,
     command: Sequence[str],
@@ -682,16 +692,16 @@ def run_child(
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
-    completed = subprocess.run(
+    timeout = _child_timeout_seconds()
+    completed = run_bounded(
         list(command),
         cwd=run_dir,
         env=environment,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        capture_output=True,
-        check=False,
+        timeout=timeout,
+        start_new_session=(os.name != "nt"),
     )
+    if completed.timed_out:
+        raise SecondPassError(f"{label} timed out after {timeout}s")
     if completed.returncode != 0:
         diagnostic = (completed.stderr or completed.stdout)[-800:]
         raise SecondPassError(

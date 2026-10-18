@@ -210,6 +210,7 @@ def main() -> int:
                         help="Check exact prompt token budgets without loading model weights or writing artifacts.")
     args = parser.parse_args()
 
+    input_sha256 = SMR.sha256_file(args.input)
     all_source_rows = [
         row for row in SMR.read_jsonl(args.input, required=True)
         if row.get("status") in INPUT_CANDIDATE_STATUSES
@@ -384,6 +385,8 @@ def main() -> int:
         "longest_turn_seconds": round(max(durations), 3) if durations else 0.0,
         "errors": sum(row.get("status") == "LOCAL_CLASSIFIER_ERROR" for row in rows),
     }
+    if SMR.sha256_file(args.input) != input_sha256:
+        raise SystemExit("input manifest changed during classification; output candidates must not be consumed")
     receipt = {
         "schema": "member-longform-full-turn-candidate-local-receipt-v1",
         "status": "PASS_CANDIDATES_ONLY" if not counts["errors"] else "PARTIAL_VISIBLE",
@@ -407,7 +410,7 @@ def main() -> int:
         },
         "model": {"id": MODEL_ID, "revision": MODEL_REVISION, "path": str(args.model.resolve())},
         "classifier_settings": settings,
-        "inputs": {"identity_cues_sha256": SMR.sha256_file(args.input)},
+        "inputs": {"identity_cues_sha256": input_sha256},
         "output": {"path": str(args.output.resolve()), "sha256": SMR.sha256_file(args.output)},
     }
     SMR.write_json_atomic(args.receipt, receipt)

@@ -115,11 +115,23 @@ def main(argv=None) -> int:
         return 0
 
     loser_indices = {index for index, _ in losers}
+    retained_sources = {
+        os.path.normcase(str(Path(row["out_wav"]).resolve()))
+        for index, row in enumerate(rows)
+        if index not in loser_indices and row.get("out_wav")
+    }
+    selected_sources = set()
     moves = []
     for _, row in losers:
         source = Path(row.get("out_wav") or "").resolve(strict=True)
         if member_root not in source.parents:
             raise RuntimeError("refusing to move clip outside accepted tree: %s" % source)
+        source_identity = os.path.normcase(str(source))
+        if source_identity in retained_sources:
+            raise RuntimeError("refusing to quarantine a source used by a retained row: %s" % source)
+        if source_identity in selected_sources:
+            raise RuntimeError("duplicate quarantine source: %s" % source)
+        selected_sources.add(source_identity)
         destination = quarantine / source.relative_to(member_root)
         if destination.exists():
             raise RuntimeError("quarantine destination already exists: %s" % destination)

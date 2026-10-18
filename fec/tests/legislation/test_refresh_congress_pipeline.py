@@ -6,6 +6,7 @@ The publication fixtures use the real receipt schemas and hash relationships.
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import os
 from pathlib import Path
@@ -228,7 +229,8 @@ def test_collector_chain_reaches_workbook_before_dashboard():
     names = [step[0] for step in selected]
     assert names.index("calibration") < names.index("discovery") < names.index("admissions")
     assert names.index("admissions") < names.index("repository") < names.index("pipeline")
-    assert dict((name, args) for name, _, args, _ in selected)["admissions"] == ["--limit", "13"]
+    assert dict((name, args) for name, _, args, _ in selected)["admissions"] == [
+        "--limit", "13", "--max-classifier-calls", "48"]
     pipeline_args = next(args for name, _, args, _ in selected if name == "pipeline")
     entry = pipeline_args[pipeline_args.index("--from") + 1]
     tree = ast.parse((pipeline.CODE / "run_pipeline.py").read_text(encoding="utf-8"))
@@ -383,13 +385,24 @@ def media_receipt(root, status="PASS", schema="daily-media-refresh-receipt-v1", 
                                    "completed_at": completed_at or pipeline.now(), "fixture": "fresh media evidence"})
 
 
+def test_daily_admission_defaults_follow_the_2026_10_15_owner_ruling(monkeypatch):
+    assert (pipeline.ADMISSION_KEY_LIMIT, pipeline.ADMISSION_CALL_BUDGET) == (80, 48)
+    assert inspect.signature(pipeline.run).parameters["admission_limit"].default == 80
+    calls = []
+    monkeypatch.setattr(pipeline, "run", lambda **kwargs: calls.append(kwargs) or 0)
+    assert pipeline.main([]) == 0
+    assert calls[0]["admission_limit"] == 80
+    admissions = dict((name, args) for name, _, args, _ in pipeline.steps(calls[0]["admission_limit"]))["admissions"]
+    assert admissions == ["--limit", "80", "--max-classifier-calls", "48"]
+
+
 def test_expanded_chain_collects_all_bills_then_media_then_entire_canonical_chain():
     selected = pipeline.steps(19, include_media=True)
     names = [name for name, _, _, _ in selected]
     assert names == ["calibration", "discovery", "admissions", "votes", "repository", "billstatus", "media", "pipeline"]
     assert selected[-2][1] == "collect/daily_media_refresh.py"
     assert selected[-1][1:3] == ("run_pipeline.py", [])
-    assert selected[2][2] == ["--limit", "19"]
+    assert selected[2][2] == ["--limit", "19", "--max-classifier-calls", "48"]
     # Starting from the first canonical step includes collection intake and all
     # media consumers, instead of skipping to the bill-only roster verifier.
     tree = ast.parse((pipeline.CODE / "run_pipeline.py").read_text(encoding="utf-8"))
@@ -415,10 +428,20 @@ def test_fresh_pass_media_receipt_is_required_and_hash_bound(generation):
     }
 
 
-@pytest.mark.parametrize("failure", ["missing", "partial", "wrong_schema", "stale"])
-def test_media_generation_cannot_be_certified_without_fresh_pass(generation, failure):
+def test_fresh_partial_media_receipt_is_accepted_and_hash_bound(generation):
+    # PARTIAL (budgeted press backlog the next run resumes) is a non-fatal success (DE-020).
+    media_receipt(generation, status="PARTIAL")
+    artifacts = pipeline.validate_publication(generation, 0, include_media=True)
+    assert artifacts[str(MEDIA_RECEIPT).replace("\\", "/")] == {
+        "sha256": pipeline.digest(generation / MEDIA_RECEIPT),
+        "size": (generation / MEDIA_RECEIPT).stat().st_size,
+    }
+
+
+@pytest.mark.parametrize("failure", ["missing", "fail", "running", "wrong_schema", "stale"])
+def test_media_generation_cannot_be_certified_without_a_fresh_pass_or_partial(generation, failure):
     if failure != "missing":
-        media_receipt(generation, status="PARTIAL" if failure == "partial" else "PASS",
+        media_receipt(generation, status={"fail": "FAIL", "running": "RUNNING"}.get(failure, "PASS"),
                       schema="unrelated-pass-receipt" if failure == "wrong_schema" else "daily-media-refresh-receipt-v1")
     if failure == "stale":
         os.utime(generation / MEDIA_RECEIPT, (1, 1))
@@ -490,7 +513,7 @@ def test_expanded_run_echoes_owned_attempt_and_seals_immutable_media_snapshot(tm
     assert pipeline.digest(tmp_path / MEDIA_RECEIPT) != bound_hash
 
 
-@pytest.mark.parametrize("failure", ["exit_failure", "missing", "partial", "wrong_schema", "stale"])
+@pytest.mark.parametrize("failure", ["exit_failure", "missing", "fail", "running", "wrong_schema", "stale"])
 def test_media_failure_blocks_canonical_dashboard_chain(tmp_path, monkeypatch, failure):
     seen = []
 
@@ -500,7 +523,7 @@ def test_media_failure_blocks_canonical_dashboard_chain(tmp_path, monkeypatch, f
         assert script != "run_pipeline.py", "Unverified media must halt before any dashboard writer"
         if script == "daily_media_refresh.py":
             if failure not in ("missing", "exit_failure"):
-                media_receipt(tmp_path, status="PARTIAL" if failure == "partial" else "PASS",
+                media_receipt(tmp_path, status={"fail": "FAIL", "running": "RUNNING"}.get(failure, "PASS"),
                               schema="wrong" if failure == "wrong_schema" else "daily-media-refresh-receipt-v1")
             if failure == "stale":
                 os.utime(tmp_path / MEDIA_RECEIPT, (1, 1))
@@ -639,7 +662,7 @@ def test_cli_smoke_passes_smoke_mode_to_runner(monkeypatch):
     calls = []
     monkeypatch.setattr(pipeline, "run", lambda **kwargs: calls.append(kwargs) or 0)
     assert pipeline.main(["--smoke"]) == 0
-    assert calls == [{"admission_limit": 32, "include_media": False, "smoke": True}]
+    assert calls == [{"admission_limit": 80, "include_media": False, "smoke": True}]
 
 
 def test_smoke_run_records_its_mode_and_never_writes_the_production_receipt(tmp_path, monkeypatch):
@@ -916,9 +939,49 @@ def test_step_events_carry_position_and_media_partials_reach_the_status_row(tmp_
     assert "PARTIAL: press" in completed_media[2]
 
 
+def test_partial_media_receipt_is_a_non_fatal_success_recorded_on_the_run(tmp_path, monkeypatch):
+    write_json(tmp_path, "ranks_python.json", {"rank": {"Member A": 1}})
+    freeze_clocks(monkeypatch)
+    events = []
+    seen = []
+    monkeypatch.setattr(pipeline, "_emit", lambda *args, **kwargs: events.append((args, kwargs)))
+
+    def launch(command, **kwargs):
+        script = Path(command[1]).name
+        seen.append(script)
+        if script == "daily_media_refresh.py":
+            write_json(tmp_path, MEDIA_RECEIPT, {
+                "schema": "daily-media-refresh-receipt-v1", "status": "PARTIAL",
+                "completed_at": pipeline.now(), "partial": True, "partial_sources": ["press"],
+                "press_partial": {"pending_body_urls": 2200, "failed_bodies": 2578,
+                                  "status": "PARTIAL"}})
+        elif script == "run_pipeline.py":
+            install_generation(tmp_path)
+        return CompletedProcess()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    assert pipeline.run(tmp_path, include_media=True) == 0
+    # The canonical chain ran behind the PARTIAL media step: it is not fatal.
+    assert seen[-2:] == ["daily_media_refresh.py", "run_pipeline.py"]
+    receipt = pipeline.read(tmp_path / pipeline.RECEIPT)
+    # The congress run itself stays PASS; the media gap is named beside it.
+    assert receipt["status"] == "PASS"
+    assert receipt["media_status"] == "PARTIAL" and receipt["partial_sources"] == ["press"]
+    assert pipeline.read(Path(receipt["run_dir"]) / "receipt.json")["media_status"] == "PARTIAL"
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["media_status"] == "PARTIAL" and status["partial_sources"] == ["press"]
+    # The PARTIAL receipt is the exact generation bound into the immutable run directory.
+    immutable = Path(receipt["run_dir"]) / "daily_media_refresh_receipt.json"
+    assert pipeline.digest(immutable) == receipt["artifacts"][MEDIA_RECEIPT.as_posix()]["sha256"]
+    run_done = next(args for args, kwargs in events if args[:2] == ("refresh.run", "completed"))
+    assert run_done[2] == "Congress collection, Excel and dashboard verified - media PARTIAL: press"
+
+
 def test_a_clean_media_receipt_adds_no_partial_noise(tmp_path, monkeypatch):
     write_json(tmp_path, "ranks_python.json", {"rank": {"Member A": 1}})
     freeze_clocks(monkeypatch)
+    events = []
+    monkeypatch.setattr(pipeline, "_emit", lambda *args, **kwargs: events.append((args, kwargs)))
 
     def launch(command, **kwargs):
         script = Path(command[1]).name
@@ -930,9 +993,12 @@ def test_a_clean_media_receipt_adds_no_partial_noise(tmp_path, monkeypatch):
 
     monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
     assert pipeline.run(tmp_path, include_media=True) == 0
-    media_row = next(row for row in pipeline.read(tmp_path / pipeline.RECEIPT)["steps"]
-                     if row["step"] == "media")
+    receipt = pipeline.read(tmp_path / pipeline.RECEIPT)
+    media_row = next(row for row in receipt["steps"] if row["step"] == "media")
     assert "partial_sources" not in media_row and "press_partial" not in media_row
+    assert receipt["media_status"] == "PASS" and receipt["partial_sources"] == []
+    run_done = next(args for args, kwargs in events if args[:2] == ("refresh.run", "completed"))
+    assert run_done[2] == "Congress collection, Excel and dashboard verified"
 
 
 def test_w1_failure_before_rebind_restores_repository_and_receipt_byte_exact(tmp_path, monkeypatch):
@@ -961,3 +1027,110 @@ def test_w1_failure_before_rebind_restores_repository_and_receipt_byte_exact(tmp
     receipt = pipeline.read(tmp_path / pipeline.STATUS)
     assert receipt["rollback"] == "restored"
     assert receipt["rollback_membership_load"] == "PASS"
+
+
+# --- Status writes are telemetry: a denied rename must not cost a run ---------
+# 2026-10: PermissionError WinError 5 renaming congress_pipeline_status.json.<pid>.tmp
+# from the child-wait heartbeat killed 2 of the last 5 daily runs. Only the status
+# marker is best-effort; receipts and artifacts keep raising.
+
+
+class HeartbeatProcess(CompletedProcess):
+    """Pending until its first 15 s wait times out (one heartbeat write), then exits."""
+
+    def __init__(self, returncode=0):
+        super().__init__(returncode)
+        self.beats = 0
+
+    def poll(self):
+        return self.returncode if self.beats else None
+
+    def wait(self, timeout=None):
+        self.beats += 1
+        raise subprocess.TimeoutExpired("fixture", timeout)
+
+
+def deny_rename(monkeypatch, target_name, statuses):
+    """Refuse the rename onto target_name while the document's status is in statuses."""
+    real = pipeline.replace_atomic
+    refused = []
+
+    def replace(scratch, path, **kwargs):
+        document = json.loads(Path(scratch).read_text(encoding="utf-8"))
+        if Path(path).name == target_name and document.get("status") in statuses:
+            refused.append(document)
+            os.unlink(scratch)  # what the real replace_atomic does on its final failure
+            raise PermissionError(13, "Access is denied", str(path))
+        return real(scratch, path, **kwargs)
+
+    monkeypatch.setattr(pipeline, "replace_atomic", replace)
+    return refused
+
+
+def heartbeat_run(root, monkeypatch):
+    write_json(root, "ranks_python.json", {"rank": {"Member A": 1}})
+    monkeypatch.setattr(pipeline, "terminate_tree",
+                        lambda child: pytest.fail("a status write must never cost the child its life"))
+
+    def launch(command, **kwargs):
+        script = Path(command[1]).name
+        if script == "run_pipeline.py":
+            install_generation(root)
+        return HeartbeatProcess() if script == "calibration_guard.py" else CompletedProcess()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    return pipeline.run(root)
+
+
+def test_denied_heartbeat_write_does_not_kill_the_run_or_change_its_exit_code(tmp_path, monkeypatch):
+    clean = heartbeat_run(tmp_path / "clean", monkeypatch)
+    refused = deny_rename(monkeypatch, pipeline.STATUS.name, {"RUNNING"})
+    faulty = heartbeat_run(tmp_path / "faulty", monkeypatch)
+    assert clean == faulty == 0
+    # The in-loop heartbeat itself (the only write that carries child_pid) was refused.
+    assert any(document.get("child_pid") for document in refused)
+    root = tmp_path / "faulty"
+    receipt = pipeline.read(root / pipeline.RECEIPT)
+    baseline = pipeline.read(tmp_path / "clean" / pipeline.RECEIPT)
+    assert receipt["status"] == baseline["status"] == "PASS"
+    assert receipt["rank_changes"] == baseline["rank_changes"]
+    assert [r["returncode"] for r in receipt["steps"]] == [r["returncode"] for r in baseline["steps"]]
+    assert pipeline.read(root / pipeline.STATUS)["status"] == "PASS"  # the next write retried naturally
+    log = (root / pipeline.LIVE_LOG).read_text(encoding="utf-8")
+    assert "WRITE_FAILED" in log and "Access is denied" in log
+    assert not (root / ".pipeline_run.lock").exists()
+
+
+def test_terminal_pass_marker_is_retried_once_and_a_denial_keeps_the_exit_code(tmp_path, monkeypatch):
+    refused = deny_rename(monkeypatch, pipeline.STATUS.name, {"PASS"})
+    assert heartbeat_run(tmp_path, monkeypatch) == 0
+    assert len(refused) == 2  # one attempt plus the single retry, then the marker is abandoned
+    receipt = pipeline.read(tmp_path / pipeline.RECEIPT)
+    assert receipt["status"] == "PASS"
+    # The daily wrapper reads this immutable receipt, never the status snapshot.
+    assert pipeline.read(Path(receipt["run_dir"]) / "receipt.json") == receipt
+    log = (tmp_path / pipeline.LIVE_LOG).read_text(encoding="utf-8")
+    assert "attempt 1 of 2" in log and "attempt 2 of 2" in log
+    assert not (tmp_path / ".pipeline_run.lock").exists()
+
+
+def test_terminal_failed_marker_denial_keeps_exit_one_and_the_failed_receipt(tmp_path, monkeypatch):
+    refused = deny_rename(monkeypatch, pipeline.STATUS.name, {"FAILED"})
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda command, **kwargs: CompletedProcess(4))
+    assert pipeline.run(tmp_path) == 1  # before the fix this raised PermissionError out of run()
+    assert len(refused) == 2
+    run_dir, = (tmp_path / "audits/congress_pipeline").iterdir()
+    receipt = pipeline.read(run_dir / "receipt.json")
+    assert receipt["status"] == "FAILED" and "exit 4" in receipt["error"]
+    assert not (tmp_path / pipeline.RECEIPT).exists()
+    assert not (tmp_path / ".pipeline_run.lock").exists()
+
+
+def test_a_denied_receipt_write_is_still_fatal(tmp_path, monkeypatch):
+    refused = deny_rename(monkeypatch, "receipt.json", {"PASS"})
+    assert heartbeat_run(tmp_path, monkeypatch) == 1
+    assert refused  # the run-dir receipt is evidence, not telemetry
+    run_dir, = (tmp_path / "audits/congress_pipeline").iterdir()
+    receipt = pipeline.read(run_dir / "receipt.json")
+    assert receipt["status"] == "FAILED" and "PermissionError" in receipt["error"]
+    assert not (tmp_path / pipeline.RECEIPT).exists()

@@ -8,6 +8,13 @@ CHAIN entry, which is not something a unit test may trigger. The pure helpers
 extracted by ast and exec'd into a namespace that holds only ``os`` and ``json`` --
 that is the entire surface they may use.
 
+Self-healing phase 2 (Paul 2026-10-15) widened TOLERANT_STEPS from the one descriptive-speech
+step to the display-only steps listed in EXPECTED_TOLERANT below; build_descriptive_speech keeps
+its strict contract (exit code 2 only, PASS receipt bound to the retained bytes) and the others
+are forgiven any non-timeout nonzero exit only if the failed step left its last-good artifact(s)
+untouched (_tolerance_holds). The end-to-end behaviour of a tolerated step is exercised against
+the real run_pipeline.main in tests/infra/test_chain_transaction.py.
+
 Runs under pytest (plain functions, ``tmp_path`` supplied positionally, no
 monkeypatch).
 """
@@ -79,9 +86,32 @@ def _call_site_is_guarded(source: str, call_text: str) -> None:
 
 # ---------------------------------------------------------------- (i) TOLERANT_STEPS
 
-def test_tolerant_steps_is_exactly_build_descriptive_speech():
+EXPECTED_TOLERANT = {
+    "build_descriptive_speech.py",
+    "build_member_longform_turn_features.py",
+    "build_member_narrative_ledger.py",
+    "regenerate_member_profiles.py",
+    "personal_texture_layer.py",
+    "communication_style.py",
+    "make_lobby_interactions_html.py",
+    "make_email_package.py",
+}
+# Rank-moving, honors, allocation, publication and verifier steps: never tolerated (they fail closed and now roll back).
+FAIL_CLOSED = {
+    "calibration_guard.py", "apply_fec_money_refresh.py", "audit_collection.py", "receptivity_layer.py",
+    "committee_scores.py", "compute_pillars.py", "build_primacy_surfaces.py", "build_rank_honors.py",
+    "audit_rank_honors.py", "sync_stance_g.py", "honors_workbook.py", "build_electoral_plays.py", "per_topic_flip.py",
+    "per_topic_coalition.py", "lt_priming.py", "budget_frontier.py", "optimize.py", "build_im_allocation.py",
+    "salience_shock.py", "build_dashboard_bundle.py", "make_dashboard_html.py", "make_member_desk.py", "make_combined.py",
+    "sync_live_dashboard_alias.py", "validate_communication_style.py", "validate_guarded_profile_artifacts.py",
+    "audit_source_to_dashboard.py", "audit_full.py",
+}
+
+
+def test_tolerant_steps_is_exactly_the_ratified_display_only_set():
     tolerant = _module_assignment("TOLERANT_STEPS")
-    assert set(tolerant) == {"build_descriptive_speech.py"}, tolerant
+    assert set(tolerant) == EXPECTED_TOLERANT, set(tolerant) ^ EXPECTED_TOLERANT
+    assert not set(tolerant) & FAIL_CLOSED, set(tolerant) & FAIL_CLOSED
 
 
 def test_tolerant_step_is_a_real_chain_entry():
@@ -106,7 +136,7 @@ def test_last_chain_entry_is_audit_full():
 # ---------------------------------------------------------------- (iii) the guard
 
 def test_tolerated_branch_requires_last_good_artifact_and_pass_receipt():
-    """The single line that decides tolerance must AND the step set with BOTH artifact checks."""
+    """The single line that decides tolerance ANDs the step set with the artifact/receipt decision."""
     guard_lines = [
         line for line in _source().splitlines()
         if "tolerated=" in line and "TOLERANT_STEPS" in line
@@ -114,32 +144,34 @@ def test_tolerated_branch_requires_last_good_artifact_and_pass_receipt():
     assert len(guard_lines) == 1, guard_lines
     guard = guard_lines[0]
     assert "script in TOLERANT_STEPS" in guard, guard
-    assert "_last_good_ok(last_good)" in guard, guard
-    assert "_last_good_receipt_ok(last_good_receipt)" in guard, guard
-    # Both paths are the LAST_GOOD / LAST_GOOD_RECEIPT entries for the step, resolved against MB_ROOT.
+    assert "_tolerance_holds(run.returncode,run.timed_out,last_good,last_good_before,last_good_receipt)" in guard, guard
+    # The decision itself still demands every artifact be non-empty and, for a receipt-bound step, a PASS receipt bound to it.
+    decision = _function_source("_tolerance_holds")
+    assert "_last_good_ok(path)" in decision
+    assert "_last_good_receipt_ok(receipt)" in decision
+    assert "_last_good_receipt_binds_artifact(receipt,paths[0])" in decision
+    # Both paths are the LAST_GOOD / LAST_GOOD_RECEIPT entries for the step, resolved against MB_ROOT, and the artifacts
+    # are fingerprinted BEFORE the step runs.
     source = _source()
-    assert "last_good=LAST_GOOD.get(script)" in source
-    assert "last_good=os.path.join(MB_ROOT,last_good)" in source
+    assert "_resolve_last_good(LAST_GOOD.get(script),MB_ROOT) if script in TOLERANT_STEPS else []" in source
     assert "last_good_receipt=LAST_GOOD_RECEIPT.get(script)" in source
     assert "last_good_receipt=os.path.join(MB_ROOT,last_good_receipt)" in source
+    assert source.index("last_good_before=_artifact_signature(last_good)") < source.index("run=run_bounded(")
 
 
-def test_tolerance_guard_requires_exit_code_2_only():
-    """Only the producer's own contract refusal (exit 2) is tolerated; a crash still aborts."""
-    guard_lines = [
-        line for line in _source().splitlines()
-        if "tolerated=" in line and "TOLERANT_STEPS" in line
-    ]
-    assert len(guard_lines) == 1, guard_lines
-    guard = guard_lines[0]
-    assert "run.returncode==2" in guard, guard
-    assert "run.returncode!=0" not in guard, guard
+def test_receipt_bound_step_is_tolerated_for_exit_code_2_only_and_a_frozen_step_never():
+    """build_descriptive_speech: only the producer's own contract refusal (exit 2) is tolerated; a crash still aborts.
+    Every other tolerant step: any nonzero exit EXCEPT a timeout, and only with its artifact(s) provably untouched."""
+    decision = _function_source("_tolerance_holds")
+    assert "returncode==2" in decision and "_last_good_receipt_ok(receipt)" in decision
+    assert "returncode!=0 and not timed_out and _artifact_signature(paths)==before" in decision
     # The comment above TOLERANT_STEPS documents the same contract.
     source = _source()
     comment_end = source.index("TOLERANT_STEPS={")
-    comment = source[max(0, comment_end - 900):comment_end]
+    comment = source[max(0, comment_end - 3000):comment_end]
     assert "exit code 2" in comment, comment
     assert "crash" in comment.lower(), comment
+    assert "non-timeout nonzero exit" in comment, comment
 
 
 def test_tolerated_branch_continues_and_hard_failures_still_return_1():
@@ -150,8 +182,14 @@ def test_tolerated_branch_continues_and_hard_failures_still_return_1():
     body = source[branch:halt]
     assert "_record_tolerated(receipt_path,entry)" in body
     assert "tolerated_steps.append(script)" in body
+    assert "'status':'LAST_GOOD'" in body, "a tolerated step is marked LAST_GOOD in the receipt"
     assert body.rstrip().endswith("continue"), body[-200:]
-    assert "return 1" in source[halt:halt + 400]
+    # Only the terminal verifier is exempt from the rollback; every other hard failure returns 1 with the transaction OPEN.
+    tail = source[halt:halt + 900]
+    assert "if script in _ctx.ROLLBACK_EXEMPT:" in tail and "txn.commit(" in tail
+    assert tail.index("txn.commit(") < tail.index("return 1")
+    assert "ROLLBACK_EXEMPT = ('audit_full.py',)" in (RUN_PIPELINE.parent / "chain_transaction.py").read_text(encoding="utf-8")
+    assert "txn.commit()" in source[halt:], "a completed chain commits its transaction"
 
 
 def test_receipt_is_pruned_once_before_the_first_step_resume_aware():
@@ -199,19 +237,38 @@ def test_tolerated_receipt_path_constant():
     assert "receipt_path=os.path.join(MB_ROOT,TOLERATED_RECEIPT)" in _source()
 
 
-def test_last_good_maps_the_tolerant_step_to_its_artifact():
+def test_last_good_maps_every_tolerant_step_to_its_artifact():
     last_good = _module_assignment("LAST_GOOD")
-    assert last_good == {"build_descriptive_speech.py": "data/speech/speech_descriptive_v1.json"}
     assert set(last_good) == set(_module_assignment("TOLERANT_STEPS"))
+    assert last_good["build_descriptive_speech.py"] == "data/speech/speech_descriptive_v1.json"
+    assert last_good["make_email_package.py"] == (
+        "outputs/email_package/Moneyball_Email_Package.zip",
+        "outputs/email_package/Moneyball_Email_Package_AllInOne.zip")
+    for step, value in last_good.items():
+        paths = [value] if isinstance(value, str) else list(value)
+        assert paths and all(isinstance(p, str) and p and not os.path.isabs(p) for p in paths), (step, value)
 
 
-def test_last_good_receipt_maps_the_tolerant_step_to_the_producers_receipt():
+def test_every_last_good_artifact_is_inside_the_chain_transaction_write_set():
+    """A rolled-back chain restores a tolerated step's artifact only if the before-image covers it."""
+    import sys
+    sys.path.insert(0, str(RUN_PIPELINE.parent))
+    import chain_transaction as ct
+    for step, value in _module_assignment("LAST_GOOD").items():
+        for rel in ([value] if isinstance(value, str) else value):
+            rel = rel.replace("\\", "/")
+            in_root = "/" not in rel and rel.lower().endswith(ct.ROOT_FILE_EXTENSIONS)
+            in_tree = any(rel.startswith(tree + "/") for tree in ct.COPY_TREES)
+            assert in_root or in_tree, (step, rel)
+            assert not ct._excluded(rel, ct.NEVER + ct.TRACK_ONLY), (step, rel)
+
+
+def test_only_the_descriptive_speech_step_is_receipt_bound():
     receipt = _module_assignment("LAST_GOOD_RECEIPT")
     assert receipt == {
         "build_descriptive_speech.py": "data/speech/speech_descriptive_v1.receipt.json"
     }
-    assert set(receipt) == set(_module_assignment("TOLERANT_STEPS"))
-    assert set(receipt) == set(_module_assignment("LAST_GOOD"))
+    assert set(receipt) <= set(_module_assignment("TOLERANT_STEPS"))
 
 
 # ---------------------------------------------------------------- (v) pure helpers
@@ -367,6 +424,65 @@ def test_prune_tolerated_raises_oserror_when_a_directory_squats_on_the_receipt(t
         pass
     else:
         raise AssertionError("expected OSError when a directory squats on the receipt path")
+
+
+def _tolerance_namespace():
+    import hashlib
+    namespace = {"os": os, "json": json, "hashlib": hashlib, "__name__": "_helper_tolerance"}
+    for name in ("_last_good_ok", "_last_good_receipt_ok", "_last_good_receipt_binds_artifact",
+                 "_resolve_last_good", "_artifact_signature", "_tolerance_holds"):
+        exec(compile(_function_source(name), str(RUN_PIPELINE), "exec"), namespace)
+    return namespace
+
+
+def test_resolve_last_good_accepts_a_path_a_tuple_or_nothing(tmp_path):
+    resolve = _tolerance_namespace()["_resolve_last_good"]
+    root = str(tmp_path)
+    assert resolve("a/b.json", root) == [os.path.join(root, "a/b.json")]
+    assert resolve(("a.zip", "b.zip"), root) == [os.path.join(root, "a.zip"), os.path.join(root, "b.zip")]
+    absolute = str(tmp_path / "abs.json")
+    assert resolve(absolute, root) == [absolute]
+    assert resolve(None, root) == [] and resolve((), root) == []
+
+
+def test_non_receipt_step_is_tolerated_only_when_it_left_its_artifacts_untouched(tmp_path):
+    ns = _tolerance_namespace()
+    holds, signature = ns["_tolerance_holds"], ns["_artifact_signature"]
+    one, two = tmp_path / "one.zip", tmp_path / "two.zip"
+    one.write_bytes(b"first")
+    two.write_bytes(b"second")
+    paths = [str(one), str(two)]
+    before = signature(paths)
+    assert holds(1, False, paths, before, None) is True          # a crash that touched nothing
+    assert holds(3, False, paths, before, None) is True          # any nonzero exit
+    assert holds(0, False, paths, before, None) is False         # success is not a failure to forgive
+    assert holds(124, True, paths, before, None) is False        # a frozen step is never forgiven
+    one.write_bytes(b"first, rewritten before the crash")
+    assert holds(1, False, paths, before, None) is False         # touched one artifact -> fail closed
+    before = signature(paths)
+    two.unlink()
+    assert holds(1, False, paths, before, None) is False         # a missing artifact is not last-good
+    assert holds(1, False, [], [], None) is False
+    two.write_bytes(b"")
+    assert holds(1, False, [str(two)], signature([str(two)]), None) is False   # an empty artifact is not last-good
+
+
+def test_receipt_bound_step_keeps_exit_code_2_and_the_bound_receipt(tmp_path):
+    import hashlib
+    ns = _tolerance_namespace()
+    holds = ns["_tolerance_holds"]
+    artifact = tmp_path / "speech.json"
+    artifact.write_text('{"kept": true}', encoding="utf-8")
+    receipt = tmp_path / "speech.receipt.json"
+    receipt.write_text(json.dumps({"status": "PASS", "artifact_sha256": hashlib.sha256(artifact.read_bytes()).hexdigest()}))
+    paths = [str(artifact)]
+    assert holds(2, False, paths, None, str(receipt)) is True
+    assert holds(1, False, paths, None, str(receipt)) is False   # a crash still aborts
+    assert holds(124, True, paths, None, str(receipt)) is False
+    receipt.write_text(json.dumps({"status": "PASS", "artifact_sha256": "0" * 64}))
+    assert holds(2, False, paths, None, str(receipt)) is False   # PASS beside bytes the producer never accepted
+    receipt.write_text(json.dumps({"status": "FAIL"}))
+    assert holds(2, False, paths, None, str(receipt)) is False
 
 
 def test_helpers_use_only_os_and_json():

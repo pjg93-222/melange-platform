@@ -14,6 +14,16 @@ FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 
 from legislation import run_legislation_shadow_recompute as SHADOW  # noqa: E402
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def synthetic_search_registry(tmp_path, monkeypatch):
+    """The real ACU search registry is unpublished source data. The runner only binds its sha256
+    (run_legislation_shadow_recompute.py: sha256_file(REGISTRY)), so a synthetic file exercises the same binding."""
+    registry = tmp_path / "acu_legislation_search_registry.json"
+    registry.write_text('{"synthetic_fixture": true}\n', encoding="utf-8")
+    monkeypatch.setattr(SHADOW, "REGISTRY", registry)
 
 
 def write_json(path: Path, value: object) -> None:
@@ -863,7 +873,7 @@ def test_gate_provenance_separates_measured_from_precondition_gates():
             "rank_drift_within_threshold",
             "cross_run_value_idempotence",
             "cross_run_byte_idempotence",
-            "complete_31_role_output_closure",
+            "complete_baseline_role_output_closure",
         }
         assert enforced == set(gates) - measured
         assert audit["measured_gate_count"] == len(measured)

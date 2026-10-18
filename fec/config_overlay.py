@@ -41,7 +41,10 @@ def merged_rows(filename, collection, identity_fields, data_root=ROOT, code_root
             # his corrections with zero signal; a missing file is fine, a corrupt one is not.
             raise RuntimeError('config overlay source unreadable (refusing to silently drop '
                                'user corrections): %s (%s)' % (path, exc))
-        rows = doc.get(collection, []) if isinstance(doc, dict) else []
+        rows = doc.get(collection, []) if isinstance(doc, dict) else None
+        if not isinstance(rows, list):
+            raise RuntimeError('config overlay source has wrong shape (refusing to silently drop '
+                               'user corrections): %s' % path)
         for row in rows:
             if not isinstance(row, dict):
                 continue

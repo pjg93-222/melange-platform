@@ -49,6 +49,20 @@ def _csv(path, fieldnames, rows):
         writer.writerows(rows)
 
 
+def _network_receipts(directory, counts):
+    """fullscope_receipts.json carrying the network's own per-year activity counts."""
+    with open(
+        os.path.join(directory, "fullscope_receipts.json"), "w", encoding="utf-8"
+    ) as handle:
+        json.dump(
+            {"years": {
+                str(year): {"network": {"activities_parsed": count}}
+                for year, count in counts.items()
+            }},
+            handle,
+        )
+
+
 class PostureRule(unittest.TestCase):
     """The classification itself, independent of any page."""
 
@@ -257,8 +271,10 @@ class LedgerContracts(unittest.TestCase):
                         "n_bills": 3,
                     }],
                 )
+            counts = {year: 10 for year in LI.YEARS}
+            _network_receipts(directory, counts)
             built = {
-                "receipts": {"activities_parsed": {}},
+                "receipts": {"activities_parsed": dict(counts)},
                 # deliberately wrong: 2 bills where the network says 3
                 "dyads": {
                     ("org-1", "M000001", year): {"117:hr:1", "117:hr:2"}
@@ -286,8 +302,10 @@ class LedgerContracts(unittest.TestCase):
                         "n_bills": 2,
                     }],
                 )
+            counts = {year: 10 for year in LI.YEARS}
+            _network_receipts(directory, counts)
             built = {
-                "receipts": {"activities_parsed": {}},
+                "receipts": {"activities_parsed": dict(counts)},
                 "dyads": {
                     ("org-1", "M000001", year): {"117:hr:1", "117:hr:2"}
                     for year in LI.YEARS
@@ -297,6 +315,45 @@ class LedgerContracts(unittest.TestCase):
             self.assertTrue(result["agrees"], result["problems"])
             self.assertEqual(result["dyads_missing"], 0)
             self.assertEqual(result["dyads_extra"], 0)
+
+    def test_activity_count_disagreement_fails_even_when_dyads_match(self):
+        """The activity-count check is half the hard gate: matching dyads with a
+        different number of parsed activities must not report EXACT."""
+        with tempfile.TemporaryDirectory() as directory:
+            paths = {"derived_dir": directory}
+            for year in LI.YEARS:
+                _csv(
+                    os.path.join(
+                        directory, f"our_network_fullscope_{year}_strict.csv"
+                    ),
+                    ["lob_id", "bioguide_id", "year", "n_bills"],
+                    [{
+                        "lob_id": "org-1",
+                        "bioguide_id": "M000001",
+                        "year": year,
+                        "n_bills": 2,
+                    }],
+                )
+            _network_receipts(directory, {year: 10 for year in LI.YEARS})
+            dyads = {
+                ("org-1", "M000001", year): {"117:hr:1", "117:hr:2"}
+                for year in LI.YEARS
+            }
+            wrong = {year: 10 for year in LI.YEARS}
+            wrong[LI.YEARS[0]] = 11
+            result = LI.verify_against_network(
+                paths, {"receipts": {"activities_parsed": wrong}, "dyads": dyads}
+            )
+            self.assertFalse(result["agrees"])
+            self.assertEqual(result["dyads_mismatched"], 0)
+            self.assertEqual(len(result["problems"]), 1)
+            missing = dict(wrong)
+            del missing[LI.YEARS[1]]
+            missing[LI.YEARS[0]] = 10
+            result = LI.verify_against_network(
+                paths, {"receipts": {"activities_parsed": missing}, "dyads": dyads}
+            )
+            self.assertFalse(result["agrees"])
 
 
 class PositionJoin(unittest.TestCase):

@@ -14,6 +14,11 @@ import stat
 from typing import Any
 import uuid
 
+try:
+    from lane_file_io import atomic_write_bytes
+except ImportError:  # pragma: no cover - package import path
+    from fec.lane_file_io import atomic_write_bytes
+
 
 ROOT = Path(__file__).resolve().parents[2]
 BASELINE_ROOT = (
@@ -324,7 +329,7 @@ def build_audit(
         "sync_or_promotion_performed": False,
     }
     pointer_path = out_root / "current.json"
-    pointer_path.write_bytes(pretty_bytes(pointer))
+    atomic_write_bytes(pointer_path, pretty_bytes(pointer))
     return snapshot_dir, manifest, created
 
 

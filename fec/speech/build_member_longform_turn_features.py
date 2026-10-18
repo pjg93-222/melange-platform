@@ -183,7 +183,7 @@ def review_authority(turn: dict, receipt: dict, chain: dict[str, Path], inputs: 
         return "LEGACY_REVIEW_AUTHORITY_UNRESOLVED", ["Legacy status and sparse identity anchors do not independently establish named human review of the whole turn."]
     names = ("selection", "candidates", "continuity", "reviews")
     if not chain and all((receipt.get("input_paths") or {}).get(name) for name in names):
-        chain = {name: Path(receipt["input_paths"][name]) for name in names}
+        chain = {name: Path(to_host(receipt["input_paths"][name])) for name in names}
     if any(name not in chain for name in names):
         return "MODERN_REVIEW_CHAIN_NOT_PROVIDED", ["All four materializer review-chain inputs are required for qualified measurements."]
     data = {}

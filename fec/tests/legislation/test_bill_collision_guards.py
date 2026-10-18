@@ -2,7 +2,6 @@
 """Pure regression fixtures for D3 collision guards and candidate expansion."""
 import ast
 import csv
-import hashlib
 import json
 import os
 import sys
@@ -530,34 +529,66 @@ def test_direction_registry_exact_blank_fallback_and_type_separation():
     assert direction_for(registry, 'H.J.Res.60', 117) == (None, None)
 
 
-def test_legdir_v1_fixed_path_and_legacy_parity():
+def test_legdir_v1_fixed_path_and_strict_switch():
     functions = _builder_direction_functions()
     path_for = functions['direction_registry_path']
     legacy_enabled = functions['legacy_direction_enabled']
-    load_registry = functions['load_direction_registry']
-    direction_for = functions['direction_for']
-    backup = os.path.join(
+    assert path_for(ROOT, True) == os.path.join(
         ROOT, 'backups', 'bill_directions.PRE-LEGFIX3.csv')
-    assert path_for(ROOT, True) == backup
     assert path_for(ROOT, False) == os.path.join(
         ROOT, 'data', 'legislation', 'bill_directions.csv')
     assert legacy_enabled({'LEGDIR_V1': '1'}) is True
-    assert legacy_enabled({'LEGDIR_V1': 'true'}) is False
+    for value in ('true', 'True', 'yes', '0', '', ' 1', '1 ', 1, True):
+        assert legacy_enabled({'LEGDIR_V1': value}) is False, value
     assert legacy_enabled({}) is False
-    with open(backup, 'rb') as handle:
-        assert hashlib.sha256(handle.read()).hexdigest() == (
-            'b7a1e0f8d331feda30727a9bd247c22e698d10f051d38b4414a7b5a374a3007e')
-    expected = {}
-    with open(backup, encoding='utf-8-sig', newline='') as handle:
-        for row in csv.DictReader(handle):
-            key = BR.bill_key(row['Bill'])
-            if key:
-                expected[key] = row['Direction'].strip()
-    legacy = load_registry(backup, legacy=True)
-    assert legacy == expected
-    assert direction_for(
-        legacy, 'H.R.59', 119, legacy=True) == (
-            expected[BR.bill_key('H.J.Res.59')], 'legacy-registry')
+
+
+def test_legdir_v1_synthetic_legacy_contract():
+    # 2026-10-02: test the legacy algorithm with explicit synthetic rows, not
+    # an unavailable machine-local archive. Historical byte identity remains
+    # separately gated by audit_legacy_direction_archive.py's fixed SHA-256.
+    functions = _builder_direction_functions()
+    with tempfile.TemporaryDirectory() as directory:
+        path = os.path.join(directory, 'synthetic-directions.csv')
+        with open(path, 'w', encoding='utf-8-sig', newline='') as handle:
+            writer = csv.writer(handle)
+            writer.writerow(['Bill', 'Congress', 'Direction'])
+            writer.writerows([
+                ['H.R.59', '118', '1'],
+                ['H.J.Res.59', '119', ' -1 '],
+                ['S.59', '119', '1'],
+                ['H.R.60', '', '0'],
+                ['not-a-bill', '119', '1'],
+            ])
+        legacy = functions['load_direction_registry'](path, legacy=True)
+    # Deliberately independent expected keys: legacy collapses type/Congress,
+    # retains chamber, trims direction, and the final colliding row wins.
+    assert legacy == {('H', 59): '-1', ('S', 59): '1', ('H', 60): '0'}
+    lookup = functions['direction_for']
+    for bill in ('H.R.59', 'H.J.Res.59'):
+        for congress in (117, 118, 119):
+            assert lookup(legacy, bill, congress, legacy=True) == (
+                '-1', 'legacy-registry')
+    assert lookup(legacy, 'S.59', 119, legacy=True) == ('1', 'legacy-registry')
+    assert lookup(legacy, 'H.R.60', 119, legacy=True) == ('0', 'legacy-registry')
+    assert lookup(legacy, 'H.R.61', 119, legacy=True) == (None, None)
+
+
+def test_legdir_v1_missing_archive_fails_instead_of_default_fallback():
+    functions = _builder_direction_functions()
+    with tempfile.TemporaryDirectory() as directory:
+        # A valid default registry must not rescue a missing legacy archive.
+        current = functions['direction_registry_path'](directory, False)
+        os.makedirs(os.path.dirname(current))
+        with open(current, 'w', encoding='utf-8', newline='') as handle:
+            handle.write('Bill,Congress,Direction\nH.R.59,119,1\n')
+        legacy_path = functions['direction_registry_path'](directory, True)
+        try:
+            functions['load_direction_registry'](legacy_path, legacy=True)
+        except FileNotFoundError as error:
+            assert error.filename == legacy_path
+        else:
+            raise AssertionError('missing legacy archive must fail closed')
 
 
 def test_wiring_conflicts_keep_the_earlier_source():

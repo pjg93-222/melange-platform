@@ -223,7 +223,7 @@ def audit_query_artifact(
         == len(records)
     )
     checks["canonical_keys_unique"] = (
-        None not in canonical_keys
+        all(isinstance(key, str) and bool(key) for key in canonical_keys)
         and len(canonical_keys) == len(set(canonical_keys))
     )
     checks["record_query_binding"] = all(

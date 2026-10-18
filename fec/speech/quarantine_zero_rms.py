@@ -48,7 +48,15 @@ def main(argv=None) -> int:
         )
 
     args.quarantine.mkdir(parents=True, exist_ok=True)
+    rejected_ids = {id(row) for row in rejected}
+    kept = [row for row in rows if id(row) not in rejected_ids]
+    retained_sources = {
+        os.path.normcase(str(Path(row["out_wav"]).resolve()))
+        for row in kept if row.get("out_wav")
+    }
     moves = []
+    source_identities = set()
+    target_identities = set()
     for row in rejected:
         source = Path(row["out_wav"])
         if not source.is_file():
@@ -56,6 +64,16 @@ def main(argv=None) -> int:
         target = args.quarantine / source.name
         if target.exists():
             raise RuntimeError("quarantine target already exists: %s" % target)
+        source_identity = os.path.normcase(str(source.resolve()))
+        target_identity = os.path.normcase(str(target.resolve()))
+        if source_identity in retained_sources:
+            raise RuntimeError("refusing to quarantine a source used by a retained row: %s" % source)
+        if source_identity in source_identities:
+            raise RuntimeError("duplicate quarantine source: %s" % source)
+        if target_identity in target_identities:
+            raise RuntimeError("duplicate quarantine target: %s" % target)
+        source_identities.add(source_identity)
+        target_identities.add(target_identity)
         moves.append((source, target))
 
     backup = args.manifest.with_name(args.manifest.stem + ".pre-zero-rms-20260828.jsonl")
@@ -66,8 +84,6 @@ def main(argv=None) -> int:
     for source, target in moves:
         os.replace(source, target)
 
-    rejected_ids = {id(row) for row in rejected}
-    kept = [row for row in rows if id(row) not in rejected_ids]
     temp = args.manifest.with_name(args.manifest.name + ".part")
     with temp.open("w", encoding="utf-8", newline="\n") as handle:
         for row in kept:

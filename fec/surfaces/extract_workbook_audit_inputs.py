@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import tempfile
 
 import openpyxl
 
@@ -44,11 +45,22 @@ def normalize_columns(rows):
 
 
 def extract(workbook_path):
-    values=openpyxl.load_workbook(workbook_path,read_only=True,data_only=True)
-    raw=list(values['Legislative Score - Raw'].iter_rows(min_row=1,max_row=535,min_col=1,max_col=160,values_only=True))  # 160: CU Tax Status block cols 153-160 added 2026-07-17
-    rank_rows=list(values['Rank & Allocation'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=7,values_only=True))
-    current_norm=list(values['Legislative Score - Normalized'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=160,values_only=True))
-    values.close()
+    # Bind the receipt to the exact parsed bytes, even if Excel replaces the source.
+    # Large workbooks spill to a private temporary file instead of unbounded RAM.
+    digest=hashlib.sha256()
+    with tempfile.SpooledTemporaryFile(max_size=8*1024*1024,mode='w+b') as snapshot:
+        with open(workbook_path,'rb') as handle:
+            for block in iter(lambda:handle.read(1024*1024),b''):
+                digest.update(block)
+                snapshot.write(block)
+        snapshot.seek(0)
+        values=openpyxl.load_workbook(snapshot,read_only=True,data_only=True)
+        try:
+            raw=list(values['Legislative Score - Raw'].iter_rows(min_row=1,max_row=535,min_col=1,max_col=160,values_only=True))  # 160: CU Tax Status block cols 153-160 added 2026-07-17
+            rank_rows=list(values['Rank & Allocation'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=7,values_only=True))
+            current_norm=list(values['Legislative Score - Normalized'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=160,values_only=True))
+        finally:
+            values.close()
     expected=normalize_columns(raw)
     mismatches=0
     for old,new in zip(current_norm,expected[2:]):
@@ -58,7 +70,7 @@ def extract(workbook_path):
     return {
         'schema':'moneyball-workbook-audit-inputs-v1',
         'source_workbook':os.path.basename(workbook_path),
-        'source_workbook_sha256':sha256_file(workbook_path),
+        'source_workbook_sha256':digest.hexdigest(),
         'legacy_normalized_cell_mismatches':mismatches,
         'rank_rows':[[row[0],number(row[3]),row[6]] for row in rank_rows],
         'legislative_raw':[list(row) for row in raw],

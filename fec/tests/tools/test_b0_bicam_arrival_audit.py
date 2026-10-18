@@ -36,7 +36,7 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         self.manifest = self._build_snapshot(self.snapshot, self.manifest_path)
         self.network_bomb = mock.patch.object(
             b0.urllib.request,
-            "urlopen",
+            "build_opener",
             side_effect=AssertionError("network path entered"),
         )
         self.network_bomb.start()
@@ -145,7 +145,7 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         absent = self.directory / "absent-snapshot"
         self.assertEqual(self._quiet_main(["--snapshot-dir", str(absent)]), 0)
         self.assertFalse(absent.exists())
-        self.assertEqual(b0.urllib.request.urlopen.call_count, 0)
+        self.assertEqual(b0.urllib.request.build_opener.call_count, 0)
 
     def test_02_audit_never_reaches_downloader(self) -> None:
         # An empty legfix5 run and discovery file, so the audit still fails at the missing
@@ -174,7 +174,7 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
             ])
         self.assertEqual(code, 2)
         self.assertFalse(absent.exists())
-        self.assertEqual(b0.urllib.request.urlopen.call_count, 0)
+        self.assertEqual(b0.urllib.request.build_opener.call_count, 0)
 
     def test_04_manifest_requires_exact_components_and_mappings(self) -> None:
         value, _ = b0.validate_source_manifest(self.manifest_path)
@@ -502,10 +502,10 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         self.assertIn('if not args.fetch and not args.audit:', source)
         self.assertIn('if args.fetch:', source)
         self.assertIn('os.environ.get("BICAM_FETCH_OK") != "1"', source)
-        self.assertIn("urllib.request.urlopen", source)
+        self.assertIn("urllib.request.build_opener", source)
         fetch_needle = '"--' + 'fetch"'
         self.assertNotIn(fetch_needle, Path(__file__).read_text(encoding="utf-8").split("def test_18", 1)[1])
-        self.assertEqual(b0.urllib.request.urlopen.call_count, 0)
+        self.assertEqual(b0.urllib.request.build_opener.call_count, 0)
 
     def test_19_no_barred_output_or_source_targets(self) -> None:
         source = Path(b0.__file__).read_text(encoding="utf-8").casefold()

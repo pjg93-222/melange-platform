@@ -207,3 +207,24 @@ def test_two_recordings_for_one_member_use_separate_resume_keys(tmp_path, monkey
     key.unlink()
     assert module.main() == 0
     assert calls == []
+
+
+def test_member_filter_preserves_other_members_prior_rows(tmp_path, monkeypatch):
+    source = source_fixture(tmp_path)
+    other = {**source, "member": "Other Member"}
+    input_path, output = tmp_path / "input.jsonl", tmp_path / "out.jsonl"
+    key = tmp_path / "key.txt"
+    key.write_text("fake-test-only-key")
+    input_path.write_text(json.dumps(source) + "\n" + json.dumps(other) + "\n")
+    prior = {**other, "source_input_sha256": module.row_hash(other), "classifier_settings": module.settings(8000, 180),
+             "status": "SCREENED_OUT", "turns": [], "api_requests_attempted": 1}
+    output.write_text(json.dumps(prior) + "\n")
+    monkeypatch.setattr(module, "classify_source", lambda row, k, config, h: {
+        **row, "source_input_sha256": module.row_hash(row), "classifier_settings": config,
+        "status": "SCREENED_OUT", "turns": [], "api_requests_attempted": 1})
+    monkeypatch.setattr("sys.argv", ["classifier", "--input", str(input_path), "--output", str(output),
+                                   "--receipt", str(tmp_path / "receipt.json"), "--key", str(key), "--workers", "1",
+                                   "--member", "Example Member"])
+    assert module.main() == 0
+    members = {json.loads(line)["member"] for line in output.read_text().splitlines()}
+    assert members == {"Example Member", "Other Member"}

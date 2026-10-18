@@ -67,32 +67,28 @@ step, and only that step, as `PARTIAL`: the row is not a failure and it does not
 increment `error_count`. Any other nonzero exit from press, and exit 3 from any
 other step, remain `FAIL`.
 
-An incomplete generation is never handed to the intake gate. The gate itself is
-unchanged: `fec/collect/build_press_engine_feed.py:99-101` refuses any receipt
-whose body backlog is open (`PENDING_BODY_ATTEMPTS`), regardless of
-`require_complete`, and `fec/audit_collection.py:1273-1275` audits press_delta
-for `--scope all` as well as `--scope press`. Rather than feed that gate a run
-it must reject, a PARTIAL press pass **parks** every step that names this run's
-press directory on its command line:
-
-- `press_intake`, `press_feed` and `press_baseline_fold` (the rest of the press
-  lane), and
-- the derived step `all_intake`, which passes the same `--press-delta-root`.
-
-Each is recorded with status `SKIPPED_PARTIAL`, `error_count` 0, and the note
-`press generation incomplete (pending_body_urls=N); intake deferred until a
-complete run`. Every other derived producer still runs; none of
-`extract_cu_hearings.py`, `extract_cu_interviews.py`, `extract_cu_bluesky.py` or
-`build_social_master.py` reads `all_intake`'s output.
+Press never backs up (owner ruling 2026-10-15). Every sealed PARTIAL run goes to the
+intake gate: its fetched bodies are promoted and its pending URLs (the hash-bound
+`press_delta_pending.csv`) are carried forward, so the cumulative feed reports
+`coverage.status` `PARTIAL_CARRIED_PENDING`. The next run retries them FIFO (legacy
+"" ledger rows first, then oldest first sighting); three real attempts mark a URL
+exhausted. A repeated article/member row takes the latest accepted run's values, so
+`recency_weight` stays current, and the baseline fold stays gated by `PRESS_BASELINE_FOLD`.
+Only a PARTIAL whose pending list the gate refuses (malformed or hash mismatch) parks
+`press_intake`, `press_feed`, `press_baseline_fold` and `all_intake` (`SKIPPED_PARTIAL`).
 
 The canonical chain is unaffected. Its own `audit_collection.py` step
 (`fec/run_pipeline.py:52`) passes no `--press-delta-root`, so it discovers a run
 instead, and `discover_run` (`build_press_engine_feed.py:300-307`) skips a
 refused one and audits the last complete press generation.
 
-Because the terminal status stays `PASS` when `error_count` is zero, the receipt
-carries the gap explicitly so a `PASS` can never be read as complete press
-coverage:
+When `error_count` is zero but any source row is `PARTIAL` (excused or not), the
+terminal status is `PARTIAL`, not `PASS`; a skipped smoke row alone does not make it
+partial. `PARTIAL` is a non-fatal success: the helper exits 0, the chain continues
+and the catch-up anchor `daily_media_refresh_success.json` is written (it anchors
+`source_steps` windows only; press uses a fixed `--date-floor` and its own tombstone
+ledger). The receipt carries the gap explicitly so a clean `PASS` can never be read
+as complete press coverage:
 
 - `partial`: true when any source returned partial coverage.
 - `partial_sources`: the names of those sources.
@@ -107,10 +103,13 @@ wrapper copies `partial_sources`, `press_partial` and `parked_steps` onto its ow
 `PARTIAL: press; parked: ...` in its Glass Box completion event.
 
 `daily_refresh.verified_completion` requires the media receipt's `schema` and
-`status: PASS`, its hash binding and its freshness; it does not inspect
+`status: PASS` or `PARTIAL`, its hash binding and its freshness; it does not inspect
 `error_count` and does not require `daily_media_refresh_success.json`. A PARTIAL
 day therefore closes normally and the hourly retry stops, while the deferred
-press bodies are collected by the next run's budget.
+press bodies are collected by the next run's budget. The completion record carries
+`media_status`; when it is `PARTIAL` the attempt and the day are recorded as
+`PARTIAL` (invocation result `PARTIAL`, exit 0) with `success` still set, so a later
+`--trigger retry` returns `ALREADY_COMPLETE` and launches nothing (DE-020).
 
 ## Deferred discovery
 
@@ -166,6 +165,12 @@ and re-decides it. A measure with no published verdict is left unprocessed and
 unsealed - no hold is invented - and is counted in the generation's
 `no_llm_deferred` / `no_llm_deferred_keys`.
 
+Daily admissions run `--limit 80 --max-classifier-calls 48` (2026-10-15 ruling, about
+$108/month); the cap counts real classifier calls only and the generation records
+`classifier_calls` / `max_classifier_calls`. `aborted_reason` `CLASSIFIER_CALL_BUDGET`
+is a normal bounded run (PASS); `CLASSIFIER_QUOTA_EXHAUSTED` is FAIL, checkpoint
+reused on rerun. The classifier child runs with `DISABLE_PROMPT_CACHING=1`.
+
 ## Watching a run
 
 ```powershell
@@ -184,8 +189,9 @@ file prints `(not yet)` instead of throwing.
 Direct X/Truth API collection is explicitly not integrated into the daily
 workbook path. Existing licensed Quorum exports remain inputs; no unattended
 licensed export downloader is configured. Historical discovery candidates are
-not all admitted/scoring bills. Evidence review is bounded at 32 new candidates
-per pass; admitted/tracked bills are refreshed each pass.
+not all admitted/scoring bills. Evidence review is bounded at 80 new candidates
+and 48 paid classifier calls per pass; admitted/tracked bills are refreshed each
+pass.
 
 Run manually from the project directory:
 

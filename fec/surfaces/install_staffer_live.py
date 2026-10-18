@@ -57,6 +57,7 @@ FILES = (
     "fec/surfaces/staffer_routing_evidence.py",
     "fec/surfaces/staffer_person_inventory.py",
     "fec/surfaces/staffer_network_explorer.py",
+    "fec/surfaces/source_capture.py",
     "fec/surfaces/staffer_source_catalog.py",
     "fec/surfaces/staffer_lda_catalog.py",
     "fec/surfaces/staffer_people_graph.py",
@@ -146,25 +147,27 @@ def install(source, target):
         update(target / name, (source / name).read_bytes())
     # Surgical builder edits: source checkout may contain unrelated local changes.
     builder = target / "fec/surfaces/make_dashboard_html.py"
-    content = builder.read_text(encoding="utf-8")
+    content = builder.read_bytes().decode("utf-8")
     if "from surfaces.staffer_live_integration import inject_navigation" not in content:
         old = "    html=_tpl('make_dashboard_html_00.tpl')"
         if content.count(old) != 1:
             raise RuntimeError("Dashboard builder hook location changed; manual review needed")
-        content = content.replace(old, "    from surfaces.staffer_live_integration import inject_navigation\n    html=inject_navigation(_tpl('make_dashboard_html_00.tpl'))")
+        newline = "\r\n" if content[content.index(old) + len(old):].startswith("\r\n") else "\n"
+        content = content.replace(old, "    from surfaces.staffer_live_integration import inject_navigation" + newline + "    html=inject_navigation(_tpl('make_dashboard_html_00.tpl'))")
         update(builder, content.encode("utf-8"))
     builder = target / "fec/surfaces/make_combined.py"
-    content = builder.read_text(encoding="utf-8")
+    content = builder.read_bytes().decode("utf-8")
     if "from surfaces.staffer_live_integration import inject_navigation" not in content:
         old = "out = os.path.join(B, 'Moneyball.html')"
         if content.count(old) != 1:
             raise RuntimeError("Combined builder hook location changed; manual review needed")
-        content = content.replace(old, "from surfaces.staffer_live_integration import inject_navigation\nHTML = inject_navigation(HTML)\n" + old)
+        newline = "\r\n" if content[content.index(old) + len(old):].startswith("\r\n") else "\n"
+        content = content.replace(old, "from surfaces.staffer_live_integration import inject_navigation" + newline + "HTML = inject_navigation(HTML)" + newline + old)
         update(builder, content.encode("utf-8"))
     for name in ("Moneyball.html", "Moneyball Dashboard.html"):
         page = target / name
         if page.is_file():
-            content = page.read_text(encoding="utf-8")
+            content = page.read_bytes().decode("utf-8")
             update(page, inject_navigation(content).encode("utf-8"))
     receipt = {"schema": "melange-staffer-live-install-v1", "installed_at": datetime.now(timezone.utc).isoformat(),
                "source": str(source), "target": str(target), "changes": changes,

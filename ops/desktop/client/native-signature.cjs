@@ -16,8 +16,9 @@ async function verifyWindowsPackage(filename,publisherName){
   const result=await new Promise((resolve,reject)=>{
     const environment={...process.env,PSModulePath:path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','Modules')};
     const child=execFile(executable,['-NoProfile','-NonInteractive','-EncodedCommand',encoded],{env:environment,windowsHide:true,timeout:20000,maxBuffer:32768},(error,stdout,stderr)=>{
-      if(error||stderr){reject(new Error('Windows package signature verification failed.'));return;}
-      try{resolve(JSON.parse(stdout));}catch{reject(new Error('Invalid Windows signature verification result.'));}
+      // No verdict (spawn error, timeout, exit code or stderr) is distinguishable from a refused signature.
+      if(error||stderr){reject(Object.assign(new Error('Windows package signature verification failed.'),{code:'SIGNATURE_CHECK_UNAVAILABLE'}));return;}
+      try{resolve(JSON.parse(stdout));}catch{reject(Object.assign(new Error('Invalid Windows signature verification result.'),{code:'SIGNATURE_CHECK_UNAVAILABLE'}));}
     });
     child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({path:path.resolve(filename)}));
   });

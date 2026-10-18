@@ -309,24 +309,24 @@ def main() -> int:
     key = args.key.read_text(encoding="utf-8").strip()
 
     def classify(row: dict[str, Any]) -> dict[str, Any]:
-        words = read_jsonl(Path(str(row["transcript"])))
-        transcript_text = " ".join(str(item["word"]).strip() for item in words)
         base = {
             "schema": "local-youtube-turn-candidate-v1",
             "member": row["member"],
             "bioguide": row.get("bioguide"),
             "chamber": row.get("chamber"),
             "video_id": row["video_id"],
-            "url": row["url"],
-            "source_wav": row["source_wav"],
-            "source_audio_sha256": row["source_audio_sha256"],
-            "transcript": row["transcript"],
-            "transcript_sha256": row["transcript_sha256"],
+            "url": row.get("url"),
+            "source_wav": row.get("source_wav"),
+            "source_audio_sha256": row.get("source_audio_sha256"),
+            "transcript": row.get("transcript"),
+            "transcript_sha256": row.get("transcript_sha256"),
             "classifier_model": MODEL,
             "classified_at": utc_now(),
             "final_identity_acceptance": False,
         }
         try:
+            words = read_jsonl(Path(str(row["transcript"])))
+            transcript_text = " ".join(str(item["word"]).strip() for item in words)
             response = Anthropic(api_key=key).messages.create(
                 model=MODEL,
                 max_tokens=2400,
@@ -396,7 +396,21 @@ def main() -> int:
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
         futures = {executor.submit(classify, row): row for row in pending}
         for future in concurrent.futures.as_completed(futures):
-            result = future.result()
+            try:
+                result = future.result()
+            except Exception as exc:
+                failed_row = futures[future]
+                result = {
+                    "schema": "local-youtube-turn-candidate-v1",
+                    "member": failed_row.get("member"),
+                    "video_id": failed_row.get("video_id"),
+                    "classifier_model": MODEL,
+                    "classified_at": utc_now(),
+                    "final_identity_acceptance": False,
+                    "status": "CLASSIFIER_ERROR",
+                    "error": f"{type(exc).__name__}: {exc}"[:1000],
+                    "raw_response": "",
+                }
             existing[str(result["video_id"])] = result
             completed += 1
             if completed % 5 == 0 or completed == len(pending):

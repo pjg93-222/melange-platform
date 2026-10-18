@@ -63,7 +63,16 @@ def recalc_copy(workbook, *, expected_sha256, receipt=None, out=None, engine_nam
     for fn in allow_functions:
         flags += ["--allow-function", fn]
     if os.environ.get(LOCAL_ENV) == "1":
-        run([sys.executable, str(HERE / "office_recalc.py"), "--in", str(workbook), "--out", str(out), "--receipt", str(receipt),
+        configured_python = os.environ.get("MELANGE_OFFICE_PYTHON")
+        interpreter = Path(configured_python) if configured_python else Path(sys.executable)
+        if not interpreter.is_absolute() or not interpreter.is_file():
+            raise RuntimeError("MELANGE_OFFICE_PYTHON must name an existing absolute interpreter path")
+        # LibreOffice's private interpreter keeps UNO beside its launcher, outside
+        # the normal Python search path. Add that exact configured directory only.
+        launcher = ([str(interpreter), "-E", "-s", "-c",
+                     "import runpy,sys;sys.path.insert(0,sys.argv.pop(1));runpy.run_path(sys.argv.pop(1),run_name='__main__')",
+                     str(interpreter.parent)] if configured_python else [str(interpreter)])
+        run([*launcher, str(HERE / "office_recalc.py"), "--in", str(workbook), "--out", str(out), "--receipt", str(receipt),
              *flags], check=True)
         return out
     image = os.environ.get(IMAGE_ENV, "")

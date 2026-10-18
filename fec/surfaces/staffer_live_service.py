@@ -1469,6 +1469,11 @@ class LiveService:
                     revision = index['revision']
                     people = index['payload']['people']
                     with self.lock:
+                        if revision != self.revision:
+                            # A refresh won the interval after the people index was captured.
+                            # Defer, rather than joining that population to newer source facts.
+                            raw = json.dumps({'ready': False, 'stage': 'groups_source_revision_changed'}).encode()
+                            return (gzip.compress(raw) if compressed else raw), None
                         nodes = {**self.static.nodes, **self.profile_nodes}
                         facts = getattr(self.router, 'person_facts', None)
                         catalog = self.source_catalog
@@ -1632,7 +1637,7 @@ class LiveService:
             person = node['id']
             for position in node.get('current_positions', []) or []:
                 text = str(position)
-                employer = text.rsplit(' for ', 1)[-1] if ' for ' in text.casefold() else text
+                employer = re.split(r' for ', text, flags=re.I)[-1] if ' for ' in text.casefold() else text
                 key = ('shared_current_employer', normalize(employer))
                 if key[1]:
                     groups[key].add(person)

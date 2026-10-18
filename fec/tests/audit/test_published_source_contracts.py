@@ -94,6 +94,118 @@ def test_cumulative_press_rejects_rolling_intake_mismatch(press):
     assert any('current accepted intake' in error for error in press_source_errors(feed, root, current))
 
 
+@pytest.mark.parametrize('field', ['press_retry_receipt_sha256', 'press_source_sha256'])
+def test_cumulative_press_rejects_conflicting_archived_binding(press, field):
+    root, feed, current = press
+    first = Path(feed['accepted_runs'][0]['collection_intake']['path'])
+    document = json.loads(first.read_text(encoding='utf-8'))
+    if field == 'press_retry_receipt_sha256':
+        document['inputs'][field] = '0' * 64
+    else:
+        document['inputs'][field]['press_delta_scored.csv'] = '0' * 64
+    extra = first.with_name('press_refresh_conflicting.json')
+    extra.write_text(json.dumps(document), encoding='utf-8')
+    assert any('archived acceptance/source bindings differ' in error
+               for error in press_source_errors(feed, root, current))
+
+
+@pytest.mark.parametrize('shape', ['wrong-schema', 'list-document', 'null-document',
+                                  'list-inputs', 'string-inputs', 'missing-root'])
+def test_cumulative_press_rejects_malformed_archived_receipt(press, shape):
+    root, feed, current = press
+    first = Path(feed['accepted_runs'][0]['collection_intake']['path'])
+    document = json.loads(first.read_text(encoding='utf-8'))
+    if shape == 'wrong-schema':
+        document['schema'] = 'unrelated-receipt-v1'
+    elif shape == 'list-document':
+        document = []
+    elif shape == 'null-document':
+        document = None
+    elif shape == 'list-inputs':
+        document['inputs'] = []
+    elif shape == 'string-inputs':
+        document['inputs'] = 'invalid'
+    else:
+        document['inputs'].pop('press_delta_root')
+    extra = first.with_name('press_refresh_malformed.json')
+    extra.write_text(json.dumps(document), encoding='utf-8')
+    assert any('invalid archived acceptance receipt' in error
+               for error in press_source_errors(feed, root, current))
+
+
+def test_cumulative_press_accepts_duplicate_matching_archive_binding(press):
+    root, feed, current = press
+    first = Path(feed['accepted_runs'][0]['collection_intake']['path'])
+    document = json.loads(first.read_text(encoding='utf-8'))
+    document['generated_at'] = '2026-09-03T00:00:00Z'
+    extra = first.with_name('press_refresh_matching.json')
+    extra.write_text(json.dumps(document), encoding='utf-8')
+    assert not press_source_errors(feed, root, current)
+
+
+@pytest.mark.parametrize('shape', ['list', 'null', 'inputs-list', 'root-number', 'root-blank'])
+def test_cumulative_press_rejects_malformed_bound_acceptance_receipt(press, shape):
+    root, feed, current = press
+    run = feed['accepted_runs'][0]
+    path = Path(run['collection_intake']['path'])
+    document = json.loads(path.read_text(encoding='utf-8'))
+    if shape == 'list': document = []
+    elif shape == 'null': document = None
+    elif shape == 'inputs-list': document['inputs'] = ['bad']
+    elif shape == 'root-number': document['inputs']['press_delta_root'] = 7
+    else: document['inputs']['press_delta_root'] = ' '
+    path.write_text(json.dumps(document), encoding='utf-8')
+    run['collection_intake']['sha256'] = file_sha256(path)
+    assert any('invalid acceptance receipt' in value for value in press_source_errors(feed, root, current))
+
+
+@pytest.mark.parametrize('shape', ['feed-list', 'feed-null', 'runs-dict', 'run-null',
+                                  'counts-list', 'contract-list', 'run-path-number',
+                                  'hashes-list', 'binding-list', 'binding-path-number'])
+def test_cumulative_press_rejects_malformed_ledger_shapes(press, shape):
+    root, feed, current = press
+    if shape == 'feed-list': feed = []
+    elif shape == 'feed-null': feed = None
+    elif shape == 'runs-dict': feed['accepted_runs'] = {'bad': 'run'}
+    elif shape == 'run-null': feed['accepted_runs'][0] = None
+    elif shape == 'counts-list': feed['counts'] = ['bad']
+    elif shape == 'contract-list': feed['contract'] = ['bad']
+    elif shape == 'run-path-number': feed['accepted_runs'][0]['source_run'] = 7
+    elif shape == 'hashes-list': feed['accepted_runs'][0]['source_sha256'] = ['bad']
+    elif shape == 'binding-list': feed['accepted_runs'][0]['collection_intake'] = ['bad']
+    else: feed['accepted_runs'][0]['collection_intake']['path'] = 7
+    assert press_source_errors(feed, root, current)
+
+
+@pytest.mark.parametrize('shape', ['list', 'null', 'inputs-list', 'root-number', 'root-blank'])
+def test_cumulative_press_rejects_malformed_current_intake(press, shape):
+    root, feed, current = press
+    if shape == 'list': current = []
+    elif shape == 'null': current = None
+    elif shape == 'inputs-list': current['inputs'] = ['bad']
+    elif shape == 'root-number': current['inputs']['press_delta_root'] = 7
+    else: current['inputs']['press_delta_root'] = ' '
+    assert any('current accepted intake' in value for value in press_source_errors(feed, root, current))
+
+
+@pytest.mark.parametrize('location', ['source', 'receipt', 'current', 'archive', 'binding'])
+def test_cumulative_press_rejects_embedded_nul_paths(press, location):
+    root, feed, current = press
+    broken = 'invalid\x00path'
+    if location == 'source': feed['accepted_runs'][0]['source_run'] = broken
+    elif location == 'current': current['inputs']['press_delta_root'] = broken
+    elif location == 'binding': feed['accepted_runs'][0]['collection_intake']['path'] = broken
+    else:
+        binding = feed['accepted_runs'][0]['collection_intake']
+        path = Path(binding['path'])
+        document = json.loads(path.read_text(encoding='utf-8'))
+        document['inputs']['press_delta_root'] = broken
+        if location == 'archive': path = path.with_name('press_refresh_invalid_path.json')
+        path.write_text(json.dumps(document), encoding='utf-8')
+        if location == 'receipt': binding['sha256'] = file_sha256(path)
+    assert press_source_errors(feed, root, current)
+
+
 def test_vote_audit_requires_fresh_source_dates_and_exact_bytes(tmp_path):
     from datetime import datetime, timezone
     (tmp_path/'data/legislation').mkdir(parents=True)

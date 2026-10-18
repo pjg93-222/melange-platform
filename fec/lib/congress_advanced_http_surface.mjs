@@ -130,8 +130,11 @@ export function parseResultRange(value) {
 
 export function parseCanonicalUrl(rawUrl) {
   const url = new URL(rawUrl);
+  if (url.origin !== "https://www.congress.gov" || url.username || url.password) {
+    throw new Error("Legislation result URL is not an official Congress.gov origin");
+  }
   const match = url.pathname.match(
-    /\/(?:index\.php\/)?(bill|amendment)\/(\d+)(?:st|nd|rd|th)-congress\/([^/]+)\/(\d+)\/?$/i,
+    /^\/(?:index\.php\/)?(bill|amendment)\/(\d+)(?:st|nd|rd|th)-congress\/([^/]+)\/(\d+)\/?$/i,
   );
   if (!match) {
     throw new Error(`Unrecognized Congress.gov legislation URL: ${rawUrl}`);
@@ -185,6 +188,10 @@ export function normalizePageRecords(
       );
     }
     const canonical = parseCanonicalUrl(record.result_url);
+    if (!contract.congresses.map(Number).includes(canonical.congress) ||
+        !contract.legislation_types.includes(canonical.type)) {
+      throw new Error("Legislation result is outside the frozen Congress/type contract");
+    }
     const headingCongress = Number(
       record.heading.match(
         /(?:\u2014|-)\s*(\d+)(?:st|nd|rd|th) Congress/i,
@@ -335,6 +342,18 @@ function pageSnapshotEvaluator({ html, loadedUrl }) {
   };
 }
 
+function isOfficialSearchUrl(url) {
+  return url.origin === "https://www.congress.gov" && !url.username && !url.password &&
+    /^\/(?:index\.php\/)?advanced-search\/legislation\/?$/i.test(url.pathname);
+}
+
+function searchParameters(url) {
+  // Retain duplicate keys and values; order alone has no selection meaning.
+  return JSON.stringify([...url.searchParams].sort(([leftKey, leftValue], [rightKey, rightValue]) =>
+    leftKey < rightKey ? -1 : leftKey > rightKey ? 1 :
+    leftValue < rightValue ? -1 : leftValue > rightValue ? 1 : 0));
+}
+
 function validateLoadedSearchUrl(requestedUrl, loadedUrl, pageNumber) {
   let requested;
   let loaded;
@@ -351,9 +370,9 @@ function validateLoadedSearchUrl(requestedUrl, loadedUrl, pageNumber) {
     };
   }
   return {
-    loaded_search_origin:
-      loaded.origin === "https://www.congress.gov" &&
-      /advanced-search\/legislation/i.test(loaded.pathname),
+    requested_search_origin: isOfficialSearchUrl(requested),
+    loaded_search_origin: isOfficialSearchUrl(loaded),
+    selection_parameters_match: searchParameters(loaded) === searchParameters(requested),
     query_binding_matches:
       loaded.searchParams.get("enterTerms") ===
       requested.searchParams.get("enterTerms"),
@@ -379,6 +398,11 @@ export async function parseAdvancedSearchHttpBody(
     dualTransportRedirectMatch = false,
   },
 ) {
+  const requested = new URL(requestedUrl);
+  const expected = new URL(buildAdvancedSearchPageUrl(entry, contract, pageNumber));
+  if (!isOfficialSearchUrl(requested) || searchParameters(requested) !== searchParameters(expected)) {
+    throw new Error("Requested URL differs from the frozen Advanced Search contract");
+  }
   const snapshot = await page.evaluate(pageSnapshotEvaluator, {
     html,
     loadedUrl,

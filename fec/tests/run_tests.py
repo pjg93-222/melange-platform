@@ -410,6 +410,9 @@ _LANE_MODULES=('test_audio_calibrate','test_audio_identity','test_audio_linear_h
                # process-tree kill, the two measured bounds, and both call sites. Synthetic
                # children only: no producer runs, no lock is taken, no chain event is emitted.
                'test_bounded_subprocess',
+               # Control-command bounds of fec/compute_engine.py (image resolution, container stop/rm) on
+               # the bounded runner, and run_bounded rejecting NaN/infinite timeouts. Mocked: no process starts.
+               'test_compute_control_bounds',
                # The refresh TICK runner (fec/refresh_tick.py + refresh_table + refresh_state),
                # written because fec/weekly_refresh.py is one 49-step run that either finishes
                # or is lost and has not finished since 2026-07-19 on a box that dies about every
@@ -1020,7 +1023,78 @@ _LANE_PYTEST=(
     'test_collection_stream_wiring',
     'test_audit_completion_20260716',
     'test_member_narratives_v2_repair',
-    'test_policy_repairs_20260718')
+    'test_policy_repairs_20260718',
+    # Staffer fixture isolation and native verdict/exit-status fail-closed contract (QME 2026-10-02).
+    'test_staffer_harness_contract',
+    # Stale-import detector controls (QME 2026-10-02).
+    'test_stale_imports_contract',
+    'test_legacy_direction_archive',
+    # 2026-10-15 self-healing P2 (D-212): pipeline failure diagnostics, transactional chain, labelled freshness
+    # degrade, gold-orphan policy.
+    'test_pipeline_failure_diagnostics',
+    'test_chain_transaction',
+    'test_chain_freshness_degrade',
+    'test_gold_orphan_policy',
+    # 2026-10-15 admissions spend controls (D-211): classifier quota stop and per-run call budget.
+    'test_sentinel_classifier_quota',
+    'test_sentinel_classifier_budget',
+    # 2026-10-15 self-healing P1 (D-216): tick runner failure classes, tiered degrade, freshness feed.
+    'test_refresh_degrade',
+    # 2026-10-15 self-healing P4 (D-213): stdlib watchdog over the freshness feed, lease, LIVE age and tick task; toast + alert log.
+    'test_refresh_watchdog',
+    # 2026-10-15 press flow and scoring (D-209, D-210, D-219, D-221): carried-pending promotion, FIFO backlog, ratified Stage 5, stack leak fix.
+    'test_press_audit_scored_partitions',
+    'test_press_feed_stage5',
+    'test_press_refresh_scoring_filters',
+    'test_press_stage5',
+    'test_press_haiku_rater',
+    'test_press_stance_stack_refresh',
+    # 2026-10-15 census follow-up: tracked suites no lane named (collector supervisor fixes, press recovery speed, repair_jsonl, prospective outcome contract).
+    'test_collector_supervisor_fixes',
+    'test_press_recovery_speed',
+    'test_repair_jsonl',
+    'test_outcome_contract',
+    # 2026-10-16 adapters: catchnet rerun, quarantine collision and retained-audio safety (audit hooks armed only during guarded calls).
+    'test_catchnet_rerun',
+    'test_quarantine_collision_safety',
+    'test_retained_audio_safety',
+    'test_surface_byte_preservation',
+    # 2026-10-16 RECONCILE42 (lane/m3-reconcile42) boundary suites.
+    'test_congress_reconciliation_boundaries',
+    'test_lease_and_legacy_review_boundaries',
+    'test_pending_native_reconciliation',
+    'test_reconcile42_full_audit_blocks',
+    'test_reconcile42_manifest_boundaries',
+    'test_reconcile42_mechanical_boundaries',
+    'test_reconcile42_security_boundaries',
+    'test_refresh_hash_refusal',
+    'test_repin_process_identity',
+    'test_snapshot_reconciliation_boundaries',
+    # 2026-10-16 weekly refresh: a deferred discovery is a soft failure, never a gate (fec_root.md:20).
+    'test_weekly_discovery_deferral',
+    # 2026-10-16 completed surface repairs (FEC_SURFACES_REPAIR.md): companions of the receipt-binding,
+    # email-snapshot, surface-gate and workbook/observability source repairs. Synthetic fixtures; each
+    # ran green alone on the composed source and wrote nothing into the tree.
+    'test_graph_snapshot_binding','test_email_snapshot_binding','test_surface_gate_regressions',
+    'test_observability_snapshot',
+    # 2026-10-16 defensive input repairs (G2): non-object cached handoff re-extracts; missing page-data names the page.
+    'test_surface_input_refusals',
+    # 2026-10-16 completed audit repairs (G4; recovery/fec-*-20261015 receipts): artifact gaps, payload currentness,
+    # pre-culling reporting, stale-import AST, tier-boundary status, recursive scanners/walk errors, and the
+    # groups binding/provenance companions of the already-published audit_full.py. Synthetic fixtures.
+    'test_artifact_gap_completion','test_payload_currentness_regression','test_pre_culling_inventory_reporting',
+    'test_stale_imports_ast_regression','test_tier_boundary_status','test_recursive_source_scanners',
+    'test_groups_local_binding_runtime','test_groups_provenance_currentness',
+    # 2026-10-16 completed infra repairs (G4b; FEC_ROOT_REPAIR.md:34,41): calibration refusal, workbook plan snapshot.
+    'test_calibration_guard_unavailable','test_workbook_author_plan_snapshot',
+    # 2026-10-16 bill override CSV overflow guard (G4c; fec-debug-findings.md:66-78).
+    'test_bill_override_csv_overflow',
+    # 2026-10-16 say-do first-pass independent-rounding tolerance (G5; fec_legislation.md:97,144).
+    'test_say_do_validate_output_rounding',
+    # 2026-10-16 second-pass child timeout seam (G6b; FEC_SURFACES_REPAIR.md:119-134).
+    'test_second_pass_child_timeout',
+    # 2026-10-16 forecast ledger safe deferral (G9; CODEX_DEBUG_ASSIST.md:27-42). Synthetic tmp_path roots only.
+    'test_forecast_ledger_resolution')
 
 # Node lane (2026-10-11, census follow-up to 7d57fb209): the git-tracked fec/tests/**/test_*.cjs
 # suites, run as `node <file>`. Most use node:test, the rest plain assert with a nonzero exit on
@@ -1036,7 +1110,9 @@ _LANE_NODE=(
     'test_staffer_live_query_committee_names.cjs','test_staffer_live_query_ids.cjs',
     'test_staffer_map_scope.cjs','test_staffer_payroll_map.cjs','test_staffer_reconciled_display.cjs',
     'test_staffer_route_jobs_client.cjs','test_staffer_route_models.cjs',
-    'test_staffer_snapshot_recovery.cjs','test_staffer_unreachable_hint.cjs','test_staffer_zoom.cjs')
+    'test_staffer_snapshot_recovery.cjs','test_staffer_unreachable_hint.cjs','test_staffer_zoom.cjs',
+    # 2026-10-16 completed lobby-selection repair (FEC_SURFACES_REPAIR.md): node:test, synthetic, no server.
+    'test_lobby_sector_state.cjs')
 _node=__import__('shutil').which('node')
 
 # Of the 20 originally held, 18 are now registered: eight via the PYTHONPATH lane, four via

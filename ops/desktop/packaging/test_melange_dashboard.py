@@ -11,7 +11,9 @@ class MelangeDashboardSelectionTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='melange-dashboard-selection-')
         self.addCleanup(self.temp.cleanup)
-        self.base = Path(self.temp.name)
+        # Resolved, as configure_melange_dashboard resolves: a TEMP given as an 8.3 short path (GitHub's Windows
+        # runners use C:\Users\RUNNER~1\...) must not make the long and short spellings of one directory compare unequal.
+        self.base = Path(self.temp.name).resolve()
         self.data = self.base / 'data'
         self.state = self.base / 'profile'
         self.data.mkdir()

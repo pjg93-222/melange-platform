@@ -156,6 +156,8 @@ def accepted_receipts(
         try:
             row = read_object(path)
             validation = row.get("validation") or {}
+            if not isinstance(validation, dict):
+                raise ValueError("accepted receipt validation is not an object")
             artifact_path = Path(str(row.get("html_file") or ""))
             archive = gzip_body_receipt(artifact_path) if artifact_path.is_file() else None
             valid = bool(
@@ -669,6 +671,16 @@ def main() -> int:
             "sync_or_promotion_performed": False,
         },
     }
+    manifest_path = snapshot / "manifest.json"
+    if manifest_path.exists():
+        previous = read_object(manifest_path)
+        previous_time = previous.get("generated_at")
+        comparable_previous = {key: value for key, value in previous.items() if key != "generated_at"}
+        comparable_current = {key: value for key, value in manifest.items() if key != "generated_at"}
+        if (not isinstance(previous_time, str) or not previous_time
+                or comparable_previous != comparable_current):
+            raise ValueError(f"immutable catchnet collision: {manifest_path}")
+        manifest["generated_at"] = previous_time
     manifest_body = json_body(manifest)
     atomic_write(snapshot / "manifest.json", manifest_body, overwrite=False)
     pointer = {

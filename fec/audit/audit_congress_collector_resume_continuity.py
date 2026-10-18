@@ -40,6 +40,14 @@ COLLECTION_BINDING_FIELDS = (
     "page_contract",
     "selected_query_ids",
 )
+# Producer-defined runtime fields; unknown changes are not presumed harmless metadata.
+RUN_METADATA_FIELDS = (
+    "status", "started_at", "completed_at", "failed_at", "error",
+    "automatic_verification_timeout",
+)
+HONORED_PRIOR_STATE_FIELDS = (
+    "observed_at", "consecutive_timeouts", "next_retry_not_before",
+)
 REQUIRED_VALIDATION_FIELDS = (
     "exact_result_total",
     "unique_result_total",
@@ -167,7 +175,7 @@ def _value_differences(
 
 
 def _counts(records: Iterable[dict[str, Any]], field: str) -> dict[str, int]:
-    counts = Counter(str(record.get(field)) for record in records)
+    counts = Counter(str(record.get(field)) for record in records if isinstance(record, dict))
     return dict(sorted(counts.items()))
 
 
@@ -217,12 +225,13 @@ def validate_current_query(
         for record in records
         if isinstance(record, dict)
     ]
-    unique_key_count = len(set(canonical_keys))
+    valid_canonical_keys = [key for key in canonical_keys if isinstance(key, str) and key]
+    unique_key_count = len(set(valid_canonical_keys))
     if len(records) != query.get("result_total"):
         errors.append("record_count_mismatch")
     if unique_key_count != query.get("unique_record_count"):
         errors.append("unique_record_count_mismatch")
-    if len(canonical_keys) != len(records) or None in canonical_keys:
+    if len(valid_canonical_keys) != len(records):
         errors.append("invalid_canonical_key")
     if record_hash != query.get("records_sha256"):
         errors.append("records_sha256_mismatch")
@@ -258,6 +267,9 @@ def validate_current_query(
         page_hash_bindings.append(
             [str(page_ref.get("file")), sha256_file(page_path)]
         )
+        if not isinstance(page, dict):
+            errors.append(f"page_{position}:artifact_is_not_an_object")
+            continue
         page_records = page.get("records")
         if not isinstance(page_records, list):
             errors.append(f"page_{position}:records_is_not_a_list")
@@ -279,7 +291,9 @@ def validate_current_query(
         if page.get("result_range") != page_ref.get("result_range"):
             errors.append(f"page_{position}:result_range_mismatch")
         result_range = page_ref.get("result_range")
-        if not isinstance(result_range, dict):
+        if not isinstance(result_range, dict) or any(
+            type(result_range.get(field)) is not int for field in ("start", "end", "total")
+        ):
             errors.append(f"page_{position}:invalid_result_range")
         else:
             expected = result_range.get("end", 0) - result_range.get(
@@ -507,6 +521,8 @@ def audit_continuity(
     current_manifest_path = current_manifest_path.resolve()
     baseline = load_json(baseline_manifest_path)
     current = load_json(current_manifest_path)
+    if not isinstance(baseline, dict) or not isinstance(current, dict):
+        raise ValueError("baseline and current manifests must be objects")
     baseline_ids, baseline_index, baseline_index_errors = _query_index(
         baseline
     )
@@ -563,16 +579,35 @@ def audit_continuity(
                     "current": current.get(field),
                 }
             )
-    excluded = set(COLLECTION_BINDING_FIELDS) | {"queries"}
-    baseline_run_metadata = {
-        key: value for key, value in baseline.items() if key not in excluded
+    metadata_views: list[dict[str, Any]] = []
+    policy_views: list[dict[str, Any]] = []
+    unknown_views: list[dict[str, Any]] = []
+    excluded = set(COLLECTION_BINDING_FIELDS) | set(RUN_METADATA_FIELDS) | {
+        "queries", "automatic_verification_policy"
     }
-    current_run_metadata = {
-        key: value for key, value in current.items() if key not in excluded
-    }
-    run_metadata_differences = _value_differences(
-        baseline_run_metadata, current_run_metadata
-    )
+    for label, manifest in (("baseline", baseline), ("current", current)):
+        metadata = {key: manifest[key] for key in RUN_METADATA_FIELDS if key in manifest}
+        policy = manifest.get("automatic_verification_policy", {})
+        if not isinstance(policy, dict):
+            continuity_errors.append(f"{label}_automatic_verification_policy_is_not_an_object")
+            policy = {}
+        static_policy = dict(policy)
+        if "honored_prior_state" in static_policy:
+            honored = static_policy.pop("honored_prior_state")
+            if not isinstance(honored, dict) or set(honored) - set(HONORED_PRIOR_STATE_FIELDS):
+                continuity_errors.append(f"{label}_honored_prior_state_has_unknown_shape_or_fields")
+            else:
+                metadata["honored_prior_state"] = honored
+        metadata_views.append(metadata)
+        policy_views.append(static_policy)
+        unknown_views.append({key: value for key, value in manifest.items() if key not in excluded})
+    for prefix, views in (("automatic_verification_policy", policy_views), ("unknown_manifest_field", unknown_views)):
+        for difference in _value_differences(*views):
+            collection_binding_differences.append({
+                "field": f"{prefix}.{difference['path']}",
+                "baseline": difference["baseline"], "current": difference["current"],
+            })
+    run_metadata_differences = _value_differences(*metadata_views)
 
     query_results = [
         validate_current_query(
@@ -609,6 +644,7 @@ def audit_continuity(
         and run_metadata_differences
         and not collection_binding_differences
         and not query_binding_differences
+        and not continuity_errors
     ):
         classification = (
             "run_timestamp_timeout_receipt_rematerialization_only"
@@ -679,7 +715,9 @@ def audit_continuity(
                 "when differences are confined to timestamps, honored "
                 "cooldown state, immutable timeout receipts, and failure "
                 "metadata while every per-query semantic field and collection "
-                "binding remains identical. That is not record drift."
+                "binding remains identical. Static verification safety policy and "
+                "unknown manifest changes are not presumed run metadata. This proves "
+                "retained semantic continuity, not collector completion or feed health."
             ),
         },
         "current_query_artifact_validation": {

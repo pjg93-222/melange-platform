@@ -1751,6 +1751,12 @@ def _fsign(x):
 # ---------- press articles (by bioguide) + bills with roles (by name), from the Blended workbook ----------
 def load_press_and_bills(member_names):
     wb = openpyxl.load_workbook(WB, read_only=True, data_only=True)
+    try:
+        return _read_press_and_bills(member_names, wb)
+    finally:
+        wb.close()
+
+def _read_press_and_bills(member_names, wb):
     resolver = Resolver(member_names, BIO)
     def canon(name, bioguide):
         return resolver.resolve(name, bioguide)
@@ -1850,66 +1856,68 @@ def load_press_and_bills(member_names):
             stack[(sr.get('member') or '', MR.normalized_text(sr.get('text')))] = sr
     if os.path.exists(social_path):
         swb = openpyxl.load_workbook(social_path, read_only=True, data_only=True)
-        sw = swb['Corpus']
-        sh = {h: i for i, h in enumerate(next(sw.iter_rows(min_row=1, max_row=1, values_only=True)))}
-        tierw = {'unanimous': 1.0, 'majority': 0.7, 'review': 0.35}
-        def sv(row, key): return row[sh[key]] if key in sh else None
-        for row in sw.iter_rows(min_row=2, values_only=True):
-            media_audit['social_source_rows'] += 1
-            if str(sv(row, 'verified_handle') or '').strip() != '1':
-                media_audit['social_unverified_handle_excluded'] += 1; continue
-            nm = canon(sv(row, 'member'), None)
-            if not nm:
-                if len(exclusion_samples['social_unknown_member'])<20:
-                    exclusion_samples['social_unknown_member'].append(str(sv(row,'member') or ''))
-                media_audit['social_unknown_member_excluded'] += 1; continue
-            text = str(sv(row, 'text') or '').strip()
-            hit = stack.get((str(sv(row, 'member') or ''), MR.normalized_text(text)))
-            stance = str((hit or {}).get('stack_stance') or sv(row, 'stance') or 'neutral').lower()
-            if stance == 'unrelated':
-                media_audit['social_unrelated_excluded'] += 1
-                by_member = media_audit['social_exclusions_by_member'].setdefault(nm, {'unrelated': 0, 'offtopic': 0})
-                by_member['unrelated'] += 1
-                continue
-            raw_cats = MR.route_raw_categories(text)
-            if not raw_cats:
-                media_audit['social_offtopic_excluded'] += 1
-                by_member = media_audit['social_exclusions_by_member'].setdefault(nm, {'unrelated': 0, 'offtopic': 0})
-                by_member['offtopic'] += 1
-                continue
-            # `seen` maps key -> (platform, date) of the FIRST row under that key, so a
-            # later cross-post can name where the same words were first published.  The
-            # key/seen machinery is unchanged under either dial: it is what the bluesky
-            # footprint dedups against below, and what produces the display note here.
-            # N2 (2026-09-19): the key is MR.crosspost_key, the WHOLE normalised statement,
-            # not MR.normalized_text's first 120 characters -- 445 of 1,434 groups were false
-            # collisions on a shared prefix.  Measured effect on this payload: 298 of the 895
-            # 'also' notes change (289 of them should never have existed).
-            # MR.normalized_text stays the tweet_stance_final join key above, untouched.
-            # CROSSPOST_KEY_CHARS=120 restores the old key; CROSSPOST_DEDUP is unchanged.
-            key = (nm, MR.crosspost_key(text)); duplicate = key in seen
-            plat = str(sv(row, 'platform') or 'social'); pdate = fdate(sv(row, 'date'))
-            if not duplicate: seen[key] = (plat, pdate)
-            weight = tierw.get(str((hit or {}).get('tier') or '').lower(), 0.5)
-            sign = {'support': 1, 'oppose': -1, 'neutral': 0}.get(stance, 0)
-            # Both counters stay censuses of the SAME events they always counted, so the
-            # media audit reads identically under either dial; `scored` is the gate.
-            if duplicate: media_audit['social_duplicate_visible'] += 1
-            elif sign: media_audit['social_scored_unique'] += 1
-            scored, exclusion, also = social_scoring(sign, key[1], duplicate, seen.get(key))
-            art = {
-                'date': pdate, 'dest': '', 'title': text,
-                'url': str(sv(row, 'url') or ''), 'cats': norm_cats(';'.join(raw_cats)),
-                'pol': sign, 'label': graded_label(sign * weight), 'stance': stance,
-                'sconf': weight, 'ssrc': 'stack-social' if hit else 'social-source',
-                'corr': False, 'rel': plat,
-                'source': 'social', 'scored': scored,
-                'exclusion': exclusion}
-            # Emitted only when non-empty, so CROSSPOST_DEDUP=1 writes the original keys.
-            if also: art['also'] = also
-            arts.setdefault(nm, []).append(art)
-            media_audit['social_displayed'] += 1
-        swb.close()
+        try:
+            sw = swb['Corpus']
+            sh = {h: i for i, h in enumerate(next(sw.iter_rows(min_row=1, max_row=1, values_only=True)))}
+            tierw = {'unanimous': 1.0, 'majority': 0.7, 'review': 0.35}
+            def sv(row, key): return row[sh[key]] if key in sh else None
+            for row in sw.iter_rows(min_row=2, values_only=True):
+                media_audit['social_source_rows'] += 1
+                if str(sv(row, 'verified_handle') or '').strip() != '1':
+                    media_audit['social_unverified_handle_excluded'] += 1; continue
+                nm = canon(sv(row, 'member'), None)
+                if not nm:
+                    if len(exclusion_samples['social_unknown_member'])<20:
+                        exclusion_samples['social_unknown_member'].append(str(sv(row,'member') or ''))
+                    media_audit['social_unknown_member_excluded'] += 1; continue
+                text = str(sv(row, 'text') or '').strip()
+                hit = stack.get((str(sv(row, 'member') or ''), MR.normalized_text(text)))
+                stance = str((hit or {}).get('stack_stance') or sv(row, 'stance') or 'neutral').lower()
+                if stance == 'unrelated':
+                    media_audit['social_unrelated_excluded'] += 1
+                    by_member = media_audit['social_exclusions_by_member'].setdefault(nm, {'unrelated': 0, 'offtopic': 0})
+                    by_member['unrelated'] += 1
+                    continue
+                raw_cats = MR.route_raw_categories(text)
+                if not raw_cats:
+                    media_audit['social_offtopic_excluded'] += 1
+                    by_member = media_audit['social_exclusions_by_member'].setdefault(nm, {'unrelated': 0, 'offtopic': 0})
+                    by_member['offtopic'] += 1
+                    continue
+                # `seen` maps key -> (platform, date) of the FIRST row under that key, so a
+                # later cross-post can name where the same words were first published.  The
+                # key/seen machinery is unchanged under either dial: it is what the bluesky
+                # footprint dedups against below, and what produces the display note here.
+                # N2 (2026-09-19): the key is MR.crosspost_key, the WHOLE normalised statement,
+                # not MR.normalized_text's first 120 characters -- 445 of 1,434 groups were false
+                # collisions on a shared prefix.  Measured effect on this payload: 298 of the 895
+                # 'also' notes change (289 of them should never have existed).
+                # MR.normalized_text stays the tweet_stance_final join key above, untouched.
+                # CROSSPOST_KEY_CHARS=120 restores the old key; CROSSPOST_DEDUP is unchanged.
+                key = (nm, MR.crosspost_key(text)); duplicate = key in seen
+                plat = str(sv(row, 'platform') or 'social'); pdate = fdate(sv(row, 'date'))
+                if not duplicate: seen[key] = (plat, pdate)
+                weight = tierw.get(str((hit or {}).get('tier') or '').lower(), 0.5)
+                sign = {'support': 1, 'oppose': -1, 'neutral': 0}.get(stance, 0)
+                # Both counters stay censuses of the SAME events they always counted, so the
+                # media audit reads identically under either dial; `scored` is the gate.
+                if duplicate: media_audit['social_duplicate_visible'] += 1
+                elif sign: media_audit['social_scored_unique'] += 1
+                scored, exclusion, also = social_scoring(sign, key[1], duplicate, seen.get(key))
+                art = {
+                    'date': pdate, 'dest': '', 'title': text,
+                    'url': str(sv(row, 'url') or ''), 'cats': norm_cats(';'.join(raw_cats)),
+                    'pol': sign, 'label': graded_label(sign * weight), 'stance': stance,
+                    'sconf': weight, 'ssrc': 'stack-social' if hit else 'social-source',
+                    'corr': False, 'rel': plat,
+                    'source': 'social', 'scored': scored,
+                    'exclusion': exclusion}
+                # Emitted only when non-empty, so CROSSPOST_DEDUP=1 writes the original keys.
+                if also: art['also'] = also
+                arts.setdefault(nm, []).append(art)
+                media_audit['social_displayed'] += 1
+        finally:
+            swb.close()
     # --- media footprint: interviews + hearings + bluesky (user-directed 2026-07-16: include them in
     # the per-member Press & social media section). DISPLAY-ONLY appearance/post records read from
     # social_media.db; no CU stance is manufactured for them (stance labels are the user's domain) —
@@ -2078,126 +2086,128 @@ def load_press_and_bills(member_names):
                 item['snip'] = grade['snip']
             return item
         fcon = sqlite3.connect(os.path.join(B, 'social_media.db'), timeout=60)
-        # built here (not above) because pinning a passage to its package reads the speeches table
-        IV_GRADE, HR_GRADE = {}, {}
-        if STANCE_ON:
-            IV_GRADE, _ivdrop = _grade_index('data/stance/interview_stance_final.csv', 'data/stance/interviews_cu.csv',
-                                             'INTERVIEW', fcon)
-            HR_GRADE, _hrdrop = _grade_index('data/stance/hearing_stance_final.csv', 'data/stance/hearings_cu.csv',
-                                             'CHRG', fcon)
-            # every drop path is persisted, not just printed - a regression in the pairing or the
-            # package probe must leave a trace in the integrity report, not only in scrollback
-            media_audit.update({'interview_graded_keys': len(IV_GRADE),
-                                'hearing_graded_keys': len(HR_GRADE)})
-            for _tag, _d in (('interview', _ivdrop), ('hearing', _hrdrop)):
-                for _why, _n in _d.items():
-                    media_audit['%s_passages_dropped_%s' % (_tag, _why)] = _n
-        # interviews: one item per broadcast episode (member x date x transcript page)
-        iv_by = {}
-        for mem, dt, pkg, turns, words in fcon.execute(
-                "SELECT member, date, package, COUNT(*), COALESCE(SUM(nwords),0) FROM speeches "
-                "WHERE source='INTERVIEW' GROUP BY member, date, package"):
-            media_audit['interview_episode_rows'] += 1
-            nm = canon(mem, None)
-            if not nm:
-                media_audit['interview_unknown_member_excluded'] += 1; continue
-            net = _net(pkg)
-            iv_by.setdefault(nm, []).append(_apply_grade({
-                'date': fdate(dt),
-                'title': '%s appearance — %d segment%s · %s words' % (
-                    net, turns, '' if turns == 1 else 's', format(int(words or 0), ',')),
-                'url': pkg if str(pkg or '').startswith('http') else '',
-                'rel': net, 'network': net, 'source': 'interview', 'scored': False,
-                'exclusion': 'appearance record'},
-                IV_GRADE, nm, pkg))
-        media_audit['interview_appearances_displayed'] = _fp_add(iv_by, 'iv', 'interview')
-        media_audit['interview_beyond_display_cap'] = (media_audit['interview_episode_rows']
-            - media_audit['interview_unknown_member_excluded'] - media_audit['interview_appearances_displayed'])
-        # hearings: one item per accepted, hash-bound hearing appearance.  Never
-        # query the stale legacy hearing_antag table at display time.
-        hr_by = {}
-        for _appearance in _HEARING_APPEARANCES:
-            mem = _appearance.get('member')
-            dt = _appearance.get('date')
-            pkg = _appearance.get('package')
-            title = _appearance.get('title') or ''
-            turns = int(_appearance.get('turns') or 0)
-            media_audit['hearing_appearance_rows'] += 1
-            nm = canon(mem, None)
-            if not nm:
-                media_audit['hearing_unknown_member_excluded'] += 1; continue
-            ch = 'Senate' if 'shrg' in str(pkg or '') else ('House' if 'hhrg' in str(pkg or '') else 'Joint')
-            hr_by.setdefault(nm, []).append(_apply_grade({
-                'date': fdate(dt), 'title': (title or '').strip() or str(pkg or ''),
-                'url': ('https://www.govinfo.gov/app/details/' + pkg) if pkg else '',
-                'rel': '%s hearing · %d speaking turn%s' % (ch, turns or 0, '' if (turns or 0) == 1 else 's'),
-                'source': 'hearing', 'scored': False, 'exclusion': 'appearance record'},
-                HR_GRADE, nm, pkg))
-        # A graded hearing passage can have NO hearing_antag row to hang on: hearing_antag records
-        # the antagonism pass, not every speaker, so a committee chair (Mike Crapo at Senate Banking
-        # 2019, e.g.) speaks and is graded while owning no antag row. Measured 2026-07-19: 191 of 372
-        # graded hearing keys land this way. Emitting them from the CU side is the only way the
-        # passage reaches the desk; there is no duplicate risk because these packages are precisely
-        # the ones hearing_antag has no row for.
-        if STANCE_ON:
-            media_audit['hearing_graded_rows_added'] = 0
-            _hmeta = dict(fcon.execute("SELECT package, COALESCE(title,'') FROM hearing_meta"))
-            for (_nm, _day, _pkg), _g in HR_GRADE.items():
-                if (id(HR_GRADE), _nm, _day, _pkg) in _grade_consumed:
-                    continue
-                _ch = ('Senate' if 'shrg' in str(_pkg or '') else
-                       'House' if 'hhrg' in str(_pkg or '') else 'Joint')
-                hr_by.setdefault(_nm, []).append({
-                    'date': _day, 'title': (_hmeta.get(_pkg) or '').strip() or str(_pkg or ''),
-                    'url': ('https://www.govinfo.gov/app/details/' + _pkg) if _pkg else '',
-                    'rel': '%s hearing · graded transcript' % _ch,
-                    'source': 'hearing', 'scored': False, 'exclusion': 'appearance record',
-                    'gstance': _g['stance'], 'gtier': _g['tier'], 'gn': _g['n'], 'snip': _g['snip']})
-                _grade_consumed.add((id(HR_GRADE), _nm, _day, _pkg))
-                media_audit['hearing_graded_rows_added'] += 1
-        media_audit['hearing_appearances_displayed'] = _fp_add(hr_by, 'hr', 'hearing')
-        media_audit['hearing_beyond_display_cap'] = (media_audit['hearing_appearance_rows']
-            + media_audit.get('hearing_graded_rows_added', 0)
-            - media_audit['hearing_unknown_member_excluded'] - media_audit['hearing_appearances_displayed'])
-        # bluesky: the member's own posts from USER-VERIFIED handles only (the look-alike rule from
-        # build_social_master stands — unverified-handle posts stay withheld until the user confirms).
-        # CU-relevant scored posts already arrive via Social Master above (deduped here); the
-        # remainder is unscored footprint.
-        _bio2name = {m['bioguide']: m['member'] for m in (L('data/engine/congestion.json') or []) if m.get('bioguide')}
-        handles = {bg: (h or '') for bg, h in fcon.execute('SELECT bioguide, bluesky FROM members')}
-        bs_by = {}
-        for bg, dt, tx, pid in fcon.execute(
-                "SELECT bioguide, created_at, text, post_id FROM posts WHERE platform='bluesky'"):
-            media_audit['bluesky_post_rows'] += 1
-            h = handles.get(bg, '')
-            if not h or h == 'none-found' or 'UNVERIFIED' in h:
-                media_audit['bluesky_unverified_handle_posts_excluded'] += 1; continue
-            nm = canon(_bio2name.get(bg) or '', bg)
-            if not nm:
-                media_audit['bluesky_unknown_member_excluded'] += 1; continue
-            tx = (tx or '').strip()
-            if not tx:
-                media_audit['bluesky_empty_text_excluded'] += 1; continue
-            # `seen` is keyed by MR.crosspost_key (N2), so its only other reader keys the
-            # same way or this lookup silently stops matching.
-            if (nm, MR.crosspost_key(tx)) in seen:
-                media_audit['bluesky_scored_rows_routed_to_social'] += 1; continue
-            bs_by.setdefault(nm, []).append({
-                'date': fdate(dt), 'title': tx,
-                'url': 'https://bsky.app/profile/%s/post/%s' % (h.split()[0], (pid or '').split('/')[-1]),
-                'rel': 'bluesky', 'source': 'bluesky', 'scored': False,
-                'exclusion': 'no CU relevance detected — footprint only'})
-        media_audit['bluesky_footprint_displayed'] = _fp_add(bs_by, 'bs')
-        media_audit['bluesky_beyond_display_cap'] = (media_audit['bluesky_post_rows']
-            - media_audit['bluesky_unverified_handle_posts_excluded'] - media_audit['bluesky_unknown_member_excluded']
-            - media_audit['bluesky_empty_text_excluded'] - media_audit['bluesky_scored_rows_routed_to_social']
-            - media_audit['bluesky_footprint_displayed'])
-        # a pending (unconfirmed) bluesky handle is itself intel — disclose it on the member's section
-        for bg, h in handles.items():
-            nm = _bio2name.get(bg)
-            if nm and 'UNVERIFIED' in (h or ''):
-                media_totals.setdefault(nm, {})['bs_pending'] = 1
-        fcon.close()
+        try:
+            # built here (not above) because pinning a passage to its package reads the speeches table
+            IV_GRADE, HR_GRADE = {}, {}
+            if STANCE_ON:
+                IV_GRADE, _ivdrop = _grade_index('data/stance/interview_stance_final.csv', 'data/stance/interviews_cu.csv',
+                                                 'INTERVIEW', fcon)
+                HR_GRADE, _hrdrop = _grade_index('data/stance/hearing_stance_final.csv', 'data/stance/hearings_cu.csv',
+                                                 'CHRG', fcon)
+                # every drop path is persisted, not just printed - a regression in the pairing or the
+                # package probe must leave a trace in the integrity report, not only in scrollback
+                media_audit.update({'interview_graded_keys': len(IV_GRADE),
+                                    'hearing_graded_keys': len(HR_GRADE)})
+                for _tag, _d in (('interview', _ivdrop), ('hearing', _hrdrop)):
+                    for _why, _n in _d.items():
+                        media_audit['%s_passages_dropped_%s' % (_tag, _why)] = _n
+            # interviews: one item per broadcast episode (member x date x transcript page)
+            iv_by = {}
+            for mem, dt, pkg, turns, words in fcon.execute(
+                    "SELECT member, date, package, COUNT(*), COALESCE(SUM(nwords),0) FROM speeches "
+                    "WHERE source='INTERVIEW' GROUP BY member, date, package"):
+                media_audit['interview_episode_rows'] += 1
+                nm = canon(mem, None)
+                if not nm:
+                    media_audit['interview_unknown_member_excluded'] += 1; continue
+                net = _net(pkg)
+                iv_by.setdefault(nm, []).append(_apply_grade({
+                    'date': fdate(dt),
+                    'title': '%s appearance — %d segment%s · %s words' % (
+                        net, turns, '' if turns == 1 else 's', format(int(words or 0), ',')),
+                    'url': pkg if str(pkg or '').startswith('http') else '',
+                    'rel': net, 'network': net, 'source': 'interview', 'scored': False,
+                    'exclusion': 'appearance record'},
+                    IV_GRADE, nm, pkg))
+            media_audit['interview_appearances_displayed'] = _fp_add(iv_by, 'iv', 'interview')
+            media_audit['interview_beyond_display_cap'] = (media_audit['interview_episode_rows']
+                - media_audit['interview_unknown_member_excluded'] - media_audit['interview_appearances_displayed'])
+            # hearings: one item per accepted, hash-bound hearing appearance.  Never
+            # query the stale legacy hearing_antag table at display time.
+            hr_by = {}
+            for _appearance in _HEARING_APPEARANCES:
+                mem = _appearance.get('member')
+                dt = _appearance.get('date')
+                pkg = _appearance.get('package')
+                title = _appearance.get('title') or ''
+                turns = int(_appearance.get('turns') or 0)
+                media_audit['hearing_appearance_rows'] += 1
+                nm = canon(mem, None)
+                if not nm:
+                    media_audit['hearing_unknown_member_excluded'] += 1; continue
+                ch = 'Senate' if 'shrg' in str(pkg or '') else ('House' if 'hhrg' in str(pkg or '') else 'Joint')
+                hr_by.setdefault(nm, []).append(_apply_grade({
+                    'date': fdate(dt), 'title': (title or '').strip() or str(pkg or ''),
+                    'url': ('https://www.govinfo.gov/app/details/' + pkg) if pkg else '',
+                    'rel': '%s hearing · %d speaking turn%s' % (ch, turns or 0, '' if (turns or 0) == 1 else 's'),
+                    'source': 'hearing', 'scored': False, 'exclusion': 'appearance record'},
+                    HR_GRADE, nm, pkg))
+            # A graded hearing passage can have NO hearing_antag row to hang on: hearing_antag records
+            # the antagonism pass, not every speaker, so a committee chair (Mike Crapo at Senate Banking
+            # 2019, e.g.) speaks and is graded while owning no antag row. Measured 2026-07-19: 191 of 372
+            # graded hearing keys land this way. Emitting them from the CU side is the only way the
+            # passage reaches the desk; there is no duplicate risk because these packages are precisely
+            # the ones hearing_antag has no row for.
+            if STANCE_ON:
+                media_audit['hearing_graded_rows_added'] = 0
+                _hmeta = dict(fcon.execute("SELECT package, COALESCE(title,'') FROM hearing_meta"))
+                for (_nm, _day, _pkg), _g in HR_GRADE.items():
+                    if (id(HR_GRADE), _nm, _day, _pkg) in _grade_consumed:
+                        continue
+                    _ch = ('Senate' if 'shrg' in str(_pkg or '') else
+                           'House' if 'hhrg' in str(_pkg or '') else 'Joint')
+                    hr_by.setdefault(_nm, []).append({
+                        'date': _day, 'title': (_hmeta.get(_pkg) or '').strip() or str(_pkg or ''),
+                        'url': ('https://www.govinfo.gov/app/details/' + _pkg) if _pkg else '',
+                        'rel': '%s hearing · graded transcript' % _ch,
+                        'source': 'hearing', 'scored': False, 'exclusion': 'appearance record',
+                        'gstance': _g['stance'], 'gtier': _g['tier'], 'gn': _g['n'], 'snip': _g['snip']})
+                    _grade_consumed.add((id(HR_GRADE), _nm, _day, _pkg))
+                    media_audit['hearing_graded_rows_added'] += 1
+            media_audit['hearing_appearances_displayed'] = _fp_add(hr_by, 'hr', 'hearing')
+            media_audit['hearing_beyond_display_cap'] = (media_audit['hearing_appearance_rows']
+                + media_audit.get('hearing_graded_rows_added', 0)
+                - media_audit['hearing_unknown_member_excluded'] - media_audit['hearing_appearances_displayed'])
+            # bluesky: the member's own posts from USER-VERIFIED handles only (the look-alike rule from
+            # build_social_master stands — unverified-handle posts stay withheld until the user confirms).
+            # CU-relevant scored posts already arrive via Social Master above (deduped here); the
+            # remainder is unscored footprint.
+            _bio2name = {m['bioguide']: m['member'] for m in (L('data/engine/congestion.json') or []) if m.get('bioguide')}
+            handles = {bg: (h or '') for bg, h in fcon.execute('SELECT bioguide, bluesky FROM members')}
+            bs_by = {}
+            for bg, dt, tx, pid in fcon.execute(
+                    "SELECT bioguide, created_at, text, post_id FROM posts WHERE platform='bluesky'"):
+                media_audit['bluesky_post_rows'] += 1
+                h = handles.get(bg, '')
+                if not h or h == 'none-found' or 'UNVERIFIED' in h:
+                    media_audit['bluesky_unverified_handle_posts_excluded'] += 1; continue
+                nm = canon(_bio2name.get(bg) or '', bg)
+                if not nm:
+                    media_audit['bluesky_unknown_member_excluded'] += 1; continue
+                tx = (tx or '').strip()
+                if not tx:
+                    media_audit['bluesky_empty_text_excluded'] += 1; continue
+                # `seen` is keyed by MR.crosspost_key (N2), so its only other reader keys the
+                # same way or this lookup silently stops matching.
+                if (nm, MR.crosspost_key(tx)) in seen:
+                    media_audit['bluesky_scored_rows_routed_to_social'] += 1; continue
+                bs_by.setdefault(nm, []).append({
+                    'date': fdate(dt), 'title': tx,
+                    'url': 'https://bsky.app/profile/%s/post/%s' % (h.split()[0], (pid or '').split('/')[-1]),
+                    'rel': 'bluesky', 'source': 'bluesky', 'scored': False,
+                    'exclusion': 'no CU relevance detected — footprint only'})
+            media_audit['bluesky_footprint_displayed'] = _fp_add(bs_by, 'bs')
+            media_audit['bluesky_beyond_display_cap'] = (media_audit['bluesky_post_rows']
+                - media_audit['bluesky_unverified_handle_posts_excluded'] - media_audit['bluesky_unknown_member_excluded']
+                - media_audit['bluesky_empty_text_excluded'] - media_audit['bluesky_scored_rows_routed_to_social']
+                - media_audit['bluesky_footprint_displayed'])
+            # a pending (unconfirmed) bluesky handle is itself intel — disclose it on the member's section
+            for bg, h in handles.items():
+                nm = _bio2name.get(bg)
+                if nm and 'UNVERIFIED' in (h or ''):
+                    media_totals.setdefault(nm, {})['bs_pending'] = 1
+        finally:
+            fcon.close()
         print('media footprint: %d interview / %d hearing / %d bluesky items displayed (cap %d/member/source); '
               'beyond-cap %d/%d/%d; %d bluesky posts excluded pending handle verification' % (
               media_audit['interview_appearances_displayed'], media_audit['hearing_appearances_displayed'],
@@ -2508,7 +2518,6 @@ def load_press_and_bills(member_names):
         wbm[nm] = {'rank': r[19], 'score': r[18],                       # col20 Rank, col19 Score
                    'press_n': r[8], 'leg_n': r[15], 'comm_n': r[17], 'demo_n': r[12],   # Press%, Legislative%, Influence%, Demo%
                    'press_raw': r[2], 'leg_raw': r[14], 'comm_raw': r[4], 'demo_raw': r[5]}  # raw inputs
-    wb.close()
     media_audit['bills_displayed_unique'] = sum(len(v) for v in bills.values())
     return arts, bills, cmts, wbm, media_audit, media_totals
 
@@ -3380,13 +3389,13 @@ if __name__ == '__main__':
     print('members: %d' % len(ms))
     inv = [m['invested'] for m in ms if m['invested']]
     print('with FEC CU $: %d  | total $%s  | max $%s (%s)' % (
-        len(inv), f"{sum(inv):,.0f}", f"{max(inv):,.0f}",
-        max(ms, key=lambda m: m['invested'])['name']))
+        len(inv), f"{sum(inv):,.0f}", f"{max(inv, default=0):,.0f}",
+        max(ms, key=lambda m: m['invested'], default={'name': 'none'})['name']))
     print('with electoral play (not none): %d' % sum(1 for m in ms if m['ev_play_code'] != 'n'))
     print('with >=1 cosponsor partner: %d' % sum(1 for m in ms if m['partners']))
     print('total articles: %d  | members with >=1 article: %d  | max: %d' % (
         sum(len(m['articles']) for m in ms), sum(1 for m in ms if m['articles']),
-        max(len(m['articles']) for m in ms)))
+        max((len(m['articles']) for m in ms), default=0)))
     _sd = bundle['integrity']['source_display']
     print('footprint displayed: %d interview / %d hearing / %d bluesky (cap=%s, enabled=%s)' % (
         _sd.get('interview_appearances_displayed', 0), _sd.get('hearing_appearances_displayed', 0),
@@ -3397,13 +3406,14 @@ if __name__ == '__main__':
         sum(1 for m in ms if m['bio'].get('bioguide')),
         sum(1 for m in ms if m['bio'].get('birthday'))))
     # sample: a known CU champion
-    s = next(m for m in ms if m['name'] == 'Adam Schiff')
-    print('\nSAMPLE — Adam Schiff: rank #%s, invested $%s, ev_play=%s ($%s), top adj-rank cats:' % (
-        s['rank'], f"{s['invested']:,.0f}", s['ev_play'], f"{s['ev_value']:,.0f}"))
-    tops = sorted(bundle['cats'], key=lambda c: s['adjrank'].get(c) or 9999)[:3]
-    for c in tops:
-        print('   %-30s score %.3f  adj-rank #%s' % (c, s['radar'][bundle['cats'].index(c)], s['adjrank'][c]))
-    print('   partners:', ', '.join(p['name'] for p in s['partners'][:5]))
+    s = next((m for m in ms if m['name'] == 'Adam Schiff'), None)
+    if s is not None:
+        print('\nSAMPLE — Adam Schiff: rank #%s, invested $%s, ev_play=%s ($%s), top adj-rank cats:' % (
+            s['rank'], f"{s['invested']:,.0f}", s['ev_play'], f"{s['ev_value']:,.0f}"))
+        tops = sorted(bundle['cats'], key=lambda c: s['adjrank'].get(c) or 9999)[:3]
+        for c in tops:
+            print('   %-30s score %.3f  adj-rank #%s' % (c, s['radar'][bundle['cats'].index(c)], s['adjrank'][c]))
+        print('   partners:', ', '.join(p['name'] for p in s['partners'][:5]))
     import io
     _dir = os.environ.get('DESK_OUT') or B   # no-clobber redirect (a directory) for preview/test runs; prod = unset -> live tree
     if '--data' not in sys.argv:

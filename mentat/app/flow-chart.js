@@ -38,6 +38,42 @@
   'use strict';
 
   const layoutApi = () => root.MentatFlowLayout || (typeof require === 'function' ? require('./flow-layout.js') : null);
+
+  // The campaign-spending card and panel (candidate-spending.js) load the first time a candidate is hovered, as
+  // evidence-map.js does: a console that never draws a Flow does not carry them. A node they can speak for is an
+  // individual candidate (not the industry flow's aggregate outcome) in an even cycle.
+  const spendable = (node, cycle) => Boolean(node && node.kind === 'candidate' && !node.outcome && !node.stub
+    && /^[HSP][0-9A-Z]{8}$/.test(String(node.candidate_id || '')) && Number(cycle) % 2 === 0 && Number(cycle) > 1900);
+  let spendLoading = null;
+  function spendModule() {
+    if (root.MentatCandidateSpending) return root.MentatCandidateSpending;
+    if (typeof module !== 'undefined' && typeof require === 'function') {
+      try { return require('./candidate-spending.js'); } catch (error) { return null; }
+    }
+    return null;
+  }
+  function spendReady(doc) {
+    const have = spendModule();
+    if (have) return Promise.resolve(have);
+    if (!spendLoading) spendLoading = new Promise(resolve => {
+      const script = doc.createElement('script');
+      script.src = '/candidate-spending.js';
+      script.onload = () => resolve(spendModule());
+      script.onerror = () => { spendLoading = null; resolve(null); };
+      doc.head.appendChild(script);
+    });
+    return spendLoading;
+  }
+  // The hosted console (Cloudflare Access) refuses /api/candidate-spending (it is not on the hosted allowlist), so there
+  // the card and panel are off entirely: no hover card, no click panel, and a click keeps its Rows behaviour.
+  // app.js sets MentatConsole.hosted from /api/session.
+  const hostedConsole = () => Boolean(root.MentatConsole && root.MentatConsole.hosted);
+  const spendingOn = (options, hosted) => Boolean(options) && options.spending !== false && !(hosted === undefined ? hostedConsole() : hosted);
+  // Once the module is there: `use(api)` only if the chart is still alive. A chart destroyed while the module was loading
+  // (a redraw, the view left) must not get a controller or a listener from the late arrival.
+  function spendLater(doc, alive, use) {
+    return spendReady(doc).then(api => { if (api && alive()) use(api); });
+  }
   const NEUTRAL = '#a39b92';
   const FALLBACK = ['#327a7a', '#57447b', '#8b6984', '#eca91c', '#de8aab', '#7d4b00', '#3cb0a3', '#83333e', '#99973f',
     '#a09eea', '#d88766', '#509ecd'];
@@ -447,6 +483,7 @@
     const join = (...words) => words.filter(Boolean).join(' · ');
     if (expandable(node)) return join(node.group ? 'Click to show more' : 'Click to expand', pin);
     if (node.kind === 'committee' && !node.root && node.committee_id && hints.zoom) return join('Click to zoom in', pin);
+    if (node.kind === 'candidate' && hints.spend && spendable(node, hints.cycle)) return join('Click for spending detail', pin);
     if (node.kind === 'candidate' && hints.rows) return join('Click to open in Rows', pin);
     return node.stub ? '' : pin;
   }
@@ -891,6 +928,42 @@
     tip.setAttribute('role', 'status');
     const explore = () => Boolean(state.options.explore);
 
+    /* ------------------------------------------------------- a candidate's own spending (card and panel) */
+    // The campaign's spending is the campaign's, never this flow's dollars. The card is a section of the tooltip; a click
+    // opens the panel docked beside the chart (state.options.spendingPanel); Shift-click still pins. Both need the cycle
+    // the flow was drawn for, and the module, which loads on the first hover.
+    let spend = null, lastPlace = null;
+    const cycleOf = () => Number(state.payload && state.payload.cycle);
+    // The other candidates of the same office the chart draws: the only campaigns a comparison may read.
+    const peersOf = node => [...new Set(state.context.result.nodes.filter(item => spendable(item, cycleOf())
+      && item.candidate_id !== node.candidate_id && String(item.candidate_id)[0] === String(node.candidate_id)[0])
+      .map(item => item.candidate_id))];
+    let destroyed = false;
+    const spendingEnabled = () => explore() && spendingOn(state.options);      // off on the hosted console, and where a view turns it off
+    function spending() {
+      if (spend || destroyed || !spendingEnabled()) return spend;
+      const api = spendModule();
+      if (!api) return null;
+      spend = api.controller(host, {fetcher: state.options.spendFetcher, panel: state.options.spendingPanel || null, view: state.view,
+        link: url => (root.MentatScope && root.MentatScope.fecLink ? root.MentatScope.fecLink(url) : ''),
+        onRows: state.options.onCandidate, peersOf,
+        // closing the panel returns focus to the node that opened it, if it is still drawn (the controller falls back to the chart)
+        restoreFocus: node => {
+          const group = host.querySelector(`.flow-node[data-node="${CSS.escape(node.id)}"]`);
+          if (group) focusNode(node.id);
+          return Boolean(group);
+        },
+        after: () => { if (!tip.hidden && lastPlace) place(lastPlace.anchor, lastPlace.point); }});
+      return spend;
+    }
+    function openSpend(node) {
+      if (!spendingEnabled() || !state.options.spendingPanel || !spendable(node, cycleOf())) return false;
+      const ready = spending();
+      if (ready) { hide(); return ready.open(node, cycleOf()); }
+      spendLater(doc, () => !destroyed, () => { const made = spending(); if (made) made.open(node, cycleOf()); });
+      return true;
+    }
+
     function draw() {
       const total = options.width || Math.max(640, Math.floor(host.clientWidth || 1100));
       const height = options.height || Math.max(360, Math.floor(host.clientHeight || 520));
@@ -925,6 +998,11 @@
         state.view.pins = state.view.pins.filter(id => find(id));
       }
       applyPins();
+      // The panel the reader had open comes back after a redraw (a resize), for the candidate if it is still drawn.
+      if (state.view.spend && spendingEnabled() && state.options.spendingPanel) {
+        const ready = spending();
+        if (ready) ready.restore(id => state.context.result.nodes.find(item => spendable(item, cycleOf()) && item.candidate_id === id));
+      }
       if (state.context.needs.length) wantFull(state.context.needs);
     }
 
@@ -1240,11 +1318,15 @@
       tip.style.top = `${Math.round(spot.top + scrollY)}px`;
     }
 
-    const hintsOf = () => (explore() ? {zoom: Boolean(state.options.onReroot), rows: Boolean(state.options.onCandidate)} : null);
+    const hintsOf = () => (explore() ? {zoom: Boolean(state.options.onReroot), rows: Boolean(state.options.onCandidate),
+      spend: Boolean(state.options.spendingPanel) && spendingEnabled(), cycle: cycleOf()} : null);
 
     function show(target, anchor, point) {
       const text = describe(target, state.context, state.payload, hintsOf());
       tip.replaceChildren();
+      tip.classList.remove('has-spend');
+      tip.dataset.for = target.node ? target.node.id : (target.link ? target.link.id : '');
+      lastPlace = {anchor, point};
       const title = doc.createElement('strong');
       title.textContent = text.title;
       tip.appendChild(title);
@@ -1252,6 +1334,13 @@
         const row = doc.createElement('span');
         row.textContent = line;
         tip.appendChild(row);
+      }
+      // A candidate: how their campaign spent its money, a section of the tooltip (read lazily, one read per candidate).
+      const candidate = target.node && spendingEnabled() && spendable(target.node, cycleOf()) ? target.node : null;
+      if (candidate) {
+        const ready = spending();
+        if (ready) ready.section(tip, candidate, cycleOf());
+        else spendLater(doc, () => !destroyed && !tip.hidden && tip.dataset.for === candidate.id, () => show(target, anchor, point));
       }
       if (text.url) {
         const link = doc.createElement('a');
@@ -1269,7 +1358,11 @@
       place(anchor, point);
     }
 
-    function hide() { tip.hidden = true; state.shown = null; state.menu = false; }
+    function hide() {
+      tip.hidden = true; state.shown = null; state.menu = false;
+      tip.classList.remove('has-spend');
+      if (spend) spend.cancel();
+    }
 
     function targetOf(element) {
       const group = element.closest('.flow-node');
@@ -1332,6 +1425,7 @@
       if (event && event.shiftKey && explore()) { togglePin(node.id); return; }      // Chart Studio: a plain click
       if (explore() && expandable(node)) { toggleGroup(node.id, true); return; }
       if (zoomable(node)) follow(node.committee_id, node, node);
+      else if (node.kind === 'candidate' && openSpend(node)) { /* the panel is open: Open in Rows is a button in it */ }
       else if (node.kind === 'candidate' && state.options.onCandidate) state.options.onCandidate(node);
       else if (node.bucket === 'other' && state.options.onOther) state.options.onOther(node);
     }
@@ -1455,6 +1549,7 @@
       trace: light,
       describe: target => describe(target, state.context, state.payload, hintsOf()),
       destroy() {
+        destroyed = true;           // a spending module still loading must not build a controller or a listener for this chart
         clearNotice();
         host.removeEventListener('pointerover', over);
         host.removeEventListener('pointerout', out);
@@ -1464,6 +1559,9 @@
         host.removeEventListener('focusout', focusOut);
         host.replaceChildren();
         if (state.options.pinPanel) { state.options.pinPanel.replaceChildren(); state.options.pinPanel.hidden = true; }
+        // The spending panel is emptied with the chart; what the reader had open (view.spend) is kept for the next draw.
+        if (spend) spend.detach();
+        else if (state.options.spendingPanel) { state.options.spendingPanel.replaceChildren(); state.options.spendingPanel.hidden = true; }
       }
     };
   }
@@ -1552,7 +1650,9 @@
     // Lane G1 (board #44): what a hover lights, and where its tooltip goes.
     traced, placeTip,
     // Lane Z (2026-10-15): the zoom path, the strip and minimap, the chain behind a pin, one read per query.
-    trail, crumbs, minimap, chainOf, pools, pinRoute, pinBlocks, read, waiting, loader, MAX_PINS};
+    trail, crumbs, minimap, chainOf, pools, pinRoute, pinBlocks, read, waiting, loader, MAX_PINS,
+    // The campaign-spending card and panel: whether they are on (off on the hosted console), and the late-module guard.
+    spendingOn, spendLater};
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.MentatFlowChart = api;
 })(typeof globalThis === 'undefined' ? this : globalThis);

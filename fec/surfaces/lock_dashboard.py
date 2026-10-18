@@ -71,7 +71,9 @@ def lock_dashboard(source, output, password):
     if not password:
         raise RuntimeError('dashboard password is required; automatic password generation is disabled')
     source = os.path.abspath(source); output = os.path.abspath(output)
-    html = open(source, encoding='utf-8').read().encode('utf-8')
+    with open(source, 'rb') as handle:
+        html = handle.read()
+    html.decode('utf-8')  # retain UTF-8 validation without changing source bytes
     salt = os.urandom(16); iv = os.urandom(12)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, ITERS, dklen=32)
     ct = AESGCM(key).encrypt(iv, html, None)

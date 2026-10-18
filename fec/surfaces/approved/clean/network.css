@@ -46,6 +46,7 @@ html.mlk-v8 #viewpanel .mlk-seg{height:30px}
 html.mlk-v8 #viewpanel .mlk-seg>button{min-height:0;padding:0 12px;font-size:12px}
 html.mlk-v8 #viewpanel #postbadge{font:400 11px/1.3 var(--sans)!important}
 html.mlk-v8 #standingfilter{height:30px;min-width:190px;padding:0 8px;background:var(--ml-dark-panel);color:var(--ml-on-dark);border:1px solid var(--ml-dark-control);border-radius:var(--ml-radius);font:400 12px var(--sans)}
+html.mlk-v8 #standingfilter :is(option,optgroup){background-color:var(--ml-dark-panel);color:var(--ml-on-dark)}
 html.mlk-v8 .mlk-v8-approach{padding:8px 0 10px;border-bottom:1px solid var(--ml-dark-rule);font:400 12px/1.5 var(--sans);color:var(--ml-on-dark-muted);max-width:560px}
 html.mlk-v8 .mlk-v8-approach>summary{cursor:pointer;color:var(--ml-on-dark)}
 html.mlk-v8 .mlk-v8-approach #posthdr{display:none}
@@ -56,15 +57,24 @@ html.mlk-v8 #netwrap{background:var(--ml-graph);border-left:1px solid var(--ml-d
 html.mlk-v8 .mlk-v8-tl{position:absolute;left:16px;top:16px;z-index:6;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:calc(100% - 32px);pointer-events:none}
 html.mlk-v8 .mlk-v8-tl>*{pointer-events:auto}
 html.mlk-v8 .mlk-v8-tl #mdlink{position:static}
-html.mlk-v8 .mlk-v8-card{box-sizing:border-box;width:218px;margin:0;padding:12px 14px 9px;background:var(--ml-dark-panel);border:1px solid var(--ml-dark-rule);border-radius:var(--ml-radius);color:var(--ml-on-dark)}
-html.mlk-v8 #netwrap .mlk-v8-card .mlk-skel-row{height:21px;padding:0;border:0}
+html.mlk-v8 .mlk-v8-card{box-sizing:border-box;width:218px;margin:0;padding:10px 12px 8px;background:var(--ml-dark-panel);border:1px solid var(--ml-dark-rule);border-radius:var(--ml-radius);color:var(--ml-on-dark)}
+html.mlk-v8 #netwrap .mlk-v8-card .mlk-skel-row{height:15px;padding:0;border:0}
 html.mlk-v8 #netwrap .mlk-v8-card .mlk-skel{height:10px;background:var(--ml-hover);animation:none}
-html.mlk-v8 .mlk-v8-card__title{margin:0 0 5px;font:500 12.5px/18px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--ml-on-dark)}
+html.mlk-v8 .mlk-v8-card__title{margin:0 0 4px;font:500 12px/16px var(--sans);letter-spacing:.04em;text-transform:uppercase;color:var(--ml-on-dark)}
 html.mlk-v8 .mlk-v8-card__rows{margin:0;padding:0;list-style:none}
-html.mlk-v8 .mlk-v8-card__row{display:flex;align-items:center;gap:10px;height:21px;font:400 13px/1 var(--sans)}
+html.mlk-v8 .mlk-v8-card__row{display:flex;align-items:center;gap:10px;height:15px;font:400 12px/1 var(--sans)}
 html.mlk-v8 .mlk-v8-card__label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 html.mlk-v8 .mlk-v8-card__n{font-variant-numeric:tabular-nums}
-html.mlk-v8 .mlk-v8-card__foot{margin:10px 0 0;padding-top:8px;border-top:1px solid var(--ml-dark-rule);font:400 11.5px/1.3 var(--sans);color:var(--ml-on-dark-muted)}
+html.mlk-v8 .mlk-v8-card__foot{margin:6px 0 0;padding-top:6px;border-top:1px solid var(--ml-dark-rule);font:400 11.5px/1.3 var(--sans);color:var(--ml-on-dark-muted)}
+/* 10 (2026-09-24): the card's header is a disclosure button (network.js cardHead); folded, only the header stays. While a
+   member is selected the card is the legend strip and shows its rows either way (the strip rules below hide the header). */
+html.mlk-v8 .mlk-v8-card__toggle{display:flex;align-items:flex-start;gap:6px;box-sizing:border-box;width:100%;min-height:0;margin:0;padding:0;border:0;border-radius:2px;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-transform:inherit;text-align:left;cursor:pointer}
+html.mlk-v8 .mlk-v8-card__name{flex:1 1 auto;min-width:0}
+html.mlk-v8 .mlk-v8-card__toggle>svg{flex:none;width:10px;height:10px;margin-top:3px;fill:none;stroke:currentColor;stroke-width:1.6;transition:transform .15s ease-out}
+html.mlk-v8 .mlk-v8-card.is-folded .mlk-v8-card__toggle>svg{transform:rotate(-90deg)}
+html.mlk-v8 .mlk-v8-card.is-folded .mlk-v8-card__title{margin-bottom:0}
+html.mlk-v8 #main:not(.mlk-v9-member) .mlk-v8-card.is-folded>.mlk-v8-card__body{display:none}
+@media (prefers-reduced-motion:reduce){html.mlk-v8 .mlk-v8-card__toggle>svg{transition:none}}
 html.mlk-v8 .mlk-v8-card__state{margin:4px 0 8px;font:400 12px/1.4 var(--sans);color:var(--ml-on-dark-muted)}
 html.mlk-v8 .mlk-v8-card__state--error{color:var(--ml-on-dark)}
 html.mlk-v8 .mlk-v8-tr{position:absolute;right:16px;top:16px;z-index:6;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-width:min(420px,calc(100% - 270px))}
@@ -79,9 +89,24 @@ html.mlk-v8 #network-zoom>button{width:32px;height:32px;min-width:0;padding:0;ba
 html.mlk-v8 #network-zoom>button:hover{background:var(--ml-hover)}
 html.mlk-v8 #network-zoom svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.5}
 html.mlk-v8 .mlk-v8-tr #engchk{position:static;padding:4px 7px;border-color:var(--ml-dark-rule);border-radius:var(--ml-radius);background:var(--ml-graph);color:var(--ml-on-dark-muted);font:400 11px/1 var(--sans)}
+/* 10: the self-check badge shows only a result (network.js watchCheck); the Overall view's dash has nothing to check */
+html.mlk-v8 .mlk-v8-tr #engchk.mlk-v8-idle{display:none}
+/* 10: "Targets panel" reopens the collapsed rail from the canvas's top right */
+html.mlk-v8 .mlk-v8-tr .mlk-v8-railopen:not(#mlk){height:32px;gap:8px;padding:0 12px;background:var(--ml-graph);border-color:var(--ml-dark-control);color:var(--ml-on-dark);font:400 12px/1 var(--sans)}
+html.mlk-v8 .mlk-v8-tr .mlk-v8-railopen:not(#mlk):hover{background:var(--ml-hover)}
+html.mlk-v8 .mlk-v8-tr .mlk-v8-railopen[hidden]:not(#mlk){display:none}
 html.mlk-v8 #right{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:0;background:var(--ml-dark-panel);border-left:1px solid var(--ml-dark-rule);font-size:14px}
 html.mlk-v8 #right .mlk-v8-tabs{display:flex;flex:none;box-sizing:border-box;height:46px;gap:0;padding:0 10px;border-bottom:1px solid var(--ml-dark-rule)}
 html.mlk-v8 #right .mlk-v8-tabs>button{height:46px;margin-bottom:-1px;padding:0 18px;font:400 16px/1 var(--sans);cursor:pointer}
+/* 10: "Hide panel" sits at the right end of the tabs' row (network.js buildRailControls); the tabs keep their layout */
+html.mlk-v8 #right{position:relative}
+html.mlk-v8 #right>.mlk-v8-railbtn:not(#mlk){position:absolute;top:9px;right:10px;z-index:1;height:28px;gap:6px;padding:0 6px;color:var(--ml-on-dark-muted);font:400 12px/1 var(--sans)}
+html.mlk-v8 #right>.mlk-v8-railbtn:not(#mlk):hover{color:var(--ml-on-dark)}
+/* 10: the collapsed rail (network.js setRail): the canvas takes the width; a selected member's panel still shows */
+@media (min-width:701px){
+html.mlk-v8 #main.mlk-v8-railoff:not(.mlk-v9-member){grid-template-columns:minmax(0,1fr)!important}
+html.mlk-v8 #main.mlk-v8-railoff:not(.mlk-v9-member)>#right{display:none!important}
+}
 html.mlk-v8 #right .mlk-v8-pane{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 16px 12px 15px}
 html.mlk-v8 #right .mlk-v8-pane[hidden]{display:none}
 html.mlk-v8 #right .mlk-v8-pane h3:not(#mname){margin:2px 0 8px!important;font:600 11px/1.2 var(--sans);letter-spacing:.06em;text-transform:uppercase;color:var(--ml-on-dark-muted)}
@@ -110,7 +135,7 @@ html.mlk-v8 .mlk-v8-foot__row{display:flex;align-items:baseline;justify-content:
 html.mlk-v8 .mlk-v8-foot__big{font:400 24px/1 var(--serif);color:var(--ml-on-dark)}
 html.mlk-v8 .mlk-v8-foot__win{display:inline-block;margin:8px 0 0;padding:0;border:0;background:none;font:400 13px/1.3 var(--sans);color:var(--ml-on-dark-muted);text-decoration:underline dotted;text-underline-offset:3px;cursor:pointer}
 html.mlk-v8 .mlk-v8-foot__note{margin:8px 0 0;font:400 12px/1.3 var(--sans);color:var(--ml-on-dark-muted)}
-html.mlk-v8 #right.is-member>:is(.mlk-v8-tabs,.mlk-v8-pane,.mlk-v8-foot){display:none}
+html.mlk-v8 #right.is-member>:is(.mlk-v8-tabs,.mlk-v8-railbtn,.mlk-v8-pane,.mlk-v8-foot){display:none}
 html.mlk-v8 #right.is-member>#mpanel{flex:1 1 auto;min-height:0;overflow:auto;margin:0;padding:12px 16px}
 @media(max-width:1180px){html.mlk-v8 #bar{flex-wrap:wrap}}
 @media(max-width:700px){
@@ -124,6 +149,7 @@ html.mlk-v8 #netwrap{height:60vh;min-height:320px;border-left:0}
 html.mlk-v8 #right{max-height:none;overflow:visible;border-left:0;border-top:1px solid var(--ml-dark-rule)}
 html.mlk-v8 .mlk-v8-card{width:190px}
 html.mlk-v8 .mlk-v8-tr{display:none}
+html.mlk-v8 #right .mlk-v8-railbtn:not(#mlk){display:none}
 }
 /* Build 09 (board #26): the member panel. Scoped to html.mlk-v8 like build 08 (engine layout stays if the overlay
    fails). Tokens only; data colours arrive by reference as --mlk-dot / --mlk-v9-tier from network.js. */

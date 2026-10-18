@@ -59,6 +59,7 @@ def iter_sources():
 
 
 def scan(ledger):
+    import ast
     names = sorted(ledger, key=len, reverse=True)
     alt = '|'.join(re.escape(n) for n in names)
     pat_ab = re.compile(
@@ -91,23 +92,55 @@ def scan(ledger):
             end = src.find('\n', pos)
             return 'stale-ok:' in src[pos:end if end != -1 else len(src)]
 
-        for m in pat_ab.finditer(src):
-            if pragma_ok(m.start()):
-                continue
-            name = m.group(1) or m.group(2)
-            findings.append({'file': rel, 'line': line_of(m.start()),
-                             'form': 'bare-import',
-                             'module': name, 'text': m.group(0).strip()[:100]})
-        for m in pat_c.finditer(src):
-            if pragma_ok(m.start()):
-                continue
-            imported = [t.strip().split(' ')[0] for t in m.group(1).split(',')]
-            hit = [t for t in imported if t in ledger]
-            if hit:
+        # 2026-10-15: parse static aliases/multiline imports without executing code.
+        # Keep the legacy tripwire for incomplete or older-dialect source files.
+        try:
+            tree = ast.parse(src, filename=path)
+        except SyntaxError:
+            tree = None
+        if tree is None:
+            for m in pat_ab.finditer(src):
+                if pragma_ok(m.start()):
+                    continue
+                name = m.group(1) or m.group(2)
                 findings.append({'file': rel, 'line': line_of(m.start()),
-                                 'form': 'from-fec',
-                                 'module': ','.join(hit),
-                                 'text': m.group(0).strip()[:100]})
+                                 'form': 'bare-import',
+                                 'module': name, 'text': m.group(0).strip()[:100]})
+            for m in pat_c.finditer(src):
+                if pragma_ok(m.start()):
+                    continue
+                imported = [t.strip().split(' ')[0] for t in m.group(1).split(',')]
+                hit = [t for t in imported if t in ledger]
+                if hit:
+                    findings.append({'file': rel, 'line': line_of(m.start()),
+                                     'form': 'from-fec',
+                                     'module': ','.join(hit),
+                                     'text': m.group(0).strip()[:100]})
+        else:
+            starts = [0] + [m.end() for m in re.finditer('\n', src)]
+            imports = sorted((node for node in ast.walk(tree)
+                              if isinstance(node, (ast.Import, ast.ImportFrom))),
+                             key=lambda node: (node.lineno, node.col_offset))
+            for node in imports:
+                if pragma_ok(starts[node.lineno - 1]):
+                    continue
+                if isinstance(node, ast.Import):
+                    hits = [(alias.name, alias.lineno) for alias in node.names
+                            if alias.name in ledger and not pragma_ok(starts[alias.lineno - 1])]
+                    form = 'bare-import'
+                elif node.level == 0 and node.module in ledger:
+                    hits = [(node.module, node.lineno)]
+                    form = 'bare-import'
+                elif node.level == 0 and node.module == 'fec':
+                    hits = [(alias.name, alias.lineno) for alias in node.names
+                            if alias.name in ledger and not pragma_ok(starts[alias.lineno - 1])]
+                    form = 'from-fec'
+                else:
+                    continue
+                if hits:
+                    findings.append({'file': rel, 'line': hits[0][1], 'form': form,
+                                     'module': ','.join(name for name, _line in hits),
+                                     'text': (ast.get_source_segment(src, node) or '').strip()[:100]})
         for m in pat_d.finditer(src):
             if pragma_ok(m.start()):
                 continue

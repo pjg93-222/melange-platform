@@ -14,12 +14,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import signal
 import subprocess
 import sys
 import time
 import uuid
 
+import bounded_subprocess
 from lane_file_io import replace_atomic
 from paths import ROOT as ROOT_TEXT
 from process_liveness import process_alive
@@ -132,7 +132,9 @@ def daily_lock(root):
         try:
             if read(path).get('token') == token:
                 path.unlink()
-        except FileNotFoundError:
+        except (OSError, ValueError, AttributeError):
+            # A reader's handle (another daily run, AV, OneDrive) can refuse the unlink on
+            # Windows; a leftover lock is reclaimed as stale by the dead-pid check.
             pass
 
 
@@ -218,8 +220,10 @@ def verified_completion(root, attempt, *, current_media):
     media = directory / 'daily_media_refresh_receipt.json'
     bound = (receipt.get('artifacts') or {}).get(MEDIA_RECEIPT) or {}
     media_document = read(media)
+    # PARTIAL is a non-fatal success (budgeted press backlog the next run resumes); it closes the
+    # day like PASS so the retry task stops (DE-020). FAIL, RUNNING and anything else are refused.
     if (media_document.get('schema') != 'daily-media-refresh-receipt-v1'
-            or media_document.get('status') != 'PASS' or not bound.get('sha256')
+            or media_document.get('status') not in ('PASS', 'PARTIAL') or not bound.get('sha256')
             or digest(media) != bound['sha256'] or media.stat().st_mtime < oldest):
         raise ValueError('Full refresh lacks a fresh hash-bound successful media receipt')
     if current_media and (digest(root / MEDIA_RECEIPT) != bound['sha256']
@@ -227,7 +231,16 @@ def verified_completion(root, attempt, *, current_media):
         raise ValueError('Live media receipt no longer matches the completed pipeline')
     return {'attempt_id': attempt['id'], 'include_media': True, 'owner_pid': pid,
             'completed_at': receipt['completed_at'], 'receipt': str(immutable),
-            'receipt_sha256': digest(immutable), 'media_receipt_sha256': bound['sha256']}
+            'receipt_sha256': digest(immutable), 'media_receipt_sha256': bound['sha256'],
+            'media_status': media_document['status']}
+
+
+def completion_status(completion):
+    """PARTIAL when the media receipt behind a verified completion was PARTIAL, else PASS.
+
+    Either way day['success'] is set, so the day is complete and a later retry returns ALREADY_COMPLETE.
+    """
+    return 'PARTIAL' if completion.get('media_status') == 'PARTIAL' else 'PASS'
 
 
 def finish_attempt(root, day, attempt, status, **extra):
@@ -253,17 +266,18 @@ def reconcile(root, state):
                 finish_attempt(root, day, attempt, 'INTERRUPTED', error=str(exc))
             else:
                 day['success'] = completion
-                finish_attempt(root, day, attempt, 'PASS', recovered_completion=True)
+                finish_attempt(root, day, attempt, completion_status(completion), recovered_completion=True)
     return active
 
 
 def terminate_tree(process):
-    if os.name == 'nt':
-        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
-                       capture_output=True, check=False, timeout=30)
-    else:
-        os.killpg(process.pid, signal.SIGKILL)
-    process.wait(timeout=30)
+    # Bounded end to end: this runs inside the BaseException handler in run(), so a wedged
+    # child must not raise out of it and skip finish_attempt/save_state/result.
+    bounded_subprocess.kill_tree(process, own_group=(os.name != 'nt'))
+    try:
+        process.wait(timeout=bounded_subprocess.KILL_WAIT_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
 
 
 def run(root=ROOT, *, trigger='manual', timeout_seconds=72 * 60 * 60):
@@ -362,9 +376,10 @@ def run(root=ROOT, *, trigger='manual', timeout_seconds=72 * 60 * 60):
                     return result(attempt['status'], process.returncode,
                                   **({'reason': 'pipeline lease busy (child exited 75)'} if busy else {}))
                 day['success'] = verified_completion(root, attempt, current_media=True)
-                finish_attempt(root, day, attempt, 'PASS')
+                completed = completion_status(day['success'])
+                finish_attempt(root, day, attempt, completed)
                 save_state(root, state)
-                return result('PASS', 0, receipt=day['success']['receipt'])
+                return result(completed, 0, receipt=day['success']['receipt'])
             except BaseException as exc:
                 if process is not None and process.poll() is None:
                     terminate_tree(process)

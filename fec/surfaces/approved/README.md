@@ -12,6 +12,8 @@ python fec/surfaces/build_approved_preview.py
 
 The builder updates `Moneyball_Redesign.html` and bundles these adapters into the live server's existing CSS/JS assets. It does not rerun models, change source records, regenerate the published dashboard, or deploy. The existing local preview uses port 8841 with `--dashboard-file Moneyball_Redesign.html`.
 
+This command targets the legacy generated combined preview, which contains exactly one desk hook and one network hook. It deliberately refuses a different format. A preview beginning with `<!-- melange-clean-workspace-v2 -->` uses the separate `fec/surfaces/build_clean_workspace.py` builder; `fec/surfaces/sync_live_dashboard_alias.py` selects that workflow and binds its receipt to the current generation. Do not inject legacy hooks into the clean shell or replace it with a generated combined page to bypass the refusal.
+
 Files:
 
 - `workspace.js`: shared navigation, nine dossier tabs, source scope, directory preview, meeting notes/contact entry, and cited HTML export.

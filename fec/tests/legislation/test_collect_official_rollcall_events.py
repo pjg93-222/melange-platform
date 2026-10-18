@@ -605,6 +605,71 @@ class OfficialRollcallFixtureTests(unittest.TestCase):
                     fixture_manifest=fixtures,
                 )
 
+    def test_real_action_text_classification(self):
+        cls = RC.classify_final_passage
+        for text in (
+            "Passed Senate without amendment by Yea-Nay Vote. 53 - 44. Record Vote Number: 260.",
+            "Passed Senate with an amendment by Yea-Nay Vote. 51 - 49.",
+            "Passed Senate with amendments by Yea-Nay Vote. 51 - 49.",
+        ):
+            self.assertEqual("passage", cls("hr", text)[0], text)
+        self.assertEqual(
+            "resolving_differences",
+            cls("hr", "On motion that the House agree to the Senate amendment")[0],
+        )
+        self.assertEqual(
+            (None, "amendment_vote_on_non_amendment_measure"),
+            cls("hr", "On agreeing to the amendment Agreed to"),
+        )
+        # a title that trips a procedural pattern must not mask a passage vote
+        text = "On Passage To waive certain requirements Passed"
+        self.assertEqual((None, "procedural_vote"), cls("hr", text))
+        self.assertEqual("passage", cls("hr", text, procedural_text="On Passage")[0])
+
+    def test_duplicate_actions_prefer_included_and_flag_conflict(self):
+        def row(disposition, text):
+            return (
+                {
+                    "event_id": "119-house-1-5",
+                    "measure_key": {"canonical_key": "119:hr:1"},
+                    "disposition": disposition,
+                    "congress_action": {"text": text},
+                },
+                [{"v": disposition}],
+            )
+
+        merged = RC.merge_duplicate_event_candidates(
+            [row("excluded", "a"), row("included", "b")]
+        )
+        self.assertEqual(1, len(merged))
+        event, votes = merged[0]
+        self.assertEqual("included", event["disposition"])
+        self.assertEqual([{"v": "included"}], votes)
+        self.assertEqual(
+            ["excluded", "included"], event["duplicate_action_disposition_conflict"]
+        )
+        merged = RC.merge_duplicate_event_candidates(
+            [row("included", "a"), row("included", "b")]
+        )
+        self.assertNotIn("duplicate_action_disposition_conflict", merged[0][0])
+
+    def test_non_object_actions_payload_fails_closed(self):
+        class Fetcher:
+            def fetch(self, url):
+                return {
+                    "source_url": url,
+                    "final_url": url,
+                    "status": 200,
+                    "content_type": "application/json",
+                    "content": b"[]",
+                }
+
+        with tempfile.TemporaryDirectory() as raw:
+            with self.assertRaisesRegex(RC.CollectorError, "not a JSON object"):
+                RC.fetch_actions(
+                    RC.MeasureKey(119, "hr", 1), Fetcher(), RC.SnapshotStore(Path(raw))
+                )
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

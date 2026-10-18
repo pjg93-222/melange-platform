@@ -20,6 +20,7 @@ RUN /opt/venv/bin/python -m pip uninstall -y pip || true
 FROM ${PYTHON_BASE} AS src
 COPY mentat/app /stage/app
 COPY mentat/tools /stage/tools
+COPY mentat/config /stage/config
 RUN find /stage -type d \( -name tests -o -name test -o -name __pycache__ \) -prune -exec rm -rf {} + \
  && find /stage -type f \( -name '*.ps1' -o -name '*.psm1' -o -name '*.bak*' -o -name '*.pyc' \) -delete
 
@@ -46,6 +47,7 @@ COPY --from=deps /opt/venv /opt/venv
 WORKDIR /app
 COPY --from=src /stage/app /app/mentat/app
 COPY --from=src /stage/tools /app/mentat/tools
+COPY --from=src /stage/config /app/mentat/config
 
 USER 10001:10001
 EXPOSE 8802

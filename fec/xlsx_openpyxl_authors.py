@@ -164,7 +164,8 @@ def author_cell_sync(plan_path):
     formula engine, so it is recorded as not run rather than faked.
     """
     plan_path = Path(plan_path)
-    plan = json.loads(plan_path.read_text(encoding='utf-8'))
+    plan_bytes = plan_path.read_bytes()
+    plan = json.loads(plan_bytes.decode('utf-8'))
     wb = _workbook()
     sheets = {}
     for change in plan['changes']:
@@ -178,7 +179,7 @@ def author_cell_sync(plan_path):
     proof = {'schema': 'workbook-cell-author-v1', 'status': 'PASS', 'engine': 'openpyxl',
              'recalc': 'not-run', 'scores_and_ranks_verified': None,
              'authored': len(plan['changes']), 'output_sha256': _sha(output),
-             'plan_sha256': _sha(plan_path), 'helper_sha256': _sha(AUTHOR_MODULE)}
+             'plan_sha256': hashlib.sha256(plan_bytes).hexdigest(), 'helper_sha256': _sha(AUTHOR_MODULE)}
     Path(str(output) + '.report.json').write_text(json.dumps(proof), encoding='utf-8')
     return proof
 
@@ -188,7 +189,8 @@ def author_cell_sync(plan_path):
 def author_honors_views(plan_path):
     """The three recognition views with the styling honors_workbook.cjs gave them."""
     plan_path = Path(plan_path)
-    plan = json.loads(plan_path.read_text(encoding='utf-8'))
+    plan_bytes = plan_path.read_bytes()
+    plan = json.loads(plan_bytes.decode('utf-8'))
     wb = _workbook()
     for view in plan['views']:
         name, values = view['name'], view['values']
@@ -234,7 +236,7 @@ def author_honors_views(plan_path):
     with exact_numbers():
         wb.save(output)
     receipt = {'schema': 'honors-workbook-author-v1', 'status': 'PASS', 'engine': 'openpyxl',
-               'generation_id': plan['generation_id'], 'plan_sha256': _sha(plan_path),
+               'generation_id': plan['generation_id'], 'plan_sha256': hashlib.sha256(plan_bytes).hexdigest(),
                'helper_sha256': _sha(AUTHOR_MODULE), 'output_sha256': _sha(output)}
     Path(str(output) + '.receipt.json').write_text(json.dumps(receipt), encoding='utf-8')
     return receipt
@@ -276,7 +278,8 @@ def _autofit(ws, columns, rows):
 def author_sentinel(plan_path, report_path):
     """The bill ledger plus the interaction tabs, with the formatting sync_sentinel_bill_ledger_artifact.cjs applied."""
     plan_path, report_path = Path(plan_path), Path(report_path)
-    plan = json.loads(plan_path.read_bytes().decode('utf-8'))      # bytes, not read_text: the plan hash is of the file
+    plan_bytes = plan_path.read_bytes()
+    plan = json.loads(plan_bytes.decode('utf-8'))
     if plan.get('schema') != 'sentinel-bill-workbook-plan-v1' or not isinstance(plan.get('ledger_rows'), list):
         raise ValueError('invalid plan')
     wb = _workbook()
@@ -344,7 +347,7 @@ def author_sentinel(plan_path, report_path):
     with exact_numbers():
         wb.save(output)
     report = {'schema': 'sentinel-bill-workbook-artifact-report-v1', 'status': 'PASS', 'engine': 'openpyxl',
-              'input_plan_sha256': _sha(plan_path), 'output_sha256': _sha(output),
+              'input_plan_sha256': hashlib.sha256(plan_bytes).hexdigest(), 'output_sha256': _sha(output),
               'ledger_range': ledger_range, 'appended': appended, 'targeted_formula_error_count': 0,
               'formula_error_scan_scope': 'all generated bill ranges', 'inspections': inspections, 'previews': [],
               'output': str(output)}

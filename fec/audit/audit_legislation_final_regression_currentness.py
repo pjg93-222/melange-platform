@@ -217,8 +217,11 @@ def current_implementation_test_inventory(root: Path = ROOT) -> dict[str, Any]:
     }
 
 
-def historical_inventory_binding(receipt: dict[str, Any]) -> dict[str, Any]:
-    """Describe whether the historical test claims bind a physical inventory."""
+def historical_inventory_binding(
+    receipt: dict[str, Any],
+    current_inventory: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Separate a self-consistent historical baseline from current bytes."""
 
     candidates = (
         receipt.get("source_test_inventory"),
@@ -242,8 +245,32 @@ def historical_inventory_binding(receipt: dict[str, Any]) -> dict[str, Any]:
         and entries
         and stable_sha256(entries) == str(digest).casefold()
     )
+    def content_entries(rows: Any) -> list[dict[str, Any]] | None:
+        if not isinstance(rows, list) or not rows:
+            return None
+        result = []
+        paths: set[str] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                return None
+            path, size, sha = row.get("path"), row.get("bytes"), row.get("sha256")
+            if (not isinstance(path, str) or not path.strip() or path in paths
+                    or type(size) is not int or size < 0 or not _valid_sha(sha)):
+                return None
+            paths.add(path)
+            result.append({"path": path, "bytes": size, "sha256": sha.casefold()})
+        return sorted(result, key=lambda row: row["path"])
+
+    old_content = content_entries(entries) if bound else None
+    current_content = content_entries((current_inventory or {}).get("entries"))
+    matches_current = bool(old_content is not None and old_content == current_content)
     return {
         "bound": bound,
+        "matches_current": matches_current,
+        "currentness_reason": (
+            None if matches_current else
+            "historical path/size/hash inventory does not match current source/test bytes"
+        ),
         "reason": (
             None
             if bound
@@ -804,8 +831,14 @@ def build_audit(
         errors,
     )
     current_regression_valid = current_regression.get("valid") is True
-    binding = historical_evidence.get("inventory_binding") or {}
+    binding = historical_inventory_binding(historical, inventory)
+    historical_evidence["inventory_binding"] = binding
     historical_inventory_bound = binding.get("bound") is True
+    historical_inventory_current = binding.get("matches_current") is True
+    inventory_blocker_code = (
+        "BLOCKED_STALE_HISTORICAL_TEST_INVENTORY" if historical_inventory_bound
+        else "BLOCKED_UNBOUND_HISTORICAL_TEST_INVENTORY"
+    )
     semantic_rollover_valid = bool(
         historical_evidence.get("structural_valid")
         and rollover_chain_valid
@@ -820,11 +853,11 @@ def build_audit(
                 "details": list(errors),
             }
         )
-    if not historical_inventory_bound and not current_regression_valid:
+    if not historical_inventory_current and not current_regression_valid:
         blockers.append(
             {
-                "code": "BLOCKED_UNBOUND_HISTORICAL_TEST_INVENTORY",
-                "reason": binding.get("reason"),
+                "code": inventory_blocker_code,
+                "reason": binding.get("reason") or binding.get("currentness_reason"),
                 "effect": (
                     "historical compilation/test results remain historical facts "
                     "and are not certified as current"
@@ -834,8 +867,8 @@ def build_audit(
 
     if not semantic_rollover_valid:
         status = "FAIL_CLOSED_CURRENTNESS_VALIDATION"
-    elif not historical_inventory_bound and not current_regression_valid:
-        status = "BLOCKED_UNBOUND_HISTORICAL_TEST_INVENTORY"
+    elif not historical_inventory_current and not current_regression_valid:
+        status = inventory_blocker_code
     else:
         status = "CURRENT"
 
@@ -854,8 +887,9 @@ def build_audit(
         "current_implementation_test_inventory": {
             **inventory,
             "historical_baseline_bound": historical_inventory_bound,
+            "historical_baseline_matches_current": historical_inventory_current,
             "historical_tests_certified_current": bool(
-                historical_inventory_bound and semantic_rollover_valid
+                historical_inventory_current and semantic_rollover_valid
             ),
             "current_tests_certified_current": current_regression_valid,
             "conclusion": (
@@ -863,7 +897,8 @@ def build_audit(
                 if current_regression_valid
                 else (
                     "HISTORICAL_BASELINE_BOUND"
-                    if historical_inventory_bound
+                    if historical_inventory_current
+                    else "STALE_HISTORICAL_BASELINE" if historical_inventory_bound
                     else "UNBOUND_HISTORICAL_BASELINE"
                 )
             ),
@@ -892,7 +927,7 @@ def build_audit(
             ).get("sha256"),
             "semantic_gate_rollover_valid": semantic_rollover_valid,
             "historical_test_inventory_currentness_valid": (
-                historical_inventory_bound
+                historical_inventory_current
             ),
             "current_full_regression_valid": current_regression_valid,
             "current_full_regression_receipt_sha256": (
@@ -907,7 +942,7 @@ def build_audit(
             ),
             "quorum_used": False,
             "historical_test_results_currentness_authority": (
-                historical_inventory_bound and semantic_rollover_valid
+                historical_inventory_current and semantic_rollover_valid
             ),
             "current_test_results_currentness_authority": (
                 current_regression_valid

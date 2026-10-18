@@ -322,6 +322,8 @@ def test_fresh_press_intake_requires_completed_coverage(tmp_path, kind):
     (root / "press_network_retry_receipt.json").write_text(json.dumps(receipt))
     audited = audit_collection.audit_press_delta(root, "2026-06-25", require_complete=True)
     assert bool(audited["errors"]) == (kind != "complete"), audited
+    if kind == "complete":
+        assert audited["coverage_complete"] is True and audited["pending_body_urls_carried"] == 0
     if kind == "legacy":
         assert audit_collection.audit_press_delta(root, "2026-06-25")["errors"] == []
     output = tmp_path / "intake.json"
@@ -335,10 +337,10 @@ def test_fresh_press_intake_requires_completed_coverage(tmp_path, kind):
 
 
 @pytest.mark.parametrize("fresh", [False, True])
-def test_a_tombstoned_pending_body_needs_no_retry_receipt_but_a_fresh_one_does(
+def test_pending_failed_bodies_equal_to_the_sealed_pending_set_are_carried(
         tmp_path, monkeypatch, fresh):
-    # Paul 2026-09-19: three consecutive deferrals withdraw a pending row's veto
-    # over intake -- in the failed-bodies check as well as the completion gate.
+    # Owner ruling 2026-10-15: a pending row is carried to the next run whether or not the
+    # deferral ledger has tombstoned it (Paul 2026-09-19); the ledger only reports.
     from collect import press_pending_tombstones as tombstones
     monkeypatch.setattr(tombstones, "DEFAULT_TOMBSTONES", str(tmp_path / "tombstones.json"))
     stuck = {"bioguide": "M000312", "url": "https://mcgovern.house.gov/news/stuck",
@@ -366,12 +368,67 @@ def test_a_tombstoned_pending_body_needs_no_retry_receipt_but_a_fresh_one_does(
                        (root / "press_delta_fulltext.csv").read_bytes()).hexdigest())
     (root / "press_network_retry_receipt.json").write_text(json.dumps(receipt))
     audited = audit_collection.audit_press_delta(root, "2026-06-25", require_complete=True)
-    lacking = [error for error in audited["errors"] if "lack an exhausted network-retry" in error]
-    if fresh:
-        assert lacking == ["1 failed press-delta bodies lack an exhausted network-retry receipt"]
-    else:
-        assert audited["errors"] == [], audited
-    assert audited["pending_failed_bodies_excused"] == 1
+    assert audited["errors"] == [], audited
+    assert audited["pending_failed_bodies_carried"] == len(rows)
+    assert audited["pending_body_urls_carried"] == len(rows)
+    assert audited["pending_members"] == {bg: 1 for bg in sorted(row["bioguide"] for row in rows)}
+    assert audited["coverage_complete"] is False
+    # Report-only: the stuck member's URL has been deferred three runs, the new one has not.
+    assert audited["pending_body_urls_tombstoned"] == 1
+
+
+def carried_audit(tmp_path, monkeypatch, sealed, listed, articles=()):
+    """Audit a PARTIAL run whose sealed pending artifact holds ``sealed`` while its failed bodies list ``listed``."""
+    from collect import press_pending_tombstones as tombstones
+    monkeypatch.setattr(tombstones, "DEFAULT_TOMBSTONES", str(tmp_path / "tombstones.json"))
+    (tmp_path / "outputs").mkdir()
+    root = tmp_path / "outputs" / "press_refresh_20260913"
+    receipt = empty_audit_run(root)
+    pending = [{"url": url, "bioguide": bg, "body": "", "date_final": "",
+                "collection_status": "body_pending_network_attempt"} for bg, url in listed]
+    usable = [{"url": url, "bioguide": bg, "body": " ".join(["word"] * 25), "date_final": "",
+               "collection_status": ""} for bg, url in articles]
+    for name, rows in (("failed_bodies", pending), ("articles", usable), ("fulltext", pending + usable)):
+        with (root / f"press_delta_{name}.csv").open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.DictWriter(handle, fieldnames=[
+                "url", "bioguide", "body", "date_final", "collection_status"])
+            writer.writeheader()
+            writer.writerows(rows)
+    pending_proof(root, receipt, [{"bioguide": bg, "url": url} for bg, url in sealed])
+    receipt.update(status="PARTIAL", pending_body_urls=len(sealed), failed_bodies=len(pending),
+                   fulltext_receipts=len(pending + usable), usable_article_member_rows=len(usable),
+                   fulltext_csv_sha256=hashlib.sha256(
+                       (root / "press_delta_fulltext.csv").read_bytes()).hexdigest())
+    (root / "press_network_retry_receipt.json").write_text(json.dumps(receipt))
+    return audit_collection.audit_press_delta(root, "2026-06-25", require_complete=True)
+
+
+A_URL, B_URL = ("X000001", "https://example.gov/a"), ("X000002", "https://example.gov/b")
+
+
+def test_pending_failed_bodies_that_equal_the_sealed_set_in_any_order_are_accepted(tmp_path, monkeypatch):
+    audited = carried_audit(tmp_path, monkeypatch, sealed=[A_URL, B_URL], listed=[B_URL, A_URL])
+    assert audited["errors"] == [], audited
+    assert audited["pending_failed_bodies_carried"] == 2
+    assert audited["pending_members"] == {"X000001": 1, "X000002": 1}
+
+
+@pytest.mark.parametrize("sealed,listed", [
+    ([A_URL], [A_URL, B_URL]),       # an extra pending row nobody sealed
+    ([A_URL, B_URL], [A_URL]),       # a sealed row missing from the failed bodies
+    ([A_URL], [B_URL]),              # the same count, a different row
+])
+def test_pending_failed_bodies_that_differ_from_the_sealed_set_are_refused(
+        tmp_path, monkeypatch, sealed, listed):
+    audited = carried_audit(tmp_path, monkeypatch, sealed=sealed, listed=listed)
+    assert any("do not equal the sealed pending set" in error for error in audited["errors"]), audited
+    assert audited["pending_failed_bodies_carried"] == 0
+
+
+def test_a_pending_body_that_is_also_a_usable_article_is_refused(tmp_path, monkeypatch):
+    audited = carried_audit(tmp_path, monkeypatch, sealed=[A_URL], listed=[A_URL], articles=[A_URL])
+    assert any("also usable articles" in error for error in audited["errors"]), audited
+    assert audited["pending_failed_bodies_carried"] == 0
 
 
 def excused_partial_receipt(root):

@@ -248,39 +248,65 @@ export function createCongressCookieReplayRequestContext({
   }
   return {
     async get(url, { headers = {}, timeout = 45_000 } = {}) {
+      const checkedUrl = (value, base) => {
+        const parsed = new URL(value, base);
+        if (parsed.origin !== "https://www.congress.gov" || parsed.username || parsed.password) {
+          throw new Error("Congress cookie-replay request origin refused");
+        }
+        return parsed.href;
+      };
+      let current = checkedUrl(url);
+      if (!Number.isFinite(timeout) || timeout <= 0 || timeout > 2_147_483_647) {
+        throw new Error("Congress cookie-replay timeout must be finite and positive");
+      }
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
-      let response;
+      let timer;
+      const deadline = new Promise((resolve, reject) => {
+        timer = setTimeout(() => {
+          controller.abort();
+          reject(new Error("Congress cookie-replay deadline elapsed"));
+        }, timeout);
+      });
       try {
-        response = await fetchImpl(url, {
-          method: "GET",
-          headers: {
-            ...defaultHeaders,
-            ...headers,
-            Cookie: cookieHeader,
-          },
-          redirect: "follow",
-          signal: controller.signal,
-        });
+        const result = await Promise.race([deadline, (async () => {
+          for (let redirects = 0; redirects <= 5; redirects += 1) {
+            if (controller.signal.aborted) throw new Error("Request deadline elapsed");
+            const response = await fetchImpl(current, {
+              method: "GET",
+              headers: { ...defaultHeaders, ...headers, Cookie: cookieHeader },
+              redirect: "manual",
+              signal: controller.signal,
+            });
+            // A custom transport may resolve after ignoring AbortSignal. Do not
+            // handle its late body or initiate a redirect after our deadline.
+            if (controller.signal.aborted) throw new Error("Request deadline elapsed");
+            checkedUrl(response.url);
+            if ([301, 302, 303, 307, 308].includes(response.status)) {
+              const location = response.headers.get("location");
+              if (!location || redirects === 5) throw new Error("Redirect refused");
+              current = checkedUrl(location, current);
+              await response.body?.cancel();
+              continue;
+            }
+            // Complete the body inside the same deadline; callers may delay calling text().
+            return { response, body: await response.text() };
+          }
+          throw new Error("Redirect limit exceeded");
+        })()]);
+        const { response, body } = result;
+        return {
+          status: () => response.status,
+          url: () => response.url,
+          headers: () => Object.fromEntries(response.headers.entries()),
+          text: async () => body,
+        };
       } catch (error) {
-        const reason =
-          error?.name === "AbortError"
-            ? "timed out"
-            : "failed before a response";
+        const reason = controller.signal.aborted ? "timed out" : "failed safely";
+        controller.abort();
         throw new Error(`Congress cookie-replay request ${reason}`);
       } finally {
         clearTimeout(timer);
       }
-      let bodyPromise = null;
-      return {
-        status: () => response.status,
-        url: () => response.url,
-        headers: () => Object.fromEntries(response.headers.entries()),
-        text: () => {
-          bodyPromise ??= response.text();
-          return bodyPromise;
-        },
-      };
     },
   };
 }

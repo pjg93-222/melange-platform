@@ -414,7 +414,8 @@ def libreoffice_calculate(copy, cells, *, timeout, work, soffice=None):
     env = {**os.environ, "HOME": str(work), "SAL_USE_VCLPLUGIN": "svp"}
     base = [soffice, f"-env:UserInstallation={profile.as_uri()}"]
     try:
-        ver = subprocess.run([*base, "--version"], capture_output=True, text=True, timeout=120, env=env, check=False)
+        ver = subprocess.run([*base, "--version"], capture_output=True, text=True, timeout=120, env=env, check=False,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise EngineError(f"cannot run {soffice}: {exc}") from exc
     version = parse_version(ver.stdout)
@@ -423,15 +424,17 @@ def libreoffice_calculate(copy, cells, *, timeout, work, soffice=None):
     pipe = f"office_recalc_{os.getpid()}"
     logfile = open(Path(work) / "soffice.log", "wb")
     proc = subprocess.Popen([*base, *_SOFFICE_ARGS, f"--accept=pipe,name={pipe};urp;"], stdin=subprocess.DEVNULL,
-                            stdout=logfile, stderr=logfile, env=env, start_new_session=True)
+                            stdout=logfile, stderr=logfile, env=env, start_new_session=True,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     timed_out = threading.Event()
 
     def kill():
         try:
             if hasattr(os, "killpg"):                       # soffice.bin is a child of the soffice wrapper: take the group
                 os.killpg(proc.pid, signal.SIGKILL)
-            else:                                           # Windows: only the tests run the engine here (a fake soffice)
-                proc.kill()
+            elif proc.poll() is None:                       # Only this invocation's owned Windows process tree.
+                subprocess.run(['taskkill.exe', '/PID', str(proc.pid), '/T', '/F'], stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=15, creationflags=subprocess.CREATE_NO_WINDOW)
         except OSError:                                     # already gone (ProcessLookupError), or not ours (PermissionError)
             pass
 

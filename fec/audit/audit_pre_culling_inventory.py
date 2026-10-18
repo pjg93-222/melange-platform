@@ -161,11 +161,14 @@ def main() -> int:
                 bad += 1
         print("   body readable (500) : %d ok / %d unreadable" % (ok, bad))
 
-    print("\n=== the gap that actually blocks culling ===")
+    print("\n=== category evidence inventory (not a readiness gate) ===")
     empty_cat = field.get("category_evidence:empty", 0)
     print("   category_evidence empty on %d / %d candidates" % (empty_cat, total))
-    print("   -> category_audit_ready = 0 -> semantic_review_ready = 0")
-    print("   -> membership_is_finalizable is False corpus-wide, regardless of text")
+    if not total:
+        print("   -> no candidates inspected; readiness is not assessed")
+    else:
+        print("   -> evidence presence is counted; readiness is not assessed by this inventory")
+    print("   -> category/semantic audits and membership finalization require their own validation")
     return 0
 
 

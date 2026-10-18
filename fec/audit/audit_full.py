@@ -31,7 +31,8 @@ P,F=[],[]
 def ck(name,cond,detail=''):
     (P if cond else F).append(name); print(('  OK   ' if cond else 'FAIL  ')+name+((' :: '+detail) if (detail and not cond) else ''))
 def run(script):
-    return subprocess.run([sys.executable,os.path.join(FE,*script.split('/'))],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout   # step names are slash-separated; join natively
+    result=subprocess.run([sys.executable,os.path.join(FE,*script.split('/'))],capture_output=True,text=True,encoding='utf-8',errors='replace')   # step names are slash-separated; join natively
+    return result.stdout if result.returncode==0 else 'sub-audit execution failed (exit %s)'%result.returncode
 def _file_sha256(path):
     _h=hashlib.sha256()
     with open(path,'rb') as _handle:
@@ -1566,7 +1567,7 @@ if all(os.path.exists(_p) for _p in _alp.values()):
         for _dm in _albun.get('members') or []:
             _src=(_alrows.get(_dm.get('name')) or {}).get('speech_profile') or {}
             _dst=_dm.get('speech_profile') or {}
-            if not _dst: continue
+            if not isinstance(_dst,dict): _dst={}
             for _k in ('general_audio_habits','verified_voiceprint_baseline'):
                 if isinstance(_src.get(_k),dict) and not isinstance(_dst.get(_k),dict):
                     _aldropped.append('%s/%s'%(_dm.get('name'),_k))
@@ -1704,21 +1705,26 @@ _press_source_errors=press_source_errors(_press_feed,Path(B),_intake)
 _press_counts=_press_feed.get('counts') or {}; _press_contract=_press_feed.get('contract') or {}
 _press_tone_path=os.path.join(B, 'data', 'stance', 'press_refresh_tone.csv')
 _press_mentions_path=os.path.join(B, 'data', 'press', 'official_mentions.jsonl')
-with open(_press_tone_path,encoding='utf-8-sig',newline='') as _pfh:
-    _press_tone_actual=sum(1 for _row in csv.DictReader(_pfh))
-with open(_press_mentions_path,encoding='utf-8') as _pfh:
-    _press_mentions_actual=sum(1 for _line in _pfh if _line.strip())
+_press_read_error=''
+_press_tone_actual=_press_mentions_actual=0
+try:
+    with open(_press_tone_path,encoding='utf-8-sig',newline='') as _pfh:
+        _press_tone_actual=sum(1 for _row in csv.DictReader(_pfh))
+    with open(_press_mentions_path,encoding='utf-8') as _pfh:
+        _press_mentions_actual=sum(1 for _line in _pfh if _line.strip())
+except (OSError,UnicodeError,csv.Error) as _pre:
+    _press_read_error=type(_pre).__name__
 ck('press refresh feed is hash-bound and keeps official mentions out of stance/speech',
    _press_feed.get('schema')=='press-refresh-engine-feed-v1' and
    _press_feed.get('status')=='ACTIVE_TYPED_SUPPLEMENT' and _press_outputs_ok and
-   not _press_source_errors and
+   not _press_source_errors and not _press_read_error and
    _press_counts.get('tone_rows')==_press_tone_actual and _press_tone_actual>0 and
    _press_counts.get('official_mentions')==_press_mentions_actual and _press_mentions_actual>0 and
    _press_contract.get('scored_host_articles_enter_press_stance') is True and
    _press_contract.get('official_mentions_enter_press_stance') is False and
    _press_contract.get('official_mentions_enter_speech_turns') is False,
-   'tone=%s mentions=%s outputs=%s source_errors=%s'%(_press_counts.get('tone_rows'),
-      _press_counts.get('official_mentions'),_press_outputs_ok,_press_source_errors[:4]))
+   'tone=%s mentions=%s outputs=%s source_errors=%s read_error=%s'%(_press_counts.get('tone_rows'),
+      _press_counts.get('official_mentions'),_press_outputs_ok,_press_source_errors[:4],_press_read_error))
 _email_manifest_path=os.path.join(B, 'outputs', 'email_package', 'EMAIL_PACKAGE_MANIFEST.json')
 try:
     _email_manifest=json.load(open(_email_manifest_path,encoding='utf-8'))
@@ -2013,12 +2019,12 @@ if _g:
     _tier,_tier_rank,_tier_detail=_lpt(list(MAT),with_detail=True)
     ck('primacy board has no fixed tier placements',
        _lto()=={},_lto())
-    # Enforcement, not just configuration: under the factor board no member
+    # Enforcement, not just configuration: under factor/per_area_v1 no member
     # below the evidence floor may hold a tier seat, and all 85 seats must
     # still be filled by qualified members.
     _cuc=_lpc(B)
     _subfloor=sorted(m for m,t in _tier.items()
-                     if t>0 and _tu_board=='factor' and _tu_floor>0
+                     if t>0 and _tu_board in ('factor','per_area_v1') and _tu_floor>0
                      and float(_cuc.get(m,0.0))<_tu_floor)
     ck('no tiered member sits below the evidence floor',
        not _subfloor and sum(1 for t in _tier.values() if t>0)==85,
@@ -2210,14 +2216,14 @@ if _g:
         _honors_err=''
     except Exception as _he:
         _honors_doc=None; _honors_err='%s: %s'%(type(_he).__name__,_he)
-    ck('active honors generation loads as the crown authority',not _honors_err,_honors_err or 'no active generation')
+    ck('active honors generation loads as the crown authority',isinstance(_honors_doc,dict) and not _honors_err,_honors_err or 'no active generation')
     _board13={m for m in (((_honors_doc or {}).get('overall_board') or {}).get('top13') or ())} or None
     _display_board={m:_mc.overall_display_tier(MAT.get(m,{}),_tier.get(m,0),m,_oc,_board13) for m in MAT}
     _champ={m for m,v in _display_board.items() if v=='Champion'}
     _tier1={m for m,t in _tier.items() if t==1}
     _crown_seats=_board13 if _board13 is not None else _tier1
     ck('overall Champion crown exactly equals the active honors board top 13',
-       _champ==_crown_seats and len(_champ)==13,
+       _board13 is not None and _champ==_crown_seats and len(_champ)==13,
        '%d crowns vs %d board seats; missing %s; extra %s'%(
            len(_champ),len(_crown_seats),sorted(_crown_seats-_champ),sorted(_champ-_crown_seats)))
     # RE-PINNED 2026-07-29 (second revision, uncertainty penalty K=0.25):
@@ -2581,8 +2587,7 @@ try:
             _cu_glob = set(map(os.path.basename, _g.glob(os.path.join(B, 'congress_cosponsor_network_*.xlsx'))))
             _other = set(map(os.path.basename, _g.glob(os.path.join(B, 'holistic_network_*.xlsx')))) | \
                      set(map(os.path.basename, _g.glob(os.path.join(B, 'sector_network_*.xlsx'))))
-            ck('network artifact families are disjoint at the live root',
-               _cu_glob.isdisjoint(_other), 'collisions: %s' % sorted(_cu_glob & _other))
+            print('  NOTICE network filename prefixes are separate; names alone do not verify content family')
             if _cu_glob:
                 # The three unfiltered max-by-mtime consumers (press_engagement_layer, press_hcoi,
                 # stance_dynamics) take the NEWEST file in this glob with no AUG and no family
@@ -2720,7 +2725,8 @@ try:
         with open(_staff_json,encoding='utf-8') as _handle: _staff=json.load(_handle)
         _staff_meta=_staff.get('meta') or {}
         ck('staffer_section_present',
-           bool(_staff_meta.get('generation')) and bool(_staff.get('members')) and bool(_staff.get('global')),
+           bool(_staff_gen_declared) and _staff_meta.get('generation')==_staff_gen_declared
+           and bool(_staff.get('members')) and bool(_staff.get('global')),
            'parsed but incomplete: meta.generation=%r members=%d'
            %(_staff_meta.get('generation'),len(_staff.get('members') or {})))
 
@@ -2789,6 +2795,87 @@ try:
                        ('staffer_clients_section.json','clients',
                         ('client_organisations_dropped','filer_client_ties_dropped')))
         _groups_missing=[]; _groups_stale=[]; _groups_oversize=[]; _groups_conservation=[]
+        _groups_inputs_bad=[]; _groups_inputs_unverified=[]; _groups_inputs_checked=0
+        _groups_inputs_not_consumed=[]
+        import ast
+        from pathlib import Path
+        _GROUPS_LDA_ROLES = {
+            'lda_source_native_corpus_receipt': 'LDA_RECEIPT',
+            'lda_lobbyist_assertions': 'LDA_LOBBYISTS',
+            'lda_organization_assertions': 'LDA_ORGANISATIONS',
+            'lda_activity_assertions': 'LDA_ACTIVITIES',
+            'lda_industry_edges': 'LDA_EDGES',
+        }
+
+        def _groups_producer_contract(source):
+            """Parse the existing producer's literal contract without importing it."""
+            assignments = {}
+            for node in ast.parse(source).body:
+                if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                    name = node.targets[0].id
+                    if name in ('LDA_GENERATION', 'LDA_DATA_ROOT', *_GROUPS_LDA_ROLES.values()):
+                        if name in assignments:
+                            raise ValueError('ambiguous producer constant')
+                        assignments[name] = node.value
+            generation = ast.literal_eval(assignments['LDA_GENERATION'])
+            if not isinstance(generation, str) or re.fullmatch(r'generation-[0-9]{8}T[0-9]{6}Z', generation) is None:
+                raise ValueError('unsupported producer generation')
+            root = assignments['LDA_DATA_ROOT']
+            if not (isinstance(root, ast.Call) and ast.unparse(root.func) == 'os.path.join'
+                    and not root.keywords and len(root.args) == 4
+                    and isinstance(root.args[0], ast.Name) and root.args[0].id == 'LOCAL_MELANGE'
+                    and tuple(ast.literal_eval(n) for n in root.args[1:]) == ('staffer_network', 'normalized', 'lda-source-native')):
+                raise ValueError('unsupported producer root')
+            names = {role: ast.literal_eval(assignments[name]) for role, name in _GROUPS_LDA_ROLES.items()}
+            if any(not isinstance(name, str) or not name or Path(name).name != name or '/' in name or '\\' in name for name in names.values()):
+                raise ValueError('invalid producer filename')
+            return {'generation': generation, 'names': names,
+                    'rootParts': ('staffer_network', 'normalized', 'lda-source-native')}
+
+        def _groups_resolve_local_input(record, role, local_root, contract):
+            """Only the named source-native LDA objects; canonical containment required."""
+            if not isinstance(record, dict) or record.get('store') != 'machine-local' or role not in contract['names']:
+                raise ValueError('unsupported machine-local role')
+            if record.get('not_recomputed'):
+                raise ValueError('binding explicitly unverified')
+            if (type(record.get('bytes')) is not int or record['bytes'] < 0
+                    or not isinstance(record.get('sha256'), str)
+                    or re.fullmatch('[0-9a-fA-F]{64}', record['sha256']) is None):
+                raise ValueError('missing size or digest binding')
+            expected = contract['generation'] + '/' + contract['names'][role]
+            if record.get('path') != expected:
+                raise ValueError('binding differs from producer generation and role')
+            if not isinstance(local_root, str) or not local_root:
+                raise ValueError('machine-local root is not configured')
+            configured = Path(local_root)
+            if not configured.is_absolute():
+                raise ValueError('machine-local root must be explicit and absolute')
+            configured = configured.resolve(strict=True)
+            base = configured.joinpath(*contract['rootParts']).resolve(strict=True)
+            base.relative_to(configured)
+            target = (base / contract['generation'] / contract['names'][role]).resolve(strict=True)
+            target.relative_to(base)
+            if not target.is_file():
+                raise ValueError('bound object is not a file')
+            return target
+        _groups_local_contract=None
+        def _groups_resolve_input(_rec,_gmeta):
+            # portable_inputs publishes repository-relative or generation-relative paths;
+            # machine-local redactions are deliberately never sent to this resolver.
+            _raw=_rec['path'].replace('/',os.sep)
+            _root=(_gmeta.get('generation_root') or '').replace('/',os.sep)
+            if os.path.isabs(_raw) or os.path.isabs(_root) or os.pardir in (_raw+os.sep+_root).split(os.sep):
+                raise ValueError('repository binding escapes its declared root')
+            _repo=os.path.realpath(B)
+            _candidate=os.path.join(B,_root,_raw)
+            if _raw.split(os.sep,1)[0] in ('audits','data','fec'):
+                _candidate=os.path.join(B,_raw)
+            elif not os.path.exists(_candidate) and os.path.exists(os.path.join(B,_raw)):
+                _candidate=os.path.join(B,_raw)
+            _candidate=os.path.realpath(_candidate)
+            if os.path.normcase(os.path.commonpath((_repo,_candidate)))!=os.path.normcase(_repo):
+                raise ValueError('repository binding resolves outside its root')
+            return _candidate
         for _gfname,_glabel,_gcounters in _groups_specs:
             _gpath=os.path.join(B,'data','engine',_gfname)
             if not os.path.exists(_gpath):
@@ -2801,6 +2888,57 @@ try:
             except Exception as _ge:
                 _groups_stale.append('%s failed to parse: %s'%(_glabel,_ge)); continue
             _gmeta=_gpayload.get('meta') or {}
+            _ginputs=_gmeta.get('inputs')
+            if not isinstance(_ginputs,dict) or not _ginputs:
+                _groups_inputs_bad.append('%s has no input bindings'%_glabel)
+                _ginputs={}
+            for _grole,_grec in _ginputs.items():
+                _gname='%s/%s'%(_glabel,_grole)
+                if not isinstance(_grec,dict):
+                    _groups_inputs_bad.append('%s invalid binding'%_gname); continue
+                if _grec.get('not_recomputed'):
+                    # The producer intentionally carries this one unused provenance record
+                    # through binding['bound']; its explicit reads list never consumes it.
+                    # This is NOT a verified hash, nor an exemption for arbitrary roles.
+                    _greads=_gmeta.get('reads')
+                    _gknown_unconsumed=(_grole=='staffer_social_edges'
+                        and _grec.get('store')=='repository'
+                        and _grec.get('path')=='staffer_social_edges.ndjson.gz'
+                        and _grec.get('bound_against')==[]
+                        and isinstance(_grec.get('not_recomputed'),str)
+                        and bool(_grec['not_recomputed'].strip())
+                        and isinstance(_grec.get('sha256'),str)
+                        and re.fullmatch(r'[0-9a-fA-F]{64}',_grec['sha256']) is not None
+                        and type(_grec.get('bytes')) is int and _grec['bytes']>=0
+                        and isinstance(_greads,list) and bool(_greads)
+                        and all(isinstance(_gr,str) and bool(_gr.strip()) for _gr in _greads)
+                        and _grole not in _greads)
+                    if _gknown_unconsumed:
+                        _groups_inputs_not_consumed.append(_gname)
+                    else:
+                        _groups_inputs_unverified.append(_gname)
+                    continue
+                if (_grec.get('store') not in ('repository','machine-local') or not isinstance(_grec.get('path'),str)
+                        or not _grec['path'] or not isinstance(_grec.get('sha256'),str)
+                        or re.fullmatch(r'[0-9a-fA-F]{64}',_grec['sha256']) is None):
+                    _groups_inputs_bad.append('%s invalid input binding'%_gname); continue
+                try:
+                    if _grec.get('store')=='machine-local':
+                        if _groups_local_contract is None:
+                            with open(os.path.join(B,'fec','surfaces','build_staffer_groups_section.py'),encoding='utf-8-sig') as _gproducer:
+                                _groups_local_contract=_groups_producer_contract(_gproducer.read())
+                        _ginput=_groups_resolve_local_input(_grec,_grole,LOCAL_MELANGE,_groups_local_contract)
+                    else:
+                        _ginput=_groups_resolve_input(_grec,_gmeta)
+                    _gactual=_file_sha256(_ginput)
+                    _groups_inputs_checked+=1
+                    if _gactual.lower()!=_grec['sha256'].lower():
+                        _groups_inputs_bad.append('%s hash mismatch'%_gname)
+                    if 'bytes' in _grec and (type(_grec['bytes']) is not int or _grec['bytes']!=os.path.getsize(_ginput)):
+                        _groups_inputs_bad.append('%s size mismatch'%_gname)
+                except (OSError,ValueError,TypeError,KeyError,SyntaxError) as _gie:
+                    if _grec.get('store')=='machine-local': _groups_inputs_unverified.append(_gname)
+                    _groups_inputs_bad.append('%s unreadable (%s)'%(_gname,type(_gie).__name__))
             _ggen=_gmeta.get('generation')
             if _staff_gen_declared and _ggen!=_staff_gen_declared:
                 _groups_stale.append('%s meta.generation %r != producer %r'
@@ -2810,6 +2948,15 @@ try:
                 _cval=_gcounts.get(_cname)
                 if _cval!=0: _groups_conservation.append('%s.%s=%r'%(_glabel,_cname,_cval))
 
+        if _groups_inputs_checked or _groups_inputs_bad:
+            ck('staffer_groups_repository_inputs_current',not _groups_inputs_bad,
+               '; '.join(_groups_inputs_bad)[:400])
+        if _groups_inputs_not_consumed:
+            print('  NOTICE NOT_APPLICABLE: %d declared social-edge provenance records are unverified and not consumed by Groups'%len(_groups_inputs_not_consumed))
+        if _groups_inputs_unverified:
+            print('  NOTICE staffer Groups has %d unverified machine-local or intentionally uncomputed bindings; no currentness PASS is established'%len(_groups_inputs_unverified))
+        ck('staffer_groups_inputs_current',_groups_inputs_checked>0 and not _groups_inputs_bad and not _groups_inputs_unverified,
+           'checked=%d unverified=%d; %s'%(_groups_inputs_checked,len(_groups_inputs_unverified),'; '.join(_groups_inputs_bad)[:300]))
         ck('staffer_groups_artifacts_present',not _groups_missing,
            'missing: %s'%', '.join(_groups_missing))
         ck('staffer_groups_artifacts_generation_current',not _groups_stale,

@@ -86,8 +86,10 @@ metrics <- env$PRESS_BACKLOG_CONTEXT$maintenance
 stopifnot(metrics$due == 105L, metrics$selected == 3L, metrics$attempted == 2L, metrics$recovered == 0L,
           identical(env$actual, urls[c(3, 2)]), nrow(env$press_backlog_snapshot()) == 0L)
 rows <- env$press_backlog_read("X000001")
+# urls[2] already had 3 attempts, so a revisit the budget cut short is still exhausted by that
+# attempt (it is stamped on the attempt day, not left at its older exhaustion date).
 stopifnot(all(rows$outcome == "exhausted"), rows$last_attempt_date[1] == "2026-09-10",
-          rows$last_attempt_date[2] == "2026-09-20", rows$last_exhausted_date[2] == "2026-09-13",
+          rows$last_attempt_date[2] == "2026-09-20", rows$last_exhausted_date[2] == "2026-09-20",
           rows$last_exhausted_date[3] == "2026-09-20")
 
 # A successful due revisit updates the body cache and this run's output; failed
@@ -135,7 +137,9 @@ env$actual <- character(0)
 invisible(env$stage_fulltext(changed, js_bgs = js_bgs))
 stopifnot(setequal(env$actual, setdiff(urls, c(urls[1], historical_url))), nrow(env$press_backlog_snapshot()) == 0L)
 
-# Unattempted new URLs still block, and consume priority before maintenance.
+# Unattempted new URLs still block, and consume priority before maintenance -- but only for
+# the member that owns them. X000001 has a pending new URL, so none of its due revisits run;
+# X000002 has nothing pending, so its due revisits still do.
 Sys.setenv(PRESS_REVISIT_URL_CAP = "100")
 env$today <- env$today + 8L
 new_url <- "https://example.gov/new-current-work"
@@ -146,6 +150,8 @@ env$actual <- character(0)
 invisible(env$stage_fulltext(pending_idx, js_bgs = js_bgs))
 stopifnot(identical(env$press_backlog_snapshot()$url, new_url),
           env$PRESS_BACKLOG_CONTEXT$maintenance$due > 0L,
-          env$PRESS_BACKLOG_CONTEXT$maintenance$selected == 0L, length(env$actual) == 0L)
+          env$PRESS_BACKLOG_CONTEXT$maintenance$selected == 5L,
+          setequal(env$actual, urls[101:105]), !any(env$actual %in% urls[1:100]),
+          nrow(env$press_backlog_snapshot()) == 1L)
 Sys.unsetenv("PRESS_REVISIT_URL_CAP")
 cat("PASS: cross-day convergence, source/listing invalidation, seven-day age, global cap/order, non-blocking revisit failures, same-run recovery and current-work priority\n")

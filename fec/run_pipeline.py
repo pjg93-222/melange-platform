@@ -313,7 +313,26 @@ if not DESK_RESPONSIVENESS:
 # refusal (SpeechBuildError in its main) -- is tolerated: the failure logs, records a receipt, and the
 # chain continues on the last-good artifact. A crash (any other nonzero exit) still aborts the chain.
 # audit_full.py must remain the LAST chain entry (weekly_refresh chain-tail guard).
-TOLERANT_STEPS={'build_descriptive_speech.py'}
+#
+# SELF-HEALING PHASE 2 (Paul 2026-10-15, tiered degrade): the same containment now covers the other DISPLAY-ONLY steps. A step is
+# listed only if its outputs are rendered / narrative / distribution layers and no rank, honors or allocation producer reads them
+# (evidence beside each entry: the step's own docstring, and a repo-wide scan of its artifacts' readers). Rank-moving steps stay
+# fail-closed and, with the chain transaction (chain_transaction.py), now roll the whole LIVE write set back. Deliberately NOT
+# listed: make_member_desk / make_combined / make_dashboard_html / the staffer and lobby network pages (make_combined refuses stale
+# desk or staffer pages by mtime, so tolerating them only moves the failure one step later), sync_live_dashboard_alias (it IS
+# publication), the validators and audits, and the decision layers (coalition_pricing, efficiency_layers, champions_v2, industry_tiers).
+# build_descriptive_speech keeps its strict contract (exit code 2 only; a crash still aborts). The others are forgiven any
+# non-timeout nonzero exit, but only when the failed step provably left its last-good artifact(s) untouched (size+mtime unchanged).
+TOLERANT_STEPS={
+    'build_descriptive_speech.py',
+    'build_member_longform_turn_features.py',   # "separate, uncalibrated delivery lane, never ranks"; only reader: build_member_narrative_ledger
+    'build_member_narrative_ledger.py',         # "display-aligned" evidence ledger; readers: regenerate_member_profiles, desk, dashboard bundle
+    'regenerate_member_profiles.py',            # ratified member profile text; readers: desk, meeting playbooks, dashboard bundle
+    'personal_texture_layer.py',                # "display/research context only and never feeds ranks, traits, or engines"
+    'communication_style.py',                   # "accepted, display-only communication profile"; readers: profile basis, validators, desk
+    'make_lobby_interactions_html.py',          # leaf page, deliberately not merged by make_combined; readers: email package, alias sync
+    'make_email_package.py',                    # distribution zips; nothing reads them
+}
 # Per-run receipt of tolerated failures (a JSON list). Relative, resolved against MB_ROOT exactly like
 # the OPTIONAL_INPUTS paths below; reset to [] once per run so it reports only that run's tolerances.
 TOLERATED_RECEIPT='data/engine/chain_tolerated_failures.json'
@@ -321,7 +340,18 @@ TOLERATED_RECEIPT='data/engine/chain_tolerated_failures.json'
 # REQUIRES the artifact to exist and be non-empty AND its receipt to parse with status PASS (the
 # retained bytes must be ones the producer itself accepted); without both, the failure aborts the
 # chain exactly as it always has.
-LAST_GOOD={'build_descriptive_speech.py':'data/speech/speech_descriptive_v1.json'}
+# A value is one path, or a tuple of paths when the step writes several files that must stay together.
+LAST_GOOD={
+    'build_descriptive_speech.py':'data/speech/speech_descriptive_v1.json',
+    'build_member_longform_turn_features.py':'data/speech/member_longform_turn_features_v1.json',
+    'build_member_narrative_ledger.py':'data/members/member_narrative_evidence_v4.json',
+    'regenerate_member_profiles.py':'member_narratives_v2.json',
+    'personal_texture_layer.py':'data/members/member_personal_texture.json',
+    'communication_style.py':'communication_style.json',
+    'make_lobby_interactions_html.py':'lobby-interactions.html',
+    'make_email_package.py':('outputs/email_package/Moneyball_Email_Package.zip',
+                            'outputs/email_package/Moneyball_Email_Package_AllInOne.zip'),
+}
 LAST_GOOD_RECEIPT={'build_descriptive_speech.py':'data/speech/speech_descriptive_v1.receipt.json'}
 
 
@@ -375,6 +405,36 @@ def _last_good_receipt_binds_artifact(receipt_path,artifact_path):
     except OSError:
         return False
     return digest.hexdigest()==expected
+
+
+def _resolve_last_good(value,root):
+    """A LAST_GOOD value (one path, or a tuple of paths for a multi-file step) -> list of absolute paths."""
+    paths=[value] if isinstance(value,str) else list(value or ())
+    return [path if os.path.isabs(path) else os.path.join(root,path) for path in paths]
+
+
+def _artifact_signature(paths):
+    """(size, mtime_ns) per path, None where a path is missing: a cheap proof that a failed step never touched its artifacts."""
+    signature=[]
+    for path in paths:
+        try:
+            info=os.stat(path)
+            signature.append((info.st_size,info.st_mtime_ns))
+        except OSError:
+            signature.append(None)
+    return signature
+
+
+def _tolerance_holds(returncode,timed_out,paths,before,receipt):
+    """True when a TOLERANT step's failure may be forgiven and the chain continue on its last-good artifact(s).
+    Every artifact must exist non-empty. A receipt-bound step (build_descriptive_speech) is forgiven only its own contract
+    refusal (exit code 2) with a PASS receipt that binds the retained bytes. Any other tolerant step is forgiven any
+    non-timeout nonzero exit (a frozen step is never forgiven), but only if it left its artifact(s) exactly as they were."""
+    if not paths or not all(_last_good_ok(path) for path in paths):
+        return False
+    if receipt:
+        return returncode==2 and _last_good_receipt_ok(receipt) and _last_good_receipt_binds_artifact(receipt,paths[0])
+    return returncode!=0 and not timed_out and _artifact_signature(paths)==before
 
 
 def _record_tolerated(receipt_path,entry=None,reset=False):
@@ -636,9 +696,18 @@ def main(argv=None):
     receipt_path=os.path.join(MB_ROOT,TOLERATED_RECEIPT)
     _gb('pipeline.run','running','chain started (%d steps)'%len(CHAIN[first:]),
         run_id=_GB_RUN,correlation_id=_GB_CORR)
+    # Transactional chain (self-healing phase 2): once the lease is held, a dead run's journal is rolled back, the LIVE write set
+    # is snapshotted, and any exit that is not txn.commit() below restores it byte-exact. Entered after the lease and exited
+    # before it, so no other writer can start while LIVE is being restored.
+    import chain_transaction as _ctx
     try:
         preflight_dependencies()
-        with pipeline_run_lock():
+        with pipeline_run_lock(), _ctx.transaction(MB_ROOT,run_id=_GB_RUN,argv=forwarded,emit=_gb,
+                                                   emit_kw={'run_id':_GB_RUN,'correlation_id':_GB_CORR}) as txn:
+            if txn.recovered and first>0:
+                print('WARNING: a previous run never finalized its chain transaction and was rolled back (%s); this --from run '
+                      'starts from the restored (earlier) vintage, so steps before %r are NOT from the run you are resuming.'
+                      %(', '.join(map(str,txn.recovered)),CHAIN[first][0]))
             # Each run reports only its own tolerated failures. A run from step 1 resets the receipt
             # to [] once, before the first step; a --from resume drops only the entries for the steps
             # inside its slice, so a tolerance an earlier run recorded for a step this run does not
@@ -666,19 +735,20 @@ def main(argv=None):
                 _gb('pipeline.step','running','%s'%(script+' '+' '.join(script_args)).strip(),
                     stage=script,run_id=_GB_RUN,correlation_id=_GB_CORR)
                 step_argv=[sys.executable,_producer_path(script)]+script_args
+                # Resolve and fingerprint a tolerant step's last-good artifact(s) BEFORE it runs: the failure is forgiven only if
+                # the step provably left them untouched.
+                last_good=_resolve_last_good(LAST_GOOD.get(script),MB_ROOT) if script in TOLERANT_STEPS else []
+                last_good_before=_artifact_signature(last_good) if last_good else None
+                last_good_receipt=LAST_GOOD_RECEIPT.get(script)
+                if last_good_receipt and not os.path.isabs(last_good_receipt):
+                    last_good_receipt=os.path.join(MB_ROOT,last_good_receipt)
                 run=run_bounded(step_argv,timeout=bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS)
                 tail=(run.stdout or '').strip().splitlines()[-1:] or ['']
                 # A frozen step returns 124, never the 2 a display-only step is forgiven for, so it
                 # halts the chain through the existing failure path even inside TOLERANT_STEPS.
                 if run.timed_out:
                     tail=[run.timeout_note]
-                last_good=LAST_GOOD.get(script)
-                if last_good and not os.path.isabs(last_good):
-                    last_good=os.path.join(MB_ROOT,last_good)
-                last_good_receipt=LAST_GOOD_RECEIPT.get(script)
-                if last_good_receipt and not os.path.isabs(last_good_receipt):
-                    last_good_receipt=os.path.join(MB_ROOT,last_good_receipt)
-                tolerated=run.returncode==2 and script in TOLERANT_STEPS and _last_good_ok(last_good) and _last_good_receipt_ok(last_good_receipt) and _last_good_receipt_binds_artifact(last_good_receipt,last_good)
+                tolerated=script in TOLERANT_STEPS and _tolerance_holds(run.returncode,run.timed_out,last_good,last_good_before,last_good_receipt)
                 print('  %-28s %s %5.1fs  %s%s'%(
                     script+' '+' '.join(script_args),'OK' if run.returncode==0 else '!!',
                     time.time()-started,tail[0][:90],
@@ -707,7 +777,7 @@ def main(argv=None):
                     if tolerated:
                         try:
                             last_good_mtime=time.strftime('%Y-%m-%dT%H:%M:%SZ',
-                                                          time.gmtime(os.path.getmtime(last_good)))
+                                                          time.gmtime(os.path.getmtime(last_good[0])))
                         except OSError:
                             last_good_mtime=None
                         entry={
@@ -716,9 +786,13 @@ def main(argv=None):
                             'returncode':run.returncode,
                             'tail':((run.stderr or '').strip() or (run.stdout or '').strip())[-800:],
                             'timestamp_utc':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),
-                            'last_good_path':last_good,
+                            'last_good_path':last_good[0],
                             'last_good_mtime_iso':last_good_mtime,
+                            'status':'LAST_GOOD',
+                            'label':'display-only step failed; its last-good artifact is retained and served',
                         }
+                        if len(last_good)>1:
+                            entry['last_good_paths']=last_good
                         try:
                             _record_tolerated(receipt_path,entry)
                         except Exception as exc:
@@ -730,12 +804,15 @@ def main(argv=None):
                             stage=script,run_id=_GB_RUN,correlation_id=_GB_CORR,
                             duration_ms=int((time.time()-started)*1000),detail=entry['tail'][:1200],
                             metadata={'step':script,'returncode':run.returncode,'tolerated':True,
-                                      'last_good_path':last_good,'receipt':receipt_path})
+                                      'last_good_path':last_good[0],'receipt':receipt_path})
                         continue
                     _gb('pipeline.run','failed','chain halted at %s'%script,stage=script,
                         run_id=_GB_RUN,correlation_id=_GB_CORR,
                         duration_ms=int((time.time()-t0)*1000))
+                    if script in _ctx.ROLLBACK_EXEMPT:
+                        txn.commit('terminal verifier %s failed after every producer succeeded; LIVE is one complete vintage'%script)
                     return 1
+            txn.commit()
     except RuntimeError as exc:
         print('FATAL:',exc,file=sys.stderr)
         _gb('pipeline.run','failed','FATAL: %s'%exc,run_id=_GB_RUN,correlation_id=_GB_CORR,

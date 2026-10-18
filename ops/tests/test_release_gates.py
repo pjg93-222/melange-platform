@@ -26,18 +26,22 @@ class LockGateTests(Base):
         path.write_text(json.dumps(payload) if isinstance(payload, dict) else payload)
         return path
 
+    def host(self) -> str:
+        """This machine's lease tag, as every real writer records it; a lease without one is foreign and held on Windows."""
+        return core.load_live_module(self.live / "fec" / "pipeline_lock.py", "pipeline_lock").host_identity()
+
     def test_no_lock_file_is_free(self):
         self.assertTrue(gates.pipeline_lock(self.live)["ok"])
 
     def test_dead_pid_is_free(self):
         done = subprocess.Popen([sys.executable, "-c", "pass"])
         done.wait()
-        self.lock({"pid": done.pid, "token": "t", "owner_kind": "pipeline"})
+        self.lock({"pid": done.pid, "token": "t", "owner_kind": "pipeline", "host": self.host()})
         result = gates.pipeline_lock(self.live)
         self.assertTrue(result["ok"], result)
 
     def test_own_pid_is_held(self):
-        self.lock({"pid": os.getpid(), "token": "t", "owner_kind": "release"})
+        self.lock({"pid": os.getpid(), "token": "t", "owner_kind": "release", "host": self.host()})
         result = gates.pipeline_lock(self.live)
         self.assertFalse(result["ok"])
         self.assertIn(str(os.getpid()), result["detail"])

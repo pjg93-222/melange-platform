@@ -20,9 +20,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 try:
-    from lane_file_io import iter_ndjson_raw_lines
+    from lane_file_io import iter_ndjson_raw_lines, atomic_write_bytes
 except ImportError:  # pragma: no cover - package import path
-    from fec.lane_file_io import iter_ndjson_raw_lines
+    from fec.lane_file_io import iter_ndjson_raw_lines, atomic_write_bytes
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -660,17 +660,22 @@ def audit_review_partition(review_dir: Path) -> dict[str, Any]:
 
 
 def write_report(report: dict[str, Any], output_path: Path) -> str:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    file_sha = sha256_file(output_path)
+    output_path = output_path.resolve()
     sidecar = output_path.with_suffix(output_path.suffix + ".sha256")
-    sidecar.write_text(
-        f"{file_sha}  {output_path.name}\n", encoding="ascii", newline="\n"
-    )
+    bindings = report.get("source_bindings") or {}
+    inputs = [bindings.get("manifest_file"), bindings.get("ledger_file")]
+    inputs.extend(row.get("file") for row in (report.get("partition_files") or {}).values())
+    for value in inputs:
+        if not isinstance(value, str) or not value:
+            continue
+        source = Path(value).resolve()
+        for target in (output_path, sidecar):
+            if (target == source or (target.exists() and source.exists() and target.samefile(source))):
+                raise ValueError("report output must not overwrite a bound input")
+    body = (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    file_sha = hashlib.sha256(body).hexdigest()
+    atomic_write_bytes(output_path, body)
+    atomic_write_bytes(sidecar, f"{file_sha}  {output_path.name}\n".encode("ascii"))
     return file_sha
 
 

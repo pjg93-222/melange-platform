@@ -240,11 +240,23 @@ class StaticGraph:
         base = self.root / GENERATION
         verification_path = self.root / VERIFICATION / "staffer_social_network_verification_receipt.json"
         self.verification = json.loads(verification_path.read_text(encoding="utf-8"))
-        if self.verification.get("status") != "PASS" or self.verification.get("failures"):
+        if (not isinstance(self.verification, dict) or self.verification.get("status") != "PASS"
+                or self.verification.get("failures")):
             raise ValueError("The pinned graph verification has not passed")
         receipt_path = base / "staffer_social_network_receipt.json"
-        receipt_check = next(x for x in self.verification["twin_byte_identity"] if x["path"] == receipt_path.name)
-        self._verified(receipt_path, {"sha256": receipt_check["primary_sha256"]}, "graph_receipt")
+        checks = self.verification.get("twin_byte_identity")
+        if not isinstance(checks, list) or any(not isinstance(row, dict) for row in checks):
+            raise ValueError("Graph verifier twin-byte rows must be a list of objects")
+        matches = [row for row in checks if row.get("path") == receipt_path.name]
+        if len(matches) != 1:
+            raise ValueError("Graph verifier must bind exactly one generation receipt")
+        receipt_check = matches[0]
+        expected = receipt_check.get("primary_sha256")
+        if (not isinstance(expected, str) or re.fullmatch(r"[0-9a-f]{64}", expected) is None
+                or receipt_check.get("identical") is not True
+                or receipt_check.get("twin_sha256") != expected):
+            raise ValueError("Generation receipt lacks matching primary/twin verification hashes")
+        self._verified(receipt_path, {"sha256": expected}, "graph_receipt")
         self.receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
         if self.receipt.get("canonical_employment_promotions") or self.receipt.get("canonical_identity_promotions"):
             raise ValueError("Promotion tripwire failed")

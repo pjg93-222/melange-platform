@@ -167,7 +167,7 @@
     el(out,'p',avoidedPeople.size?'People excluded from this search: '+[...avoidedPeople.values()].join(', ')+'.':'No people excluded from this search.','note');
     const requested=Number(data.routes_requested||1);
     const distinct=['distinct','independent'].includes(data.alternative_strategy);
-    el(out,'p',`${routes.length} route${routes.length===1?'':'s'} found${distinct?' with different contacts':''}${routes.length<requested?(distinct?' · no further route under the exclusions from these choices':' · fewer than requested in this search'):''}. Choose one to view its map and evidence.`,'note');
+    el(out,'p',`${routes.length} route${routes.length===1?'':'s'} found${distinct?' with different contacts':''}${routes.length<requested?(data.alternatives_stop_reason==='search_error'?' · additional-route search did not finish':distinct?' · no further route under the exclusions from these choices':' · fewer than requested in this search'):''}. Choose one to view its map and evidence.`,'note');
     if(data.alternative_strategy==='independent')el(out,'p','Also excludes repeated recorded workplace or organization evidence. Shared endpoints and missing evidence still limit independence.','note');
     const buttons=[];
     function selectRoute(index){

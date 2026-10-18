@@ -509,7 +509,10 @@ def _cell_value(
     )
     if cell_type == "s":
         try:
-            value: Any = shared_strings[int(raw)]
+            index = int(raw)
+            if index < 0:
+                raise ValueError("negative shared-string index")
+            value: Any = shared_strings[index]
         except (ValueError, IndexError) as exc:
             raise WorkbookSemanticAuditError(
                 f"Invalid shared-string index at {cell.get('r')}"

@@ -195,7 +195,7 @@ def main() -> int:
             "candidate_is_not_acquired_or_verified": True,
             "promotion_requires_audio_hash_asr_in_band_name_full_turns_and_speaker_gate": True,
         },
-        "inputs": {path.name: sha256(path) for path in (ROSTER, YOUTUBE, APPLE, WEB, OVERRIDES, VERIFIED)},
+        "inputs": {path.name: sha256(path) if path.exists() else None for path in (ROSTER, YOUTUBE, APPLE, WEB, OVERRIDES, VERIFIED)},
         "output": {"path": str(OUT.resolve()), "sha256": sha256(OUT)},
     }
     write_json_atomic(RECEIPT, receipt)

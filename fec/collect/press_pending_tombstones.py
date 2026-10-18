@@ -21,6 +21,14 @@ detected it is filed and then returned too once collection for that session is
 complete."  So: file every deferral, keep retrying it, and after N consecutive
 runs withdraw only its power to refuse the whole generation.
 
+OWNER RULING (2026-10-15) SUPERSEDES THE GATE, NOT THE LEDGER.  Press must
+never back up: every sealed run promotes the bodies it fetched, and the URLs it
+could not reach are carried forward explicitly (``carried_pending_proof``:
+sealed PARTIAL, hash-bound, keyed, duplicate-free) and retried next run.  The
+three-run streak no longer decides anything at the gate; the tombstone counts
+below are REPORT-ONLY, kept so a member the walk cannot drain still reads as a
+standing coverage hole.  ``pending_is_tombstoned_only`` is retained but unused.
+
 WHAT A TOMBSTONE IS AND IS NOT.  A tombstone is a record in THIS file saying a
 URL was listed pending in N consecutive runs without ever being attempted.  It
 changes nothing in the walk: ``press_backlog_order`` still sorts never-attempted
@@ -480,6 +488,9 @@ def excused_by(document, bioguide, url, keys=None, members=None):
 def pending_is_tombstoned_only(run_root, receipt, tombstone_path=None, outputs_root=None):
     """Is every pending row of this run one the walk has provably given up on?
 
+    NOT CALLED BY THE GATE since the 2026-10-15 owner ruling (see
+    ``carried_pending_proof``); kept for its tests and as the strict variant.
+
     Returns ``(accepted, detail)``.  ``detail`` is a one-line refusal string
     when refused, and a dict of counts when accepted.  READ-ONLY: it folds
     unseen sealed runs in memory (``current_ledger``) and never writes the
@@ -541,6 +552,71 @@ def pending_is_tombstoned_only(run_root, receipt, tombstone_path=None, outputs_r
                                  for row in rows
                                  if record_key(row.get("bioguide"), row.get("url"))}),
                   "consecutive_deferrals_for_tombstone": CONSECUTIVE_DEFERRALS_FOR_TOMBSTONE}
+
+
+def carried_pending_proof(run_root, receipt, tombstone_path=None, outputs_root=None):
+    """Is this run's pending set an explicit, sealed list the next run will retry?
+
+    Owner ruling 2026-10-15: press must never back up.  A PARTIAL run promotes
+    the bodies it fetched; the URLs it did not reach are CARRIED to the next run,
+    so the only question here is whether the carried list is exactly the one the
+    walk sealed.  Returns ``(accepted, detail)``: a one-line refusal string, or
+    a dict of counts.  Refuses unless:
+
+      * the receipt is the walk's own PARTIAL shape with a positive integer
+        ``pending_body_urls``;
+      * the pending artifact is readable and holds exactly that many rows (the
+        caller checks its hash against the receipt);
+      * every row is keyed (member + URL) and no key repeats, so nothing is
+        smuggled in, out, or counted twice between the seal and the audit.
+
+    The ledger is consulted for REPORTING only (tombstone counts); an unusable
+    ledger sets ``tombstone_ledger_error`` and never refuses.  READ-ONLY.
+    """
+    run_root = Path(run_root)
+    if receipt.get("status") != "PARTIAL":
+        return False, "press body backlog remains incomplete"
+    count = receipt.get("pending_body_urls")
+    if type(count) is not int or count <= 0:
+        return False, "press body backlog remains incomplete"
+    try:
+        rows = read_pending(run_root)
+    except (PendingArtifactError, OSError) as exc:
+        return False, "pending artifact unusable: %s" % exc
+    if len(rows) != count:
+        return False, ("pending artifact has %d row(s), receipt claims %d" % (len(rows), count))
+    keys = [record_key(row.get("bioguide"), row.get("url")) for row in rows]
+    if not all(keys):
+        return False, ("%d pending row(s) lack a usable member/URL identity; "
+                       "press body backlog remains incomplete" % keys.count(""))
+    if len(set(keys)) != len(keys):
+        return False, ("pending artifact repeats %d member/URL key(s); "
+                       "press body backlog remains incomplete" % (len(keys) - len(set(keys))))
+    members = {}
+    for key in keys:
+        member = key.split("#", 1)[0]
+        members[member] = members.get(member, 0) + 1
+    detail = {"pending_body_urls_carried": count,
+              "pending_members": dict(sorted(members.items())),
+              "consecutive_deferrals_for_tombstone": CONSECUTIVE_DEFERRALS_FOR_TOMBSTONE}
+    try:
+        # ponytail: each call replays every sealed run (hashes N small pending
+        # CSVs), so a validation sweep costs O(runs^2).  Memoize on (ledger
+        # mtime, run seals) if discover_run ever gets slow.
+        document, _folded = current_ledger(outputs_root or run_root.parent, tombstone_path)
+        url_keys, member_keys = tombstoned_keys(document), tombstoned_members(document)
+        counts = {"url": 0, "member": 0}
+        for row in rows:
+            reason = excused_by(document, row.get("bioguide"), row.get("url"), url_keys, member_keys)
+            if reason:
+                counts[reason] += 1
+        detail.update(pending_body_urls_tombstoned=counts["url"] + counts["member"],
+                      excused_by_url=counts["url"], excused_by_member=counts["member"],
+                      tombstoned_members=sorted(member_keys & set(members)))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        # Report-only: a ledger we cannot read costs the counts, never the run.
+        detail["tombstone_ledger_error"] = "%s: %s" % (type(exc).__name__, exc)
+    return True, detail
 
 
 def parse_args(argv=None):

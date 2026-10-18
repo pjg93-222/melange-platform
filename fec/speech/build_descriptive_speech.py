@@ -56,7 +56,7 @@ FEATURE_COLUMNS = {
 LEGACY_DURATION_FRAME_TOLERANCE_SEC = 0.75
 INTERVIEW_SETTINGS = {
     "washington_journal", "npr", "sunday_show", "longform_podcast",
-    "broadcast_news_interview",
+    "broadcast_news_interview", "podcast_interview",
 }
 SETTING_LABELS = {
     "washington_journal": "Washington Journal",
@@ -64,6 +64,7 @@ SETTING_LABELS = {
     "sunday_show": "Sunday show",
     "longform_podcast": "Long-form podcast",
     "broadcast_news_interview": "Broadcast news interview",
+    "podcast_interview": "Podcast interview",
     "house_floor": "House floor",
 }
 SUPPLEMENT_SCHEMA = "speech-source-media-supplement-clip-v1"
@@ -2152,6 +2153,7 @@ def build_clip_records(manifest_rows, roster, indices, cache, verify_hash=True,
         digest = str(row["sha256"])
         manifest_digest = row_sha256(row)
         prior = cache.get(digest)
+        freshly_measured = False
         found = (indices.get(outlet) or {}).get(feature_key(row, outlet))
         identity = classify_identity(
             row, npr_bindings, sunday_bindings, found,
@@ -2177,6 +2179,7 @@ def build_clip_records(manifest_rows, roster, indices, cache, verify_hash=True,
             measurement_source = "opensmile_egemaps_v02_local"
             feature_provenance = None
             counts["locally_measured"] += 1
+            freshly_measured = True
         else:
             raise SpeechBuildError("accepted clip lacks a measurement: manifest line %d" % number)
         record = {
@@ -2208,7 +2211,7 @@ def build_clip_records(manifest_rows, roster, indices, cache, verify_hash=True,
         counts["accepted"] += 1
         counts["identity_" + identity["tier"]] += 1
         counts["setting_" + record["setting"]] += 1
-        if (cache_path and measurement_source == "opensmile_egemaps_v02_local" and
+        if (cache_path and freshly_measured and
                 counts["locally_measured"] > 0 and
                 counts["locally_measured"] % checkpoint_every == 0):
             atomic_jsonl(cache_path, [checkpoint_cache[key]

@@ -736,9 +736,12 @@ def process_spans(
     outlet: str,
     dry_run: bool,
     skipped: int,
+    new_manifest_rows: list[dict[str, Any]] | None = None,
 ) -> tuple[RunSummary, list[dict[str, Any]]]:
     summary = RunSummary(skipped_span_count=skipped)
-    new_manifest_rows: list[dict[str, Any]] = []
+    # Caller may pass its own list so rows for clips already written survive a mid-run error.
+    if new_manifest_rows is None:
+        new_manifest_rows = []
 
     for index, span in enumerate(prepared, 1):
         try:
@@ -792,6 +795,7 @@ def process_spans(
                 sf.write(str(temp_wav), audio, read_samplerate)
                 os.replace(temp_wav, span.out_wav)
             except Exception as exc:
+                temp_wav.unlink(missing_ok=True)
                 raise CutSpansError(f"Could not atomically write {span.out_wav}: {exc}") from exc
             byte_count = span.out_wav.stat().st_size
             digest = sha256_file(span.out_wav)
@@ -1011,10 +1015,16 @@ def run(argv: Sequence[str] | None = None) -> int:
             )
         existing_manifest_rows = load_existing_manifest(manifest_path)
         reject_manifest_collisions(existing_manifest_rows, prepared)
-        summary, new_manifest_rows = process_spans(
-            prepared, outlet, dry_run=False, skipped=skipped
-        )
-        write_manifest_atomic(manifest_path, existing_manifest_rows, new_manifest_rows)
+        new_manifest_rows: list[dict[str, Any]] = []
+        try:
+            summary, _ = process_spans(
+                prepared, outlet, dry_run=False, skipped=skipped,
+                new_manifest_rows=new_manifest_rows,
+            )
+        finally:
+            # Record clips already on disk even if process_spans raised or was interrupted.
+            if new_manifest_rows:
+                write_manifest_atomic(manifest_path, existing_manifest_rows, new_manifest_rows)
 
     print_final_summary(summary, dry_run=False)
     if summary.rms_zero_count:

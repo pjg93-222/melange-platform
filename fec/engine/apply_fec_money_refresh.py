@@ -7,6 +7,12 @@ from datetime import datetime,timezone
 from paths import ROOT, stored_name, to_host
 from moneyball_core import dump_atomic
 from collect.refresh_fec_money import digest
+import chain_transaction as CT
+
+# Self-healing phase 2 (Paul 2026-10-15): past this window the last verified generation is still APPLIED and labelled
+# STALE_LABELLED (receipt + data/engine/source_freshness.json) instead of raising. Everything that proves the generation is
+# the one the receipt describes -- status PASS, the dependency / source / projection hashes, the roster -- stays strict.
+WINDOW_DAYS=8
 
 
 def apply(root):
@@ -15,7 +21,8 @@ def apply(root):
         raise ValueError('No verified current FEC refresh; frozen money is not self-updating')
     d=json.loads(path.read_text(encoding='utf-8'))
     age=(datetime.now(timezone.utc)-datetime.fromisoformat(d['checked_at'])).total_seconds()
-    if d.get('status')!='PASS' or not -300<=age<=8*86400: raise ValueError('FEC refresh is failed/stale')
+    if d.get('status')!='PASS': raise ValueError('FEC refresh is failed/stale')
+    freshness=CT.age_status(age,WINDOW_DAYS,'FEC refresh is failed/stale')   # a future stamp still raises
     for dependency,wanted in d['dependencies'].items():
         if stored_name(dependency)!='congestion.json' and digest(to_host(dependency))!=wanted:
             raise ValueError('FEC policy/identity mapping changed since collection')
@@ -37,9 +44,14 @@ def apply(root):
     if result != old:
         dump_atomic(result,str(target))
     finish_update(pin, digest(target))
-    dump_atomic({'schema':'fec-money-application-v1','status':'PASS','cycle':d['cycle'],
-                 'source_receipt_sha256':digest(path),'congestion_sha256':digest(target),
-                 'unresolved_members':d['unresolved_members']},str(root/'data/money/fec_money_application.json'))
+    receipt={'schema':'fec-money-application-v1','status':'PASS','cycle':d['cycle'],
+             'source_receipt_sha256':digest(path),'congestion_sha256':digest(target),
+             'unresolved_members':d['unresolved_members']}
+    if freshness==CT.STALE_LABELLED:   # absent key == FRESH, so the in-window receipt bytes are unchanged
+        receipt.update(freshness_status=freshness,source_checked_at=d['checked_at'],freshness_window_days=WINDOW_DAYS)
+    dump_atomic(receipt,str(root/'data/money/fec_money_application.json'))
+    CT.note_freshness(root,'fec_money',freshness,checked_at=d['checked_at'],window_days=WINDOW_DAYS,
+                      producer='fec/engine/apply_fec_money_refresh.py')
     return len(result)
 
 

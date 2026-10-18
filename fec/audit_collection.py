@@ -1151,37 +1151,42 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
         row for row in frames["failed_bodies"]
         if row.get("collection_status") == "mention_slice_under_20_words"
     ]
-    # Paul 2026-09-19: a pending row the deferral ledger has tombstoned loses its
-    # veto over intake.  The walk also writes it here as body_pending_network_attempt,
-    # so it takes the same excuse from the same ledger and function, or this gate
-    # refuses a run the completion gate accepted.
-    excused_pending = []
+    # Owner ruling 2026-10-15: press must never back up.  A pending row is carried to the
+    # next run, not a failure to explain here.  The walk also writes each one as a
+    # body_pending_network_attempt failed body, so those rows must be EXACTLY the pending set it
+    # sealed (read_pending; the completion gate above hash-binds that file to the receipt), and
+    # none may also be a usable article.  Anything else is an error.  Every other failed body
+    # still needs its exhausted / short-mention receipt.  The tombstone ledger is report-only and
+    # is not written from here (refresh_press_stream writes it after the walk seals).
+    carried_pending = []
     pending_failures = [
         row for row in frames["failed_bodies"]
         if row.get("collection_status") == "body_pending_network_attempt"
     ]
-    if pending_failures:
-        from collect.press_pending_tombstones import (
-            PendingArtifactError, excused_by, read_pending, record_key,
-            tombstoned_keys, tombstoned_members, update,
-        )
+    if pending_failures or completion_proof.get("pending_body_urls_carried"):
+        from collect.press_pending_tombstones import PendingArtifactError, read_pending, record_key
         try:
-            ledger = update(root.parent)
-            sealed = {record_key(row.get("bioguide"), row.get("url"))
-                      for row in read_pending(root)}
-        except (PendingArtifactError, OSError):
-            ledger = None
-        if ledger is not None:
-            keys, members = tombstoned_keys(ledger), tombstoned_members(ledger)
-            excused_pending = [
-                row for row in pending_failures
-                if record_key(row.get("bioguide"), row.get("url")) in sealed
-                and excused_by(ledger, row.get("bioguide"), row.get("url"), keys, members)
-            ]
+            sealed = sorted(record_key(row.get("bioguide"), row.get("url"))
+                            for row in read_pending(root))
+        except (PendingArtifactError, OSError) as exc:
+            errors.append("sealed pending artifact unreadable: %s" % exc)
+        else:
+            listed = sorted(record_key(row.get("bioguide"), row.get("url"))
+                            for row in pending_failures)
+            article_keys = {record_key(row.get("bioguide"), row.get("url"))
+                            for row in frames["articles"]} - {""}
+            overlap = article_keys & set(listed)
+            if listed != sealed:
+                errors.append("pending failed bodies (%d) do not equal the sealed pending set (%d)"
+                              % (len(listed), len(sealed)))
+            if overlap:
+                errors.append("%d pending body URL(s) are also usable articles" % len(overlap))
+            if listed == sealed and not overlap:
+                carried_pending = pending_failures
     unresolved_failures = [
         row for row in frames["failed_bodies"]
         if row not in exhausted_network_failures and row not in rejected_short_mentions
-        and row not in excused_pending
+        and row not in carried_pending
     ]
     if unresolved_failures:
         errors.append(
@@ -1209,8 +1214,22 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
             errors.append("dated article outside audited window: %s" % value)
     if any(str(row.get("date_final") or "").strip() for row in frames["undated"]):
         errors.append("undated artifact contains a populated date")
-    if not set(turns["scored"]).issubset(dated):
-        errors.append("scored URLs are not a subset of dated articles")
+    # Owner ruling D-219 (Paul 2026-10-15, refresh filtering matches the ratified history): the scorer
+    # (refresh_press_delta.R score_scorable_press_rows) scores the dated AND undated articles, and an
+    # exhausted body failure on its TITLE (scored row tagged body_fallback = "title").  A scored row
+    # outside dated + undated qualifies only as such a fallback: it must be tagged, and its turn must be
+    # an exhausted network failure in failed_bodies.  A pending row (not fetched yet, carried), a
+    # mention slice and a row in no partition stay refused.
+    title_scored = {press_turn_key(row) for row in frames["scored"]
+                    if str(row.get("body_fallback") or "").strip() == "title"}
+    exhausted_turns = {press_turn_key(row) for row in exhausted_network_failures
+                       if row.get("source") != "OFFICIAL_MENTION"}
+    stray_scored = set(turns["scored"]) - (dated | undated | (title_scored & exhausted_turns))
+    if stray_scored:
+        pending_turns = {press_turn_key(row) for row in pending_failures}
+        errors.append(
+            "%d scored URL(s) are not dated or undated articles or exhausted title-fallback failures "
+            "(%d of them pending)" % (len(stray_scored), len(stray_scored & pending_turns)))
 
     return {
         "receipts": len(frames["fulltext"]),
@@ -1233,7 +1252,11 @@ def audit_press_delta(root: Path, floor_text: str, *, require_complete=False):
         "pending_body_urls_excused_by_url": completion_proof.get("excused_by_url", 0),
         "pending_body_urls_excused_by_member": completion_proof.get("excused_by_member", 0),
         "pending_tombstoned_members": completion_proof.get("tombstoned_members", []),
-        "pending_failed_bodies_excused": len(excused_pending),
+        "pending_failed_bodies_carried": len(carried_pending),
+        # Explicit coverage: what this run carries to the next one, and for whom.
+        "pending_body_urls_carried": completion_proof.get("pending_body_urls_carried", 0),
+        "pending_members": completion_proof.get("pending_members", {}),
+        "coverage_complete": retry_receipt.get("pending_body_urls") == 0 and not carried_pending,
         "cached_date_rejoins": retry_receipt.get("cached_date_rejoins"),
         "revisit_due_urls": retry_receipt.get("revisit_due_urls"),
         "revisit_attempted_urls": retry_receipt.get("revisit_attempted_urls"),

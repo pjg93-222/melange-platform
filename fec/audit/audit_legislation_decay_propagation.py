@@ -798,7 +798,7 @@ def markdown_report(audit: dict[str, Any]) -> str:
         ),
         (
             f"- Production cutover detected: "
-            f"**{'YES' if summary['production_cutover_detected'] else 'NO'}**"
+            f"**{'YES' if summary['production_cutover_detected'] is True else 'NO' if summary['production_cutover_detected'] is False else 'UNKNOWN'}**"
         ),
         "- Promotion/sync authorized: **NO**",
         "",

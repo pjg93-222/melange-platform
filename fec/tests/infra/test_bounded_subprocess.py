@@ -370,8 +370,18 @@ class ChainStepCallSite(TempTreeCase):
         self.patch('CHAIN', [('fake_step.py', ['--fake'])])
         self.saved_timeout = self.RP.bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS
         self.RP.bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS = 1
+        # The chain transaction (chain_transaction.py) snapshots MB_ROOT and refuses to start under a 30 GB free-disk floor;
+        # that floor is the host's business, not this call-site test's, so it is lifted and the staging stays inside the temp tree.
+        self.saved_env = {name: os.environ.get(name) for name in ('MELANGE_CHAIN_TXN_MIN_FREE_GB', 'MELANGE_CHAIN_TXN_DIR')}
+        os.environ['MELANGE_CHAIN_TXN_MIN_FREE_GB'] = '0'
+        os.environ['MELANGE_CHAIN_TXN_DIR'] = os.path.join(self.tmp, '_chain_txn')
 
     def tearDown(self):
+        for name, value in self.saved_env.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
         self.RP.bounded_subprocess.CHAIN_STEP_TIMEOUT_SECONDS = self.saved_timeout
         for name, value in self.saved.items():
             setattr(self.RP, name, value)
@@ -703,6 +713,7 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
             'FE': self.tmp,
             '_LIVE_CHILD': [None],
             '_tolerated': [],
+            '_soft_failures': [],
             '_producer_path': self.producer_path,
             '_chain_tail_is_audit_full': lambda: True,
             'log': self.logs.append,
@@ -711,7 +722,7 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
                 (kind, status, summary, kwargs)),
             '_hard_abort': self.hard_abort,
         }
-        for name in ('_adopt_live_child', '_kill_live_child', 'step'):
+        for name in ('_adopt_live_child', '_kill_live_child', '_soft_fail', 'step'):
             exec(_weekly_function_source(name), self.ns)
 
     def producer_path(self, name):

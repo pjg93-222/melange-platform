@@ -99,6 +99,16 @@ def main() -> int:
         turn_id = str(review["turn_id"])
         source_id = str(review["source_id"])
         member = str(review["member"])
+        if review.get("schema") != "member-interview-reviewed-turn-v1":
+            raise TurnRefusal(f"turn_review_not_human:{turn_id}:schema={review.get('schema')}")
+        if "review_status" in review and str(review["review_status"] or "").strip().upper() != "ACCEPT":
+            raise TurnRefusal(f"turn_review_not_accepted:{turn_id}")
+        boundary = str(review.get("boundary_review") or "").strip()
+        if not boundary or boundary.upper() == "REJECT" or boundary.upper().startswith("PENDING"):
+            raise TurnRefusal(f"turn_boundary_not_reviewed:{turn_id}")
+        reviewer_type = review.get("reviewer_type")
+        if reviewer_type is not None and str(reviewer_type).upper() != "HUMAN":
+            raise TurnRefusal(f"turn_review_not_human:{turn_id}:reviewer_type={reviewer_type}")
         if turn_id in seen_turns:
             raise TurnRefusal(f"duplicate_turn_id:{turn_id}")
         seen_turns.add(turn_id)

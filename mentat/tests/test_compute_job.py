@@ -100,9 +100,12 @@ class JobTests(Temp):
             return cj.run(name, run_id, extra, env or self.env())
 
     def test_the_job_table_is_the_inventory_and_only_collectors_need_keys_and_a_network(self):
-        self.assertEqual(sorted(cj.JOBS), ['anchors', 'collect-fanout', 'pac-evidence', 'pocket-build', 'refit', 'refit-detect', 'refit-parity'])
-        self.assertEqual(sorted(n for n, j in cj.JOBS.items() if j.network), ['collect-fanout', 'pac-evidence'])
+        self.assertEqual(sorted(cj.JOBS), ['anchors', 'collect-downstream', 'collect-downstream-import', 'collect-downstream-recover', 'collect-fanout', 'pac-evidence', 'pocket-build', 'refit',
+                                           'refit-detect', 'refit-parity'])
+        # D075: collect-downstream reaches the network only to talk to the host evidence broker, which holds the keys; it holds none itself
+        self.assertEqual(sorted(n for n, j in cj.JOBS.items() if j.network), ['collect-downstream', 'collect-fanout', 'pac-evidence'])
         self.assertEqual(sorted(n for n, j in cj.JOBS.items() if j.keys), ['collect-fanout', 'pac-evidence'])
+        self.assertEqual(sorted(n for n, j in cj.JOBS.items() if j.broker), ['collect-downstream'])
         self.assertEqual((cj.JOBS['anchors'].minutes, cj.JOBS['refit-detect'].minutes), (45, 20))           # the two scheduled tasks' own caps
 
     def test_dry_run_plans_each_job_without_a_key_value_and_refuses_a_missing_requirement(self):
@@ -293,15 +296,24 @@ class ComposeTests(unittest.TestCase):
             else:
                 self.assertEqual(service['network_mode'], 'none', name)
                 self.assertNotIn('networks', service, name)
-            self.assertEqual(service.get('secrets', []) == ['fec_api_keys'], cj.JOBS[name].keys, name)
+            secrets = service.get('secrets', [])
+            self.assertEqual('fec_api_keys' in secrets, cj.JOBS[name].keys, name)
+            self.assertEqual('fec_request_pool' in secrets, cj.JOBS[name].broker or name == 'collect-fanout', name)
+            self.assertEqual(set(secrets) - {'fec_api_keys', 'fec_request_pool'}, set(), name)
+        self.assertEqual(self.services['collect-downstream']['secrets'], ['fec_request_pool'], 'the downstream container is mounted the key-free descriptor and never the keys')
         self.assertEqual(self.doc['secrets']['fec_api_keys']['file'], '${FEC_KEYS_FILE:-/dev/null}')
         self.assertEqual(sorted(self.doc['networks']), ['collect'])
+        # the one named volume is external, so compose never creates an empty ledger by typo
+        self.assertEqual(self.doc['volumes'], {'frontier': {'name': '${DOWNSTREAM_VOLUME:-mentat-downstream-frontier}', 'external': True}})
 
     def test_data_is_mounted_read_only_unless_the_job_writes_there_and_never_auto_created(self):
         for name, service in self.services.items():
             mounts = [v for v in service['volumes'] if isinstance(v, dict)]
             self.assertEqual(len(mounts), len(service['volumes']), name)           # long form only
             for mount in mounts:
+                if mount['type'] == 'volume':                                      # D075: the live downstream ledger, never a bind (cross-OS SQLite locks are blind)
+                    self.assertEqual((name in DOWNSTREAM, mount['source'], mount['target'], 'read_only' in mount), (True, 'frontier', '/frontier', False), name)
+                    continue
                 self.assertEqual(mount['type'], 'bind', name)
                 self.assertIs(mount['bind']['create_host_path'], False, (name, mount['target']))
             writable = sorted(m['target'] for m in mounts if not m.get('read_only'))
@@ -319,6 +331,23 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(melange, {'anchors': [
             ('/localappdata/Melange/lda_rebuild/derived/sector_spend/sector_spend.csv', True),
             ('/localappdata/Melange/lda_rebuild/derived/fullscope_receipts.json', True)]})
+
+    def test_the_downstream_services_see_the_host_state_read_only_and_hold_no_key_and_no_host_pool_secret_where_they_have_no_network(self):
+        for name in DOWNSTREAM:
+            service = self.services[name]
+            mounts = {m['target']: m for m in service['volumes']}
+            self.assertNotIn('fec_api_keys', service.get('secrets', []), name)
+            self.assertFalse([k for k in service['environment'] if k.startswith(('FEC_API_KEY', 'FEC_KEYS')) or k in ('FEC_API_KEYS_FILE',)], name)
+            for target in ('/hoststate', '/inputs', '/import', '/mentat'):
+                if target in mounts:
+                    self.assertIs(mounts[target].get('read_only'), True, (name, target))
+            self.assertNotIn('/collect', mounts)
+            self.assertEqual(service['mem_limit'], '1g' if name.endswith('import') else '4g', name)
+        self.assertEqual(self.services['collect-downstream']['environment']['MENTAT_REQUEST_POOL_CONFIG'], '/run/secrets/fec_request_pool')
+        for name in ('collect-downstream-recover', 'collect-downstream-import'):
+            self.assertEqual((self.services[name]['network_mode'], 'secrets' in self.services[name], 'networks' in self.services[name]), ('none', False, False), name)
+        self.assertIn('/export', {m['target'] for m in self.services['collect-downstream']['volumes']})
+        self.assertNotIn('/export', {m['target'] for m in self.services['collect-downstream-import']['volumes']})
 
     def test_the_container_environment_points_every_location_at_a_mount(self):
         for name, service in self.services.items():
@@ -339,7 +368,11 @@ class ComposeTests(unittest.TestCase):
         self.assertEqual(refit['RF_ROOT_SGSD'], '/mentat/sector_growth_study/data')
 
 
+DOWNSTREAM = ('collect-downstream', 'collect-downstream-recover', 'collect-downstream-import')
 EXPECTED_WRITABLE = {
+    'collect-downstream': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/frontier', '/export'],
+    'collect-downstream-recover': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/frontier', '/export'],
+    'collect-downstream-import': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/frontier'],
     'anchors': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/mentat/mentat/state/giving-anchors'],
     'refit-detect': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/localappdata/Mentat/forecast/refit'],
     'refit-parity': ['/localappdata/Mentat/compute/receipts', '/glassbox/events', '/localappdata/Mentat/forecast/refit'],

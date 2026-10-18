@@ -58,7 +58,8 @@ class _UnsetLocalRoot(os.PathLike):
 _LOCAL_MELANGE_PATH = os.path.abspath(os.environ.get('MELANGE_LOCAL_ROOT') or os.path.join(_LOCAL_APPDATA, 'Melange'))
 LOCAL_MELANGE = (_LOCAL_MELANGE_PATH if os.environ.get('MELANGE_LOCAL_ROOT') or os.environ.get('LOCALAPPDATA')
                  else _UnsetLocalRoot())
-MELANGE_DATA = os.path.abspath(os.environ['MELANGE_DATA_ROOT']) if os.environ.get('MELANGE_DATA_ROOT') else 'C:\\melange-data'
+DEFAULT_MELANGE_DATA = 'C:\\melange-data'
+MELANGE_DATA = os.path.abspath(os.environ['MELANGE_DATA_ROOT']) if os.environ.get('MELANGE_DATA_ROOT') else DEFAULT_MELANGE_DATA
 # STAFFER_NETWORK_LOCAL keeps the fallback it had before the seams (the home directory's AppData\Local when LOCALAPPDATA is unset);
 # only LOCAL_MELANGE fails closed.
 STAFFER_NETWORK_LOCAL = os.path.abspath(

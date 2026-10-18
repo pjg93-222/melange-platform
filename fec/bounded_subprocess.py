@@ -169,8 +169,9 @@ def run_bounded(argv, timeout, env=None, cwd=None, creationflags=0, start_new_se
     Because it is inside the guard, an on_start that raises takes the interrupt path: the tree
     dies first, then the exception propagates.
     """
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or timeout <= 0:
-        raise ValueError('timeout must be a positive number of seconds, got %r' % (timeout,))
+    if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
+            or not 0 < timeout < float('inf')):
+        raise ValueError('timeout must be a positive finite number of seconds, got %r' % (timeout,))
     started = time.monotonic()
     timed_out = False
     launch = {}

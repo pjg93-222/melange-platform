@@ -10,8 +10,13 @@ from datetime import datetime, timezone
 from legislation.congress_bill_repository import sha256_file
 from legislation.verify_collector_roster_updates import build_ledger_view, desk_summary
 import bill_rules as BR
+import chain_transaction as CT
 
 RELATIVE = 'data/legislation/official_membership_movements.json'
+# Self-healing phase 2 (Paul 2026-10-15): past this window the sidecar is served as last-good and labelled STALE_LABELLED
+# (d['freshness_status'], a stdout line, data/engine/source_freshness.json) instead of raising. The repository-sha binding and the
+# row-by-row re-derivation from the source snapshot below are unchanged and still refuse.
+WINDOW_DAYS = 8
 
 
 def enabled(root):
@@ -66,7 +71,7 @@ def load(root):
     if d['repository_sha256']!=sha256_file(Path(root)/'bill_repository_live.json'):
         raise ValueError('official membership movements refer to a different repository')
     age=(datetime.now(timezone.utc)-datetime.fromisoformat(d['checked_at'].replace('Z','+00:00'))).total_seconds()
-    if not -300<=age<=8*86400: raise ValueError('official membership facts are stale')
+    freshness=CT.age_status(age,WINDOW_DAYS,'official membership facts are stale')   # a future stamp still raises
     keys=[(r['repository_key'],r['bioguide']) for r in d['facts']]
     if len(keys)!=len(set(keys)): raise ValueError('duplicate official membership identity')
     # Re-derive the projection from the source snapshot, rather than trusting
@@ -79,6 +84,10 @@ def load(root):
         p=next((p for p in people if p.get('bioguide')==row['bioguide']),None)
         if p is None or bool(p.get('withdrawn_date'))!=row['withdrawn']:
             raise ValueError('movement differs from the official source')
+    if freshness==CT.STALE_LABELLED:
+        d['freshness_status']=freshness   # in-memory label only; never part of the stored sidecar
+    CT.note_freshness(root,'official_membership_movements',freshness,checked_at=d['checked_at'],window_days=WINDOW_DAYS,
+                      producer='fec/legislation/official_membership_movements.py')
     return d
 
 

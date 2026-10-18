@@ -302,12 +302,12 @@ class ForeignHostIsHeldUnlessItsHeartbeatIsStale(LeaseTestCase):
 
 
 class LegacyAndWindowsPeers(LeaseTestCase):
-    def test_legacy_lease_on_windows_keeps_the_pid_rule(self):
+    def test_legacy_lease_on_windows_requires_owner_verification(self):
         self.sim(True)
         self.write_lease(dead_pid())
-        self.assertRecovered()
+        self.assertBlocked(host_in_message='unknown')
         self.write_lease(os.getpid())
-        self.assertNotIn(', host', self.assertBlocked(), 'the Windows refusal text changed')
+        self.assertIn('owner', self.assertBlocked(host_in_message='unknown'))
 
     def test_legacy_lease_on_posix_is_foreign_even_with_a_dead_pid(self):
         self.sim(False)
@@ -316,12 +316,12 @@ class LegacyAndWindowsPeers(LeaseTestCase):
         self.write_beat(age=10 ** 6)       # control: only the holder's own stale heartbeat frees it
         self.assertRecovered()
 
-    def test_windows_peer_with_another_hostname_still_gets_the_pid_rule(self):
+    def test_windows_peer_with_another_hostname_requires_owner_verification(self):
         self.sim(True)
         self.write_lease(dead_pid(), host='nt:RENAMED-OR-OTHER')
-        self.assertRecovered()
+        self.assertBlocked(host_in_message='nt:RENAMED-OR-OTHER')
         self.write_lease(os.getpid(), host='nt:RENAMED-OR-OTHER')
-        self.assertBlocked()
+        self.assertBlocked(host_in_message='nt:RENAMED-OR-OTHER')
 
     def test_posix_lease_is_foreign_to_a_windows_peer_even_with_a_dead_pid(self):
         self.sim(True)

@@ -1091,11 +1091,20 @@ PROCEDURAL_PATTERNS = (
 )
 
 
-def classify_final_passage(measure_type: str, text: Any) -> tuple[str | None, str]:
+def classify_final_passage(
+    measure_type: str, text: Any, procedural_text: Any = None
+) -> tuple[str | None, str]:
+    """``procedural_text`` (the vote question) limits the procedural-pattern
+    check so a bill title containing 'waive'/'table' cannot mask a passage vote."""
     normalized = normalize_space(text).casefold()
     if not normalized:
         return None, "missing_vote_question"
-    if any(re.search(pattern, normalized) for pattern in PROCEDURAL_PATTERNS):
+    procedural = (
+        normalized
+        if procedural_text is None
+        else normalize_space(procedural_text).casefold()
+    )
+    if any(re.search(pattern, procedural) for pattern in PROCEDURAL_PATTERNS):
         return None, "procedural_vote"
     if measure_type in AMENDMENT_TYPES:
         if "amendment" in normalized and re.search(
@@ -1103,6 +1112,13 @@ def classify_final_passage(measure_type: str, text: Any) -> tuple[str | None, st
         ):
             return "amendment_disposition", "final_amendment_disposition"
         return None, "not_final_amendment_disposition"
+    if re.search(
+        r"\bagree(?:d|ing)?\s+to\s+the\s+(?:senate|house)\s+amendments?\b", normalized
+    ):
+        return "resolving_differences", "final_resolving_differences_disposition"
+    # "Passed Senate without amendment" / "with an amendment" describe a passage,
+    # not an amendment vote.
+    normalized = re.sub(r"\bwith(?:out)?\s+(?:an\s+)?amendments?\b", " ", normalized)
     if "amendment" in normalized and not (
         "concur" in normalized or "resolving differences" in normalized
     ):
@@ -1527,6 +1543,7 @@ def event_candidate(
                     ),
                 )
             ),
+            procedural_text=official.get("question"),
         )
     ]
     official_class, official_reason = official_classes[0]
@@ -1566,6 +1583,9 @@ def event_candidate(
     return base, official["votes"], blockers
 
 
+_DISPOSITION_RANK = {"included": 0, "ambiguous": 1, "unmatched": 2}
+
+
 def merge_duplicate_event_candidates(
     candidates: list[tuple[dict[str, Any], list[dict[str, Any]]]]
 ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
@@ -1578,9 +1598,16 @@ def merge_duplicate_event_candidates(
         )
     merged = []
     for _identity, rows in sorted(grouped.items()):
-        first_event, first_votes = rows[0]
+        # Prefer the included row, then ambiguous, unmatched, excluded; a plain
+        # first-row pick could drop included evidence behind an excluded duplicate.
+        first_event, first_votes = min(
+            rows, key=lambda row: _DISPOSITION_RANK.get(row[0]["disposition"], 3)
+        )
         if len(rows) > 1:
             first_event = dict(first_event)
+            dispositions = sorted({row[0]["disposition"] for row in rows})
+            if len(dispositions) > 1:
+                first_event["duplicate_action_disposition_conflict"] = dispositions
             first_event["duplicate_congress_action_count"] = len(rows)
             first_event["duplicate_action_sources"] = [
                 row[0]["congress_action"] for row in rows
@@ -2002,6 +2029,11 @@ def collect(
                     candidates.append((event, member_votes))
                     blockers.extend(event_blockers)
         candidates = merge_duplicate_event_candidates(candidates)
+        blockers.extend(
+            f"{event['event_id']}:duplicate_action_disposition_conflict"
+            for event, _votes in candidates
+            if event.get("duplicate_action_disposition_conflict")
+        )
         blockers.extend(reconcile_cross_measure_event_collisions(candidates))
         member_votes, aggregate, aggregate_blockers = apply_directions_and_aggregate(
             candidates, measures

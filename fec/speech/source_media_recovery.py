@@ -32,6 +32,7 @@ import difflib
 import email.utils
 import hashlib
 import html
+import http.client
 import json
 import math
 import os
@@ -1903,7 +1904,9 @@ def discover_tvnews_phrase(
     channel = identifier_prefix.rstrip("_")
     try:
         phrase, clips = archive_tv_clips(record, channel)
-    except (RecoveryError, urllib.error.URLError, urllib.error.HTTPError):
+    except (
+        RecoveryError, urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError
+    ):
         # Retain GDELT as a compatibility fallback; Archive.org's own current
         # TV search service is the primary resolver and avoids that endpoint's
         # recurrent connection resets.
@@ -2134,6 +2137,10 @@ def discover_one(
             urllib.error.URLError,
             urllib.error.HTTPError,
             ET.ParseError,
+            ValueError,
+            KeyError,
+            AttributeError,
+            http.client.HTTPException,
         ) as exc:
             # Airtime/program parsing is one archive-discovery accelerator,
             # never an identity requirement.  When it is missing or stale,
@@ -2181,6 +2188,7 @@ def discover_one(
         # an official highlight still remains candidate-only until local ASR
         # binds the stored transcript turns.
         inline_error = ""
+        fallback_errors: list[str] = []
         try:
             page = fetch_text(record["package"])
             inline = discover_fox_inline(record, page)
@@ -2199,8 +2207,8 @@ def discover_one(
                 )
                 if program["status"] in {"exact_timed_captions", "candidate_asr_required"}:
                     return program
-            except RecoveryError:
-                pass
+            except (RecoveryError, OSError, urllib.error.URLError, ValueError) as exc:
+                fallback_errors.append(str(exc)[:500])
         if dt.date(2009, 7, 2) <= date_value <= dt.date(2024, 10, 5):
             try:
                 archive = discover_tvnews_phrase(
@@ -2209,12 +2217,12 @@ def discover_one(
                 )
                 if archive["status"] in {"exact_timed_captions", "candidate_asr_required"}:
                     return archive
-            except RecoveryError:
+            except (RecoveryError, OSError, urllib.error.URLError, ValueError) as exc:
                 # The GDELT TV endpoint is intermittently reset-prone.  Exact
                 # official episode feeds remain a valid independent resolver;
                 # do not discard them merely because the optional archive
                 # accelerator is temporarily unavailable.
-                pass
+                fallback_errors.append(str(exc)[:500])
         if "sunday" in normalized_title(str(record.get("show") or "")):
             feed = discover_fox_sunday(record, shared["fox_by_date"])
             if feed["status"] == "exact_episode_asr_required":
@@ -2224,19 +2232,29 @@ def discover_one(
                 "probe_error",
                 "fox_inline_partial",
                 "official Fox crawler page could not be read and no exact fallback resolved it",
-                evidence={"page_error": inline_error},
+                evidence={"page_error": inline_error, "fallback_errors": fallback_errors},
             )
         return inline
     if family == "cnn-axe-files":
         return discover_axe(record, shared["axe_feed"])
     if family == "abc-this-week":
-        program = discover_tvnews_program(
-            record,
-            "KGO",
-            "This_Week_With_George_Stephanopoulos",
-            "abc_kgo_program_date+local_whisper_alignment",
-            shared,
-        )
+        try:
+            program = discover_tvnews_program(
+                record,
+                "KGO",
+                "This_Week_With_George_Stephanopoulos",
+                "abc_kgo_program_date+local_whisper_alignment",
+                shared,
+            )
+        except (RecoveryError, OSError, urllib.error.URLError, ValueError) as exc:
+            # The KGO archive is one resolver; the official ABC feed and the
+            # inline-segment fallback below must still run when it fails.
+            program = media_result(
+                "probe_error",
+                "abc_kgo_program_date+local_whisper_alignment",
+                "KGO archive program discovery failed; official ABC fallbacks remain eligible",
+                evidence={"archive_error": str(exc)[:500]},
+            )
         if program["status"] == "exact_timed_captions":
             return program
         official = discover_abc_this_week(record, shared.get("abc_by_date", {}))
@@ -2509,7 +2527,10 @@ def run_discover(args: argparse.Namespace) -> int:
             # exception crosses this boundary; otherwise the checkpoint can
             # misleadingly report errors=0 while every attempted row failed.
             failed = str(result.get("status") or "") == "probe_error"
-        except (RecoveryError, urllib.error.URLError, urllib.error.HTTPError, ET.ParseError, OSError) as exc:
+        except (
+            RecoveryError, urllib.error.URLError, urllib.error.HTTPError, ET.ParseError, OSError,
+            ValueError, KeyError, AttributeError, http.client.HTTPException,
+        ) as exc:
             result = media_result(
                 "probe_error", str((row.get("discovery") or {}).get("adapter") or row["source_family"]), str(exc)[:500]
             )
@@ -2941,7 +2962,10 @@ def run_acquire(args: argparse.Namespace) -> int:
                             ))
                     else:
                         acquired.append(download_candidate(row, Path(args.media_root), candidate))
-            except (RecoveryError, OSError, urllib.error.URLError, urllib.error.HTTPError) as exc:
+            except (
+                RecoveryError, OSError, urllib.error.URLError, urllib.error.HTTPError,
+                http.client.HTTPException, ValueError, KeyError,
+            ) as exc:
                 candidate_errors.append(
                     {"media_id": str(candidate.get("media_id") or ""), "reason": str(exc)[:500]}
                 )
@@ -3009,16 +3033,19 @@ def ordered_alignment(
         return None
     maximum_start = max(start_at, len(asr_tokens) - max(8, int(len(target) * 0.55)))
     anchor_len = min(5, len(target))
-    anchors = [target[index : index + anchor_len] for index in range(0, min(len(target) - anchor_len + 1, 25), 5)]
+    anchors = [
+        (offset, target[offset : offset + anchor_len])
+        for offset in range(0, min(len(target) - anchor_len + 1, 25), 5)
+    ]
     candidate_starts: set[int] = set()
-    for anchor in anchors:
+    for offset, anchor in anchors:
         first = anchor[0]
         for index in range(start_at, len(asr_tokens)):
             if asr_tokens[index] != first:
                 continue
             probe = asr_tokens[index : index + anchor_len + 3]
             if sum(1 for token in anchor if token in probe) >= max(3, anchor_len - 1):
-                candidate_starts.add(max(start_at, index - target.index(anchor[0])))
+                candidate_starts.add(max(start_at, index - offset))
             if len(candidate_starts) >= 80:
                 break
     if not candidate_starts:
@@ -3392,6 +3419,15 @@ def run_align(args: argparse.Namespace) -> int:
     rows = read_jsonl(Path(args.inventory), required=True)
     selected = {value.strip() for value in (args.source or "").split(",") if value.strip()}
     member_targets = load_member_gap(getattr(args, "member_gap", ""))
+    # Refuse malformed selected metadata before loading a model or writing outputs.
+    for row in rows:
+        if selected and row["source_family"] not in selected:
+            continue
+        if args.package_id and row["package_id"] != args.package_id:
+            continue
+        acquisition = row.get("acquisition")
+        if acquisition is not None and not isinstance(acquisition, dict):
+            raise RecoveryError("inventory acquisition must be an object")
     output_root = Path(args.media_root)
     model = WhisperModel(
         str(Path(args.model)),
@@ -3470,9 +3506,23 @@ def run_align(args: argparse.Namespace) -> int:
     if args.max_packages:
         eligible = eligible[: args.max_packages]
 
+    # Any per-item failure (corrupt WAV, ASR model error, malformed transcript
+    # row) must become an error disposition, never abort the run before the
+    # manifest/inventory checkpoint.
+    align_errors = (RecoveryError, OSError, sqlite3.Error, RuntimeError, ValueError, KeyError)
+
+    def align_failure(exc: BaseException) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
+        return ([], {"status": "error", "reason": str(exc)[:500],
+                     "attempted_at": utc_now()}, True)
+
     def align_one(row: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
         candidates = {str(value.get("media_id")): value for value in candidate_discoveries(row)}
-        items = list((row.get("acquisition") or {}).get("items") or [])
+        raw_items = (row.get("acquisition") or {}).get("items")
+        if raw_items is not None and not isinstance(raw_items, list):
+            raise RecoveryError("acquisition items must be a list")
+        items = list(raw_items or [])
+        if any(not isinstance(item, dict) for item in items):
+            raise RecoveryError("acquisition items must contain objects")
         if not items and (row.get("acquisition") or {}).get("wav"):
             items = [row["acquisition"]]
         clips_by_id: dict[str, dict[str, Any]] = {}
@@ -3495,7 +3545,7 @@ def run_align(args: argparse.Namespace) -> int:
                         output_root,
                         minimum_ratio=args.minimum_ratio,
                     )
-            except (RecoveryError, OSError, sqlite3.Error) as exc:
+            except align_errors as exc:
                 if str(exc) == "ASR returned too few timed words":
                     # A short/silent bounded recording cannot support lexical
                     # localization or the three-window identity floor.  After
@@ -3561,7 +3611,11 @@ def run_align(args: argparse.Namespace) -> int:
     ]:
         if executor is None:
             for row in eligible:
-                yield row, align_one(row)
+                try:
+                    result = align_one(row)
+                except align_errors as exc:
+                    result = align_failure(exc)
+                yield row, result
             return
         future_rows = {executor.submit(align_one, row): row for row in eligible}
         for future in concurrent.futures.as_completed(future_rows):
@@ -3570,9 +3624,8 @@ def run_align(args: argparse.Namespace) -> int:
             # every package after the last checkpoint. Record it the way the consumer would.
             try:
                 result = future.result()
-            except (RecoveryError, OSError, sqlite3.Error) as exc:
-                result = ([], {"status": "error", "reason": str(exc)[:500],
-                               "attempted_at": utc_now()}, True)
+            except align_errors as exc:
+                result = align_failure(exc)
             yield future_rows[future], result
 
     try:
@@ -3590,7 +3643,7 @@ def run_align(args: argparse.Namespace) -> int:
                     existing[clip["clip_id"]] = clip
                 row["alignment"] = alignment
                 failures += int(failed)
-            except (RecoveryError, OSError, sqlite3.Error) as exc:
+            except (*align_errors, TypeError) as exc:
                 row["alignment"] = {"status": "error", "reason": str(exc)[:500], "attempted_at": utc_now()}
                 failures += 1
             processed += 1
@@ -3804,6 +3857,7 @@ def audit_candidate(
         "database_rowid": turn["rowid"],
         "wav_frames": frames,
         "wav_sha256": digest,
+        "audio_hash_verified": verify_audio_hash,
         "minimum_alignment_ratio": minimum_ratio,
         "transcript_audio_alignment_required": True,
         "program_airtime_used_for_identity": False,
@@ -3818,6 +3872,20 @@ def audit_candidate(
 
 
 def run_audit(args: argparse.Namespace) -> int:
+    selected_filter = sorted(
+        value.strip() for value in (args.source or "").split(",") if value.strip()
+    )
+    filtered = bool(selected_filter or args.package_id)
+    if filtered and (
+        Path(args.supplement_manifest).resolve() == SUPPLEMENT_MANIFEST.resolve()
+        or Path(args.supplement_receipt).resolve() == SUPPLEMENT_RECEIPT.resolve()
+    ):
+        # A filtered run rewrites the whole manifest with only the selected
+        # subset; refuse to overwrite the canonical supplement with a partial one.
+        raise RecoveryError(
+            "--source/--package-id filtered audits must write to non-default "
+            "--supplement-manifest and --supplement-receipt paths"
+        )
     candidate_path = Path(args.candidate_manifest)
     candidate_receipt_path = Path(args.candidate_receipt)
     candidate_receipt = _read_json_object(candidate_receipt_path)
@@ -3848,7 +3916,10 @@ def run_audit(args: argparse.Namespace) -> int:
                 minimum_ratio=args.minimum_ratio,
                 verify_audio_hash=not args.no_verify_audio_hashes,
             ))
-        except (RecoveryError, OSError, sqlite3.Error, ValueError) as exc:
+        except (
+            RecoveryError, OSError, sqlite3.Error, ValueError, wave.Error, EOFError, TypeError,
+            KeyError,
+        ) as exc:
             rejected.append({
                 "clip_id": str(candidate.get("clip_id") or ""),
                 "candidate_clip_sha256": str(candidate.get("clip_sha256") or ""),
@@ -3859,7 +3930,16 @@ def run_audit(args: argparse.Namespace) -> int:
     write_jsonl_atomic(supplement_path, accepted)
     receipt = {
         "schema": "speech-source-media-supplement-receipt-v1",
-        "status": "PASS_NON_PROMOTING",
+        "status": (
+            "PASS_NON_PROMOTING" if not args.no_verify_audio_hashes
+            else "PASS_NON_PROMOTING_AUDIO_HASH_UNVERIFIED"
+        ),
+        "audio_hash_verified": not args.no_verify_audio_hashes,
+        "selection": {
+            "source": selected_filter,
+            "package_id": args.package_id or "",
+            "partial_manifest": filtered,
+        },
         "generated_at": utc_now(),
         "candidate_manifest": str(candidate_path.resolve()),
         "candidate_manifest_sha256": sha256_file(candidate_path),
@@ -3886,6 +3966,7 @@ def run_audit(args: argparse.Namespace) -> int:
             "promotable": False,
             "exhaustive_voice_identity_required_before_promotion": True,
             "canonical_manifest_modified": False,
+            "audio_hash_verified": not args.no_verify_audio_hashes,
         },
     }
     write_json_atomic(Path(args.supplement_receipt), receipt)

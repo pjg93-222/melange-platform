@@ -116,6 +116,27 @@ def read_jsonl(path: Path):
     return rows
 
 
+def read_manifest(path: Path) -> dict[str, dict]:
+    # main() rewrites manifest.jsonl from this dict, so a skipped line is permanently
+    # DELETED (OneDrive partial sync). Refuse instead, like houselive_cut.read_jsonl.
+    rows = {}
+    if not path.exists():
+        return rows
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("invalid JSON at %s:%d" % (path, number)) from exc
+        if not isinstance(row, dict) or not row.get("date"):
+            raise RuntimeError("manifest row without date at %s:%d" % (path, number))
+        if row["date"] in rows:
+            raise RuntimeError("duplicate manifest date at %s:%d" % (path, number))
+        rows[row["date"]] = row
+    return rows
+
+
 def write_manifest_atomic(path: Path, rows: dict[str, dict]) -> None:
     temp = path.with_name(path.name + ".tmp")
     with temp.open("w", encoding="utf-8", newline="\n") as handle:
@@ -319,7 +340,7 @@ def main(argv=None) -> int:
     root = args.root.resolve()
     run_lock = None if args.dry_run else acquire_run_lock(root)
     manifest_path = root / "manifest.jsonl"
-    manifest_rows = {row.get("date"): row for row in read_jsonl(manifest_path) if row.get("date")}
+    manifest_rows = read_manifest(manifest_path)
     summaries = summary_rows(root)
     metadata_changed = False
     for date, row in manifest_rows.items():

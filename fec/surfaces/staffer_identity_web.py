@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from html.parser import HTMLParser
+from http import client as http_client
 from pathlib import Path
 from urllib.parse import urlsplit, urlencode
 from urllib import request, error, robotparser
@@ -59,25 +60,75 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _public_addresses(host):
+    addresses = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
+        raise ValueError('Reference URL resolves outside the public internet')
+    return addresses
+
+
 def public_url(url):
     parts = urlsplit(url)
     if parts.scheme != 'https' or not parts.hostname or parts.username or parts.password or parts.port not in (None, 443):
         raise ValueError('Reference must be a public HTTPS URL')
-    addresses = socket.getaddrinfo(parts.hostname, 443, type=socket.SOCK_STREAM)
-    if not addresses or any(not ipaddress.ip_address(item[4][0]).is_global for item in addresses):
-        raise ValueError('Reference URL resolves outside the public internet')
+    _public_addresses(parts.hostname)
     return url
+
+
+def _direct_public_url(url):
+    public_url(url)
+    proxies = request.getproxies()
+    if (proxies.get('https') or proxies.get('all')) and not request.proxy_bypass(urlsplit(url).hostname):
+        raise ValueError('Reference downloads require direct HTTPS; configured trusted-proxy support is unavailable')
+    return url
+
+
+class PublicHTTPSConnection(http_client.HTTPSConnection):
+    def connect(self):
+        if self._tunnel_host or self.port != 443:
+            raise ValueError('Reference connections require direct HTTPS on port 443')
+        # The OS resolver itself cannot be interrupted here. Its elapsed time counts
+        # against one connection deadline shared by address fallback and TLS.
+        deadline = time.monotonic() + float(self.timeout)
+        addresses = _public_addresses(self.host)
+        failure = None
+        for family, kind, protocol, _, sockaddr in addresses:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Reference connection deadline exceeded')
+            transport = socket.socket(family, kind, protocol)
+            try:
+                transport.settimeout(remaining)
+                transport.connect(sockaddr)  # Captured numeric sockaddr; no second DNS lookup.
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError('Reference connection deadline exceeded')
+                transport.settimeout(remaining)
+                # Original host remains the TLS certificate/SNI identity.
+                self.sock = self._context.wrap_socket(transport, server_hostname=self.host)
+                return
+            except OSError as exc:
+                transport.close()
+                failure = exc
+        if failure is not None:
+            raise failure
+        raise OSError('Reference has no usable public address')
+
+
+class PublicHTTPSHandler(request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(PublicHTTPSConnection, req, context=self._context)
 
 
 class PublicRedirect(request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        public_url(newurl)
+        _direct_public_url(newurl)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def download(url, maximum=4_000_000):
-    public_url(url)
-    opener = request.build_opener(PublicRedirect())
+    _direct_public_url(url)
+    opener = request.build_opener(request.ProxyHandler({}), PublicRedirect(), PublicHTTPSHandler())
     with opener.open(request.Request(url, headers={'User-Agent': AGENT}), timeout=12) as response:
         data = response.read(maximum + 1)
         if len(data) > maximum:

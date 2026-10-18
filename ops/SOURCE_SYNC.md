@@ -1,5 +1,17 @@
 # Source propagation
 
+> **Retired 2026-10-15 (per-app repository correction).** Paul ruled that each app
+> publishes to its own repository: Melange to `pjg93-222/Melange`, Mentat to
+> `pjg93-222/Mentat`, Terrier to `pjg93-222/Geo`. The combined export described
+> below, which filters Melange plus Mentat into `pjg93-222/melange-platform`
+> main, is no longer a destination. `python ops/sync_sources.py --apply` and
+> `--push` now stop with `SOURCE_SYNC_RETIRED`, so the scheduled task
+> (`ops/auto/Register-SourceSync.ps1`, not installed) would only log that refusal.
+> The plain read-only plan (`python ops/sync_sources.py`) still works. The text
+> below is kept as history of the superseded lane; `release_config.json` is
+> unchanged because the hosted VPS/container release lane still reads it.
+> Desktop installers route by `ops/desktop/GITHUB_RELEASES.md`.
+
 `main` in the local Melange repository supplies `fec/`, `ops/`, and the other
 allowlisted source roots. `codex/mentat-crypto` in the Mentat worktree supplies
 `mentat/`. These exact committed trees are filtered into

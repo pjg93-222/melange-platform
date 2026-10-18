@@ -481,8 +481,11 @@ def bind_inputs(root, generation, hash_edges=False):
         raise InputContradiction(
             'receipt review_status is %r, not REVIEW_REQUIRED' % receipt.get('review_status'))
 
+    entries = receipt.get('files')
+    if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+        raise InputContradiction('generation receipt files must be a list of objects')
     receipt_files = {}
-    for entry in receipt.get('files') or []:
+    for entry in entries:
         receipt_files[entry.get('role')] = entry
 
     paths = {}
@@ -542,6 +545,27 @@ def bind_inputs(root, generation, hash_edges=False):
             checks.append(('verification_receipt.primary_file_integrity.recomputed_sha256',
                            recorded.get('recomputed_sha256')))
         paths[REVOLVING_LAYER_ROLE] = bind(REVOLVING_LAYER_NAME, REVOLVING_LAYER_ROLE, checks)
+
+    # v6 groups are optional only when undeclared. When present, bind the
+    # exact known file through the same independent verifier as other inputs.
+    groups_name = 'staffer_social_groups.ndjson.gz'
+    groups_declared = receipt_files.get('groups')
+    if groups_declared is not None:
+        if groups_declared.get('path') != groups_name:
+            raise InputContradiction(
+                'generation receipt names %r for groups, expected %r'
+                % (groups_declared.get('path'), groups_name))
+        checks = [('generation_receipt.files', groups_declared.get('sha256'))]
+        recorded = integrity.get(groups_name)
+        if recorded is None:
+            raise InputContradiction('verification receipt records no integrity row for %s' % groups_name)
+        checks.append(('verification_receipt.primary_file_integrity.receipt_sha256',
+                       recorded.get('receipt_sha256')))
+        checks.append(('verification_receipt.primary_file_integrity.recomputed_sha256',
+                       recorded.get('recomputed_sha256')))
+        paths['groups'] = bind(groups_name, 'staffer_social_groups', checks)
+        bound['staffer_social_groups']['verified'] = True
+
 
     edges_declared = receipt_files.get('staffer_social_edges') or {}
     if hash_edges:
@@ -745,6 +769,9 @@ def read_node_scores(path, roster):
     for row in rows(path):
         kind = row.get('node_kind')
         node_kinds[kind] += 1
+        if kind in ('person', 'container') and (
+                not isinstance(row.get('node_id'), str) or not row['node_id']):
+            raise InputContradiction('node score %s row has no valid node_id' % kind)
         if kind != 'person':
             if kind == 'container':
                 container_office_keys[row['node_id']] = row.get('office_key')
@@ -753,12 +780,12 @@ def read_node_scores(path, roster):
                     member_revolving_edges[row['member_bioguide']] += int(row.get('revolving_degree') or 0)
             continue
         person_rows += 1
-        office_strengths[row['node_id']] = row.get('office_connection_strengths') or {}
         missing = [key for key in required if key not in row]
         if missing:
             raise InputContradiction(
                 'node score row %r is missing required field(s): %s'
                 % (row.get('node_id'), ', '.join(missing)))
+        office_strengths[row['node_id']] = row.get('office_connection_strengths') or {}
         if diversity_field is None:
             diversity_field = next((name for name in DIVERSITY_FIELDS if name in row), None)
             if diversity_field is None:
@@ -1718,14 +1745,9 @@ def build(root, generation, out_path, max_bytes, use_glassbox=True, hash_edges=F
         # normal, not a contradiction: ruling 1 (RELABEL, 2026-09-07) falls back to
         # computing both from what this producer already reads (container_display_
         # name / container_people_ever) when it is missing.
-        groups_spec = next((f for f in receipt.get('files', [])
-                            if f.get('role') == 'groups'), None)
+        groups_path = binding['paths'].get('groups')
         groups_by_id = {}
-        if groups_spec is not None:
-            groups_path = os.path.join(binding['base'], groups_spec['path'])
-            if digest(groups_path) != groups_spec['sha256']:
-                raise InputContradiction(
-                    'staffer_social_groups does not match its declared hash')
+        if groups_path is not None:
             for row in rows(groups_path):
                 group_id = row.get('group_id', row.get('id'))
                 if not isinstance(group_id, str) or not group_id:
@@ -1735,10 +1757,6 @@ def build(root, generation, out_path, max_bytes, use_glassbox=True, hash_edges=F
                 if group_id in groups_by_id:
                     raise InputContradiction('group artifact repeats ID: %s' % group_id)
                 groups_by_id[group_id] = row
-            binding['bound']['staffer_social_groups'] = {
-                'path': groups_spec['path'], 'sha256': groups_spec['sha256'],
-                'bytes': os.path.getsize(groups_path), 'verified': True,
-                'bound_against': ['generation_receipt.files']}
 
         # Owner ruling 2026-09-07 (office label), the two halves of it that are
         # not the generation's own artifacts. The ledger NAMES member offices off

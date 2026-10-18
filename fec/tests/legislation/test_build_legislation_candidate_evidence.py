@@ -51,11 +51,33 @@ def billstatus(key: str, *, summaries: list | None = None) -> dict:
         "schema": "govinfo-billstatus-enrichment-record-v1",
         "canonical_key": key,
         "summaries": summaries if summaries is not None else [],
-        "actions": [{"action_index": 0, "action_type": "IntroReferral"}],
-        "sponsors": [{"bioguide_id": "A000376"}],
+        # BillStatus lists actions newest first.
+        "actions": [
+            {
+                "action_index": 0,
+                "action_date": "2023-05-02",
+                "action_type": "Committee",
+            },
+            {
+                "action_index": 1,
+                "action_date": "2023-01-09",
+                "action_type": "IntroReferral",
+            },
+        ],
+        "sponsors": [
+            {"bioguide_id": "A000376", "role_provenance_complete": True}
+        ],
         "cosponsors": [
-            {"bioguide_id": "S001168", "is_original_cosponsor": "True"},
-            {"bioguide_id": "X000001", "is_original_cosponsor": "False"},
+            {
+                "bioguide_id": "S001168",
+                "original_cosponsor": True,
+                "role_provenance_complete": True,
+            },
+            {
+                "bioguide_id": "X000001",
+                "original_cosponsor": False,
+                "role_provenance_complete": True,
+            },
         ],
     }
 

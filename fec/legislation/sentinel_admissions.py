@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from datetime import datetime, timezone
 
+import chain_transaction as CT  # noqa: E402  (fec/ is on sys.path via the line above)
+
 SCHEMA = 'sentinel-admissions-v1'
 RELATIVE = Path('data/legislation/sentinel_admissions.json')
 # Sentinel source-outage rule (2026-10-11): the longest an admitted verdict may be carried past its last real
@@ -26,6 +28,10 @@ def digest(path):
 
 
 # D-122: the 2026-10-08 widening to 10 days was reverted to 8 after the 2026-10-11 refresh passed (audits/sentinel_admissions/20261011T182023Z; outages now carry forward under D-162).
+# Self-healing phase 2 (Paul 2026-10-15): max_age_days is now the FRESH window, not a cliff. A generation (or an individual admission)
+# past it is served as last-good and labelled STALE_LABELLED (document['freshness_status'], a stdout line, data/engine/source_freshness.json);
+# a stamp from the future, a non-PASS or schema-invalid generation, and every evidence-hash / decision check still raise. The
+# source-outage carry-forward limit (CARRY_FORWARD_MAX_DAYS, D-162) is a separate ratified bar and is unchanged.
 def load(root, *, max_age_days=8):
     path = Path(root) / RELATIVE
     if not path.exists():
@@ -35,8 +41,7 @@ def load(root, *, max_age_days=8):
         raise ValueError('sentinel admissions are not a schema-valid PASS generation')
     stamp = datetime.fromisoformat(document['checked_at'].replace('Z', '+00:00'))
     age = (datetime.now(timezone.utc) - stamp).total_seconds()
-    if not -300 <= age <= max_age_days * 86400:
-        raise ValueError('sentinel admissions are outside their freshness window')
+    freshness = CT.age_status(age, max_age_days, 'sentinel admissions are outside their freshness window')
     for record in document['sources']:
         source = Path(to_host(record['path']))
         if not source.is_file() or digest(source) != record['sha256']:
@@ -53,8 +58,9 @@ def load(root, *, max_age_days=8):
             if not -300 <= (datetime.now(timezone.utc)-checked).total_seconds() <= CARRY_FORWARD_MAX_DAYS*86400:
                 raise ValueError('carried-forward bill admission is past its verification limit')
             checked = datetime.fromisoformat(decision['carried_at'].replace('Z', '+00:00'))
-        if not -300 <= (datetime.now(timezone.utc)-checked).total_seconds() <= max_age_days*86400:
-            raise ValueError('individual bill admission is stale')
+        if CT.age_status((datetime.now(timezone.utc)-checked).total_seconds(), max_age_days,
+                         'individual bill admission is stale') == CT.STALE_LABELLED:
+            freshness = CT.STALE_LABELLED
         if decision['beneficiary_class'] not in CLASSES or not decision['categories']:
             raise ValueError('sentinel bill has no beneficiary/category classification')
         for category in decision['categories']:
@@ -85,6 +91,10 @@ def load(root, *, max_age_days=8):
             raise ValueError('invalid or duplicate sentinel membership')
         seen.add(key)
     validate_membership_projection(document)
+    if freshness == CT.STALE_LABELLED:
+        document['freshness_status'] = freshness   # in-memory label only; never part of the stored generation
+    CT.note_freshness(root, 'sentinel_admissions', freshness, checked_at=document['checked_at'], window_days=max_age_days,
+                      producer='fec/legislation/sentinel_admissions.py')
     return document
 
 

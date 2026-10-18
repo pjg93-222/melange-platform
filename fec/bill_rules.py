@@ -255,7 +255,7 @@ def load_overrides(path):
             if not key:
                 continue
             congress = _congress(row.get('Congress')) or '*'
-            out[(key, congress)] = {k: (v or '').strip() for k, v in row.items()}
+            out[(key, congress)] = {k: (v or '').strip() for k, v in row.items() if k is not None}
     return out
 
 

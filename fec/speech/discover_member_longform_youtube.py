@@ -110,8 +110,10 @@ def candidate_score(member: str, entry: dict) -> int:
     interview_terms = ("podcast", "interview", "conversation", "sit down", "talks with", "one on one")
     role_terms = ("senator", "representative", "congressman", "congresswoman", "rep", "sen")
     score += min(4, sum(term in title for term in interview_terms))
-    score += min(3, sum(term in combined for term in role_terms))
-    if any(term in title for term in ("ad", "commercial", "shorts", "soundbite")):
+    combined_tokens = set(combined.split())
+    title_tokens = set(title.split())
+    score += min(3, sum(term in combined_tokens for term in role_terms))
+    if any(term in title_tokens for term in ("ad", "commercial", "shorts", "soundbite")):
         score -= 4
     return score
 

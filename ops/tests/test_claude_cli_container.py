@@ -1,7 +1,7 @@
 """The claude-CLI callers run in the compute container (D-179): binary path from the environment, no APPDATA, the login
 directory (CLAUDE_CONFIG_DIR) inherited by the child, Windows behaviour unchanged. A fake `claude` stands in for the CLI:
 a real child process on both platforms (a shebang script on POSIX; on Windows a .cmd that does not forward its arguments,
-because cmd.exe re-parses the JSON ones, so the flag set is asserted with a stubbed subprocess.run instead).
+because cmd.exe re-parses the JSON ones, so the flag set is asserted with a stubbed subprocess.run / Popen instead).
 """
 from __future__ import annotations
 
@@ -110,16 +110,24 @@ def test_lockdown_flags_and_stdin_prompt_survive_with_the_container_command(monk
         seen.update(command=command, kwargs=kwargs)
         return SimpleNamespace(returncode=1, stdout="stop here", stderr="")
 
+    def popen(command, **kwargs):          # classifier_runtime (D-211): a bounded Popen whose stdin is a temp file holding the prompt
+        seen.update(command=command, kwargs={**kwargs, "input": kwargs["stdin"].read()})
+        return SimpleNamespace(wait=lambda timeout=None: 1)
+
     monkeypatch.setenv("MELANGE_CLASSIFIER_COMMAND", "/usr/local/bin/claude")
     monkeypatch.delenv("APPDATA", raising=False)
-    monkeypatch.setattr(target.subprocess, "run", run)
+    if module == "classifier_runtime":
+        monkeypatch.setattr(target.subprocess, "Popen", popen)
+    else:
+        monkeypatch.setattr(target.subprocess, "run", run)
     with pytest.raises((RuntimeError, ValueError)):
         call()
     command = seen["command"]
     assert command[0] == "/usr/local/bin/claude" and all(flag in command for flag in LOCKDOWN)
     assert command[command.index("--tools") + 1] == "" and command[command.index("--permission-mode") + 1] == "dontAsk"
     assert "Evidence" not in command and "Complete official text." not in " ".join(command)
-    assert "env" not in seen["kwargs"] and seen["kwargs"]["input"]              # inherits the parent env (CLAUDE_CONFIG_DIR rides along)
+    env = seen["kwargs"].get("env", os.environ)                                 # inherits the parent env (CLAUDE_CONFIG_DIR rides along)
+    assert all(env.get(k) == v for k, v in os.environ.items()) and seen["kwargs"]["input"]
 
 
 def test_the_cli_step_replays_from_a_cassette_with_the_binary_gone(fake_claude, tmp_path):

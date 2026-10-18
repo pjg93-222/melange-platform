@@ -553,7 +553,7 @@ class DurableEnablement(Base):
             return Context()
         output = io.StringIO()
         with mock.patch.object(accounted.AccountedTransport, 'live', side_effect=live), redirect_stdout(output):
-            with mock.patch.object(sys, 'argv', base + ['--enable-endpoint-contract', F_ID, '--enable-endpoint-contract', H4_ID]):
+            with mock.patch.object(sys, 'argv', base + ['--init-new-ledger', '--enable-endpoint-contract', F_ID, '--enable-endpoint-contract', H4_ID]):   # R1b: a missing ledger needs the explicit flag
                 driver.main()
             receipt = json.loads(next(state.glob('RECEIPT-*.json')).read_text())
             self.assertEqual(receipt['endpoint_contract_enablement']['enabled_contract_ids'], sorted(BOTH))
@@ -1034,8 +1034,10 @@ class AdapterComposition(Base):
         limited = self.enabled('limited.sqlite')
         transport, opener = self.adapter(serve(), overrides={4: (b'{}', 429)})
         report = limited.run(transport)
-        self.assertEqual(report['stop']['error_type'], 'HTTPError')
-        self.assertEqual((len(opener.calls), self.endpoint(limited, 'F')['status']), (4, 'blocked'))
+        # R1b owner rulings: a 429 cools only the key that received it until its window resets (this fixture owns a single key, so cooling it leaves no key to admit:
+        # the all-keys-exhausted global stop, was HTTPError) and the 429'd endpoint goes straight back to pending so another key can serve it (was parked blocked).
+        self.assertEqual(report['stop']['error_type'], 'FECAdmissionRefused')
+        self.assertEqual((len(opener.calls), self.endpoint(limited, 'F')['status']), (4, 'pending'))
 
     def test_stored_unsafe_cursor_is_refused_before_the_shared_ledger_is_charged(self):
         frontier = self.enabled()

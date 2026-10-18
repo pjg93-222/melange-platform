@@ -966,16 +966,30 @@ class SecretAccessError(RuntimeError):
     pass
 
 
-def _forbid_secret(store, what):
+def _secret_path(path):
+    """Protect declared secret paths through canonical overlaps and symlinks."""
+    target = os.path.normcase(os.path.realpath(path))
+    roots = {row['id']: row['path'] for row in ROOTS}
+    for spec in REGISTRY:
+        if spec.get('class') != 'SECRET':
+            continue
+        secret = os.path.normcase(os.path.realpath(os.path.join(
+            roots[spec['root_id']], spec['rel'].replace('/', os.sep))))
+        if target == secret or target.startswith(secret + os.sep):
+            return True
+    return False
+
+
+def _forbid_secret(store, what, path=None):
     """Hard guard: a SECRET store's bytes are never read, hashed, or archived by this producer."""
-    if store.get('class') == 'SECRET':
+    if store.get('class') == 'SECRET' or (path is not None and _secret_path(path)):
         raise SecretAccessError(
             'SECRET GUARD: refused to %s for store %s (%s). Secrets yield path, size and mtime only.'
             % (what, store.get('id'), store.get('path')))
 
 
 def sha256_file(path, store):
-    _forbid_secret(store, 'sha256 a file')
+    _forbid_secret(store, 'sha256 a file', path)
     h = hashlib.sha256()
     with open(path, 'rb') as fh:
         for chunk in iter(lambda: fh.read(1 << 20), b''):
@@ -1089,7 +1103,7 @@ def walk_store(path, excludes, cap, budget):
     top = sorted(top, key=lambda t: (-t[1], t[0]))[:_TOP_KEEP]
     return {'file_count': files, 'dirs_walked': dirs, 'bytes': total,
             'newest_mtime_epoch': newest, 'oldest_mtime_epoch': oldest,
-            'unreadable_entries': unreadable, 'walk_complete': not truncated,
+            'unreadable_entries': unreadable, 'walk_complete': not truncated and unreadable == 0,
             'budget_exceeded': truncated,
             '_listing': listing if keep_listing else None,
             '_top': top, '_newest_file': newest_file}
@@ -1303,6 +1317,11 @@ def _pick_file_sentinels(store, candidates):
     _forbid_secret(store, 'select sentinel files')
     git_dir = bool(store.get('git_dir_store'))
     candidates = [c for c in candidates if not _volatile(c[0], git_dir)]
+    before_secret_filter = len(candidates)
+    candidates = [c for c in candidates if not _secret_path(
+        store['path'] if store['measured']['kind'] == 'file'
+        else os.path.join(store['path'], c[0]))]
+    store['secret_sentinel_exclusion_count'] = before_secret_filter - len(candidates)
     # CHAIN OUTPUTS (DE-011).  A sentinel proves a store was not LOST or CORRUPTED.  A file the
     # pipeline chain rewrites on every run has no byte-stability invariant to assert, so pinning it
     # does not detect corruption — it detects the chain, minutes before the chain's own terminal

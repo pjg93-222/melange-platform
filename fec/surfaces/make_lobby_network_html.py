@@ -3618,9 +3618,9 @@ function postureBadge(verdict){
   const label=postureMode==="posture"?state.p:state.t;
   return `<span class="postbadge ${esc(state.b)} ${esc(state.n)}" title="${esc(postureDetail(verdict))}"><span class=pdot aria-hidden=true></span>${esc(label)}</span><span class=postdelta>${esc(verdict[P_DELTA])}</span>`;
 }
-function interactionLink(bioguide,label){
-  if(!bioguide||!currentSector)return EM_DASH;
-  const url=`${INTERACTIONS_FILE}?sector=${encodeURIComponent(currentSector)}&b=${encodeURIComponent(bioguide)}`;
+function interactionLink(bioguide,label,sector=currentSector){
+  if(!bioguide||!sector)return EM_DASH;
+  const url=`${INTERACTIONS_FILE}?sector=${encodeURIComponent(sector)}&b=${encodeURIComponent(bioguide)}`;
   return `<a class=memberlink href="${url}" title="Every disclosed filing behind this count">${esc(label||"Open filings")}</a>`;
 }
 const memberLink=(name,bioguide,flag)=>{const text=esc(name??"");if(!text)return EM_DASH;
@@ -3796,7 +3796,7 @@ function openOrganization(orgId,scroll=true,updateHash=true){
   activeCompanyId=orgId;
   const matchedIndustry=(DATA.industries||[]).some(item=>item.sector===company.sector);
   if(matchedIndustry){currentSector=company.sector;attentionExpanded=false;publicMentionsExpanded=false;renderAttention();renderTierRoster();}
-  else currentSector="";
+  // An unmatched company must not clear the independently selected industry.
   renderCompanyPicker();
   const sectorIndex=Math.max(0,(DATA.industries||[]).findIndex(item=>item.sector===company.sector));
   document.getElementById("organization-title").textContent=company.name;
@@ -3809,15 +3809,15 @@ function openOrganization(orgId,scroll=true,updateHash=true){
   setRowCount("company-bill-count",billRows.length,billRows.length===1?"bill":"bills");
 
   const members=company.members||[];
-  document.getElementById("company-attention-body").innerHTML=members.length?members.map((row,index)=>{const identity=DATA.companyMembers[row.i];return `<tr><td class="rank num">${index+1}</td><td class="member left">${memberLink(identity.name,row.i,identity.flag)}</td><td>${postureBadge(row.p)}</td><td class=num>${number(row.n)}</td><td class="num ${row.c>0?"pos":row.c<0?"neg":"zero"}">${row.c>0?"+":""}${number(row.c)}</td><td>${lineSpark(row.v)}</td><td>${interactionLink(row.i)}</td></tr>`;}).join(""):`<tr><td colspan=7><div class=empty>No member attention rows for this organization.</div></td></tr>`;
+  document.getElementById("company-attention-body").innerHTML=members.length?members.map((row,index)=>{const identity=DATA.companyMembers[row.i];return `<tr><td class="rank num">${index+1}</td><td class="member left">${memberLink(identity.name,row.i,identity.flag)}</td><td>${postureBadge(row.p)}</td><td class=num>${number(row.n)}</td><td class="num ${row.c>0?"pos":row.c<0?"neg":"zero"}">${row.c>0?"+":""}${number(row.c)}</td><td>${lineSpark(row.v)}</td><td>${interactionLink(row.i,null,matchedIndustry?company.sector:"")}</td></tr>`;}).join(""):`<tr><td colspan=7><div class=empty>No member attention rows for this organization.</div></td></tr>`;
   document.getElementById("company-attention-count").textContent=company.memberTotal>members.length?`Top ${number(members.length)} of ${number(company.memberTotal)} member rows`:`${number(members.length)} member row${members.length===1?"":"s"}`;
   renderCompanyPublicMentions(company);
   const forecastRows=billRows.filter(row=>row.bill.forecast);
   document.getElementById("company-forecast-links").innerHTML=forecastRows.length?`<div class=company-forecast-links>${forecastRows.map(({bill})=>`<a class=desklink href="${FORECAST_FILE}#bill=${encodeURIComponent(bill.key)}">${esc(bill.bill)}${bill.title?` · ${esc(bill.title)}`:""}</a>`).join("")}</div>`:`<div class=empty>No forecast rows are available for this organization’s lobbied bills.</div>`;
 
-  const selectedIndustry=industry(),model=selectedIndustry?selectedIndustry.organizations.find(item=>item.id===orgId):null,rows=model?[...model.rows].sort((a,b)=>a.r-b.r||a.i.localeCompare(b.i)):[];
+  const selectedIndustry=matchedIndustry?industry():null,model=selectedIndustry?selectedIndustry.organizations.find(item=>item.id===orgId):null,rows=model?[...model.rows].sort((a,b)=>a.r-b.r||a.i.localeCompare(b.i)):[];
   document.getElementById("organization-receipt").textContent=model?`Size receipt: ${number(model.rows.length)} leaders retained from ${number(model.total)} scored members; ${number(model.omitted)} lower-ranked members aggregated, representing ${number(model.omitted_bills)} raw bill-attention counts. Retention is the union of the top ${DATA.receipts.champions.leader_limit} raw and org-specific ranks.`:"No champion model metadata is available for this organization.";
-  document.getElementById("organization-body").innerHTML=rows.length?rows.map(row=>`<tr><td class=num>${row.r}</td><td class="member left">${memberLink(row.n,row.i,row.f)}</td><td>${postureBadge(row.g)}</td><td>${esc(row.p)} / ${esc(row.h)}</td><td class=num>${score(row.c)}</td><td class="num ${row.s===null?"null":""}">${score(row.s)}</td><td class=num>${number(row.b)}</td><td class=num>${number(row.y)}</td><td>${esc(row.d)}</td><td>${interactionLink(row.i,"Open filings")}</td></tr>`).join(""):`<tr><td colspan=10><div class=empty>${esc(model?.skipped||"No scored champion model")}</div></td></tr>`;
+  document.getElementById("organization-body").innerHTML=rows.length?rows.map(row=>`<tr><td class=num>${row.r}</td><td class="member left">${memberLink(row.n,row.i,row.f)}</td><td>${postureBadge(row.g)}</td><td>${esc(row.p)} / ${esc(row.h)}</td><td class=num>${score(row.c)}</td><td class="num ${row.s===null?"null":""}">${score(row.s)}</td><td class=num>${number(row.b)}</td><td class=num>${number(row.y)}</td><td>${esc(row.d)}</td><td>${interactionLink(row.i,"Open filings",matchedIndustry?company.sector:"")}</td></tr>`).join(""):`<tr><td colspan=10><div class=empty>${esc(model?.skipped||"No scored champion model")}</div></td></tr>`;
   setRowCount("organization-count",rows.length,rows.length===1?"leader row":"leader rows");
   if(updateHash&&hashValue("org")!==orgId)history.pushState(null,"",`${location.pathname}${location.search}#org=${encodeURIComponent(orgId)}`);
   const panel=document.getElementById("organization-panel");panel.classList.remove("hidden");if(scroll)panel.scrollIntoView({behavior:"smooth",block:"start"});return true;
@@ -4014,7 +4014,7 @@ function renderTierRoster(){
   const unlinked=(DATA.boundaries||[]).filter(boundary=>!boundary.s).length;
   document.getElementById("roster-note").textContent=
     `Entity identity is resolved as of the filing year, so a predecessor and its successor are separate rows with separate windows.`+
-    (unlinked?` ${unlinked} declared merger boundary${unlinked===1?"":"ies"} could not be tied to specific roster families by year window and therefore carries no row badge.`:"");
+    (unlinked?` ${unlinked} declared merger boundar${unlinked===1?"y":"ies"} could not be tied to specific roster families by year window and therefore ${unlinked===1?"carries":"carry"} no row badge.`:"");
 }
 function setupTierControls(){
   const yearSelect=document.getElementById("year-filter");

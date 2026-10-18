@@ -121,18 +121,34 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
     """
     root = Path(root)
     errors = []
-    runs = feed.get('accepted_runs') or []
+    if not isinstance(feed, dict):
+        return ['missing or inconsistent cumulative accepted-run ledger']
+    runs = feed.get('accepted_runs')
+    counts, contract = feed.get('counts'), feed.get('contract')
     if (feed.get('promotion_mode') != 'CUMULATIVE_ACCEPTED_RUN_LEDGER'
-            or not runs or (feed.get('counts') or {}).get('accepted_runs') != len(runs)
-            or (feed.get('contract') or {}).get('accepted_runs_are_cumulative') is not True):
+            or not isinstance(runs, list) or not runs
+            or not isinstance(counts, dict) or not isinstance(contract, dict)
+            or counts.get('accepted_runs') != len(runs)
+            or contract.get('accepted_runs_are_cumulative') is not True):
         return ['missing or inconsistent cumulative accepted-run ledger']
     source_names = {'press_delta_scored.csv', 'press_delta_host_articles.csv',
                     'press_delta_article_mentions.csv'}
     all_names = source_names | {'press_network_retry_receipt.json'}
     roots, bindings = set(), {}
     for run in runs:
-        source = Path(to_host(run.get('source_run') or '')).resolve()
+        if (not isinstance(run, dict) or not isinstance(run.get('source_run'), str)
+                or not run['source_run'].strip()):
+            errors.append('invalid accepted source run')
+            continue
+        try:
+            source = Path(to_host(run['source_run'])).resolve()
+        except (ValueError, OSError):
+            errors.append('invalid accepted source run')
+            continue
         hashes = run.get('source_sha256') or {}
+        if not isinstance(hashes, dict):
+            errors.append(f'{source.name}: incomplete source hash set')
+            continue
         if str(source) in roots:
             errors.append(f'{source.name}: duplicate accepted source run')
         roots.add(str(source))
@@ -143,7 +159,11 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
             if not path.is_file() or file_sha256(path) != hashes.get(name):
                 errors.append(f'{source.name}: source bytes differ: {name}')
         intake_binding = run.get('collection_intake') or {}
-        intake_path = Path(to_host(intake_binding.get('path') or ''))
+        if (not isinstance(intake_binding, dict) or not isinstance(intake_binding.get('path'), str)
+                or not intake_binding['path'].strip()):
+            errors.append(f'{source.name}: acceptance receipt bytes differ')
+            continue
+        intake_path = Path(to_host(intake_binding['path']))
         if not intake_path.is_file() or file_sha256(intake_path) != intake_binding.get('sha256'):
             errors.append(f'{source.name}: acceptance receipt bytes differ')
             continue
@@ -152,30 +172,61 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
         except (ValueError, OSError):
             errors.append(f'{source.name}: invalid acceptance receipt')
             continue
-        inputs = intake.get('inputs') or {}
+        if (not isinstance(intake, dict) or not isinstance(intake.get('inputs'), dict)
+                or not isinstance(intake['inputs'].get('press_delta_root'), str)
+                or not intake['inputs']['press_delta_root'].strip()):
+            errors.append(f'{source.name}: invalid acceptance receipt')
+            continue
+        inputs = intake['inputs']
+        try:
+            intake_root = Path(to_host(inputs['press_delta_root'])).resolve()
+        except (ValueError, OSError):
+            errors.append(f'{source.name}: invalid acceptance receipt')
+            continue
         expected = {'press_delta_root': str(source),
                     'press_retry_receipt_sha256': hashes.get('press_network_retry_receipt.json'),
                     'press_source_sha256': {name: hashes.get(name) for name in source_names}}
         if (intake.get('schema') != 'collection-intake-receipt-v1'
                 or intake.get('status') != 'ACCEPTED'
-                or Path(to_host(inputs.get('press_delta_root') or '')).resolve() != source
+                or intake_root != source
                 or inputs.get('press_retry_receipt_sha256') != expected['press_retry_receipt_sha256']
                 or inputs.get('press_source_sha256') != expected['press_source_sha256']):
             errors.append(f'{source.name}: acceptance/source bindings differ')
         bindings[str(source)] = expected
-    current = current_intake.get('inputs') or {}
-    current_root = str(Path(to_host(current.get('press_delta_root') or '')).resolve())
+    current = current_intake.get('inputs') if isinstance(current_intake, dict) else None
+    valid_current = (isinstance(current, dict) and isinstance(current.get('press_delta_root'), str)
+                     and bool(current['press_delta_root'].strip()))
+    current_root = None
+    if valid_current:
+        try:
+            current_root = str(Path(to_host(current['press_delta_root'])).resolve())
+        except (ValueError, OSError):
+            valid_current = False
     expected = bindings.get(current_root)
-    if (current_intake.get('schema') != 'collection-intake-receipt-v1'
+    if (not valid_current or current_intake.get('schema') != 'collection-intake-receipt-v1'
             or current_intake.get('status') != 'ACCEPTED' or not expected
             or any(current.get(k) != expected[k] for k in ('press_retry_receipt_sha256', 'press_source_sha256'))):
         errors.append('current accepted intake is absent or differs from cumulative ledger')
     for path in (root / 'data/engine/press_collection_receipts').glob('press_refresh_*.json'):
         try:
             document = json.loads(path.read_text(encoding='utf-8-sig'))
-            archived_root = str(Path(to_host(document['inputs']['press_delta_root'])).resolve())
+            # 2026-10-15: an included root cannot excuse conflicting archived evidence.
+            if (not isinstance(document, dict)
+                    or document.get('schema') != 'collection-intake-receipt-v1'
+                    or not isinstance(document.get('inputs'), dict)):
+                raise ValueError('archived acceptance receipt has invalid shape or schema')
+            archived_inputs = document['inputs']
+            source_root = archived_inputs.get('press_delta_root')
+            if not isinstance(source_root, str) or not source_root.strip():
+                raise ValueError('archived acceptance receipt has no source root')
+            archived_root = str(Path(to_host(source_root)).resolve())
             if document.get('status') != 'ACCEPTED' or archived_root not in roots:
                 errors.append(f'{path.name}: archived accepted run omitted')
+                continue
+            expected = bindings.get(archived_root)
+            if not expected or any(archived_inputs.get(key) != expected[key] for key in
+                                   ('press_retry_receipt_sha256', 'press_source_sha256')):
+                errors.append(f'{path.name}: archived acceptance/source bindings differ')
         except (ValueError, KeyError, OSError, TypeError):
             errors.append(f'{path.name}: invalid archived acceptance receipt')
     return errors

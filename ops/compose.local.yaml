@@ -1,0 +1,194 @@
+# Local serve profile: the apps on this machine, reachable from this machine's browser only.
+#
+#   docker compose -f ops/compose.local.yaml --profile desk --profile mentat up -d
+#   docker compose -f ops/compose.local.yaml --profile desk --profile mentat down      (keeps the volumes; never -v)
+#
+# Not the VPS stack: ops/compose.yaml is unchanged, and this file has no cloudflared, no Cloudflare Access and no
+# ACCESS_* values. Each app is a profile (desk, mentat, terrier) and --profile picks which apps start, but Compose
+# checks every required variable in every profile, so set them all (ops/.env).
+# Values come from ops/.env or the shell (the shell wins, hence the LOCAL_ prefix on the ports):
+#   IMAGE_MELANGE_DESK, IMAGE_MENTAT_CONSOLE, IMAGE_TERRIER   ghcr.io/pjg93-222/<image>@sha256:<digest> from the
+#       release's digests.json. Digests only, never a tag (images are built only in GitHub, D-175).
+#   MELANGE_DATA_DIR    the desk's pages (DESK_ROOT), a copy of /srv/data/melange/current
+#   MENTAT_DATA_DIR     a copy of /srv/data/mentat/current; reports, melange, state, .cache, inputs, forecast and
+#                       app/data must all exist in it (create_host_path is off, so a typo fails instead of mounting
+#                       an empty directory)
+#   TERRIER_DATA_DIR, TERRIER_SECRET_FILE, TERRIER_DISTRICT (default co-05: single-service Terrier pending the
+#       unification lane, D-241)   see the terrier service
+#   LOCAL_DESK_PORT 18080, LOCAL_MENTAT_PORT 18802, LOCAL_TERRIER_PORT 18766. These are 18xxx defaults. Never set
+#       one of Paul's own ports (8767 8775 8777 8801 8802 8806 8807 8812 8823 8841 8843 8876 38443).
+#
+# Why each app has a relay. Without Access the apps may listen on 127.0.0.1 only: access_gate refuses an
+# unenforced non-loopback bind (the desk and Mentat exit with status 2), and Terrier's serve refuses CU_BIND
+# beyond loopback unless hosted. A published port never reaches 127.0.0.1 inside a container. So each app runs in
+# local mode on 127.0.0.1:<port> inside its relay's network namespace (network_mode: service:<relay>), and the
+# relay (ops/local/relay.py, run from the app's own image) listens on the container's address at the same port and
+# copies bytes unchanged. The apps' own checks see exactly what the browser sent: Mentat's exact
+# 127.0.0.1:<port> Host check, its Origin check and its X-Mentat-Token rule on POST. That is why the port is the
+# same inside and out. Every peer reaches the app as 127.0.0.1, so the port is published on the host's 127.0.0.1
+# only, and each relay sits alone on its own network.
+#
+# Kept from ops/compose.yaml (ops/tests/test_compose_local.py checks these): read-only root, uid 10001,
+# cap_drop ALL, no-new-privileges, tmpfs /tmp, a pids limit, data bind mounts read-only, Mentat and Terrier state
+# in named volumes.
+# Differences from production:
+#   - ports on 127.0.0.1 (production has none);
+#   - json-file logs (Docker Desktop has no journald);
+#   - plain bridge networks, because an internal network cannot publish a port. So egress is NOT blocked here:
+#     enable_ip_masquerade=false was tried and Docker Desktop still routed out (2026-10-18). Production's
+#     internal networks keep the no-egress rule.
+name: melange-local
+
+x-hardened: &hardened
+  read_only: true
+  user: "10001:10001"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:size=64m,mode=1777,noexec,nosuid"]
+  pids_limit: 256
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+x-health: &health
+  interval: 30s
+  timeout: 5s
+  retries: 3
+  start_period: 60s
+
+x-relay: &relay
+  mem_limit: 64m
+  # The image's own HEALTHCHECK probes the app's default port, which nothing uses here. The app's check covers both.
+  healthcheck: {disable: true}
+  volumes:
+    - {type: bind, source: ./local/relay.py, target: /relay/relay.py, read_only: true, bind: {create_host_path: false}}
+
+services:
+  desk-relay:
+    <<: [*hardened, *relay]
+    profiles: [desk]
+    image: ${IMAGE_MELANGE_DESK:?set IMAGE_MELANGE_DESK to ghcr.io/pjg93-222/melange-desk@sha256:<digest>}
+    command: ["python", "/relay/relay.py", "${LOCAL_DESK_PORT:-18080}"]
+    networks: [desk]
+    ports: ["127.0.0.1:${LOCAL_DESK_PORT:-18080}:${LOCAL_DESK_PORT:-18080}"]
+
+  melange-desk:
+    <<: *hardened
+    profiles: [desk]
+    image: ${IMAGE_MELANGE_DESK:?set IMAGE_MELANGE_DESK to ghcr.io/pjg93-222/melange-desk@sha256:<digest>}
+    network_mode: service:desk-relay
+    depends_on: [desk-relay]
+    mem_limit: 512m
+    environment:
+      BIND_HOST: 127.0.0.1          # local mode: the access gate stays unenforced
+      ACCESS_ENFORCE: "0"
+      DESK_PORT: "${LOCAL_DESK_PORT:-18080}"
+      DESK_ROOT: /data/melange
+      SNAPSHOT_ID_FILE: /data/melange/.snapshot_id   # /version says "unknown" when the copy has none
+    volumes:
+      - {type: bind, source: "${MELANGE_DATA_DIR:?set MELANGE_DATA_DIR to the desk's pages}", target: /data/melange, read_only: true, bind: {create_host_path: false}}
+    healthcheck:
+      <<: *health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${LOCAL_DESK_PORT:-18080}/healthz', timeout=3)"]
+
+  mentat-relay:
+    <<: [*hardened, *relay]
+    profiles: [mentat]
+    image: ${IMAGE_MENTAT_CONSOLE:?set IMAGE_MENTAT_CONSOLE to ghcr.io/pjg93-222/mentat-console@sha256:<digest>}
+    command: ["python", "/relay/relay.py", "${LOCAL_MENTAT_PORT:-18802}"]
+    networks: [mentat]
+    ports: ["127.0.0.1:${LOCAL_MENTAT_PORT:-18802}:${LOCAL_MENTAT_PORT:-18802}"]
+
+  mentat-console:
+    <<: *hardened
+    profiles: [mentat]
+    image: ${IMAGE_MENTAT_CONSOLE:?set IMAGE_MENTAT_CONSOLE to ghcr.io/pjg93-222/mentat-console@sha256:<digest>}
+    network_mode: service:mentat-relay
+    depends_on: [mentat-relay]
+    mem_limit: 6g
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    # The image's CMD with this port (Mentat's Host check needs the port the browser uses). Read-only like the
+    # hosted console: the data is a snapshot copy, and collection stays with the native console.
+    command: ["python", "/app/mentat/app/server.py", "--port", "${LOCAL_MENTAT_PORT:-18802}", "--read-only", "--data-root", "/var/lib/mentat"]
+    environment:
+      BIND_HOST: 127.0.0.1          # local mode: per-process X-Mentat-Token, loopback Host/Origin checks
+      ACCESS_ENFORCE: "0"
+      MENTAT_REPORT_DIRECTORY: /data/mentat/reports
+      MENTAT_MELANGE_ROOT: /data/mentat/melange
+      MENTAT_STATE_WRITE_ROOT: /var/cache/mentat
+      SNAPSHOT_ID_FILE: /data/mentat/.snapshot_id
+    volumes:
+      - {type: bind, source: "${MENTAT_DATA_DIR:?set MENTAT_DATA_DIR to a copy of the Mentat data}", target: /data/mentat, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MENTAT_DATA_DIR}/state", target: /app/mentat/state, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MENTAT_DATA_DIR}/.cache", target: /app/mentat/.cache, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MENTAT_DATA_DIR}/inputs", target: /app/mentat/inputs, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MENTAT_DATA_DIR}/forecast", target: /app/mentat/forecast, read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: "${MENTAT_DATA_DIR}/app/data", target: /app/mentat/app/data, read_only: true, bind: {create_host_path: false}}
+      - mentat-data:/var/lib/mentat
+      - mentat-cache:/var/cache/mentat
+    healthcheck:
+      <<: *health
+      start_period: 180s
+      # /healthz answers in local mode from Mentat ed6885645 on; an image built before that fails this check.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${LOCAL_MENTAT_PORT:-18802}/healthz', timeout=3)"]
+
+  # Terrier is opt-in (--profile terrier) because local mode in a container still needs work from Terrier's lanes:
+  #   1. Login. Local Terrier is passwordless: with CU_LOCAL_ADMIN=1 (its default), LocalAdministratorMiddleware
+  #      treats every loopback peer as the administrator for /api/ requests. Behind the relay every client on this
+  #      machine is a loopback peer, so this file sets CU_LOCAL_ADMIN=0, which leaves no way to sign in. The
+  #      owner-password / approved-principal flow belongs to the release lane (server/settings.py,
+  #      server/research/desktop_access.py, ops/desktop/client/access-lifecycle.cjs). This file does not touch it.
+  #   2. A local container start. tools/container_start.py exits unless CU_DEPLOYMENT=hosted, so the command below
+  #      does the migrate and serve itself. It skips that script's summary-bundle import and its WAL-store check.
+  #   3. CU_SECRET_KEY, from TERRIER_SECRET_FILE (a KEY=value file, like production's secrets/terrier-<d>.env).
+  #      Local settings would otherwise create DATA_DIR/.secret, and /data is read-only.
+  # Exactly one Terrier service, never one per district: Terrier becomes one app with no per-district access limits
+  # (D-241). Today's code still serves one district per process (CU_DISTRICT), so until the unification lane lands,
+  # TERRIER_DISTRICT in .env picks it (co-05, or-05 or ct-01; default co-05) and TERRIER_DATA_DIR holds that
+  # district's stores (serve checks that they match). One state volume, not one per district.
+  terrier-relay:
+    <<: [*hardened, *relay]
+    profiles: [terrier]
+    image: ${IMAGE_TERRIER:?set IMAGE_TERRIER to ghcr.io/pjg93-222/terrier-web@sha256:<digest>}
+    command: ["python", "/relay/relay.py", "${LOCAL_TERRIER_PORT:-18766}"]
+    networks: [terrier]
+    ports: ["127.0.0.1:${LOCAL_TERRIER_PORT:-18766}:${LOCAL_TERRIER_PORT:-18766}"]
+
+  terrier:
+    <<: *hardened
+    profiles: [terrier]
+    image: ${IMAGE_TERRIER:?set IMAGE_TERRIER to ghcr.io/pjg93-222/terrier-web@sha256:<digest>}
+    network_mode: service:terrier-relay
+    depends_on: [terrier-relay]
+    mem_limit: 2g
+    tmpfs: ["/tmp:size=512m,mode=1777,noexec,nosuid"]
+    env_file: ["${TERRIER_SECRET_FILE:?set TERRIER_SECRET_FILE to a file holding CU_SECRET_KEY=...}"]
+    command: ["sh", "-c", "python manage.py migrate --noinput && exec python manage.py serve"]
+    environment:
+      CU_DEPLOYMENT: local          # overrides the image's hosted default
+      ACCESS_ENFORCE: "0"
+      CU_BIND: 127.0.0.1
+      CU_PORT: "${LOCAL_TERRIER_PORT:-18766}"
+      CU_DISTRICT: ${TERRIER_DISTRICT:-co-05}   # single-service Terrier pending the unification lane (D-241)
+      CU_DATA_DIR: /data
+      CU_STATE_DIR: /state
+      CU_ALLOWED_HOSTS: 127.0.0.1,localhost
+      CU_LOCAL_ADMIN: "0"
+    volumes:
+      - {type: bind, source: "${TERRIER_DATA_DIR:?set TERRIER_DATA_DIR to one district's stores}", target: /data, read_only: true, bind: {create_host_path: false}}
+      - terrier-state:/state
+    healthcheck:
+      <<: *health
+      start_period: 180s
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:${LOCAL_TERRIER_PORT:-18766}/api/health', timeout=4)"]
+
+networks:
+  desk: {}
+  mentat: {}
+  terrier: {}
+
+volumes:
+  mentat-data: {}
+  mentat-cache: {}
+  terrier-state: {}

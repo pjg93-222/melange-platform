@@ -9,6 +9,7 @@ from collections import defaultdict
 import argparse
 import csv
 import hashlib
+import io
 import json
 import sys
 
@@ -17,8 +18,11 @@ from engine.primacy_press import CLASS_W, LEDGER, RECEIPT
 
 
 def import_packet(packet, output_root):
+    source_hashes = {}
     def read(relative):
-        with (packet / relative).open(encoding='utf-8-sig', newline='') as handle:
+        raw = (packet / relative).read_bytes()
+        source_hashes[relative] = hashlib.sha256(raw).hexdigest()
+        with io.StringIO(raw.decode('utf-8-sig'), newline='') as handle:
             return list(csv.DictReader(handle))
     item_path='press/statement_items.csv'
     class_path='press/statement_classes_joined.csv'
@@ -52,7 +56,7 @@ def import_packet(packet, output_root):
         'denominator':'all admitted support/oppose statement intensity mass',
         'limitations':['Historical classified corpus; new and neutral items require a separately classified generation.',
                       'Association articles are included; this is not exclusively member-authored speech.'],
-        'sources':[{'path':rel,'sha256':hashlib.sha256((packet/rel).read_bytes()).hexdigest()}
+        'sources':[{'path':rel,'sha256':source_hashes[rel]} 
                    for rel in (item_path,class_path,aggregate_path)]}
     target=output_root/LEDGER
     target.parent.mkdir(parents=True,exist_ok=True)

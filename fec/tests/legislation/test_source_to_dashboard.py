@@ -1,5 +1,5 @@
 import json,sys
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from pathlib import Path
 import pytest
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]))
@@ -75,5 +75,33 @@ def test_stale_or_wrong_downstream_measurements_fail(generation,kind):
         elif kind=='industry':d['engine']['ind']=[100]
         else:d['engine']['cu']=[0]
         write('dashboard_data.json',d)
+    result=audit.verify(root)
+    assert result['status']=='FAIL' and result['errors']
+
+
+def _restamp(root,write,checked_at,status='PASS'):
+    # rewrite the FEC source receipt and re-bind the application to it, so only the receipt's age/status differs
+    write('data/money/fec_refresh_current.json',{'checked_at':checked_at.isoformat(),'status':status,'cycle':2026,'latest_attributed_transaction_date':'2026-07-31','unresolved_members':[]})
+    write('data/money/fec_money_application.json',{'source_receipt_sha256':audit.sha(root/'data/money/fec_refresh_current.json'),'congestion_sha256':audit.sha(root/'data/engine/congestion.json')})
+
+
+@pytest.mark.parametrize('days,label',[(1,'FRESH'),(20,'STALE_LABELLED')])
+def test_fec_money_past_its_window_is_served_labelled_not_failed(generation,days,label):
+    # D-212 tiered degrade: a verified last-good FEC generation past its 8-day window is a labelled warning, not a failure
+    root,write,_=generation
+    _restamp(root,write,datetime.now(timezone.utc)-timedelta(days=days))
+    result=audit.verify(root)
+    assert result['status']=='PASS' and result['money_freshness']['status']==label
+    assert bool(result['warnings'])==(label=='STALE_LABELLED')
+
+
+@pytest.mark.parametrize('kind',['future','failed','unbound'])
+def test_future_dated_failed_or_unbound_fec_money_still_fails(generation,kind):
+    root,write,_=generation
+    if kind=='future':_restamp(root,write,datetime.now(timezone.utc)+timedelta(hours=2))
+    elif kind=='failed':_restamp(root,write,datetime.now(timezone.utc)-timedelta(days=20),status='FAIL')
+    else:
+        _restamp(root,write,datetime.now(timezone.utc)-timedelta(days=20))
+        write('data/money/fec_money_application.json',{'source_receipt_sha256':'0'*64,'congestion_sha256':audit.sha(root/'data/engine/congestion.json')})
     result=audit.verify(root)
     assert result['status']=='FAIL' and result['errors']

@@ -49,98 +49,24 @@ def lane(tmp_path, monkeypatch):
     return cfg, state, model
 
 
-def test_plan_and_unchanged_apply_never_build_scan_or_write_refs(lane):
+def test_plan_still_works_and_apply_or_push_is_refused_before_any_work(lane):
     cfg, state, model = lane
     assert sync.synchronize(cfg, state_root=state)['status'] == 'plan'
     assert not state.exists()
-    model.changed = False
-    for _ in range(2):
-        assert sync.synchronize(cfg, apply=True, push=True, state_root=state)['status'] == 'unchanged'
-    assert (model.builds, model.scans, model.pushes) == (0, 0, 0)
+    for kwargs in ({'apply': True}, {'push': True}, {'apply': True, 'push': True}):
+        with pytest.raises(sync.core.ReleaseError, match='retired.*2026-10-15') as refused:
+            sync.synchronize(cfg, state_root=state, **kwargs)
+        assert refused.value.code == 'SOURCE_SYNC_RETIRED'
+    assert not state.exists()
+    assert (model.builds, model.scans, model.pushes, model.proof) == (0, 0, 0, 0) and model.local == '1'*40
 
 
-def test_apply_proves_scans_cas_pushes_once_and_then_skips(lane):
-    cfg, state, model = lane
-    result = sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert result['status'] == 'synchronized' and result['pushed']
-    assert result['sourceHeads'] == model.source_heads
-    assert (model.proof, model.scans, model.pushes) == (1, 1, 1)
-    assert sync.synchronize(cfg, apply=True, push=True, state_root=state)['status'] == 'unchanged'
-    assert (model.builds, model.scans, model.pushes) == (1, 1, 1)
-
-
-@pytest.mark.parametrize('failure', ['security', 'source-moved', 'remote-moved', 'cas'])
-def test_guard_failures_never_push_or_replace_latest(lane, monkeypatch, failure):
-    cfg, state, model = lane
-    if failure == 'security':
-        def gate(*a):
-            raise sync.core.ReleaseError('SOURCE_SECURITY', 'fixture failed')
-        monkeypatch.setattr(sync, 'security_gate', gate)
-    elif failure == 'source-moved':
-        model.source_heads = {**model.source_heads, 'melange': '9'*40}
-    elif failure == 'remote-moved':
-        model.remote = '9'*40
-    else:
-        def cas(*a):
-            raise sync.core.ReleaseError('CAS', 'fixture concurrent writer')
-        monkeypatch.setattr(sync.export, 'set_ref', cas)
-    with pytest.raises(sync.core.ReleaseError):
-        sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert model.local == '1'*40 and model.pushes == 0
-    assert not (state / 'latest.json').exists()
-
-
-def test_failed_push_can_retry_without_build_or_scan(lane, monkeypatch):
-    cfg, state, model = lane
-    real_push = sync.core.git
-    def failed(*a, **kw):
-        raise sync.core.ReleaseError('PUSH_FAILED', 'fixture network outage')
-    monkeypatch.setattr(sync.core, 'git', failed)
-    with pytest.raises(sync.core.ReleaseError, match='network outage'):
-        sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert model.local == '2'*40 and model.remote == '1'*40
-    assert not json.loads((state / 'latest.json').read_text())['pushed']
-    monkeypatch.setattr(sync.core, 'git', real_push)
-    assert sync.synchronize(cfg, apply=True, push=True, state_root=state)['status'] == 'unchanged'
-    assert (model.builds, model.scans, model.pushes) == (1, 1, 1)
-
-
-def test_uncertain_push_success_is_verified_without_repeat(lane, monkeypatch):
-    cfg, state, model = lane
-    real_push = sync.core.git
-    def uncertain(*a, **kw):
-        real_push(*a, **kw)
-        raise sync.core.ReleaseError('PUSH_FAILED', 'fixture response lost after success')
-    monkeypatch.setattr(sync.core, 'git', uncertain)
-    with pytest.raises(sync.core.ReleaseError):
-        sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert sync.synchronize(cfg, apply=True, push=True, state_root=state)['status'] == 'unchanged'
-    assert (model.builds, model.scans, model.pushes) == (1, 1, 1)
-
-
-def test_interruption_between_cas_and_latest_receipt_recovers(lane, monkeypatch):
-    cfg, state, model = lane
-    original = sync.save
-    def fail_latest(path, value):
-        if path.name == 'latest.json':
-            raise OSError('fixture interruption')
-        original(path, value)
-    monkeypatch.setattr(sync, 'save', fail_latest)
-    with pytest.raises(OSError):
-        sync.synchronize(cfg, apply=True, state_root=state)
-    assert model.local == '2'*40 and not (state / 'latest.json').exists()
-    monkeypatch.setattr(sync, 'save', original)
-    assert sync.synchronize(cfg, apply=True, push=True, state_root=state)['status'] == 'unchanged'
-    assert (model.builds, model.scans, model.pushes) == (1, 1, 1)
-
-
-def test_pending_push_never_overwrites_external_remote_writer(lane):
-    cfg, state, model = lane
-    sync.synchronize(cfg, apply=True, state_root=state)
-    model.remote = '9'*40
-    with pytest.raises(sync.core.ReleaseError, match='remote platform main moved'):
-        sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert model.pushes == 0
+@pytest.mark.parametrize('flags', [['--apply'], ['--push'], ['--apply', '--push']])
+def test_cli_refuses_apply_and_push_naming_the_per_app_repositories(monkeypatch, capsys, flags):
+    monkeypatch.setattr(sync.core, 'load_config', lambda: {})
+    assert sync.main(flags) == 1
+    err = capsys.readouterr().err
+    assert 'retired' in err and '2026-10-15' in err and 'pjg93-222/Melange' in err and 'pjg93-222/Mentat' in err and 'pjg93-222/Geo' in err
 
 
 def test_routing_requires_pinned_refs_origins_and_existing_bare(tmp_path, monkeypatch):
@@ -171,16 +97,6 @@ def test_alternate_or_multiple_push_urls_are_refused(tmp_path, monkeypatch, push
     monkeypatch.setattr(sync.core, 'git_text', lambda *a, **kw: push_urls)
     with pytest.raises(sync.core.ReleaseError, match='pinned destination'):
         sync.check_push_routing({'platform_remote_url': sync.PLATFORM_ORIGIN}, tmp_path)
-
-
-def test_push_routing_is_rechecked_after_verification(lane, monkeypatch):
-    cfg, state, model = lane
-    def changed(*a):
-        raise sync.core.ReleaseError('SOURCE_ROUTING', 'fixture changed push URL')
-    monkeypatch.setattr(sync, 'check_push_routing', changed)
-    with pytest.raises(sync.core.ReleaseError, match='changed push URL'):
-        sync.synchronize(cfg, apply=True, push=True, state_root=state)
-    assert model.pushes == 0 and model.local == '2'*40
 
 
 @pytest.mark.parametrize('push', [False, True])

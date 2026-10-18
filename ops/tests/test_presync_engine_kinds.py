@@ -234,7 +234,11 @@ def test_libreoffice_copies_that_differ_are_refused(tmp_path):
 
 
 def test_libreoffice_needs_two_distinct_receipt_files(tmp_path):
-    ok, state = judge(build(tmp_path, "libreoffice", one_receipt=True))
+    with pytest.raises(AUD.FormulaCacheAuditError, match="distinct workbook and receipt files"):   # the builder refuses one receipt
+        build(tmp_path / "builder", "libreoffice", one_receipt=True)
+    paths = build(tmp_path / "validator", "libreoffice")                                             # and the validator still does
+    mutate_manifest(paths, lambda m: m["independent_calculations"]["b"].update(receipt=m["independent_calculations"]["a"]["receipt"]))
+    ok, state = judge(paths)
     assert not ok and has(state, "LibreOffice calculation receipts must be two distinct files")
 
 

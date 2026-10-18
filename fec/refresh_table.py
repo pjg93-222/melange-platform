@@ -51,6 +51,16 @@ FIELDS
                work is acceptable is the downstream press gates' decision, not the runner's.
 ``tick_only``  this row exists only in the tick runner and has no counterpart in
                weekly_refresh.py.  The T12 pin compares the ``tick_only == False`` rows with main.
+``tier``       (collect rows only) how publication treats this source, owner ruling 2026-10-15.
+               ``core`` -- bills/discovery, admissions, rollcall votes, BILLSTATUS, the bill
+               repository and FEC money -- stays STRICT: it must have a last-good generation, intact
+               and whole, before anything is computed, but past its window that last-good is SERVED
+               and LABELLED instead of stopping the system.  ``enrichment`` -- press, interviews,
+               Wikipedia, Bluesky, CREC/CHRG -- degrades with labels and can never hold a
+               publication.  The tier is what ``data/engine/source_freshness.json`` reports.
+``tick_argv``  arguments the TICK appends to ``argv`` that weekly_refresh.py does not pass.  They are
+               kept apart from ``argv`` so the T12 pin still compares the weekly script's command
+               verbatim; a second test pins them to the daily congress runner they were lifted from.
 
 KINDS
 
@@ -80,8 +90,22 @@ DIAG = 'diag'
 COLLECT_KINDS = (SOURCE, PRESS)
 COMPUTE_KINDS = (GATE, DERIVE, COMPUTE, PUBLISH, DIAG)
 
-# Weekly, the cadence the whole system is synchronized on.
+# Weekly, the cadence the whole system was synchronized on; daily for the congress sources the
+# daily pipeline used to refresh (owner ruling 2026-10-15: the tick is the single orchestrator).
 WEEK_HOURS = 168
+DAY_HOURS = 24
+
+# Publication tiers (see ``tier`` above).
+CORE = 'core'
+ENRICHMENT = 'enrichment'
+TIERS = (CORE, ENRICHMENT)
+
+# The admissions producer's cost bound, lifted from fec/legislation/refresh_congress_pipeline.py
+# (ADMISSION_KEY_LIMIT, ADMISSION_CALL_BUDGET; owner ruling 2026-10-15, cap interactive + $150 a
+# month).  --limit bounds the keys looked at, --max-classifier-calls the PAID model calls among
+# them; a budget stop is a normal PASS and the unattempted keys wait for the next day.  A tick that
+# ran admissions without these would be an unbounded spend on an hourly schedule.
+ADMISSION_TICK_ARGV = ('--limit', '80', '--max-classifier-calls', '48')
 
 # argv element: a literal string, or a date token the runner renders at launch.
 Token = Tuple[Union[str, int], ...]
@@ -104,6 +128,8 @@ class Step(object):
     skip_if: Optional[str] = None
     partial_codes: Tuple[int, ...] = ()
     tick_only: bool = False
+    tier: Optional[str] = None
+    tick_argv: Tuple[Arg, ...] = ()
 
     @property
     def slug(self) -> str:
@@ -137,83 +163,97 @@ TABLE: Tuple[Step, ...] = (
     # one collector losing its network for a minute threw away every other leg's completed work.
     Step('CREC floor speeches',
          ('collect/fetch_congressional_record.py', 'crec', '--since', ('days_ago', 14)),
-         3000, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         3000, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     # Hearing transcripts publish MONTHS late (coverage audit 2026-07-06), hence the 400-day window.
     Step('CHRG finance hearings',
          ('collect/fetch_congressional_record.py', 'chrg', '--since', ('days_ago', 400)),
-         3000, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         3000, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
+    # The six CORE congress sources run DAILY, as refresh_congress_pipeline.py ran them: same
+    # producers, same timeouts (a test pins both to that script).  FEC money moves weekly -> daily.
     Step('Congress.gov bill discovery',
          ('legislation/refresh_legislation_discovery.py',),
-         21600, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         21600, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE),
     Step('Official bill evidence and automatic scoring admission',
          ('legislation/refresh_sentinel_admissions.py',),
-         14400, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         14400, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE,
+         tick_argv=ADMISSION_TICK_ARGV),
     Step('FEC source money refresh',
          ('collect/refresh_fec_money.py',),
-         7200, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         7200, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE),
     Step('Congress rollcall source refresh',
          ('legislation/refresh_vote_sources.py',),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE),
     Step('Congress.gov bill repository',
          ('legislation/update_bill_repository.py',),
-         14400, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         14400, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE),
     Step('GovInfo BILLSTATUS bulk refresh',
          ('legislation/refresh_billstatus_bulk.py',),
-         3600, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         3600, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=CORE),
     Step('interviews: CNN (14d)',
          ('fetch_interviews.py', 'cnn', '--since', ('days_ago', 14), '--until', ('yesterday',),
           '--strict'),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: MTP', ('fetch_interviews.py', 'mtp', '--strict'),
-         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: CBS', ('fetch_interviews.py', 'cbs', '--strict'),
-         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: ABC', ('fetch_interviews.py', 'abc', '--strict'),
-         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1200, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: PBS (21d)',
          ('fetch_interviews.py', 'pbs', '--since', ('days_ago', 21), '--until', ('yesterday',),
           '--strict'),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: NPR (14d)',
          ('fetch_interviews.py', 'npr', '--since', ('days_ago', 14), '--until', ('yesterday',),
           '--strict'),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: Fox archive audit', ('fetch_interviews.py', 'fox', '--strict'),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: MS NOW', ('fetch_interviews.py', 'msnow', '--strict'),
-         3600, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         3600, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('interviews: Washington Journal (21d)',
          ('refresh_cspan_wj.py', '--since', ('days_ago', 21), '--until', ('yesterday',)),
-         5400, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         5400, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
     Step('Wikipedia biographies (full roster)', ('wikipedia_biographies.py', '--strict'),
-         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS),
+         1800, SOURCE, evidence=True, cadence_h=WEEK_HOURS, tier=ENRICHMENT),
+    # TICK-ONLY.  The daily Bluesky leg of fec/collect/daily_media_refresh.py (source_steps(): the
+    # same producer, flags, 14-day window, receipt path and 14400 s bound).  Its extract is the
+    # existing 'CU bluesky extract' DERIVE row, which already runs in every compute phase, so only
+    # the collector is new.  ``daily_media_refresh`` stretches the window back to the last success
+    # after a long gap; the tick keeps the fixed 14 days every other windowed collector here uses.
+    Step('Bluesky collector',
+         ('collect/tweet_collector.py', 'fetch', '--platform', 'bluesky', '--verified-only',
+          '--strict', '--since', ('days_ago', 14), '--pages', '50',
+          '--receipt', 'data/engine/social_source_receipts/bluesky.json'),
+         14400, SOURCE, evidence=True, cadence_h=DAY_HOURS, tier=ENRICHMENT, tick_only=True),
     # ---- 19-22  the press transaction ------------------------------------------------------
     # hard=True here is weekly_refresh.py's value and is kept verbatim, but in the collect phase
     # it stops nothing: press failure blocks publication through EVIDENCE, not through an exit.
     # 'press intake audit' audits what is ON DISK, so the runner runs it whenever 'press delta
     # refresh' was ATTEMPTED in the tick, not only when it succeeded (refresh_tick.ATTEMPT_TRIGGERED).
     Step('press delta refresh', ('refresh_press_stream.py',),
-         129600, PRESS, hard=True, evidence=True, cadence_h=WEEK_HOURS, partial_codes=(3,)),
+         129600, PRESS, hard=True, evidence=True, cadence_h=WEEK_HOURS, partial_codes=(3,),
+         tier=ENRICHMENT),
     Step('press intake audit',
          ('audit_collection.py', '--scope', 'press',
           '--output', 'data/engine/press_collection_intake_receipt.json'),
          1800, PRESS, hard=True, evidence=True, cadence_h=WEEK_HOURS,
-         requires=('press delta refresh',)),
+         requires=('press delta refresh',), tier=ENRICHMENT),
     Step('press engine feed',
          ('build_press_engine_feed.py',
           '--intake-receipt', 'data/engine/press_collection_intake_receipt.json'),
          1800, PRESS, hard=True, evidence=True, cadence_h=WEEK_HOURS,
-         requires=('press intake audit',)),
+         requires=('press intake audit',), tier=ENRICHMENT),
     Step('fold promoted press runs', ('fold_promoted_press_runs.py',),
          1800, PRESS, hard=True, evidence=True, cadence_h=WEEK_HOURS,
-         requires=('press engine feed',)),
+         requires=('press engine feed',), tier=ENRICHMENT),
     # TICK-ONLY.  No counterpart in weekly_refresh.py, so the T12 pin skips it.  Reviews the
     # zero-row members the fold just promoted; evidence=False and soft, so it reports without
     # ever being able to hold publication.  Its producer is the press lane's; a table producer
     # that is not on disk is a FILED failure of this one step, never a fatal pre-step error.
     Step('press zero-row review', ('collect/press_zero_row_review.py',),
          600, PRESS, cadence_h=WEEK_HOURS, requires=('fold promoted press runs',),
-         tick_only=True),
+         tick_only=True, tier=ENRICHMENT),
     # ---- 23-25  collection-integrity gates: the first steps of the COMPUTE phase ------------
     Step('collection intake audit',
          ('audit_collection.py', '--scope', 'all',
@@ -328,12 +368,23 @@ def validate(table=TABLE):
             problems.append('%s: argv[0] is not a producer path' % step.name)
         if step.evidence and not step.cadence_h:
             problems.append('%s: evidence rows need a cadence' % step.name)
+        tier = getattr(step, 'tier', None)
+        tick_argv = getattr(step, 'tick_argv', ())
+        if step.kind in COLLECT_KINDS and tier not in TIERS:
+            problems.append('%s: a collect row needs tier core or enrichment, got %r'
+                            % (step.name, tier))
+        if step.kind in COMPUTE_KINDS and tier is not None:
+            problems.append('%s: only collect rows carry a tier, got %r' % (step.name, tier))
+        if tick_argv and not all(isinstance(item, str) for item in tick_argv):
+            problems.append('%s: tick_argv must be literal strings' % step.name)
         if any((not isinstance(code, int)) or code == 0 for code in step.partial_codes):
             problems.append('%s: partial_codes must be non-zero ints, got %r'
                             % (step.name, step.partial_codes))
         for required in step.requires:
             if required not in position:
                 problems.append('%s: requires unknown step %r' % (step.name, required))
+            elif position[required] == index:
+                problems.append('%s: cannot require itself' % step.name)
             elif position[required] > index:
                 problems.append('%s: requires %r, which runs later' % (step.name, required))
     return problems

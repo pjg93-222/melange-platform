@@ -45,6 +45,12 @@ import refresh_state as S
 import refresh_table as T
 import refresh_tick as R
 
+# The tick starts each step where ops/compute/engines.json says its PHASE runs.  A developer's
+# engines.json may say 'container'; every tick this suite launches, and every in-process Tick it
+# builds, must run the stubs on the host, so the override is pinned for the whole file.
+for _engine_key in ('MELANGE_ENGINE_COLLECT', 'MELANGE_ENGINE_CHAIN', 'MELANGE_ENGINE_OFFICE'):
+    os.environ[_engine_key] = 'windows'
+
 TICK_PATH = os.path.join(FEC, 'refresh_tick.py')
 WEEKLY_REFRESH_PATH = os.path.join(FEC, 'weekly_refresh.py')
 # Anything the suite writes under the repository itself would be a bug; this is what it must not
@@ -109,6 +115,15 @@ if not failing or PLAN.get('write_then_fail'):
         'id,value\\n' + ''.join('r%d,%d\\n' % (i, i * 7 % 101) for i in range(int(rows))))
     with open(out, 'w', encoding='utf-8', newline='\\n') as fh:
         fh.write(body)
+junk = PLAN.get('junk')
+if junk:
+    junk = os.path.join(out_dir, junk)
+    if failing:
+        open(junk, 'w', encoding='utf-8').write('partial')
+    elif os.path.exists(junk):
+        os.remove(junk)
+if PLAN.get('delete') and failing:
+    os.remove(os.path.join(out_dir, PLAN['delete']))
 if PLAN.get('sleep'):
     time.sleep(float(PLAN['sleep']))
 if PLAN.get('stdout'):
@@ -143,15 +158,20 @@ MTP = 'interviews: MTP'
 PRESS_DELTA = 'press delta refresh'
 INTAKE = 'collection intake audit'
 ZERO_ROW_REVIEW = 'press zero-row review'
+# Two CORE sources, for the tests that need an integrity failure to BLOCK a publication.  Since
+# 2026-10-15 an ENRICHMENT source (CREC, CHRG, the interviews ...) can never hold one; a CORE source
+# can.  CORE_B is the LATER row, so it is the writer that takes a shared file over from CORE.
+CORE = 'Congress.gov bill discovery'
+CORE_B = 'Official bill evidence and automatic scoring admission'
 # The one output two steps are made to share, so a hand-over can be driven on purpose (T20).
 SHARED = 'data/out/shared.csv'
 
 
 def stub_key(step):
     """The control-file key a step's stub will compute for itself."""
-    rendered = R.render_argv(step.argv)
+    rendered = R.render_argv(step.argv)[1:] + R.render_argv(step.tick_argv)
     return '|'.join([T.producer_basename(step)]
-                    + [a for a in rendered[1:] if not _looks_like_date(a)])
+                    + [a for a in rendered if not _looks_like_date(a)])
 
 
 def _looks_like_date(text):
@@ -217,20 +237,47 @@ def tick_env(root, **extra):
     return env
 
 
+KILL_TIMEOUT_SECONDS = 30
+
+
+def kill_tree(process):
+    """Kill the tick and everything it launched, bounded end to end: taskkill itself gets a
+    timeout, and a tree that will not die cannot hold the test past the wait below."""
+    try:
+        subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                       timeout=KILL_TIMEOUT_SECONDS)
+    except (subprocess.TimeoutExpired, OSError):
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=KILL_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        pass
+
+
 def run_tick(root, *args, timeout=600, **extra_env):
-    """Launch the REAL runner against the temp root.  Returns (exit_code, output, seconds)."""
+    """Launch the REAL runner against the temp root.  Returns (exit_code, output, seconds).
+
+    stdin is closed: a child that inherited the harness's stdin (an outer runner's open pipe)
+    could block on it forever with an idle CPU.  On a timeout the tree is killed (bounded) and
+    the failure carries the tick's last output, so a stall is never silent.
+    """
     started = time.time()
     with tempfile.TemporaryFile() as sink:
         process = subprocess.Popen([sys.executable, TICK_PATH] + list(args),
                                    env=tick_env(root, **extra_env), stdout=sink,
-                                   stderr=subprocess.STDOUT)
+                                   stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
         try:
             code = process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
-            subprocess.run(['taskkill', '/F', '/T', '/PID', str(process.pid)],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            process.wait(timeout=30)
-            raise
+            kill_tree(process)
+            sink.seek(0)
+            tail = sink.read().decode('utf-8', 'replace')[-4000:]
+            raise AssertionError('the tick did not finish within %ss; its last output:\n%s'
+                                 % (timeout, tail)) from None
         sink.seek(0)
         output = sink.read().decode('utf-8', 'replace')
     return code, output, time.time() - started
@@ -241,7 +288,7 @@ def start_tick(root, *args, **extra_env):
     sink = tempfile.TemporaryFile()
     process = subprocess.Popen([sys.executable, TICK_PATH] + list(args),
                                env=tick_env(root, **extra_env), stdout=sink,
-                               stderr=subprocess.STDOUT,
+                               stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                                creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
     process._sink = sink
     return process
@@ -463,7 +510,7 @@ class RefreshTickTest(unittest.TestCase):
             self.assertEqual([], S.verify_manifest(root, payload),
                              '%s manifest does not verify' % step.name)
             checked += 1
-        self.assertEqual(49, checked)          # 50 rows, one SKIPPED_NOT_CONFIGURED deployment
+        self.assertEqual(50, checked)          # 51 rows, one SKIPPED_NOT_CONFIGURED deployment
         publication = state['publication']
         self.assertFalse(publication['degraded'])
         self.assertEqual(sorted(EVIDENCE_NAMES), sorted(publication['inputs']))
@@ -480,7 +527,9 @@ class RefreshTickTest(unittest.TestCase):
         crec = T.by_name()[CREC]
         root = self.root({stub_key(crec): {'fail_first': 1}})
         seed_state(root, steps={CREC: dict(S.blank_step())})
-        code, output, _ = run_tick(root)
+        # The retry pass honours the TRANSIENT backoff (15 min by default, DE-020); 0 minutes is
+        # the explicit "no wait" control that drives the same-tick retry itself.
+        code, output, _ = run_tick(root, '--backoff-minutes', '0')
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root))
         self.assertIn('FILED', output)
@@ -500,7 +549,7 @@ class RefreshTickTest(unittest.TestCase):
                                                               - datetime.timedelta(days=8)),
                                        'last_attempt_utc': S.stamp(S.utcnow()
                                                                    - datetime.timedelta(days=8))}})
-        code, output, _ = run_tick(root)
+        code, output, _ = run_tick(root, '--backoff-minutes', '0')
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED_DEGRADED, outcome(root), output[-3000:])
         publication = read_state(root)['publication']
@@ -508,47 +557,84 @@ class RefreshTickTest(unittest.TestCase):
         self.assertEqual([CREC], publication['stale_sources'])
         self.assertEqual(3, invocations(root, crec))      # the pass plus two retries
 
-    def test_T03b_source_older_than_the_window_refuses_and_touches_nothing(self):
+    def test_T03b_source_older_than_the_window_is_served_and_labelled(self):
+        """REPLACES "older than the window refuses and touches nothing" (2026-10-15 ruling).
+
+        Past its window a source's last-good generation is SERVED and LABELLED, not a stop: the
+        refusal was the all-or-nothing halt the tiered degrade removes.  What the old test
+        protected still holds -- the previous bytes are untouched by a failing collector.
+        """
         crec = T.by_name()[CREC]
         root = self.root({stub_key(crec): {'always_fail': True}})
         os.makedirs(os.path.join(root, 'data', 'out'), exist_ok=True)
         previous = output_path(root, crec)
         with open(previous, 'wb') as handle:
             handle.write(b'id,value\nPREVIOUS,1\n')
-        before = data_digest(root)
         seed_state(root, steps={CREC: {'state': S.OK, 'generation': 1,
                                        'last_ok_utc': S.stamp(S.utcnow()
                                                               - datetime.timedelta(days=15)),
                                        'last_attempt_utc': S.stamp(S.utcnow()
                                                                    - datetime.timedelta(days=15))}})
         code, output, _ = run_tick(root)
-        self.assertEqual(1, code, output[-3000:])
-        self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root))
-        self.assertIn('older than the 14-day window', output)
-        self.assertEqual(before, data_digest(root), 'a refused tick rewrote the data tree')
-        self.assertEqual(b'id,value\nPREVIOUS,1\n', open(previous, 'rb').read())
-        self.assertIsNone(read_state(root)['publication'])
+        self.assertEqual(0, code, output[-3000:])
+        self.assertEqual(R.PUBLISHED_DEGRADED, outcome(root), output[-3000:])
+        self.assertEqual(b'id,value\nPREVIOUS,1\n', open(previous, 'rb').read(),
+                         'a failing collector rewrote the last-good bytes it was serving')
+        publication = read_state(root)['publication']
+        self.assertEqual([CREC], publication['stale_sources'])
+        self.assertIn('past the 14-day window', publication['labels'][CREC]['detail'])
+        self.assertNotIn('older than the 14-day window', output)
 
     # =========================================================================================
     # T4  torn outputs block publication until the step's next success
     # =========================================================================================
     def test_T04_torn_source_blocks_then_heals(self):
-        crec = T.by_name()[CREC]
-        key = stub_key(crec)
+        core = T.by_name()[CORE]
+        key = stub_key(core)
         root = self.root({key: {'always_fail': True, 'write_then_fail': True}})
         # It HAS succeeded before, so "torn" is the only thing that can block it here: a source
         # that never succeeded would be refused for that reason instead and prove nothing.
         seed_state(root)
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(1, code, output[-3000:])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root))
-        self.assertTrue(read_state(root)['steps'][CREC]['torn'], 'the step wrote and died')
+        self.assertTrue(read_state(root)['steps'][CORE]['torn'], 'the step wrote and died')
         self.assertIn('outputs are torn', output)
         write_control(root, {})
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root))
-        self.assertFalse(read_state(root)['steps'][CREC]['torn'])
+        self.assertFalse(read_state(root)['steps'][CORE]['torn'])
+
+    def test_T04b_never_committed_partial_file_deleted_by_next_success_heals(self):
+        core = T.by_name()[CORE]
+        key = stub_key(core)
+        root = self.root({key: {'always_fail': True, 'junk': 'x.partial'}})
+        seed_state(root)
+        code, output, _ = run_tick(root, '--force-due', CORE)
+        self.assertEqual(1, code, output[-3000:])
+        self.assertTrue(read_state(root)['steps'][CORE]['torn'])
+        write_control(root, {key: {'junk': 'x.partial'}})
+        code, output, _ = run_tick(root, '--force-due', CORE)
+        self.assertEqual(0, code, output[-3000:])
+        self.assertNotIn('did not repair', output)
+        self.assertFalse(read_state(root)['steps'][CORE]['torn'])
+
+    def test_T04b_deleting_a_file_then_failing_is_torn(self):
+        core = T.by_name()[CORE]
+        key = stub_key(core)
+        root = self.root({key: {'always_fail': True, 'delete': 'victim.csv'}})
+        seed_state(root)
+        victim = os.path.join(root, 'data', 'out', 'victim.csv')
+        os.makedirs(os.path.dirname(victim), exist_ok=True)
+        with open(victim, 'w', encoding='utf-8') as handle:
+            handle.write('id,value\nA,1\n')
+        code, output, _ = run_tick(root, '--force-due', CORE)
+        self.assertEqual(1, code, output[-3000:])
+        self.assertFalse(os.path.exists(victim), 'the stub did not delete the file')
+        entry = read_state(root)['steps'][CORE]
+        self.assertTrue(entry['torn'], 'a deletion before the failure was not seen as a write')
+        self.assertIn('data/out/victim.csv', entry['unverified_files'])
 
     # =========================================================================================
     # T5  every crash point, an external kill and a CTRL_BREAK all converge to the same bytes
@@ -789,6 +875,7 @@ class RefreshTickTest(unittest.TestCase):
         path = os.path.join(root, '.pipeline_run.lock')
         process, start = self._live_child()
         body = {'pid': process.pid, 'token': 'abc', 'owner_kind': 'weekly_refresh',
+                'host': pipeline_lock.host_identity(),
                 'started_utc': start - 3600.0, 'proc_start': start - 3600.0}
         with open(path, 'w', encoding='utf-8') as handle:
             json.dump(body, handle)
@@ -820,13 +907,13 @@ class RefreshTickTest(unittest.TestCase):
         path = os.path.join(root, '.pipeline_run.lock')
         process, _start = self._live_child()
         live = {'pid': process.pid, 'token': 'abc', 'owner_kind': 'weekly_refresh',
-                'started_utc': time.time()}
+                'host': pipeline_lock.host_identity(), 'started_utc': time.time()}
         self.assertTrue(pipeline_lock._holder_is_live(live))
         self.assertFalse(pipeline_lock._stale_lock_may_be_removed(pipeline_lock.Path(path), live))
         dead = subprocess.Popen([sys.executable, '-c', 'pass'])
         dead.wait(timeout=30)
         stale = {'pid': dead.pid, 'token': 'abc', 'owner_kind': 'weekly_refresh',
-                 'started_utc': time.time()}
+                 'host': pipeline_lock.host_identity(), 'started_utc': time.time()}
         self.assertFalse(pipeline_lock._holder_is_live(stale))
 
     def test_T10d_second_acquirer_is_refused_while_the_first_lives(self):
@@ -909,7 +996,8 @@ class RefreshTickTest(unittest.TestCase):
         for index, (want, got) in enumerate(zip(expected, actual)):
             self.assertEqual(want, got, 'row %d drifted from weekly_refresh.py' % (index + 1))
         self.assertEqual([], T.validate())
-        self.assertEqual(1, sum(1 for step in T.TABLE if step.tick_only))
+        # The zero-row review and the Bluesky collector (the daily media refresh's own leg).
+        self.assertEqual(2, sum(1 for step in T.TABLE if step.tick_only))
 
     # =========================================================================================
     # T13  an unreadable state file is rotated, not trusted
@@ -928,7 +1016,7 @@ class RefreshTickTest(unittest.TestCase):
                    if name.startswith('refresh_state.corrupt-')]
         self.assertEqual(1, len(rotated), rotated)
         self.assertEqual(corrupt, open(os.path.join(engine, rotated[0]), 'rb').read())
-        self.assertEqual(49, len(read_ticks(root)[-1]['steps_run']))
+        self.assertEqual(50, len(read_ticks(root)[-1]['steps_run']))
 
     # =========================================================================================
     # T14  --dry-run and --status take no lock and change no byte
@@ -960,36 +1048,36 @@ class RefreshTickTest(unittest.TestCase):
     # T15  the zero floor blocks; every other shrink is recorded and does not
     # =========================================================================================
     def test_T15_zero_floor_blocks_and_a_forty_percent_shrink_does_not(self):
-        crec = T.by_name()[CREC]
-        key = stub_key(crec)
+        core = T.by_name()[CORE]
+        key = stub_key(core)
         root = self.root()
         code, output, _ = run_tick(root)
         self.assertEqual(0, code, output[-2000:])
         write_control(root, {key: {'empty': True}})
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(1, code, output[-3000:])
-        entry = read_state(root)['steps'][CREC]
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.FAILED, entry['state'])
         self.assertEqual(S.COVERAGE, entry['failure']['kind'])
         self.assertEqual(S.COVERAGE_SUSPECT, entry['coverage'])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root))
         blocking = [row for row in read_review(root) if row['blocking']]
         self.assertEqual(1, len(blocking), read_review(root))
-        self.assertEqual(CREC, blocking[0]['step'])
+        self.assertEqual(CORE, blocking[0]['step'])
         self.assertEqual(61, blocking[0]['was_rows'])
         # A coverage verdict is not a flaky socket: it is recorded ONCE, never blind-retried.
-        self.assertEqual(2, invocations(root, crec))
+        self.assertEqual(2, invocations(root, core))
         self.assertEqual([], read_ticks(root)[-1]['filed'])
         # A 40% shrink is information, not a block.
         write_control(root, {key: {'rows': 36}})
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root))
-        entry = read_state(root)['steps'][CREC]
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.OK, entry['state'])
         self.assertEqual(S.COVERAGE_OK, entry['coverage'])
         with open(os.path.join(root, 'data', 'engine', 'refresh_manifests',
-                               '%s.%s.json' % (crec.slug, entry['manifest_sha'])),
+                               '%s.%s.json' % (core.slug, entry['manifest_sha'])),
                   encoding='utf-8') as handle:
             manifest = json.load(handle)
         self.assertEqual(1, len(manifest['shrinks']), manifest.get('shrinks'))
@@ -1113,8 +1201,12 @@ class RefreshTickTest(unittest.TestCase):
     def test_T17_a_failing_source_isolates(self):
         chrg = T.by_name()[CHRG]
         root = self.root({stub_key(chrg): {'always_fail': True}})
-        code, output, _ = run_tick(root)
-        self.assertEqual(1, code, output[-3000:])
+        code, output, _ = run_tick(root, '--backoff-minutes', '0')
+        # CHANGED 2026-10-15: CHRG is an ENRICHMENT source that has never succeeded.  That used to
+        # refuse the whole publication (exit 1); it is now a LABEL on a degraded publication.
+        self.assertEqual(0, code, output[-3000:])
+        self.assertEqual(R.PUBLISHED_DEGRADED, outcome(root), output[-3000:])
+        self.assertEqual([CHRG], read_state(root)['publication']['stale_sources'])
         never_ran = [step.name for step in T.TABLE
                      if step.kind in T.COLLECT_KINDS and step.name != CHRG
                      and invocations(root, step) == 0]
@@ -1211,8 +1303,11 @@ class RefreshTickTest(unittest.TestCase):
         chrg = T.by_name()[CHRG]
         self.assertEqual((), chrg.partial_codes)
         root = self.root({stub_key(chrg): {'always_fail': True, 'exit': 3}})
-        code, output, _ = run_tick(root)
-        self.assertEqual(1, code, output[-3000:])
+        code, output, _ = run_tick(root, '--backoff-minutes', '0')
+        # CHANGED 2026-10-15: an ENRICHMENT source that fails and never succeeded degrades the
+        # publication with a label; it no longer refuses it (exit 1).
+        self.assertEqual(0, code, output[-3000:])
+        self.assertEqual(R.PUBLISHED_DEGRADED, outcome(root), output[-3000:])
         entry = read_state(root)['steps'][CHRG]
         self.assertEqual(S.FAILED, entry['state'])
         self.assertEqual(S.EXIT, entry['failure']['kind'])
@@ -1229,25 +1324,25 @@ class RefreshTickTest(unittest.TestCase):
     # tick published it as clean.  ``produced`` in the manifest survives the hand-over.
     # =========================================================================================
     def _hand_over_root(self, second_run):
-        """Two collect steps writing ONE file: CREC first, CHRG (a LATER row) last."""
-        crec, chrg = T.by_name()[CREC], T.by_name()[CHRG]
-        control = {stub_key(crec): dict(second_run, out='shared.csv'),
-                   stub_key(chrg): {'out': 'shared.csv', 'rows': 80}}
+        """Two collect steps writing ONE file: CORE first, CORE_B (a LATER row) last."""
+        core, core_b = T.by_name()[CORE], T.by_name()[CORE_B]
+        control = {stub_key(core): dict(second_run, out='shared.csv'),
+                   stub_key(core_b): {'out': 'shared.csv', 'rows': 80}}
         root = self.root(control)
         seed_state(root)
-        return root, crec, chrg
+        return root, core, core_b
 
-    def _establish_hand_over(self, root, crec, chrg):
+    def _establish_hand_over(self, root, core, core_b):
         """Tick 1: A writes 60 rows, B rewrites the same file, so B owns it.  Returns A's
         manifest.  ``--skip-compute`` because this tick only has to leave the two manifests."""
-        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CREC,
-                                   '--force-due', CHRG)
+        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CORE,
+                                   '--force-due', CORE_B)
         self.assertEqual(1, code, output[-3000:])       # --skip-compute never publishes
         state = read_state(root)
-        self.assertEqual(S.OK, state['steps'][CREC]['state'], output[-3000:])
-        self.assertEqual(S.OK, state['steps'][CHRG]['state'], output[-3000:])
-        manifest_a = read_manifest_of(root, crec, state['steps'][CREC]['manifest_sha'])
-        manifest_b = read_manifest_of(root, chrg, state['steps'][CHRG]['manifest_sha'])
+        self.assertEqual(S.OK, state['steps'][CORE]['state'], output[-3000:])
+        self.assertEqual(S.OK, state['steps'][CORE_B]['state'], output[-3000:])
+        manifest_a = read_manifest_of(root, core, state['steps'][CORE]['manifest_sha'])
+        manifest_b = read_manifest_of(root, core_b, state['steps'][CORE_B]['manifest_sha'])
         self.assertNotIn(SHARED, manifest_a['files'],
                          'the LATER writer did not take the file over, so there is no hand-over '
                          'to test')
@@ -1257,19 +1352,19 @@ class RefreshTickTest(unittest.TestCase):
         return manifest_a
 
     def test_T20a_a_handed_over_file_collapsing_to_zero_still_blocks(self):
-        root, crec, chrg = self._hand_over_root({'empty': [False, True]})
-        manifest_a = self._establish_hand_over(root, crec, chrg)
+        root, core, core_b = self._hand_over_root({'empty': [False, True]})
+        manifest_a = self._establish_hand_over(root, core, core_b)
 
-        code, output, _ = run_tick(root, '--force-due', CREC, '--force-due', CHRG)
+        code, output, _ = run_tick(root, '--force-due', CORE, '--force-due', CORE_B)
         self.assertEqual(1, code, output[-3000:])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root), output[-3000:])
-        entry = read_state(root)['steps'][CREC]
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.FAILED, entry['state'])
         self.assertEqual(S.COVERAGE, entry['failure']['kind'])
         self.assertEqual(S.COVERAGE_SUSPECT, entry['coverage'])
         blocking = [row for row in read_review(root) if row['blocking']]
         self.assertEqual(1, len(blocking), read_review(root))
-        self.assertEqual(CREC, blocking[0]['step'])
+        self.assertEqual(CORE, blocking[0]['step'])
         self.assertEqual(SHARED, blocking[0]['file'])
         self.assertEqual(61, blocking[0]['was_rows'])
         self.assertIsNone(read_state(root)['publication'],
@@ -1291,14 +1386,14 @@ class RefreshTickTest(unittest.TestCase):
 
     def test_T20b_a_handed_over_file_that_merely_shrinks_does_not_block(self):
         """NEGATIVE CONTROL for T20a: the same hand-over, 55 rows instead of none, publishes."""
-        root, crec, chrg = self._hand_over_root({'rows': [60, 55]})
-        self._establish_hand_over(root, crec, chrg)
-        code, output, _ = run_tick(root, '--force-due', CREC, '--force-due', CHRG)
+        root, core, core_b = self._hand_over_root({'rows': [60, 55]})
+        self._establish_hand_over(root, core, core_b)
+        code, output, _ = run_tick(root, '--force-due', CORE, '--force-due', CORE_B)
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root), output[-3000:])
         state = read_state(root)
-        self.assertEqual(S.OK, state['steps'][CREC]['state'])
-        self.assertEqual(S.COVERAGE_OK, state['steps'][CREC]['coverage'])
+        self.assertEqual(S.OK, state['steps'][CORE]['state'])
+        self.assertEqual(S.COVERAGE_OK, state['steps'][CORE]['coverage'])
         self.assertEqual([], [row for row in read_review(root) if row['blocking']],
                          'a 10% shrink through a hand-over was read as a collapse')
         self.assertIsNotNone(state['publication'])
@@ -1496,25 +1591,27 @@ class RefreshTickTest(unittest.TestCase):
         self.assertNotEqual('deadbeefcafe', entry['manifest_sha'])
 
     def test_T23c_a_manifest_that_cannot_be_opened_does_not_erase_the_step(self):
-        crec = T.by_name()[CREC]
+        """A CORE source's unreadable manifest still blocks (D-212); an ENRICHMENT one is a
+        label, pinned in test_refresh_degrade.py."""
+        core = T.by_name()[CORE]
         root = self.root()
         sha, last_ok = 'abc123abc123', S.stamp(S.utcnow() - datetime.timedelta(hours=1))
-        seed_published(root, steps={CREC: {'state': S.OK, 'generation': 1, 'manifest_sha': sha,
+        seed_published(root, steps={CORE: {'state': S.OK, 'generation': 1, 'manifest_sha': sha,
                                            'last_ok_utc': last_ok,
                                            'last_attempt_utc': last_ok}})
         # A DIRECTORY where the manifest belongs: it exists, and it cannot be opened.
         os.makedirs(os.path.join(root, 'data', 'engine', 'refresh_manifests',
-                                 '%s.%s.json' % (crec.slug, sha)), exist_ok=True)
+                                 '%s.%s.json' % (core.slug, sha)), exist_ok=True)
         code, output, _ = run_tick(root)
         self.assertEqual(1, code, output[-3000:])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root), output[-3000:])
         self.assertIn('could not be opened', output)
-        entry = read_state(root)['steps'][CREC]
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.OK, entry['state'],
                          'one file this workstation held open erased a recorded success')
         self.assertEqual(last_ok, entry['last_ok_utc'])
         self.assertEqual(sha, entry['manifest_sha'])
-        self.assertEqual(0, invocations(root, crec))
+        self.assertEqual(0, invocations(root, core))
 
     # =========================================================================================
     # T24  MEDIUM-5: no step may eat the whole tick, and a step that HUNG is not retried into a
@@ -1670,20 +1767,20 @@ class RefreshTickTest(unittest.TestCase):
     #      (without it, the same collapse blocks -- that control is T15, not repeated here)
     # =========================================================================================
     def test_T27_accept_zero_records_the_collapse_instead_of_blocking(self):
-        crec = T.by_name()[CREC]
-        root = self.root({stub_key(crec): {'empty': [False, True, True]}})
+        core = T.by_name()[CORE]
+        root = self.root({stub_key(core): {'empty': [False, True, True]}})
         seed_state(root)
-        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CREC)
+        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CORE)
         self.assertEqual(1, code, output[-3000:])
-        self.assertEqual(S.OK, read_state(root)['steps'][CREC]['state'], output[-3000:])
+        self.assertEqual(S.OK, read_state(root)['steps'][CORE]['state'], output[-3000:])
 
-        code, output, _ = run_tick(root, '--accept-zero', CREC)
+        code, output, _ = run_tick(root, '--accept-zero', CORE)
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root), output[-3000:])
         # The flag implies the step is due: its last success is minutes old against a weekly
         # cadence, so nothing else in the runner could have run it.
-        self.assertEqual(2, invocations(root, crec), 'the acceptance did not make the step due')
-        entry = read_state(root)['steps'][CREC]
+        self.assertEqual(2, invocations(root, core), 'the acceptance did not make the step due')
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.OK, entry['state'])
         self.assertEqual(S.COVERAGE_OK, entry['coverage'])
         self.assertIn('ZERO FLOOR ACCEPTED BY THE OWNER', output)
@@ -1691,33 +1788,33 @@ class RefreshTickTest(unittest.TestCase):
         self.assertEqual([], [row for row in rows if row['blocking']], rows)
         accepted = [row for row in rows if 'ACCEPTED' in (row.get('reason') or '')]
         self.assertEqual(1, len(accepted), rows)
-        self.assertEqual(CREC, accepted[0]['step'])
+        self.assertEqual(CORE, accepted[0]['step'])
         self.assertEqual(61, accepted[0]['was_rows'])
         self.assertFalse(accepted[0]['blocking'])
 
         # The accepted run IS the new baseline: a PLAIN tick over the same empty output, forced
         # due, is not blocked either -- the acceptance was not a one-tick suppression that hands
         # Paul the same finding again next week.
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(0, code, output[-3000:])
         self.assertEqual(R.PUBLISHED, outcome(root), output[-3000:])
-        self.assertEqual(S.OK, read_state(root)['steps'][CREC]['state'])
+        self.assertEqual(S.OK, read_state(root)['steps'][CORE]['state'])
         self.assertEqual([], [row for row in read_review(root) if row['blocking']])
 
     # =========================================================================================
     # T28  a CSV that comes back HEADER-ONLY is a collapse: the header is a row
     # =========================================================================================
     def test_T28a_a_csv_that_comes_back_header_only_is_a_collapse(self):
-        crec = T.by_name()[CREC]
-        root = self.root({stub_key(crec): {'rows': [60, 0]}})
+        core = T.by_name()[CORE]
+        root = self.root({stub_key(core): {'rows': [60, 0]}})
         seed_state(root)
-        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CREC)
+        code, output, _ = run_tick(root, '--skip-compute', '--force-due', CORE)
         self.assertEqual(1, code, output[-3000:])
-        self.assertEqual(S.OK, read_state(root)['steps'][CREC]['state'], output[-3000:])
-        code, output, _ = run_tick(root, '--force-due', CREC)
+        self.assertEqual(S.OK, read_state(root)['steps'][CORE]['state'], output[-3000:])
+        code, output, _ = run_tick(root, '--force-due', CORE)
         self.assertEqual(1, code, output[-3000:])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root), output[-3000:])
-        entry = read_state(root)['steps'][CREC]
+        entry = read_state(root)['steps'][CORE]
         self.assertEqual(S.FAILED, entry['state'])
         self.assertEqual(S.COVERAGE, entry['failure']['kind'])
         self.assertEqual(S.COVERAGE_SUSPECT, entry['coverage'])
@@ -1923,16 +2020,16 @@ class RefreshTickTest(unittest.TestCase):
             root, crec, state['steps'][CREC]['manifest_sha'])))
 
     def test_T30_shared_zero_verdict_survives_a_successful_noop(self):
-        root, crec, chrg = self._hand_over_root({'empty': [False, True]})
-        self._establish_hand_over(root, crec, chrg)
-        code, output, _ = run_tick(root, '--only', CREC, '--force-due', CREC)
+        root, core, core_b = self._hand_over_root({'empty': [False, True]})
+        self._establish_hand_over(root, core, core_b)
+        code, output, _ = run_tick(root, '--only', CORE, '--force-due', CORE)
         self.assertEqual(1, code, output[-2000:])
-        self.assertEqual(S.COVERAGE_SUSPECT, read_state(root)['steps'][CREC]['coverage'])
-        with open(os.path.join(root, 'fec', crec.argv[0]), 'w', encoding='utf-8') as handle:
+        self.assertEqual(S.COVERAGE_SUSPECT, read_state(root)['steps'][CORE]['coverage'])
+        with open(os.path.join(root, 'fec', core.argv[0]), 'w', encoding='utf-8') as handle:
             handle.write('pass\n')
-        code, output, _ = run_tick(root, '--only', CREC, '--force-due', CREC)
+        code, output, _ = run_tick(root, '--only', CORE, '--force-due', CORE)
         self.assertEqual(1, code, output[-2000:])
-        self.assertEqual(S.COVERAGE_SUSPECT, read_state(root)['steps'][CREC]['coverage'])
+        self.assertEqual(S.COVERAGE_SUSPECT, read_state(root)['steps'][CORE]['coverage'])
         self.assertEqual(R.COLLECTED_NOT_PUBLISHED, outcome(root))
 
     def test_T31_locked_manifest_defers_due_step_without_erasing_baseline(self):
@@ -1979,8 +2076,13 @@ class RefreshTickTest(unittest.TestCase):
             'state': S.FAILED, 'torn': None,
             'unverified_files': ['data/out/damaged.csv'],
             'failure': {'kind': S.KILLED, 'exit': None, 'detail': 'console'}}})
+        damaged = os.path.join(root, 'data', 'out', 'damaged.csv')
+        os.makedirs(os.path.dirname(damaged), exist_ok=True)
+        with open(damaged, 'w', encoding='utf-8') as handle:
+            handle.write('partial')
         tick = R.Tick(root, emit=lambda *a, **k: None)
-        S.write_json_atomic(tick.pre_snapshot_path(crec), {})
+        S.write_json_atomic(tick.pre_snapshot_path(crec),
+                            {k: list(v) for k, v in tick.snapshot().items()})
         with open(os.path.join(root, 'fec', crec.argv[0]), 'w', encoding='utf-8') as handle:
             handle.write('pass\n')
         code, output, _ = run_tick(root, '--only', CREC)

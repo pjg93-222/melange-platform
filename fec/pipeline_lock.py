@@ -91,12 +91,12 @@ def _stale_seconds() -> float:
 def _same_pid_space(theirs) -> bool:
     """May ``theirs`` (a lease's ``host``) be judged by pid here?
 
-    Windows judges every Windows lease -- including a legacy one with no ``host`` -- by pid, even
-    after a rename.  POSIX judges only a lease written from this exact host/boot/namespace/container;
-    a legacy lease was written by the Windows chain, whose pids a container cannot see.
+    Windows judges only its exact normalized host tag by pid. A renamed, foreign or legacy
+    Windows lease has no locally verifiable process identity and is held for owner verification.
+    POSIX judges only this exact host/boot/namespace/container; legacy leases remain foreign.
     """
     if _windows():
-        return not theirs or str(theirs).startswith("nt:")
+        return isinstance(theirs, str) and theirs.strip().casefold() == host_identity().strip().casefold()
     return bool(theirs) and theirs == host_identity()
 
 
@@ -112,6 +112,11 @@ def _foreign_holder_is_live(payload: dict, path) -> bool:
     ``2 * HEARTBEAT_SECONDS + 5``; the holder is live if it moved (or the file can no longer be
     stat'ed), dead only if it is unchanged.
     """
+    # Windows leases do not write heartbeats. Never infer a foreign/renamed/legacy Windows
+    # holder's death from this machine's PIDs or an unrelated stale heartbeat.
+    host = payload.get("host")
+    if _windows() and (not isinstance(host, str) or not host.strip().casefold().startswith("posix:")):
+        return True
     token = payload.get("token")
     if path is None or not token:
         return True
@@ -308,18 +313,32 @@ def pipeline_run_lock(path=None, owner_kind="pipeline"):
         except FileExistsError:
             prior = _read_lock(path)
             if attempt == 0 and _stale_lock_may_be_removed(path, prior):
-                try:
-                    path.unlink()
-                except FileNotFoundError:
-                    pass
-                continue
+                # The staleness decision can take ~65 s (foreign-host heartbeat wait); a peer may
+                # have recovered and re-created the lease meanwhile.  Unlink only the exact lease
+                # judged dead; a replaced one is held, so report it below.
+                now = _read_lock(path)
+                if now.get("token") == prior.get("token") and now.get("pid") == prior.get("pid"):
+                    try:
+                        path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue
+                if not now and not path.exists():
+                    continue        # released meanwhile: retry the create
+                prior = now
             message = ("Moneyball pipeline is already running (pid %s, owner %s)"
                        % (prior.get("pid", "unknown"), prior.get("owner_kind", "unknown")))
             if prior and not _same_pid_space(prior.get("host")):
-                message += (", host %s; a lease from another host or container is recovered only"
-                            " when %s is older than %.0f s (%s), else delete %s once its holder is gone"
-                            % (prior.get("host") or "unknown", _heartbeat_path(path).name,
-                               _stale_seconds(), LOCK_STALE_SECONDS_ENV, path))
+                host = prior.get("host")
+                if _windows() and (not isinstance(host, str) or not host.strip().casefold().startswith("posix:")):
+                    message += (", host %s; automatic takeover refused: original owner identity "
+                                "cannot be verified here; verify the original owner before recovery"
+                                % (host or "unknown"))
+                else:
+                    message += (", host %s; a lease from another host or container is recovered only"
+                                " when %s is older than %.0f s (%s), else delete %s once its holder is gone"
+                                % (host or "unknown", _heartbeat_path(path).name,
+                                   _stale_seconds(), LOCK_STALE_SECONDS_ENV, path))
             raise RuntimeError(message)
     lease = {**payload, "adopted": False, "path": str(path)}
     running = None

@@ -96,6 +96,7 @@ def _observe(path, excludes, limit):
     files = 0
     total = 0
     newest = None
+    unreadable = 0
     stack = [path]
     while stack:
         d = stack.pop()
@@ -103,11 +104,13 @@ def _observe(path, excludes, limit):
             with os.scandir(d) as it:
                 entries = list(it)
         except OSError:
+            unreadable += 1
             continue
         for e in entries:
             try:
                 rel = os.path.relpath(e.path, path).replace('\\', '/')
             except ValueError:
+                unreadable += 1
                 continue
             if _excluded(rel, excludes):
                 continue
@@ -117,15 +120,20 @@ def _observe(path, excludes, limit):
                     continue
                 st = e.stat(follow_symlinks=False)
             except OSError:
+                unreadable += 1
                 continue
             files += 1
             total += st.st_size
             if newest is None or st.st_mtime > newest:
                 newest = st.st_mtime
             if files > limit:
-                return None
+                if not unreadable:
+                    return None
+                stack = []
+                break
     return {'present': True, 'kind': 'dir', 'file_count': files, 'bytes': total,
-            'newest_mtime_epoch': newest, 'complete': True}
+            'newest_mtime_epoch': newest, 'complete': unreadable == 0,
+            'unreadable_entries': unreadable}
 
 
 # ---------------------------------------------------------------------------------------------
@@ -534,6 +542,11 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
                      'live walk passed the %d-file limit even though the manifest recorded %d — '
                      'the store grew past what a gate may walk' % (limit, m.get('file_count')))
                 _check_sentinels(s, sid, gen_utc, ck, skip, git_dir, note)
+            elif obs.get('complete') is not True:
+                ck('A2 %s observation complete' % sid, False,
+                   'disk: %d unreadable entries; partial counts cannot establish agreement'
+                   % obs.get('unreadable_entries', 0))
+                _check_sentinels(s, sid, gen_utc, ck, skip, git_dir, note)
             else:
                 exp_class = m.get('size_class')
                 obs_class = _size_class(obs['bytes'])
@@ -717,6 +730,10 @@ def _check_sentinels(store, sid, gen_utc, ck, skip, git_dir=False, note=None):
     if not sent:
         if store.get('integrity_policy') == 'sentinel_files':
             skip('A2b %s sentinels' % sid, 'manifest recorded no sentinel files for this store')
+        return
+    if store.get('class') == 'SECRET':
+        ck('A2b %s refuses SECRET sentinels' % sid, False,
+           'manifest asks for secret sentinel reads; refusing content access')
         return
     base = store.get('path')
     is_file = (store.get('measured') or {}).get('kind') == 'file'

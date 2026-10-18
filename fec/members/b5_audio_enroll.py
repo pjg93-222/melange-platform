@@ -91,8 +91,11 @@ def _load_clip(member, index, row, backend):
         sha = _sha256_file(path)
     else:
         raise ValueError("%s clip %d: needs 'samples' or 'path'" % (member, index))
-    seconds = row.get("seconds")
-    seconds = float(seconds) if seconds is not None else samples.size / float(sr)
+    seconds = samples.size / float(sr)  # measured; the manifest value is never trusted
+    claimed = row.get("seconds")
+    if claimed is not None and abs(float(claimed) - seconds) > 0.5:
+        raise ValueError("%s clip %d: manifest seconds %.2f != measured %.2f"
+                         % (member, index, float(claimed), seconds))
     if seconds <= 0:
         raise ValueError("%s clip %d: non-positive seconds" % (member, index))
     embedding = backend.embed(samples, sr)

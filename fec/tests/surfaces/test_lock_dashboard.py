@@ -23,7 +23,7 @@ PASSWORD = "synthetic-pass-123"
 def page(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("lock")
     source, password_file, output = tmp / "Moneyball.html", tmp / "pw.txt", tmp / "deploy" / "index.html"
-    source.write_text(PLAINTEXT, encoding="utf-8")
+    source.write_bytes(PLAINTEXT.encode("utf-8"))
     password_file.write_text("  " + PASSWORD + "\r\n", encoding="utf-8")   # the file's surrounding whitespace is trimmed
     assert LD.main(["--source", str(source), "--output", str(output), "--password-file", str(password_file)]) == 0
     return output.read_text(encoding="utf-8")

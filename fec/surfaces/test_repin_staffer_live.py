@@ -220,7 +220,7 @@ class VerificationDerivationTests(unittest.TestCase):
     def test_default_generation_derives_expected_default_verification(self):
         self.assertEqual(
             rsl.derive_verification(rsl.DEFAULT_GENERATION),
-            "staffer_social_network_20260907_v6_verification",
+            "staffer_social_network_20260908_v8_math_verification",
         )
 
     def test_argparse_default_verification_is_none_until_derived_in_main(self):
@@ -233,11 +233,23 @@ class PidCommandLineGuardTests(unittest.TestCase):
     """(d) the PID command-line guard refuses a non-matching command line."""
 
     def test_matching_command_line_is_accepted(self):
-        def fake_lookup(pid):
-            return f'"C:\\python.exe" "C:\\...\\{rsl.SERVER_PROCESS_MARKER}" --source-root X --port 8841'
-
-        cmdline = rsl.confirm_pid_is_sidecar(31784, lookup=fake_lookup)
-        self.assertIn(rsl.SERVER_PROCESS_MARKER, cmdline)
+        if rsl.os.name != 'nt':
+            self.skipTest('Windows native command-line parser')
+        with tempfile.TemporaryDirectory(prefix='repin identity ') as tmp:
+            root = Path(tmp)
+            server = root / 'fec/surfaces/staffer_live_server.py'
+            server.parent.mkdir(parents=True)
+            server.write_bytes(b'# synthetic')
+            python = root / 'python.exe'
+            python.write_bytes(b'synthetic, never execute')
+            argv = [str(python), str(server), '--source-root', str(root), '--port', '8841',
+                    '--dashboard-file', 'Moneyball_Redesign.html']
+            identity = {'pid': 31784, 'executable': str(python),
+                        'command_line': rsl.subprocess.list2cmdline(argv),
+                        'created_at': '2026-10-15T00:00:00Z'}
+            cmdline = rsl.confirm_pid_is_sidecar(31784, lookup=lambda _: identity,
+                                               source_root=root, port=8841, expected_python=python)
+            self.assertEqual(cmdline, identity['command_line'])
 
     def test_non_matching_command_line_is_refused(self):
         def fake_lookup(pid):

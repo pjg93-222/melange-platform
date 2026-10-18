@@ -72,6 +72,19 @@ def write_jsonl_atomic(path: Path, rows: list[dict[str, Any]]) -> None:
         Path(raw).unlink(missing_ok=True)
 
 
+def write_text_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, raw = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(raw, path)
+    finally:
+        Path(raw).unlink(missing_ok=True)
+
+
 def caption_text(path: Path) -> str:
     rows = json.loads(path.read_text(encoding="utf-8"))
     return " ".join(str(row.get("text") or "") for row in rows).strip()
@@ -142,24 +155,25 @@ def main() -> int:
 
     def classify(row: dict[str, Any]) -> dict[str, Any]:
         path = args.captions / f"{row['video_id']}.json"
-        transcript = caption_text(path)
         base = {
             "schema": "youtube-gap-anchor-classification-v1",
             "member": row["member"],
             "bioguide": row.get("bioguide"),
             "chamber": row.get("chamber"),
             "video_id": row["video_id"],
-            "url": row["url"],
+            "url": row.get("url"),
             "title": row.get("title"),
             "channel": row.get("channel"),
             "channel_id": row.get("channel_id"),
             "duration": row.get("duration"),
-            "caption_sha256": sha256_text(transcript),
+            "caption_sha256": None,
             "classifier_model": MODEL,
             "classified_at": utc_now(),
             "final_identity_acceptance": False,
         }
         try:
+            transcript = caption_text(path)
+            base["caption_sha256"] = sha256_text(transcript)
             client = Anthropic(api_key=key)
             message = client.messages.create(
                 model=MODEL,
@@ -244,7 +258,7 @@ def main() -> int:
         "output": str(args.output.resolve()),
         "output_sha256": sha256_file(args.output),
     }
-    args.receipt.write_text(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    write_text_atomic(args.receipt, json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
     print(json.dumps(receipt["coverage"], sort_keys=True))
     return 0
 

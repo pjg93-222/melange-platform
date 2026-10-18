@@ -8,6 +8,8 @@ from paths import ROOT
 from legislation import sentinel_admissions as SA
 import bill_rules as BR
 from engine.money_observation import industry_money_missing
+from engine.apply_fec_money_refresh import WINDOW_DAYS as FEC_WINDOW_DAYS   # one window for the producer and its verifier
+import chain_transaction as CT
 from moneyball_core import dump_atomic
 
 
@@ -16,7 +18,7 @@ def sha(path): return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 def verify(root,check_alias=True):
-    root=Path(root);errors=[];effects=[];inputs={}
+    root=Path(root);errors=[];warnings=[];effects=[];inputs={}
     try:
         if not (root/SA.RELATIVE).is_file(): raise ValueError('Automatic bill admission refresh has not run')
         admissions=SA.load(root)
@@ -49,7 +51,16 @@ def verify(root,check_alias=True):
         if application['congestion_sha256']!=sha(root/'data/engine/congestion.json'):
             errors.append('FEC application does not match current engine inputs')
         age=(datetime.now(timezone.utc)-datetime.fromisoformat(money['checked_at'])).total_seconds()
-        if money['status']!='PASS' or not -300<=age<=8*86400: errors.append('FEC source generation is not current')
+        # D-212 tiered degrade: inside the window the generation is current; past it, the verified last-good generation is still
+        # served and LABELLED (warning, not failure), exactly as engine/apply_fec_money_refresh.py applies it. Only a non-PASS
+        # receipt, a stamp from the future (a clock fault) or the hash/generation bindings above and below stay failures.
+        freshness=None
+        if money['status']!='PASS': errors.append('FEC source generation is not current')
+        else:
+            try: freshness=CT.age_status(age,FEC_WINDOW_DAYS,'FEC source generation is not current')
+            except ValueError as exc: errors.append(str(exc))
+        if freshness==CT.STALE_LABELLED:
+            warnings.append(CT.STALE_LABELLED+': FEC source generation last verified '+money['checked_at']+', past its '+str(FEC_WINDOW_DAYS)+'-day window; served from last-good and labelled, not refused')
         congestion=read(root/'data/engine/congestion.json')
         if set(by_name)!={row['member'] for row in congestion}:
             errors.append('Member desk roster does not match the current money measurement roster')
@@ -129,7 +140,9 @@ def verify(root,check_alias=True):
                 'money_capacity_imputed_members':capacity_imputations,
                 'money_industry_imputed_members':industry_imputations,
                 'money_capacity_rule':'Existing engine: receipts floor $200,000; absent receipts use current positive-receipts median. These are modeled capacities, not reported receipts.',
-                'inputs_sha256':inputs}
+                'inputs_sha256':inputs,
+                'warnings':warnings,
+                'money_freshness':{'status':freshness,'checked_at':money['checked_at'],'window_days':FEC_WINDOW_DAYS}}
     except Exception as exc:
         return {'schema':'source-to-dashboard-receipt-v1','status':'FAIL',
                 'checked_at':datetime.now(timezone.utc).isoformat(),'errors':[str(exc)],'bill_effects':effects}

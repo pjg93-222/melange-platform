@@ -12,7 +12,7 @@ import math
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -202,21 +202,6 @@ def _load_dyads(path, expected_year):
         )
         dyads.add((lob_id, member))
     return dyads
-
-
-def _load_memberships(path):
-    memberships = set()
-    for line_number, row in _iter_csv(
-        path,
-        ("bill_key", "bioguide_id"),
-        "interaction bill memberships",
-    ):
-        bill = _required_text(row.get("bill_key"), "bill_key", path, line_number)
-        member = _required_text(
-            row.get("bioguide_id"), "bioguide_id", path, line_number
-        )
-        memberships.add((bill, member))
-    return memberships
 
 
 def _input_receipt(path):
@@ -489,7 +474,38 @@ def _prediction_probability(prediction, freeze_path, index):
     )
 
 
-def _resolve_cosponsor(freeze, freeze_path, data_root):
+def _strict_date(value, label):
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise ForecastLedgerError(f"{label} must be YYYY-MM-DD")
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ForecastLedgerError(f"invalid {label}: {value!r}") from exc
+
+
+def _resolve_cosponsor(freeze, freeze_path, data_root, resolution_after=None):
+    # Refresh diagnostics must not consume a once-only score before its horizon
+    # has been chosen explicitly. Existing freezes and receipts remain immutable.
+    if resolution_after is None:
+        return None, None, "cosponsor scoring deferred: no explicit resolution date"
+    resolution_date = _strict_date(resolution_after, "cosponsor resolution date")
+    try:
+        frozen = datetime.fromisoformat(freeze["frozen_utc"].replace("Z", "+00:00"))
+        if frozen.tzinfo is None or frozen.utcoffset() is None:
+            raise ValueError("freeze timestamp is not timezone-aware")
+        frozen_date = frozen.astimezone(timezone.utc).date()
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:
+        raise ForecastLedgerError(f"invalid cosponsor freeze timestamp: {freeze_path}") from exc
+    if resolution_date <= frozen_date:
+        # Non-prospective for THIS freeze: skip it (never score it) and let the loop continue, so one
+        # later freeze cannot abort scoring of the others or of the dyad forecaster.
+        return None, None, (
+            f"cosponsor freeze skipped: earliest execution date {resolution_after} is not after "
+            f"its freeze date {frozen_date.isoformat()} (non-prospective)"
+        )
+    today = datetime.fromisoformat(_utc_now()).astimezone(timezone.utc).date()
+    if today < resolution_date:
+        return None, None, f"cosponsor scoring deferred until {resolution_after} UTC"
     try:
         frozen_hash = freeze["inputs"]["resolution_memberships_at_freeze"][
             "sha256"
@@ -504,7 +520,22 @@ def _resolve_cosponsor(freeze, freeze_path, data_root):
     current_hash = _sha256(membership_path)
     if current_hash == frozen_hash:
         return None, None, "no new information has arrived"
-    memberships = _load_memberships(membership_path)
+    memberships = set()
+    for line_number, row in _iter_csv(
+        membership_path,
+        ("bill_key", "bioguide_id", "sponsorship_date"),
+        "interaction bill memberships",
+    ):
+        bill = _required_text(row.get("bill_key"), "bill_key", membership_path, line_number)
+        member = _required_text(row.get("bioguide_id"), "bioguide_id", membership_path, line_number)
+        joined = _strict_date(
+            row.get("sponsorship_date"),
+            f"sponsorship_date in {membership_path} line {line_number}",
+        )
+        # Source dates have day precision. Same-day joins cannot establish that
+        # they occurred after the frozen timestamp, so exclude them conservatively.
+        if joined > frozen_date:
+            memberships.add((bill, member))
     outcomes = []
     for index, prediction in enumerate(freeze["predictions"]):
         bill = _required_text(
@@ -522,7 +553,12 @@ def _resolve_cosponsor(freeze, freeze_path, data_root):
             )
         _prediction_probability(prediction, freeze_path, index)
         outcomes.append(1 if (bill, member) in memberships else 0)
-    resolution = {"path": os.path.abspath(membership_path), "sha256": current_hash}
+    resolution = {
+        "path": os.path.abspath(membership_path),
+        "sha256": current_hash,
+        "resolution_after": resolution_after,
+        "membership_date_rule": "strictly_after_freeze_utc_date",
+    }
     return outcomes, resolution, None
 
 
@@ -618,7 +654,7 @@ def _append_ledger_record(path, record):
         raise ForecastLedgerError(f"cannot append ledger {path}: {exc}") from exc
 
 
-def _score_unscored_freezes(data_root):
+def _score_unscored_freezes(data_root, cosponsor_resolution_after=None):
     ledger_path = os.path.join(data_root, "forecast_ledger", "ledger.jsonl")
     scored_keys = _ledger_keys(ledger_path)
     scored = []
@@ -639,7 +675,7 @@ def _score_unscored_freezes(data_root):
                 continue
             if forecaster == "cosponsor_join":
                 outcomes, resolution, reason = _resolve_cosponsor(
-                    freeze, path, data_root
+                    freeze, path, data_root, cosponsor_resolution_after
                 )
             else:
                 outcomes, resolution, reason = _resolve_dyad(
@@ -655,8 +691,10 @@ def _score_unscored_freezes(data_root):
     return scored, notes
 
 
-def run(data_root):
+def run(data_root, cosponsor_resolution_after=None):
     data_root = os.path.abspath(os.fspath(data_root))
+    if cosponsor_resolution_after is not None:
+        _strict_date(cosponsor_resolution_after, "cosponsor resolution date")
     quarter = _latest_quarter(data_root)
     created = 0
     notes = []
@@ -674,7 +712,7 @@ def run(data_root):
             created += 1
         else:
             notes.append(f"freeze exists: {forecaster} {quarter['vintage']}")
-    scored, score_notes = _score_unscored_freezes(data_root)
+    scored, score_notes = _score_unscored_freezes(data_root, cosponsor_resolution_after)
     return created, scored, notes + score_notes
 
 
@@ -690,8 +728,14 @@ def main(argv=None):
         default=None,
         help="derived-data root (defaults to LOCALAPPDATA Melange data)",
     )
+    parser.add_argument(
+        "--cosponsor-resolution-after",
+        default=None,
+        metavar="YYYY-MM-DD",
+        help="explicit earliest UTC scoring date; unset defers cosponsor scores without changing other forecasters",
+    )
     args = parser.parse_args(argv)
-    created, scored, notes = run(args.data_root or _derived_dir())
+    created, scored, notes = run(args.data_root or _derived_dir(), args.cosponsor_resolution_after)
     details = " ".join(
         f"{record['forecaster']} {record['vintage']} Brier "
         f"{_brier_text(record['brier'])} (n={record['n']})"

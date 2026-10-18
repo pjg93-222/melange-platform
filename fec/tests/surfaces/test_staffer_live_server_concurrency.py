@@ -71,8 +71,8 @@ def burst(port, path, n, timeout=30):
                     continue
                 try:
                     sock.sendall(request)
-                except OSError:
-                    done(sock, 'send failed')
+                except OSError as exc:
+                    done(sock, f'send failed {getattr(exc, "winerror", None) or exc.errno}')
                     continue
                 selector.modify(sock, selectors.EVENT_READ)
             elif events & selectors.EVENT_READ:
@@ -120,7 +120,10 @@ def test_a_burst_during_a_stalled_accept_loop_is_queued_not_refused(approved, tm
 
 @pytest.mark.skipif(os.name != 'nt', reason='Windows resets a connection that finds the listen queue full')
 def test_negative_control_the_default_queue_refuses_that_burst(approved, tmp_path):
-    """Proves the burst test can see the defect: socketserver's default backlog of 5 refuses the same burst."""
+    """Proves the burst test can see the defect: socketserver's default backlog of 5 drops part of the same burst at
+    the connection level. Windows 11 reports the drop at connect (10061, 'refused'); on the windows-2022 runner the same
+    drop surfaced as a failed send (run 38978074293: ok 32, send failed 48). Either is the defect; a bad status or a
+    timeout is not."""
     server = stalled(ThreadingHTTPServer)(('127.0.0.1', 0), Handler)
     assert server.request_queue_size == 5
     server.dashboard = SimpleNamespace(source_root=tmp_path)
@@ -129,7 +132,8 @@ def test_negative_control_the_default_queue_refuses_that_burst(approved, tmp_pat
         outcome = burst(server.server_address[1], '/staffer-live/approved/small.js', 80)
     finally:
         stop(server, thread)
-    assert outcome.get('refused', 0) > 0
+    dropped = {k: v for k, v in outcome.items() if k != 'ok'}
+    assert dropped and all(k == 'refused' or k.startswith(('send failed', 'reset')) for k in dropped), outcome
 
 
 def get(port, path, headers=None):

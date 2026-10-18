@@ -129,7 +129,8 @@
         "fec/staffer_network/schemas/tiered_person_office_record_v2.schema.json",
         "fec/staffer_network/schemas/tiered_person_summary.schema.json",
         "fec/staffer_network/schemas/tiered_person_summary_v2.schema.json",
-        "fec/staffer_network/schemas/working_history_corpus_receipt.schema.json"
+        "fec/staffer_network/schemas/working_history_corpus_receipt.schema.json",
+        "fec/surfaces/approved/clean/mlk-boot.js"
       ]
     },
     "terrier": {
@@ -175,7 +176,9 @@
       "sourceFiles": [
         "mentat/mentat.R",
         "mentat/tools/api_budget_policy.json",
+        "mentat/tools/pocket/manifest.webmanifest",
         "mentat/app/templates/index.html.j2",
+        "mentat/app/template.csv",
         "mentat/inputs/fec_receipt_rules.json",
         "mentat/inputs/fec_transaction_types.json",
         "mentat/config/attribution-policy.json",

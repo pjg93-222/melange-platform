@@ -65,12 +65,14 @@ def current_source_run(run_root, expected):
         return None
     receipt = result[1]
     if receipt.get("status") == "PARTIAL":
-        # valid_run only returns a PARTIAL receipt when pending_is_tombstoned_only excused every
-        # pending row, so this is a run the walk has given up on, not unfinished work.  Re-walking
-        # would only reseal it, and a reseal of a run already in the ledger forces a full rebuild.
+        # valid_run only returns a PARTIAL receipt when carried_pending_proof accepted its pending
+        # list (sealed, hash-bound, keyed, duplicate-free), so this run is already promotable and
+        # its pending URLs are carried to the NEXT run (owner ruling 2026-10-15), not unfinished
+        # work for today.  Re-walking would only reseal it, and a reseal of a run already in the
+        # ledger forces a full rebuild.
         count = receipt.get("pending_body_urls")
         if type(count) is int and count > 0:
-            print("press receipt is PARTIAL but all %d pending body URL(s) are tombstoned; "
+            print("press receipt is PARTIAL with %d pending body URL(s) carried to the next run; "
                   "not repeating the same-day walk" % count)
             return result
     elif receipt.get("status") == "PASS" and receipt.get("pending_body_urls") == 0:
@@ -113,7 +115,8 @@ def find_rscript():
     found = shutil.which("Rscript") or shutil.which("Rscript.exe")
     if found:
         return found
-    roots = (Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "R",)
+    program_files = os.environ.get("ProgramFiles")
+    roots = (Path(program_files) / "R",) if program_files else ()
     candidates = []
     for root in roots:
         candidates.extend(root.glob("R-*/bin/Rscript.exe"))

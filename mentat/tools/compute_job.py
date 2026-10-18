@@ -11,6 +11,10 @@ the effective locations, every output with its sha256, and the job's own complet
 passes (DE-053: never the exit code alone); `verify` repeats it from the host after the container is gone. The FEC keys, for the jobs
 that collect, come from the Docker secret file the Windows wrapper decrypted (compute_secrets.py) and live only in the child's
 environment; no receipt, argument or log carries a key value, only fingerprints.
+
+D075 adds three jobs for the downstream spending frontier (collect-downstream, collect-downstream-recover, collect-downstream-import). They hold no FEC key: the
+host broker does (tools/api_host_pool.py --scope spending-evidence-v2). Each can run a preflight before the child and a finish step after it whatever its exit code
+(the in-job export of the volume's ledger to a host bind, tools/downstream_volume.py).
 """
 import argparse
 from dataclasses import dataclass
@@ -94,6 +98,9 @@ class Job:
     outputs: Callable             # (ctx, extra) -> files a clean run leaves
     check: Callable               # (ctx, extra, started) -> problems with those files
     cwd: Callable = lambda ctx: ctx['project']
+    broker: bool = False                       # D075: needs the host evidence broker's key-free descriptor (never the keys)
+    preflight: Callable = None                 # (ctx, extra) -> raises JobError before the child starts; nothing has run
+    finish: Callable = None                    # (ctx, extra, started, exit code) -> problems; runs after the child whatever its exit code (the export)
 
 
 # --- anchors (J1, MentatNightlyAnchors) ------------------------------------------------------------------------------------------
@@ -187,6 +194,277 @@ def _evidence_check(ctx, extra, started):
     return [] if _json(evidence).get('source_snapshot_sha256') == _sha256(snapshots) else ['evidence.json does not cite the snapshots.json beside it']
 
 
+# --- downstream spending frontier in a container (D075 phase 2; the host-native run in run_job.ps1 stays the default) ---------------------------------
+# /frontier is the Docker named volume holding the live ledger (never a bind: SQLite locks are blind across the Docker Desktop VM); /hoststate is the host evidence root,
+# read-only here (the host broker writes the archive there); /export gets a hash-checked export of every invocation; /inputs holds the seed file the host observer prepared;
+# /import holds a snapshot to seed an empty volume. NO FEC key is mounted: MENTAT_REQUEST_POOL_CONFIG names the host broker, which holds them. `--live` is the caller's
+# argument alone and is never added here, so the authorization stays visible in -PlanOnly and in the receipt.
+FRONTIER, HOSTSTATE, EXPORT, INPUTS, IMPORT = Path('/frontier'), Path('/hoststate'), Path('/export'), Path('/inputs'), Path('/import')
+DOWN_VALUES = ('--batch', '--collector-run-id', '--expect-base-sha256', '--seeds', '--max-requests', '--max-failed-attempts', '--workers', '--stop-after-seconds', '--priority-candidates',
+               '--bulk-activity-index', '--expect-bulk-index-sha256')    # D076
+DOWN_REPEATS = ('--enable-endpoint-contract', '--ccl', '--ccl-vintage')
+DOWN_SWITCHES = ('--live', '--include-later-cycle-context', '--optional-receipts')
+DOWN_REQUIRED = ('--batch', '--collector-run-id', '--expect-base-sha256', '--seeds', '--max-requests', '--max-failed-attempts', '--workers')
+INTEGRITY_STOPS = ('ArchiveBindingFailed', 'FECArchiveFailed', 'EndpointContractRefused', 'CrashRecovered', 'IntegrityError', 'OperationalError', 'DatabaseError', 'BrokerUnavailable')
+
+
+def _posix(path):
+    return Path(path).as_posix()
+
+
+def _under(path, root):
+    parts = Path(path).as_posix().split('/')
+    return Path(path).as_posix().startswith(root.as_posix().rstrip('/') + '/') and '..' not in parts
+
+
+def _down_parse(extra):
+    values, repeats, switches, index = {}, {}, set(), 0
+    while index < len(extra):
+        flag = extra[index]
+        if flag in DOWN_SWITCHES:
+            switches.add(flag)
+            index += 1
+        elif flag in DOWN_VALUES or flag in DOWN_REPEATS:
+            if index + 1 >= len(extra) or extra[index + 1].startswith('--'):
+                raise JobError(flag + ' needs a value')
+            if flag in DOWN_VALUES:
+                if flag in values:
+                    raise JobError(flag + ' was given twice')
+                values[flag] = extra[index + 1]
+            else:
+                repeats.setdefault(flag, []).append(extra[index + 1])
+            index += 2
+        else:
+            raise JobError(flag + ' is not accepted by this job (it owns --state, --archive-root, --transport and --run-id; recovery, close-out, re-bind and --init-new-ledger are separate deliberate commands)')
+    missing = [flag for flag in DOWN_REQUIRED if flag not in values] + ([] if '--live' in switches else ['--live'])
+    if missing:
+        raise JobError('this job needs ' + ', '.join(missing))
+    return values, repeats, switches
+
+
+def _down_args(extra):
+    import re
+    values, repeats, switches = _down_parse(extra)
+
+    def number(flag, low, high=None, kind=int):
+        try:
+            value = kind(values[flag])
+        except ValueError:
+            raise JobError(flag + ' must be a number') from None
+        if value < low or (high is not None and value > high):
+            raise JobError(flag + ' is out of range')
+        return value
+    number('--batch', 1)
+    number('--max-requests', 1)
+    number('--max-failed-attempts', 1)
+    number('--workers', 1, 32)
+    if '--stop-after-seconds' in values and not number('--stop-after-seconds', 0, kind=float) > 0:
+        raise JobError('--stop-after-seconds must be positive')
+    if not re.fullmatch(r'[0-9a-f]{32}', values['--collector-run-id']):
+        raise JobError('--collector-run-id must be 32 lowercase hex digits')
+    if not re.fullmatch(r'[0-9a-f]{64}', values['--expect-base-sha256']):
+        raise JobError('--expect-base-sha256 must be 64 lowercase hex digits')
+    # D076: a bulk activity index is a data file the host prepared next to the seeds; the pin is mandatory and travels with it (the collector would refuse a lone flag too)
+    if ('--bulk-activity-index' in values) != ('--expect-bulk-index-sha256' in values):
+        raise JobError('--bulk-activity-index and --expect-bulk-index-sha256 are given together or not at all')
+    if '--expect-bulk-index-sha256' in values and not re.fullmatch(r'[0-9a-f]{64}', values['--expect-bulk-index-sha256']):
+        raise JobError('--expect-bulk-index-sha256 must be 64 lowercase hex digits')
+    for flag in ('--seeds', '--priority-candidates', '--bulk-activity-index'):
+        if flag in values and not _under(values[flag], INPUTS):
+            raise JobError(flag + ' must be a file under ' + _posix(INPUTS) + ' (the folder the host prepared)')
+    if any(not re.fullmatch(r'openfec-[A-Za-z0-9._-]+', item) for item in repeats.get('--enable-endpoint-contract', [])):
+        raise JobError('--enable-endpoint-contract takes a pinned contract id')
+    for item in repeats.get('--ccl', []):
+        cycle, _, path = item.partition('=')
+        if cycle not in ('2022', '2024', '2026') or not _under(path, Path('/mentat')):
+            raise JobError('--ccl takes CYCLE=/mentat/... (a read-only file in the tree)')
+    for item in repeats.get('--ccl-vintage', []):
+        if item.partition('=')[0] not in ('2022', '2024', '2026') or not item.partition('=')[2]:
+            raise JobError('--ccl-vintage takes CYCLE=TEXT')
+    return values, repeats, switches
+
+
+def _down_stored_map_problem():
+    import stored_paths
+    probe = FRONTIER / 'frontier.sqlite'
+    if stored_paths.to_stored(probe) == str(probe) or stored_paths.to_stored(HOSTSTATE / 'responses-x') == str(HOSTSTATE / 'responses-x'):
+        return 'MENTAT_STORED_PATH_MAP does not map the frontier volume and the host state: receipts would record container paths and break the chain (run_job.ps1 sets it)'
+    return None
+
+
+def _downstream_argv(ctx, extra):
+    values, repeats, switches = _down_args(extra)
+    stop = values.get('--stop-after-seconds') or str(JOBS['collect-downstream'].minutes * 60 - 600)      # a graceful deadline: dispatch stops, in-flight work drains, the receipt says DeadlineReached
+    argv = [sys.executable, '-B', str(ctx['project'] / 'tools' / 'collect_committee_activity.py'), '--state', _posix(FRONTIER), '--archive-root', _posix(HOSTSTATE), '--transport', 'broker',
+            '--run-id', values['--collector-run-id'], '--seeds', values['--seeds'], '--max-requests', values['--max-requests'], '--max-failed-attempts', values['--max-failed-attempts'],
+            '--workers', values['--workers'], '--stop-after-seconds', stop]
+    for contract in repeats.get('--enable-endpoint-contract', []):
+        argv += ['--enable-endpoint-contract', contract]
+    if '--priority-candidates' in values:
+        argv += ['--priority-candidates', values['--priority-candidates']]
+    if '--bulk-activity-index' in values:
+        argv += ['--bulk-activity-index', values['--bulk-activity-index'], '--expect-bulk-index-sha256', values['--expect-bulk-index-sha256']]
+    for flag in ('--ccl', '--ccl-vintage'):
+        for item in repeats.get(flag, []):
+            argv += [flag, item]
+    return argv + [flag for flag in ('--include-later-cycle-context', '--optional-receipts') if flag in switches] + ['--live']
+
+
+def _downstream_preflight(ctx, extra):
+    import downstream_volume
+    values, _, _ = _down_args(extra)
+    descriptor = ctx['env'].get('MENTAT_REQUEST_POOL_CONFIG')
+    if not descriptor:
+        raise JobError('MENTAT_REQUEST_POOL_CONFIG names no host evidence-pool descriptor (run_job.ps1 starts the broker and mounts it)')
+    problem = _down_stored_map_problem()
+    if problem:
+        raise JobError(problem)
+    problems = downstream_volume.preflight(FRONTIER, HOSTSTATE, expect_base_sha256=values['--expect-base-sha256'], descriptor=descriptor, tools=ctx['project'] / 'tools')
+    if problems:
+        raise JobError('; '.join(problems))
+
+
+def _down_cid(extra):
+    value = _value(extra, '--collector-run-id')
+    return value if value and len(value) == 32 else 'unknown'
+
+
+def _downstream_finish(ctx, extra, started, code):
+    import downstream_volume
+    cid = _down_cid(extra)
+    return downstream_volume.export_run(FRONTIER, EXPORT, cid, image_digest=ctx['env'].get('MENTAT_IMAGE_DIGEST'), volume=ctx['env'].get('MENTAT_DOWNSTREAM_VOLUME'))['problems']
+
+
+def _downstream_outputs(ctx, extra):
+    cid = _down_cid(extra)
+    folder = EXPORT / cid
+    names = ['frontier.sqlite', 'RUN-' + cid + '.START.json', 'RECEIPT-' + cid + '.json' if not (FRONTIER / ('RUN-' + cid + '.ABANDONED.json')).is_file() else 'RUN-' + cid + '.ABANDONED.json', 'EXPORT.json']
+    if folder.is_dir():
+        names += sorted(item.name for item in folder.iterdir() if item.name.startswith(('seeds-', 'frontier.endpoint-contracts')))
+    return [folder / name for name in dict.fromkeys(names)]
+
+
+def _down_export(extra):
+    """(EXPORT.json document, the folder) or a list of problems."""
+    folder = EXPORT / _down_cid(extra)
+    try:
+        return json.loads((folder / 'EXPORT.json').read_text(encoding='utf-8')), folder
+    except (OSError, ValueError):
+        return None, folder
+
+
+def _downstream_check(ctx, extra, started):
+    import stored_paths
+    values, repeats, _ = _down_args(extra)
+    cid = values['--collector-run-id']
+    exported, folder = _down_export(extra)
+    if exported is None:
+        return ['the export (EXPORT.json) was not written']
+    problems = ['export: ' + item for item in exported.get('problems', [])]
+    receipt = folder / ('RECEIPT-' + cid + '.json')
+    if not receipt.is_file():
+        return problems + ['no receipt for run ' + cid + ' in the export']
+    data = _json(receipt)
+    stop = (data.get('stop') or {}).get('error_type') or ''
+    last = str(data.get('raw_archive_directory', '')).replace('\\', '/').rstrip('/').rsplit('/', 1)[-1]
+    checks = {'the receipt is not older than the start': receipt.stat().st_mtime >= started - 2,
+              'the receipt names the stored ledger': data.get('ledger') == stored_paths.to_stored(FRONTIER / 'frontier.sqlite'),
+              'the receipt names this run\'s response folder': last == 'responses-' + cid,
+              'the ledger hash is the exported one': data.get('ledger_sha256') == (exported.get('ledger_sha256') or {}).get('copy'),
+              'cap and workers are the requested': data.get('physical_request_cap') == int(values['--max-requests']) and data.get('workers') == int(values['--workers']),
+              'attempts are within the cap': isinstance(data.get('http_attempts'), int) and data['http_attempts'] <= int(values['--max-requests']),
+              'every attempt is accounted': data.get('endpoint_attempts_recorded', -1) + data.get('candidate_committee_lookup_http_attempts', -1) == data.get('http_attempts'),
+              'the run read its evidence through the broker': (data.get('transport') or {}).get('kind') == 'broker' and (data.get('transport') or {}).get('keys_held_by_this_process') == 0,
+              'the receipt names the pinned bulk index (or none was requested)': (data.get('bulk_activity_index') or {}).get('sha256') == values.get('--expect-bulk-index-sha256'),
+              'the stop is not an integrity failure': stop not in INTEGRITY_STOPS}
+    return problems + ['receipt check failed: ' + name for name, ok in checks.items() if not ok]
+
+
+def _recover_args(extra):
+    import re
+    if len(extra) != 2 or extra[0] != '--collector-run-id' or not re.fullmatch(r'[0-9a-f]{32}', extra[1]):
+        raise JobError('this job takes exactly --collector-run-id <32 hex digits> (the unresolved run to recover)')
+    return extra[1]
+
+
+def _recover_argv(ctx, extra):
+    _recover_args(extra)
+    return [sys.executable, '-B', str(ctx['project'] / 'tools' / 'collect_committee_activity.py'), '--state', _posix(FRONTIER), '--archive-root', _posix(HOSTSTATE), '--recover-crashed-runs']
+
+
+def _recover_preflight(ctx, extra):
+    import collect_committee_activity as driver
+    cid = _recover_args(extra)
+    problem = _down_stored_map_problem()
+    if problem:
+        raise JobError(problem)
+    if not (FRONTIER / 'frontier.sqlite').is_file():
+        raise JobError('no ledger in the frontier volume')
+    crashed, legacy = driver.unresolved_runs(FRONTIER, HOSTSTATE if HOSTSTATE.is_dir() else None)
+    if crashed != [cid] or legacy:
+        raise JobError('the unresolved runs are ' + (', '.join(crashed + legacy) or 'none') + ', not exactly ' + cid)
+
+
+def _recover_check(ctx, extra, started):
+    cid = _recover_args(extra)
+    exported, folder = _down_export(extra)
+    if exported is None:
+        return ['the export (EXPORT.json) was not written']
+    problems = ['export: ' + item for item in exported.get('problems', [])]
+    receipt, abandoned = folder / ('RECEIPT-' + cid + '.json'), folder / ('RUN-' + cid + '.ABANDONED.json')
+    if receipt.is_file():
+        if not _json(receipt).get('recovered_after_crash'):
+            problems.append('the receipt does not say it was written by the recovery')
+    elif not abandoned.is_file():
+        problems.append('recovery wrote neither a receipt nor an abandon marker for run ' + cid)
+    return problems
+
+
+def _import_sha(extra):
+    import re
+    if len(extra) != 2 or extra[0] != '--expect-sha256' or not re.fullmatch(r'[0-9a-f]{64}', extra[1]):
+        raise JobError('this job takes exactly --expect-sha256 <64 hex digits> (the snapshot named in its MIGRATION record)')
+    return extra[1]
+
+
+def _import_record(ctx):
+    return _receipt_dir(ctx['env']) / ('IMPORT-' + ctx['run_id'] + '.json')
+
+
+def _import_argv(ctx, extra):
+    return [sys.executable, '-B', str(ctx['project'] / 'tools' / 'downstream_volume.py'), 'import', '--source', _posix(IMPORT / 'frontier.sqlite'), '--expect-sha256', _import_sha(extra),
+            '--dest', _posix(FRONTIER / 'frontier.sqlite'), '--record', str(_import_record(ctx))]
+
+
+def _import_check(ctx, extra, started):
+    record = _import_record(ctx)
+    if not record.is_file():
+        return ['the import record was not written']
+    return [] if _json(record).get('sha256') == _import_sha(extra) else ['the import record does not name the expected snapshot']
+
+
+def downstream_plan(job, extra):
+    """What the Windows wrapper needs to know before it starts anything (no Docker, no key): the run id, the physical cap, the workers and the endpoint families the host broker
+    must admit for exactly these arguments (B and E always; F, H4, totals and candidate_committees only when their contract id is passed; A only with --optional-receipts)."""
+    import re
+    if job == 'collect-downstream':
+        values, repeats, switches = _down_args(extra)
+        from spending_endpoint_contracts import CONTRACTS, activation_plan
+        try:
+            ids = activation_plan([], repeats.get('--enable-endpoint-contract', []))['enabled_contract_ids']
+        except ValueError as error:
+            raise JobError(str(error)) from None
+        order = ('A', 'B', 'E', 'F', 'H4', 'totals', 'candidate_committees')
+        names = {'B', 'E'} | {kind for kind, value in CONTRACTS.items() if value['contract_id'] in ids} | ({'A'} if '--optional-receipts' in switches else set())
+        return {'job': job, 'collector_run_id': values['--collector-run-id'], 'batch': int(values['--batch']), 'max_requests': int(values['--max-requests']),
+                'workers': int(values['--workers']), 'families': ','.join(name for name in order if name in names), 'expect_base_sha256': values['--expect-base-sha256']}
+    if job == 'collect-downstream-recover':
+        return {'job': job, 'collector_run_id': _recover_args(extra), 'max_requests': 0, 'families': ''}
+    if job == 'collect-downstream-import':
+        return {'job': job, 'expect_sha256': _import_sha(extra), 'max_requests': 0, 'families': ''}
+    raise JobError('no downstream plan for job ' + job)
+
+
 JOBS = {
     'anchors': Job('Giving Forecast anchor snapshot (MentatNightlyAnchors)', 45, False, False,
                    lambda ctx, extra: [sys.executable, str(ctx['project'] / 'forecast' / 'anchors' / 'build_giving_anchors.py'), *extra],
@@ -202,6 +480,11 @@ JOBS = {
     'collect-fanout': Job('FEC API collection across key lanes (industry report collect lane)', 1440, True, True, _fanout_argv,
                           lambda ctx, extra: [_fanout_receipt(ctx, extra)], _fanout_check),
     'pac-evidence': Job('PAC evidence from the FEC API (console)', 120, True, True, _evidence_argv, _evidence_outputs, _evidence_check),
+    'collect-downstream': Job('Downstream spending frontier through the host evidence broker, no FEC key in the container (D075)', 720, True, False, _downstream_argv, _downstream_outputs, _downstream_check,
+                              broker=True, preflight=_downstream_preflight, finish=_downstream_finish),
+    'collect-downstream-recover': Job('Downstream spending frontier: crash recovery inside the volume, no provider, no key (D075)', 60, False, False, _recover_argv, _downstream_outputs, _recover_check,
+                                      preflight=_recover_preflight, finish=_downstream_finish),
+    'collect-downstream-import': Job('Seed an empty frontier volume from a host snapshot, no provider, no key (D075)', 60, False, False, _import_argv, lambda ctx, extra: [_import_record(ctx)], _import_check),
 }
 # Not here: the industry report build (PowerShell 5.1 orchestrators, Excel finalizer, artifact-tool). Its Rscript / R-library
 # defaults take the same variables now (tests/Test-MentatPathSeams.ps1); the port itself is M2-c / M2-d (design 5).
@@ -268,13 +551,19 @@ def run(name, run_id, extra, env=None, dry_run=False):
         child.update(FEC_API_KEYS='|'.join(keys), FEC_API_KEYS_FILE=str(secret))
     plan = {'job': name, 'run_id': run_id, 'argv': argv, 'cwd': str(job.cwd(ctx)), 'network': job.network, 'minutes': job.minutes,
             'outputs': [str(path) for path in outputs], 'locations': _locations(ctx), 'keys': {'count': len(keys), 'key_ids': [key_id(k) for k in keys]} if keys else None}
+    if job.broker:
+        plan['broker'] = True
     if dry_run:
         print(json.dumps(plan, indent=1))
         return 0
+    if job.preflight:
+        job.preflight(ctx, extra)                                 # JobError: refused with exit 2, nothing ran
     started = time.time()
     glassbox_emit.emit('run.start', 'running', 'Compute job ' + name + ': ' + job.summary, run_id=run_id, stage='start', lane='system', source='mentat-compute')
     code = _run_child(argv, job.cwd(ctx), child, job.minutes)
-    problems = [] if code else job.check(ctx, extra, started)
+    finished = job.finish(ctx, extra, started, code) if job.finish else []
+    outputs = job.outputs(ctx, extra) if job.finish else outputs         # the export is only there now
+    problems = finished + ([] if code else job.check(ctx, extra, started))
     files = [{'path': str(path), 'sha256': _sha256(path), 'bytes': path.stat().st_size} for path in outputs if path.is_file()]
     status = 'ok' if code == 0 and not problems else 'failed'
     _write_json(_receipt_dir(env) / (run_id + '.json'), {
@@ -336,10 +625,19 @@ def main(argv=None):
     notifier.add_argument('--stage', default='')
     notifier.add_argument('--detail', default='')
     commands.add_parser('jobs')
+    planner = commands.add_parser('downstream-plan')
+    planner.add_argument('--job', required=True, choices=('collect-downstream', 'collect-downstream-recover', 'collect-downstream-import'))
     args = parser.parse_args(argv)
     if args.command == 'jobs':
-        print(json.dumps({name: {'summary': j.summary, 'minutes': j.minutes, 'network': j.network, 'keys': j.keys} for name, j in sorted(JOBS.items())}, indent=1))
+        print(json.dumps({name: {'summary': j.summary, 'minutes': j.minutes, 'network': j.network, 'keys': j.keys, 'broker': j.broker} for name, j in sorted(JOBS.items())}, indent=1))
         return 0
+    if args.command == 'downstream-plan':
+        try:
+            print(json.dumps({'ok': True, **downstream_plan(args.job, extra)}))
+            return 0
+        except JobError as error:
+            print(json.dumps({'ok': False, 'error': str(error)}))
+            return 2
     if args.command == 'event':
         glassbox_emit.emit(args.kind, args.status, args.summary, run_id=args.run_id, stage=args.stage, detail=args.detail, lane='system', source='mentat-compute')
         return 0

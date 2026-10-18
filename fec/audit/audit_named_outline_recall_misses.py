@@ -262,8 +262,15 @@ def load_query_artifact(
         raise ContractError(f"Query artifact is missing: {path}")
     current_receipt = file_item(path)
     query = read_object(path)
+    records = query.get("records")
     if (
-        query.get("query_id") != item.get("query_id")
+        not isinstance(records, list)
+        or not all(isinstance(row, dict) for row in records)
+        # Query collectors hash JSON.stringify insertion order, not sorted object keys.
+        or hashlib.sha256(json.dumps(
+            records, ensure_ascii=False, separators=(",", ":")
+        ).encode("utf-8")).hexdigest() != query.get("records_sha256")
+        or query.get("query_id") != item.get("query_id")
         or query.get("primary_instrument") != PRIMARY
         or query.get("validation")
         != {

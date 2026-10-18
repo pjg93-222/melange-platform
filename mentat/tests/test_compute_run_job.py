@@ -251,7 +251,8 @@ class ComposeConfigTests(unittest.TestCase):
         done = self.config(self.HOSTS)
         self.assertEqual(done.returncode, 0, done.stderr)
         services = json.loads(done.stdout)['services']
-        self.assertEqual(sorted(services), ['anchors', 'collect-fanout', 'pac-evidence', 'pocket-build', 'refit', 'refit-detect', 'refit-parity'])
+        self.assertEqual(sorted(services), ['anchors', 'collect-downstream', 'collect-downstream-import', 'collect-downstream-recover', 'collect-fanout', 'pac-evidence', 'pocket-build', 'refit',
+                                            'refit-detect', 'refit-parity'])
         self.assertTrue(all(s['image'] == 'ghcr.io/pjg93-222/compute-mentat@' + DIGEST for s in services.values()))
         for name in self.HOSTS:
             done = self.config({k: v for k, v in self.HOSTS.items() if k != name})
@@ -266,6 +267,27 @@ class ComposeConfigTests(unittest.TestCase):
             return next(m['source'] for m in mounts if m['target'] == '/mentat/mentat/state/giving-anchors').replace(chr(92), '/')
         self.assertEqual(output_source({}), 'C:/m/mentat/state/giving-anchors')
         self.assertEqual(output_source({'ANCHORS_OUT_HOST': 'D:/scratch/B'}), 'D:/scratch/B')
+
+    def test_the_downstream_services_resolve_with_the_wrapper_variables_and_mount_the_volume_and_the_descriptor_only(self):
+        env = {**self.HOSTS, 'DOWNSTREAM_STATE_HOST': 'C:/s/state', 'DOWNSTREAM_EXPORT_HOST': 'C:/s/state/exports', 'DOWNSTREAM_INPUTS_HOST': 'C:/s/in', 'DOWNSTREAM_IMPORT_HOST': 'C:/s/imp',
+               'DOWNSTREAM_VOLUME': 'mentat-downstream-frontier', 'DOWNSTREAM_STORED_MAP': '/hoststate=C:\\s\\state', 'REQUEST_POOL_CONFIG_FILE': 'C:/run/x/request-pool.json'}
+        done = self.config(env)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        merged = json.loads(done.stdout)
+        down = merged['services']['collect-downstream']
+        mounts = {m['target']: m for m in down['volumes']}
+        self.assertEqual((mounts['/frontier']['type'], mounts['/frontier']['source']), ('volume', 'frontier'))
+        self.assertEqual(merged['volumes']['frontier'], {'name': 'mentat-downstream-frontier', 'external': True})
+        self.assertEqual((mounts['/hoststate']['source'], mounts['/hoststate']['read_only'], mounts['/export']['source'], mounts['/inputs']['source']), ('C:/s/state', True, 'C:/s/state/exports', 'C:/s/in'))
+        self.assertEqual([secret['source'] for secret in down['secrets']], ['fec_request_pool'])
+        self.assertEqual(merged['secrets']['fec_request_pool']['file'].replace(chr(92), '/'), 'C:/run/x/request-pool.json')
+        self.assertEqual(down['networks'].keys(), {'collect': None}.keys())
+        self.assertEqual(down['environment']['MENTAT_STORED_PATH_MAP'], '/hoststate=C:\\s\\state')
+        for name in ('collect-downstream-recover', 'collect-downstream-import'):
+            service = merged['services'][name]
+            self.assertEqual(service['network_mode'], 'none')
+            self.assertNotIn('secrets', service)
+        self.assertEqual({m['target']: m['source'] for m in merged['services']['collect-downstream-import']['volumes']}['/import'], 'C:/s/imp')
 
     def test_the_keys_secret_is_the_staged_file_when_given(self):
         done = self.config({**self.HOSTS, 'FEC_KEYS_FILE': 'C:/run/x/fec_api_keys'})

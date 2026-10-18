@@ -508,9 +508,9 @@ for _sec in sorted(k for k, v in _MCREG.NETWORKS.items() if v.get('family') == '
                      'bpf': 'cu-scoped - cross-party physics keeps the CU-defined bipartisan prior'},
         }
         _ef = SECTORS[_sec]['meta']['engine_floor']
-        print('sector %s: %d pairs, %d drawn, from %s (p_max %.4f vs CU 0.5198; %d dyads p>=0.10 vs CU 252; %d isolated)'
+        print('sector %s: %d pairs, %d drawn, from %s (p_max %.4f vs CU %.4f; %d dyads p>=0.10 vs CU %d; %d isolated)'
               % (_sec, len(_adj), len(_edges), os.path.basename(_sfile or ''),
-                 _ef['p_max'], _ef['dyads_p_ge_010'], _iso))
+                 _ef['p_max'], _ef['cu_p_max'], _ef['dyads_p_ge_010'], _ef['cu_dyads_p_ge_010'], _iso))
         if _conc:
             print('    concentration: %s degree %d vs second %d, %.1f%% of edge weight%s'
                   % (_conc['hub'], _conc['hub_degree'], _conc['second_degree'],
@@ -623,6 +623,8 @@ ORIENTATION=[[round(fmE.MC.engine_orientation(fmE.CS_SCORES.get(n,{}),issue_cat[
 # nothing, so the one graph every published figure rests on could not be traced from the artifact.
 _CU_META={'available':True,'graph':os.path.basename(net),'pairs':len(ADJ),'published':True,
           'note':'the credit-union network -- what every published figure uses'}
+def _envnum(k,d):   # same env semantics as engine/money_response.py + lt_priming.py; int when integral so a default bundle stays byte-identical
+    v=float(os.environ.get(k,d)); return int(v) if v==int(v) else v
 engine={'adj':ADJ,
         # the holistic adjacency travels beside the CU one; the JS rebuilds its kernel on toggle.
         # Same precedent as the member desk's second directed edge array (HAS_DIR).
@@ -640,7 +642,7 @@ engine={'adj':ADJ,
           'PRIMACY_LEVELS':{str(k):round(v,6) for k,v in fmE.MC.PRIMACY_ENGINE_LEVELS.items()},
           'PRIORITY_ORIENTATION_ALPHA':fmE.MC.PRIORITY_ORIENTATION_ALPHA,
           'PRIORITY_POLICY':'tier + alpha * fixed-IMP signed leave-one-topic-out orientation; floor after engagement',
-          'MAXSHIFT':18,'HALF':0.10,'DTHRESH':11.25,'LOSSFRAME':1.10,'BSCALE':400000,'SRCPRO':1.7,'SRCANTI':0.5,'DCROSS':0.4,'CEDGE':10000,'RFLOOR':200000,'MC':20,'SEED':7,
+          'MAXSHIFT':_envnum('MAXSHIFT','18'),'HALF':_envnum('HALF','0.10'),'DTHRESH':_envnum('DTHRESH','11.25'),'LOSSFRAME':_envnum('LOSSFRAME','1.10'),'BSCALE':400000,'SRCPRO':1.7,'SRCANTI':0.5,'DCROSS':0.4,'CEDGE':_envnum('CEDGE','10000'),'RFLOOR':200000,'MC':20,'SEED':7,
           'LTOPP':1 if os.environ.get('LT_OPP_TARGET','0')=='1' else 0,'LTPAR':0 if os.environ.get('LT_MONEY_PARITY','1')=='0' else 1,'LTHALF':float(os.environ.get('HALF','0.10')) if os.environ.get('LT_MONEY_PARITY','1')!='0' else 0.10},   # QME 2026-10-01: lt_priming dials reach the in-browser prime() (LT_OPP_TARGET / LT_MONEY_PARITY / HALF), same env semantics as engine/lt_priming.py
  'pers':fmE.PERS,'theta':{'Highly Persuadable':0.6,'Persuadable':0.8,'Lean Persuadable':0.9,
                           'True Neutral':1.0,'Neutral':1.0,'Lean Skeptic':1.5,'Skeptic':2.0,
@@ -674,11 +676,13 @@ engine['const']['EXECP']='R'   # executive party for the going-public cue (119th
 _advmap={}
 try:
     _advl=json.load(open(os.path.join(MB_ROOT, 'salience_advisory.json')))['advisory']
-    _cut=sorted((a['value'] for a in _advl),reverse=True)[max(0,len(_advl)//4-1)]
-    for a in _advl:
-        v='GO PUBLIC' if (a['value']>=_cut and a['value']>0) else 'quiet work'
-        if a.get('defections_prevented'): v+=' · holds %d'%len(a['defections_prevented'])
-        _advmap[a['issue']]=v
+    if not _advl: print('  !! salience_advisory.json advisory list EMPTY - advisory column will be EMPTY')
+    else:
+        _cut=sorted((a['value'] for a in _advl),reverse=True)[max(0,len(_advl)//4-1)]
+        for a in _advl:
+            v='GO PUBLIC' if (a['value']>=_cut and a['value']>0) else 'quiet work'
+            if a.get('defections_prevented'): v+=' · holds %d'%len(a['defections_prevented'])
+            _advmap[a['issue']]=v
 except FileNotFoundError: print('  !! salience_advisory.json MISSING — advisory column will be EMPTY (run salience_shock.py --advise)')   # S3-05: was `except Exception: pass`, which also buried schema drift forever
 engine['adv']=[_advmap.get(issue_cat[i],'') for i in range(len(issues))]
 # ===== Overall CU stance as a selectable ISSUE layer (general stance, toggleable like Interchange) =====

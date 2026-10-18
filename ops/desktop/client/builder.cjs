@@ -5,13 +5,15 @@
 process.env.ELECTRON_BUILDER_7Z_FILTER='BCJ';
 const fs=require('node:fs');const path=require('node:path');const {appDefinition}=require('./apps.cjs');
 const selected=appDefinition(process.env.DESKTOP_APP_ID||'melange');
+// Each app updates from its own public repository (Paul, 2026-10-15); DESKTOP_GITHUB_REPOSITORY still overrides.
+const DEFAULT_GITHUB_REPOSITORY=Object.freeze({melange:'pjg93-222/Melange',mentat:'pjg93-222/Mentat',terrier:'pjg93-222/Geo'});
 const runtimeRoot=path.resolve(process.env.DESKTOP_RUNTIME_ROOT||path.join(__dirname,'runtime'));
 const runtime=path.join(runtimeRoot,selected.id);
 const icon=path.join(__dirname,'icons',selected.id+'.ico');
 const accessTrust=process.env.DESKTOP_ACCESS_TRUST?require('./access-client.cjs').descriptor(JSON.parse(fs.readFileSync(path.resolve(process.env.DESKTOP_ACCESS_TRUST),'utf8'))):null;
 const updateProvider=process.env.DESKTOP_UPDATE_PROVIDER||'github';
 if(!['github','publisher'].includes(updateProvider))throw new Error('Unsupported desktop update provider');
-const desktopUpdateSource=updateProvider==='github'?require('./github-source.cjs').configuration({provider:'github',repository:process.env.DESKTOP_GITHUB_REPOSITORY||'pjg93-222/melange-platform'}):{provider:'publisher'};
+const desktopUpdateSource=updateProvider==='github'?require('./github-source.cjs').configuration({provider:'github',repository:process.env.DESKTOP_GITHUB_REPOSITORY||DEFAULT_GITHUB_REPOSITORY[selected.id]}):{provider:'publisher'};
 if(!fs.existsSync(icon))throw new Error('Original application icon is missing.');
 require('./backend-command.cjs').backendCommand(__dirname,selected.id,process.platform,runtimeRoot);
 module.exports={

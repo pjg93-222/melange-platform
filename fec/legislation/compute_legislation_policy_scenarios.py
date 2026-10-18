@@ -308,6 +308,8 @@ def zero_reason(row: dict[str, Any]) -> str | None:
         return "relationship_withdrawn"
     if row.get("scoring_category") is False:
         return "category_non_scoring"
+    if row.get("scoring_eligible") is False:
+        return row.get("zero_weight_reason") or "scoring_ineligible"
     return None
 
 
@@ -391,6 +393,8 @@ def build_events(
             "membership_status": membership,
             "relationship_status": relationship,
             "scoring_category": row.get("scoring_category") is not False,
+            "scoring_eligible": row.get("scoring_eligible") is not False,
+            "zero_weight_reason": row.get("zero_weight_reason"),
             "measure_weight": expected_measure_weight,
             "effective_weight": expected_effective_weight,
             "provenance": provenance,

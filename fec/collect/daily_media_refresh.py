@@ -11,7 +11,15 @@ terminal receipt always names the partial sources alongside its status. Exit 3
 is believed only with proof: a current PARTIAL retry receipt with a positive
 integer backlog. Without it the press step FAILs. With it, the intake gate's own
 read-only test (build_press_engine_feed.inspect_run) decides whether the
-backlog is excused; only an unexcused PARTIAL parks the intake steps.
+generation is accepted. A sealed PARTIAL whose pending URLs are an explicit,
+hash-bound, duplicate-free list is accepted and promoted (recorded as
+intake_excused): press never backs up, and the pending URLs are carried to the
+next run and retried there (owner ruling 2026-10-15). Only a PARTIAL the gate
+refuses (a malformed or mismatched pending list) parks the intake steps.
+Any PARTIAL row (accepted or not) makes the run's terminal status PARTIAL rather
+than PASS. PARTIAL is a non-fatal success: it exits 0, the chain continues, the
+catch-up anchor is written, and nothing retries (a fatal partial caused DE-020's
+retry storm).
 """
 from __future__ import annotations
 
@@ -51,12 +59,14 @@ PRESS_RETRY_RECEIPT = 'press_network_retry_receipt.json'
 SMOKE_SOURCES = ('crec', 'chrg', 'bluesky')
 # Derived steps that hand the intake gate this run's press directory by path.
 # audit_collection.py --scope all audits press_delta as well, and the gate
-# (build_press_engine_feed.validate_body_completion) refuses a generation whose
-# body backlog is open unless every pending URL is tombstoned (Paul's 2026-09-19
-# ruling). all_intake is therefore parked only when press is an unexcused PARTIAL
-# (inspect_run refused the generation) or was skipped (smoke); pointing the gate
-# at such a generation is a guaranteed rejection. An excused PARTIAL and a
-# complete press run are not parked. When the chain runs the same tool without
+# (build_press_engine_feed.validate_body_completion) accepts a generation whose
+# pending body URLs are a sealed, hash-bound, duplicate-free list that the next
+# run carries forward and retries (owner ruling 2026-10-15; the 2026-09-19
+# tombstones are report-only). all_intake is therefore parked only when press is
+# a PARTIAL the gate refused (inspect_run rejected the pending list) or was
+# skipped (smoke); pointing the gate at such a generation is a guaranteed
+# rejection. An accepted (intake_excused) PARTIAL and a complete press run are
+# not parked. When the chain runs the same tool without
 # --press-delta-root it discovers a run instead and skips a refused one, so the
 # canonical chain still audits the last complete press generation.
 PRESS_GATED_DERIVED = ('all_intake',)
@@ -249,7 +259,10 @@ def skip_after_failure(steps, failed):
 
 
 def summarize_partials(state):
-    """A PASS receipt must name partial coverage and everything that did not run."""
+    """The receipt must name partial coverage and everything that did not run.
+
+    state['partial'] is true only when a PARTIAL row exists; a SKIPPED_SMOKE row alone is not partial coverage.
+    """
     rows = [row for row in state.get('sources') or [] if row.get('status') == 'PARTIAL']
     state['partial'] = bool(rows)
     state['partial_sources'] = [row['source'] for row in rows]
@@ -354,7 +367,7 @@ def successful_collection_date(root, today):
     if not path.is_file():
         return None
     document = json.loads(path.read_text(encoding='utf-8'))
-    if document.get('schema') != SCHEMA or document.get('status') != 'PASS':
+    if document.get('schema') != SCHEMA or document.get('status') not in ('PASS', 'PARTIAL'):
         raise RuntimeError('saved media catch-up anchor is not a successful collection receipt')
     result = date.fromisoformat(document['local_date'])
     if result > today:
@@ -751,7 +764,11 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
                 failed = next((row['source'] for row in state['sources'] if row['error_count']), 'an earlier step')
                 for skipped in skip_after_failure(derived_steps(root, today), failed):
                     record(skipped)
-            state['status'] = 'FAIL' if state['error_count'] else 'PASS'
+            # PARTIAL is the truthful terminal status when any row is PARTIAL (SKIPPED_SMOKE
+            # alone is not partial coverage). It is not a failure: the run exits 0, the chain
+            # continues and the day closes, so nothing retries (DE-020).
+            summarize_partials(state)
+            state['status'] = 'FAIL' if state['error_count'] else ('PARTIAL' if state['partial'] else 'PASS')
         except BaseException as error:
             state.update(status='FAIL', error=type(error).__name__ + ': ' + str(error),
                          error_count=max(1, state['error_count']))
@@ -764,8 +781,10 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
         write_json(run_dir / 'receipt.json', state)
         write_json(root / RECEIPT, state)
         # The success receipt is the catch-up anchor for source windows. A smoke
-        # pass collected a subset, so it must never become that anchor.
-        if state['status'] == 'PASS' and not smoke:
+        # pass collected a subset, so it must never become that anchor. A PARTIAL pass
+        # anchors too: it anchors source_steps windows only, since press uses a fixed
+        # --date-floor and its own tombstone ledger, not this anchor.
+        if state['status'] in ('PASS', 'PARTIAL') and not smoke:
             write_json(root / SUCCESS_RECEIPT, state)
         print(json.dumps({'status': state['status'], 'mode': state['mode'],
                           'error_count': state['error_count'],
@@ -774,7 +793,7 @@ def run(root=ROOT, *, today=None, runner=run_process, preflight_check=preflight,
                           'receipt': str(root / RECEIPT)}), flush=True)
         if fatal is not None:
             raise fatal
-        return 0 if state['status'] == 'PASS' else 1
+        return 0 if state['status'] in ('PASS', 'PARTIAL') else 1
 
 
 def main(argv=None):

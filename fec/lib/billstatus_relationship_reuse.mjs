@@ -135,7 +135,18 @@ async function writeHybridNdjson({ sourceFile = null, additionalRows, outputFile
 
   const flush = async () => {
     if (!buffer) return;
-    await handle.write(buffer, null, "utf8");
+    const pending = Buffer.from(buffer, "utf8");
+    let offset = 0;
+    while (offset < pending.length) {
+      const { bytesWritten } = await handle.write(
+        pending, offset, pending.length - offset, null,
+      );
+      if (!Number.isInteger(bytesWritten) || bytesWritten <= 0 ||
+          bytesWritten > pending.length - offset) {
+        throw new Error("Relationship artifact write made invalid progress");
+      }
+      offset += bytesWritten;
+    }
     buffer = "";
     bufferBytes = 0;
   };

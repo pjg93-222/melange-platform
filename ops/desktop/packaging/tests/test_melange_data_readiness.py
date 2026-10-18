@@ -56,6 +56,15 @@ class ModelReadinessTests(unittest.TestCase):
             status, body = get(route)
             self.assertEqual(status, 200)
             self.assertTrue(json.loads(body)['ready'])
+        # An ancillary failure after the model loaded (prewarm/background threads) must not hide it.
+        server.dashboard.ready = True
+        server.dashboard.startup_error = 'private ancillary thread failure'
+        for route in ('/api/staffer-network-index', '/api/staffer-groups-index'):
+            with self.subTest(route=route, ready=True):
+                status, body = get(route)
+                self.assertEqual(status, 200)
+                self.assertTrue(json.loads(body)['ready'])
+                self.assertNotIn(b'private', body)
 
 
 if __name__ == '__main__': unittest.main()

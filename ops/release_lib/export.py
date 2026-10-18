@@ -19,7 +19,17 @@ CODE_EXT = {".py", ".ps1", ".psm1", ".cs", ".r", ".js", ".mjs", ".cjs", ".css", 
             ".tpl", ".sh", ".service", ".timer", ".path"}
 MELANGE_ROOTS = ("fec", "requirements.txt", "ops")
 # fec/docs/: working notes and audit write-ups, not source. Same for the Mentat memo fixture below: real contributor names.
-MELANGE_EXCLUDE = re.compile(r"^fec/(_quarantine_[^/]*/|attic/|research/|docs/|pas224\.zip$)")
+# G8 (2026-10-16): synthetic tests of repairs whose sources live under the excluded fec/research/. Exported
+# alone they could never resolve, so these exact paths stay out; every other fec/tests path is still exported.
+MELANGE_RESEARCH_TESTS = (
+    "fec/tests/infra/test_cohort_output_bindings.py",
+    "fec/tests/infra/test_research_optimized_guards.py",
+    "fec/tests/research/test_research_io_regression.py",
+    "fec/tests/research/test_research_assertion_boundaries.py",
+    "fec/tests/research/test_institutions_reference_report.py",
+)
+MELANGE_EXCLUDE = re.compile(r"^fec/(_quarantine_[^/]*/|attic/|research/|docs/|pas224\.zip$)"
+                             r"|^(?:" + "|".join(re.escape(p) for p in MELANGE_RESEARCH_TESTS) + r")$")
 # mentat-pocket.html is the Pocket TEMPLATE with a stale 2026-09-14 data snapshot (~119.6k chars) baked in between its
 # DATA markers. The release rebuilds Pocket from live data (manifest.build_pocket reads this template from the live
 # Mentat checkout, not from the export), so the old snapshot must not ride the source-only export.

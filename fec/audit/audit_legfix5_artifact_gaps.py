@@ -190,6 +190,7 @@ def audit_paths(index: dict, *, verify_hash: bool = False,
         "size": [],
         "hash": [],
         "size_verified": 0,
+        "size_undeclared": 0,
         "hash_verified": 0,
         "hash_skipped_too_large": 0,
         "hash_undeclared": 0,
@@ -204,7 +205,7 @@ def audit_paths(index: dict, *, verify_hash: bool = False,
             report["directories"] += 1
             continue
         size = p.stat().st_size
-        if isinstance(d["bytes"], int) and size != d["bytes"]:
+        if type(d["bytes"]) is int and size != d["bytes"]:
             report["size"].append((d, size))
             continue
         if verify_hash:
@@ -217,7 +218,10 @@ def audit_paths(index: dict, *, verify_hash: bool = False,
                 continue
             else:
                 report["hash_verified"] += 1
-        report["size_verified"] += 1
+        if type(d["bytes"]) is int:
+            report["size_verified"] += 1
+        else:
+            report["size_undeclared"] += 1
     return report
 
 
@@ -270,6 +274,7 @@ def main() -> int:
 
     print("\npresent and size-verified: %d    directories skipped: %d"
           % (report["size_verified"], report["directories"]))
+    print("present without a valid declared size: %d" % report["size_undeclared"])
     if args.hash:
         print("  sha256 verified:            %d" % report["hash_verified"])
         print("  sha256 SKIPPED (> %g MB):   %d"
@@ -278,7 +283,7 @@ def main() -> int:
     else:
         print("  sha256 not checked (pass --hash to verify digests)")
 
-    return 1 if (missing or report["size"] or report["hash"]) else 0
+    return 1 if (unreadable or missing or report["size"] or report["hash"]) else 0
 
 
 if __name__ == "__main__":

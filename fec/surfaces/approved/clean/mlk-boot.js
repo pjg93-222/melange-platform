@@ -1,3 +1,43 @@
+/* Desktop-only persistence for the reviewed workspace keys. This blocking loader runs
+   before application scripts in the shell and its same-origin frames. */
+(function () {
+  'use strict';
+  var bridge;
+  try { if (window.top.location.origin !== location.origin) return; bridge = window.top.desktopState; } catch (_) { return; }
+  if (!bridge || window.__melangeDesktopStorage) return;
+  Object.defineProperty(window, '__melangeDesktopStorage', {value: true});
+  var keys = new Set(bridge.keys), proto = Storage.prototype;
+  var get = proto.getItem, set = proto.setItem, remove = proto.removeItem, clear = proto.clear;
+  function local(store) { return store === window.localStorage; }
+  function reportFailure() {
+    var d = window.top.document, notice = d.getElementById('melange-desktop-save-error');
+    if (!notice) { notice = d.createElement('div'); notice.id = 'melange-desktop-save-error'; notice.className = 'mlk-toast'; notice.setAttribute('role', 'alert'); (d.getElementById('mlk-toasts') || d.body || d.documentElement).appendChild(notice); }
+    notice.textContent = 'Change was not saved. Check available storage and try again.';
+  }
+  proto.setItem = function (key, value) {
+    key = String(key); value = String(value);
+    if (!local(this) || !keys.has(key)) return set.call(this, key, value);
+    var previous = get.call(this, key);
+    set.call(this, key, value);
+    try { bridge.commit('set', key, value); }
+    catch (error) { reportFailure(); if (previous === null) remove.call(this, key); else set.call(this, key, previous); throw error; }
+  };
+  proto.removeItem = function (key) {
+    key = String(key);
+    if (!local(this) || !keys.has(key)) return remove.call(this, key);
+    var previous = get.call(this, key);
+    remove.call(this, key);
+    try { bridge.commit('remove', key); }
+    catch (error) { reportFailure(); if (previous !== null) set.call(this, key, previous); throw error; }
+  };
+  proto.clear = function () {
+    if (!local(this)) return clear.call(this);
+    var previous = []; for (var i = 0; i < this.length; i++) { var key = this.key(i); previous.push([key, get.call(this, key)]); }
+    clear.call(this);
+    try { bridge.commit('clear'); }
+    catch (error) { reportFailure(); for (var item of previous) set.call(this, item[0], item[1]); throw error; }
+  };
+})();
 /* mlk-boot.js: the workspace loader. build_clean_workspace.py puts it first in the <head> of every frame document it
    writes, and index.html puts it first in the shell's <head>; it is a plain blocking script, so it runs before anything
    else on the page. It makes loading fail loudly instead of leaving the legacy layout on screen without a word:

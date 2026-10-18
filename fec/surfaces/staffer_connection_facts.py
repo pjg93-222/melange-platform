@@ -69,7 +69,11 @@ def employment_dates(text, observed):
         return {'listed_current': current}
     # Source end dates are inclusive. Starting at the last possible start day
     # and stopping just after the earliest end day avoids false date overlap.
-    stop = end[0] + timedelta(days=1)
+    try:
+        stop = end[0] + timedelta(days=1)
+    except OverflowError:
+        # No representable exclusive end: retain the source flag, not a false interval.
+        return {'listed_current': current}
     return {'listed_current': current, 'start': start[1].isoformat(),
             'end_exclusive': stop.isoformat(), 'start_earliest': start[0].isoformat(),
             'end_latest': end[1].isoformat(), 'date_precision': 'source_date_bounds'}

@@ -36,6 +36,7 @@ import argparse
 import calendar
 import ctypes
 import json
+import math
 import os
 import re
 import socket
@@ -182,14 +183,13 @@ def parse_timestamp(value):
 def as_number(value):
     if value is None or isinstance(value, bool):
         return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value.strip())
-        except (ValueError, AttributeError):
-            return None
-    return None
+    if not isinstance(value, (int, float, str)):
+        return None
+    try:
+        number = float(value.strip() if isinstance(value, str) else value)
+    except (ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
 
 
 def pick_number(payload, keys):
@@ -633,7 +633,7 @@ class EventStore(object):
             if name in payload:
                 value = payload.get(name)
                 if isinstance(value, (int, float, str, bool)) or value is None:
-                    extra[name] = value
+                    extra[name] = None if isinstance(value, float) and not math.isfinite(value) else value
         row.extra = extra
 
     # -- classification -----------------------------------------------------
@@ -757,6 +757,9 @@ class EventStore(object):
         active_progress.sort(key=lambda item: item["pct"] or 0.0)
         lanes = sorted(by_lane.values(), key=lambda item: (-item["total"], item["lane"]))
         stats = dict(self.stats)
+        # Finite individual counters can still overflow their aggregate.
+        progress_current = as_number(progress_current)
+        progress_total = as_number(progress_total)
         return {
             "now": now,
             "rows_total": len(rows),
@@ -767,8 +770,8 @@ class EventStore(object):
                 "current": progress_current,
                 "total": progress_total,
                 "pct": (
-                    (progress_current / progress_total) * 100.0
-                    if progress_total
+                    as_number((progress_current / progress_total) * 100.0)
+                    if progress_total and progress_current is not None
                     else None
                 ),
                 "runs": len(active_progress),

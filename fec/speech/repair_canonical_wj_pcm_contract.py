@@ -64,11 +64,24 @@ def main() -> int:
     rows = [json.loads(line) for line in args.manifest.read_text(encoding="utf-8-sig").splitlines() if line]
     manifest_before = sha256(args.manifest)
     repairs = []
+    planned = []
     for row in rows:
         if row.get("outlet") != "CSPAN" or row.get("show") != "Washington Journal":
             continue
+        raw_frames = row.get("frames")
+        try:
+            expected = int(raw_frames)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("WJ frame contract must be a positive integer") from exc
+        if isinstance(raw_frames, bool) or expected <= 0 or (isinstance(raw_frames, float) and raw_frames != expected):
+            raise RuntimeError("WJ frame contract must be a positive integer")
+        try:
+            start = float(row["start"])
+        except (KeyError, TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("WJ start contract must be finite") from exc
+        if not math.isfinite(start):
+            raise RuntimeError("WJ start contract must be finite")
         path = Path(str(row.get("out_wav") or ""))
-        expected = int(row.get("frames") or 0)
         with wave.open(str(path), "rb") as source:
             facts = (source.getnchannels(), source.getframerate(), source.getsampwidth())
             actual = source.getnframes()
@@ -80,6 +93,12 @@ def main() -> int:
                 raise RuntimeError(f"refusing to pad short WJ audio: {path}")
             if actual - expected > source.getframerate():
                 raise RuntimeError(f"WJ overrun exceeds one-second repair ceiling: {path}")
+        planned.append((row, path, expected, actual, start))
+
+    for row, path, expected, actual, start in planned:
+        with wave.open(str(path), "rb") as source:
+            if (source.getnchannels(), source.getframerate(), source.getsampwidth(), source.getnframes()) != (1, 16000, 2, actual):
+                raise RuntimeError(f"WJ WAV contract changed after preflight: {path}")
             payload = source.readframes(expected)
         before_hash = sha256(path)
         write_wav_atomic(path, payload, 16000)
@@ -87,7 +106,7 @@ def main() -> int:
         digest = sha256(path)
         row["bytes"] = path.stat().st_size
         row["dur"] = round(expected / 16000.0, 6)
-        row["end"] = round(float(row["start"]) + expected / 16000.0, 6)
+        row["end"] = round(start + expected / 16000.0, 6)
         row["rms"] = float(math.sqrt(float(np.mean(samples * samples))))
         row["sha256"] = digest
         if Path(str(row.get("src_wav") or "")).resolve() == path.resolve():

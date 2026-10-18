@@ -219,10 +219,17 @@ def parse_billstatus(path: Path):
     sponsor_node = bill.find('./sponsors/item')
     if sponsor_node is None:
         raise ValueError('BillStatus XML lacks sponsor: %s' % path)
-    cosponsors = list(bill.findall('./cosponsors/item'))
+    all_cosponsors = list(bill.findall('./cosponsors/item'))
+    cosponsors = [
+        node for node in all_cosponsors
+        if not xml_text(node, 'sponsorshipWithdrawnDate')
+    ]
     summaries = [
         clean_html(node.findtext('text'))
-        for node in bill.findall('./summaries/billSummaries/item')
+        for node in (
+            bill.findall('./summaries/summary')
+            + bill.findall('./summaries/billSummaries/item')
+        )
         if clean_html(node.findtext('text'))
     ]
     return {
@@ -237,6 +244,7 @@ def parse_billstatus(path: Path):
         'summary': summaries[-1] if summaries else '',
         'sponsor': sponsor_node,
         'cosponsors': cosponsors,
+        'withdrawn_links': len(all_cosponsors) - len(cosponsors),
     }
 
 
@@ -422,10 +430,11 @@ def build():
             'billstatus_update_date': official['update_date'],
             'official_sponsor': sponsor_display,
             'official_links': (
-                1 + len(official['cosponsors'])
+                1 + len(official['cosponsors']) + official['withdrawn_links']
             ),
             'resolved_links': len(resolved_people),
             'departed_links': len(departed_people),
+            'withdrawn_links': official['withdrawn_links'],
             'roster_role_weight': role_credit,
         }
 
@@ -497,6 +506,7 @@ def build():
         'official_link_accounting_closes': all(
             row['official_links']
             == row['resolved_links'] + row['departed_links']
+            + row['withdrawn_links']
             for row in source_receipts.values()
         ),
         'resolved_receipt_total_matches_sidecar': (

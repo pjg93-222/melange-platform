@@ -659,7 +659,8 @@ def _neutral_press_run(root, rows, completed_at="2099-01-01T00:00:00+00:00",
             "title": row.get("title", "Neutral record"), "url": row["url"],
             "score": "0", "score_graded": "0", "score_label": "Neutral",
             "polarity": "0", "relevance": "neutral fixture",
-            "categories": "Test", "word_count": "30", "recency_weight": "1",
+            "categories": "Test", "word_count": "30",
+            "recency_weight": row.get("recency_weight", "1"),
         })
     _csv(root / "press_delta_host_articles.csv", host_fields, hosts)
     _csv(root / "press_delta_article_mentions.csv", host_fields, [])
@@ -856,8 +857,32 @@ def test_cumulative_press_promotion_preserves_earlier_rows_and_adds_new_rows(tmp
     assert result["counts"] == {"accepted_runs": 2, "tone_rows": 2,
                                 "fulltext_rows": 2, "official_mentions": 0}
     assert {row["member"] for row in rows} == {"Neutral A", "Neutral B"}
-    assert next(row for row in rows if row["member"] == "Neutral A")["title"] == "First accepted title"
+    assert next(row for row in rows if row["member"] == "Neutral A")["title"] == "Repeated later title"
     assert result["promotion_mode"] == "CUMULATIVE_ACCEPTED_RUN_LEDGER"
+
+
+def test_cumulative_press_promotion_latest_accepted_run_wins_repeated_key(tmp_path):
+    repeated = {"member": "Neutral A", "bioguide": "N000001", "url": "https://example.test/a"}
+    run1 = _neutral_press_run(tmp_path / "press_refresh_20990101", [
+        {**repeated, "recency_weight": "0.25"}])
+    run2 = _neutral_press_run(tmp_path / "press_refresh_20990102", [
+        {**repeated, "recency_weight": "0.75"}],
+        completed_at="2099-01-02T00:00:00+00:00")
+    archive = tmp_path / "accepted"; archive.mkdir()
+    _accepted_press_receipt(run1, archive / "press_refresh_20990101.json")
+    current = tmp_path / "current.json"
+    _accepted_press_receipt(run2, current)
+    tone = tmp_path / "tone.csv"; fulltext = tmp_path / "fulltext.jsonl"
+    mentions = tmp_path / "mentions.jsonl"; receipt = tmp_path / "feed.json"
+    result = press_feed.build_cumulative(
+        tone, fulltext, mentions, receipt, current, archive)
+    rows = list(csv.DictReader(tone.open(encoding="utf-8-sig")))
+    assert result["counts"] == {"accepted_runs": 2, "tone_rows": 1,
+                                "fulltext_rows": 1, "official_mentions": 0}
+    assert len(rows) == 1 and rows[0]["recency_weight"] == "0.75"
+    assert rows[0]["source_run"] == run2.name
+    assert result["contract"]["latest_accepted_run_wins"] is True
+    assert "earliest_accepted_run_wins_exact_refresh_collision" not in result["contract"]
 
 
 def test_neutral_trickle_audit_promote_fold_and_prepare_local_dashboard(tmp_path):

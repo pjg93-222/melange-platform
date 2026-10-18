@@ -5,20 +5,34 @@ const {appDefinition}=require('./apps.cjs');const {pairing,jsonRequest}=require(
 const {credentialCommand}=require('./credentials.cjs');
 const {enrollFresh,enrollApproved}=require('./enrollment.cjs');
 const {watchNetwork}=require('./lifecycle.cjs');
-const {selectProfile}=require('./profile.cjs');
+const {selectStartupProfile,confineIsolatedPath,confineIsolatedSettings,ISOLATED_TITLE_SUFFIX}=require('./profile.cjs');
 const applicationConfig=app.isPackaged?require('./package.json').desktopAppConfig:{};
 if(!applicationConfig||(app.isPackaged&&!applicationConfig.appId))throw new Error('Packaged application identity is missing.');
 const definition=appDefinition(applicationConfig.appId||(process.env.DESKTOP_APP_ID||'melange'));
 const githubConfig=applicationConfig.desktopUpdateSource?.provider==='github'?require('./github-source.cjs').configuration(applicationConfig.desktopUpdateSource):null;
-app.setName(definition.name);app.setAppUserModelId(definition.applicationId);
-const profile=selectProfile({appId:definition.id,home:app.getPath('home'),appData:app.getPath('appData'),packaged:app.isPackaged,testDirectory:process.env.MELANGE_DESKTOP_TEST_PROFILE});
+app.setName(definition.name);
+// Without the explicit isolated switch this resolves exactly the production profile, AppUserModelId, discovery cache and login registration.
+let profile,isolationRefused=null;
+try{profile=selectStartupProfile({appId:definition.id,argv:process.argv.slice(1),home:app.getPath('home'),appData:app.getPath('appData'),documents:()=>app.getPath('documents'),protectedPaths:()=>[app.getAppPath(),path.dirname(process.execPath)],packaged:app.isPackaged,testDirectory:process.env.MELANGE_DESKTOP_TEST_PROFILE});}
+catch(error){if(error.code!=='ISOLATED_PROFILE_REFUSED')throw error;isolationRefused=error;}
+if(isolationRefused){const message=isolationRefused.message+' Nothing was started; no production profile, login item or update installation was used.';process.stderr.write('[melange-desktop] Isolated test profile refused: '+message+'\n');dialog.showErrorBox(definition.name+' isolated test profile refused',message);app.exit(2);}else{
+app.setAppUserModelId(profile.applicationUserModelId);
 app.setPath('userData',profile.directory);
 if(!app.requestSingleInstanceLock()){app.quit();}else{
+if(profile.isolated){
+ const notice='[melange-desktop] Isolated test profile active: '+profile.directory+' (AppUserModelId '+profile.applicationUserModelId+'). Login startup, OS registration and native update installation are disabled; access, trust, enrollment and signature checks are unchanged.';
+ process.stdout.write(notice+'\n');try{fs.mkdirSync(path.join(profile.directory,'logs'),{recursive:true,mode:0o700});fs.appendFileSync(path.join(profile.directory,'logs','isolated-profile.log'),new Date().toISOString()+' '+notice+'\n',{mode:0o600});}catch{}
+ const marked=title=>(title||definition.name).endsWith(ISOLATED_TITLE_SUFFIX)?(title||definition.name):(title||definition.name)+ISOLATED_TITLE_SUFFIX;
+ // Electron applies constructor options after this event fires, so mark again on the next turn.
+ app.on('browser-window-created',(_event,created)=>{const mark=()=>{if(!created.isDestroyed())created.setTitle(marked(created.getTitle()));};mark();setImmediate(mark);created.on('page-title-updated',(event,title)=>{event.preventDefault();created.setTitle(marked(title));});});
+}
 let window,settingsWindow,accessWindow,accessGate,accessInitializing,accessLifecycle,authenticationWindow,authenticationTicket,runtimePartition,presenceInterval,runtime,updater,districtSwitch,uiStateStore,activityOutbox,activityDraining=false,status='Choose your local data directory to start.',interval,networkWatcher,closing=false,closeApproved=false,askingClose=false,openingAccess=false,checkingUpdates=false;
-let background=app.isPackaged&&(process.argv.includes('--desktop-updater')||(process.platform==='darwin'&&app.getLoginItemSettings().wasOpenedAtLogin));
+let background=!profile.isolated&&app.isPackaged&&(process.argv.includes('--desktop-updater')||(process.platform==='darwin'&&app.getLoginItemSettings().wasOpenedAtLogin));
 const userData=app.getPath('userData'),setupURL=pathToFileURL(path.join(__dirname,'setup.html')).href;
 const accessURL=pathToFileURL(path.join(__dirname,'access.html')).href;
+const loadingURL=pathToFileURL(path.join(__dirname,'loading.html')).href;
 const resources=app.isPackaged?process.resourcesPath:__dirname;
+const portable=app.isPackaged&&require('./portable-mode.cjs').portableMode(resources,definition.id);
 const accessTransition=new(require('./access-transition.cjs').AccessTransition)(()=>Boolean(runtime?.child));
 async function accessOperation(action){const finish=accessTransition.begin();try{return await action();}finally{finish();}}
 const file=name=>path.join(userData,name);
@@ -45,6 +59,8 @@ async function ensureAccess(){
   const {AccessLifecycle,terrierSession}=require('./access-lifecycle.cjs');
   accessLifecycle=new AccessLifecycle({runtime,gate:accessGate,hide:()=>window.hide(),showBoundary:showAccess,
    terrierAuthenticated:()=>terrierSession(runtime,runtimePartition),terrierLogout:()=>terrierSession(runtime,runtimePartition,{logout:true}),
+   terrierPasswordLockDisabled:()=>terrierSession(runtime,runtimePartition,{passwordLockDisabled:true}),
+   onSuspend:()=>districtSwitch?.suspend(),
    presence:(state,sessionId)=>accessGate.client.presence({sessionId,state,version:app.getVersion(),districtId:definition.id==='terrier'&&state==='active'?read('settings.json').district:null})});
  return gate;})();
  try{return await accessInitializing;}finally{accessInitializing=null;finish();}
@@ -83,12 +99,12 @@ const launch=require('./single-launch.cjs').singleLaunch(async function launchOn
 async function launchAuthorized(fromAccess){
  background=false;
  let generation=accessLifecycle?.generation;
- try{const gate=await ensureAccess();if(generation===undefined)generation=accessLifecycle.generation;if(await gate.evidence())try{const state=await gate.refresh();if(state.phase==='revoked'&&runtime.child&&!accessLifecycle.suspended)await accessLifecycle.suspend('locked');}catch{/* Previously verified offline approval remains usable; learned revocation is retained. */}await gate.authorize();}catch{if(runtime.child&&!accessLifecycle?.suspended)await accessLifecycle?.suspend('locked');if(fromAccess)throw new Error('Access is not ready');await showAccess();return;}
+ try{const gate=await ensureAccess();if(generation===undefined)generation=accessLifecycle.generation;await require('./access-gate.cjs').authorizeAvailable(gate,async state=>{if(state.phase==='revoked'&&runtime.child&&!accessLifecycle.suspended)await accessLifecycle.suspend('locked');});}catch{if(runtime.child&&!accessLifecycle?.suspended)await accessLifecycle?.suspend('locked');if(fromAccess)throw new Error('Access is not ready');window.hide();await showAccess();return;}
  if(closing||generation!==accessLifecycle.generation)return;
  if(runtime.child&&accessLifecycle.suspended&&definition.id==='terrier'&&(accessLifecycle.requiresFreshPassword||!await require('./access-lifecycle.cjs').terrierSession(runtime,runtimePartition))){await showTerrierSignIn();return;}
  openingAccess=true;
- try{const approved=await accessGate.authorize();await accessLifecycle.resume(approved,{expectedGeneration:generation});const origin=await runtime.start(read('settings.json'));if(closing||!await accessLifecycle.canReveal(generation,approved))return;let currentOrigin;try{currentOrigin=new URL(window.webContents.getURL()).origin;}catch{}if(currentOrigin!==origin)await window.loadURL(origin+runtime.launchPath);runtime.launchPath='/';if(closing||!await accessLifecycle.canReveal(generation,approved))return;window.show();accessWindow?.close();updater.markApplicationReady();await accessLifecycle.heartbeat();}
- catch(error){if(accessLifecycle?.suspended)return;try{await updater.markApplicationFailed();}catch{}updateStatus('Application startup failed. Check local logs.');await showSetup();throw error;}
+ try{const approved=await accessGate.authorize();await accessLifecycle.resume(approved,{expectedGeneration:generation});const origin=await runtime.start(read('settings.json'));districtSwitch?.remember(read('settings.json'),runtime);if(closing||!await accessLifecycle.canReveal(generation,approved))return;let currentOrigin;try{currentOrigin=new URL(window.webContents.getURL()).origin;}catch{}if(currentOrigin!==origin)await window.loadURL(origin+runtime.launchPath);runtime.launchPath='/';if(closing||!await accessLifecycle.canReveal(generation,approved))return;window.show();accessWindow?.close();if(!portable)updater.markApplicationReady();await accessLifecycle.heartbeat();}
+ catch(error){if(accessLifecycle?.suspended)return;try{if(!portable)await updater.markApplicationFailed();}catch{}updateStatus('Application startup failed. Check local logs.');await showSetup();throw error;}
  finally{openingAccess=false;}
 }
 async function showTerrierSignIn(){
@@ -106,6 +122,8 @@ async function resumeTerrierSession(){
  try{const approved=await accessGate.authorize();if(authenticationWindow!==owned||!accessLifecycle.authenticationCurrent(ticket))return;await accessLifecycle.resume(approved,{freshPassword:true,expectedGeneration:ticket.generation});if(closing||!await accessLifecycle.canReveal(ticket.generation,approved))return;openingAccess=true;owned.close();accessWindow?.close();window.show();await accessLifecycle.heartbeat();}catch{}finally{openingAccess=false;}
 }
 async function checkUpdates(){
+ if(portable){updateStatus('Portable copy: replace this extracted application folder to update. Your local data remains separate.');if(accessGate)try{const state=await accessGate.refresh();if(state.phase==='revoked'&&runtime.child&&!accessLifecycle.suspended)await accessLifecycle.suspend('locked');}catch{}await drainActivity();return;}
+
  if(checkingUpdates||closing||updater.osShutdown)return;checkingUpdates=true;
  try{
   let enrollmentDeferred=false;
@@ -119,27 +137,37 @@ async function checkUpdates(){
  }catch{updateStatus('Update check deferred. The receiver will retry; local work remains available.');}
  finally{checkingUpdates=false;}
 }
-async function recoverPrevious(){try{const target=updater.recoveryCandidate();const result=await dialog.showMessageBox(window,{type:'warning',buttons:['Cancel','Prepare recovery'],defaultId:0,cancelId:0,title:'Restore previous '+definition.name+' version?',message:'Restore previously authorized version '+target.version+'?',detail:'Program files will be restored only after you close the app. Local data is retained. This recovery cannot reverse data changes made by a newer version.'});if(result.response===1)await updater.beginRecovery();}catch(error){updateStatus('Recovery unavailable: '+error.message);}}
+async function recoverPrevious(){if(portable){updateStatus('Portable copy: replace the extracted application folder to change versions.');return;}try{const target=updater.recoveryCandidate();const result=await dialog.showMessageBox(window,{type:'warning',buttons:['Cancel','Prepare recovery'],defaultId:0,cancelId:0,title:'Restore previous '+definition.name+' version?',message:'Restore previously authorized version '+target.version+'?',detail:'Program files will be restored only after you close the app. Local data is retained. This recovery cannot reverse data changes made by a newer version.'});if(result.response===1)await updater.beginRecovery();}catch(error){updateStatus('Recovery unavailable: '+error.message);}}
 async function confirmClose(){
   try{
-    if(await runtime.activity()===true){districtSwitch?.cancel();await dialog.showMessageBox(window,{type:'info',message:'A calculation is still running. Close this app after it finishes.',buttons:['Keep working']});return;}
-    const switching=Boolean(districtSwitch?.pending);
-    const {response}=await dialog.showMessageBox(window,{type:'question',buttons:['Keep working',switching?'Switch district':'Close app'],defaultId:0,cancelId:0,title:switching?'Switch Terrier district?':'Close '+definition.name+'?',message:'Save changes and finish active calculations before closing.',detail:switching?'Terrier will reopen the selected district. Sign in separately to that district. Existing data and accounts are preserved.':'Closing stops this app’s local processes. Verified updates install only after the app closes.'});
-    if(response===1){if(await runtime.activity()===true){districtSwitch?.cancel();updateStatus('Close deferred: a calculation is running.');return;}closeApproved=true;window.close();}else districtSwitch?.cancel();
+    if(districtSwitch?.busy){updateStatus('Finish opening the district before closing.');return;}
+    if(await runtime.activity()===true){await dialog.showMessageBox(window,{type:'info',message:'A calculation is still running. Close this app after it finishes.',buttons:['Keep working']});return;}
+    const {response}=await dialog.showMessageBox(window,{type:'question',buttons:['Keep working','Close app'],defaultId:0,cancelId:0,title:'Close '+definition.name+'?',message:'Save changes and finish active calculations before closing.',detail:'Closing stops this app’s local processes. Verified updates install only after the app closes.'});
+    if(response===1){if(await runtime.activity()===true){updateStatus('Close deferred: a calculation is running.');return;}closeApproved=true;window.close();}
   }finally{askingClose=false;}
 }
-async function finishClose(){if(closing)return;closing=true;clearInterval(interval);clearInterval(presenceInterval);networkWatcher?.close();await runtime?.stop();if(districtSwitch?.pending){try{districtSwitch.commitAfterClosed();app.relaunch();}catch{dialog.showErrorBox('District switch not completed','The selected district could not be verified. Your previous settings and data are preserved.');}updater?.close();app.quit();return;}const activating=await updater?.activateAfterClose();if(!activating){updater?.close();app.quit();}}
+async function finishClose(){if(closing)return;closing=true;clearInterval(interval);clearInterval(presenceInterval);networkWatcher?.close();if(districtSwitch)await districtSwitch.stopAll();else await runtime?.stop();const activating=portable?false:await updater?.activateAfterClose();if(!activating){updater?.close();app.quit();}}
 app.on('second-instance',()=>{background=false;if(!runtime||closing)return;if(accessLifecycle?.suspended)showAccess().catch(()=>{});else launch().catch(()=>{});});
 app.whenReady().then(async()=>{
   if(profile.migrationRequired){dialog.showErrorBox(definition.name+' profile migration required','Existing application settings, credentials or data were found in the earlier profile location. They have been preserved. Migrate that profile explicitly before using this installation.');app.quit();return;}
   fs.mkdirSync(userData,{recursive:true,mode:0o700});
   if(!fs.existsSync(file('settings.json'))){const dataDirectory=path.join(userData,'data');fs.mkdirSync(dataDirectory,{recursive:true,mode:0o700});write('settings.json',{dataDirectory,...(definition.id==='terrier'?{district:'co-05'}:{})});}
-  runtime=new Runtime(definition.id,userData,app.isPackaged?process.resourcesPath:__dirname,{protectedPaths:[app.getAppPath(),path.dirname(process.execPath)],rendererFactory:definition.id==='mentat'?()=>require('./render-service.cjs').startRenderService({BrowserWindow,session}):null,authorize:async()=>(await ensureAccess()).authorize()});
+  if(profile.isolated)try{confineIsolatedSettings(profile.boundary,read('settings.json'));}catch(error){dialog.showErrorBox(definition.name+' isolated test profile refused',error.message+' The backend was not started. Correct or remove settings.json in '+userData+'.');app.quit();return;}
+  const createRuntime=()=>new Runtime(definition.id,userData,resources,{protectedPaths:[app.getAppPath(),path.dirname(process.execPath)],rendererFactory:definition.id==='mentat'?()=>require('./render-service.cjs').startRenderService({BrowserWindow,session}):null,authorize:async configuration=>(await ensureAccess()).authorize(configuration),confine:profile.isolated?paths=>{for(const item of paths)confineIsolatedPath(profile.boundary,item,'The application data location');}:null});
+  runtime=createRuntime();
   if(definition.id==='terrier'){
-    const {PendingDistrictSwitch,verifyDistrict}=require('./district-switch.cjs');
-    districtSwitch=new PendingDistrictSwitch({read:()=>read('settings.json'),write:value=>write('settings.json',value),scope:()=>accessGate?.districts()||[],verify:configuration=>verifyDistrict(resources,userData,configuration,[app.getAppPath(),path.dirname(process.execPath)])});
+    const {verifyDistrictAsync}=require('./district-switch.cjs');
+    districtSwitch=new(require('./district-transition.cjs').DistrictTransition)({
+     read:()=>read('settings.json'),write:value=>write('settings.json',profile.isolated?confineIsolatedSettings(profile.boundary,value):value),scope:()=>accessGate?.districts()||[],
+     fingerprint:configuration=>require('./district-transition.cjs').districtFingerprint(userData,configuration),
+     verify:configuration=>verifyDistrictAsync(resources,userData,profile.isolated?confineIsolatedSettings(profile.boundary,configuration):configuration,[app.getAppPath(),path.dirname(process.execPath)]),createRuntime,current:()=>runtime,
+     activate:next=>{runtime=next;runtime.contentsId=window.webContents.id;if(accessLifecycle)accessLifecycle.runtime=next;},
+     location:()=>window.webContents.getURL(),navigate:url=>window.loadURL(url),
+     canReveal:approved=>!closing&&accessLifecycle.canReveal(accessLifecycle.generation,approved),onUnavailable:showAccess,
+     log:value=>{try{const logs=path.join(userData,'logs');fs.mkdirSync(logs,{recursive:true});fs.appendFileSync(path.join(logs,'district-switch.jsonl'),JSON.stringify({...value,time:new Date().toISOString()})+'\n');}catch{}}
+    });
   }
-  const partition=session.fromPartition('persist:'+definition.applicationId);runtimePartition=partition;attachLaunchHeader(partition,runtime);
+  const partition=session.fromPartition('persist:'+definition.applicationId);runtimePartition=partition;attachLaunchHeader(partition,()=>runtime,()=>districtSwitch?Array.from(districtSwitch.pool.values(),item=>item.runtime.origin).filter(Boolean):[]);
   partition.setPermissionRequestHandler((contents,permission,callback)=>callback(false));
   partition.setPermissionCheckHandler(()=>false);
   window=new BrowserWindow({width:1400,height:960,title:definition.name,icon:path.join(__dirname,'icons',definition.id+'.ico'),show:false,webPreferences:{preload:path.join(__dirname,'preload.cjs'),session:partition,nodeIntegration:false,contextIsolation:true,sandbox:true,webSecurity:true}});
@@ -166,24 +194,25 @@ app.whenReady().then(async()=>{
   // Visibility is granted only by the post-await authorization checks in launch.
   // A late ready-to-show event must never reveal preserved locked content.
   window.on('closed',()=>{authenticationWindow?.close();accessWindow?.close();settingsWindow?.close();});
-  const permitted=url=>runtime.origin&&new URL(url).origin===runtime.origin;
+  const permitted=url=>url===loadingURL||Boolean(runtime.origin&&new URL(url).origin===runtime.origin);
   window.webContents.on('will-navigate',(event,url)=>{if(!permitted(url))event.preventDefault();});
   window.webContents.on('will-redirect',(event,url)=>{if(!permitted(url))event.preventDefault();});
   window.webContents.setWindowOpenHandler(({url})=>{try{if(['https:','http:'].includes(new URL(url).protocol)&&!url.startsWith('http://127.'))shell.openExternal(url);}catch{}return {action:'deny'};});
-  const githubSource=githubConfig?new(require('./github-source.cjs').GitHubSource)({repository:githubConfig.repository,appId:definition.id,cacheDirectory:path.join(app.getPath('appData'),'MelangeDesktop','github-discovery')}):null;
+  const githubSource=githubConfig?new(require('./github-source.cjs').GitHubSource)({repository:githubConfig.repository,appId:definition.id,cacheDirectory:profile.discoveryCache}):null;
   const githubOptions=githubSource?{request:githubSource.request.bind(githubSource),download:githubSource.download.bind(githubSource)}:{};
-  updater=new DesktopUpdater({...githubOptions,appId:definition.id,version:app.getVersion(),userData:githubConfig?path.join(userData,'github-updates'):userData,loadEnrollment,saveEnrollment,readState:()=>read(githubConfig?'github-update-state.json':'update-state.json'),writeState:value=>write(githubConfig?'github-update-state.json':'update-state.json',value),onStatus:message=>updateStatus(githubSource?message+' '+githubSource.discoverySummary():message),autoUpdater:require('electron-updater').autoUpdater,packaged:app.isPackaged,publisherName:applicationConfig.windowsPublisherName});
+  updater=new DesktopUpdater({...githubOptions,appId:definition.id,version:app.getVersion(),userData:githubConfig?path.join(userData,'github-updates'):userData,loadEnrollment,saveEnrollment,readState:()=>read(githubConfig?'github-update-state.json':'update-state.json'),writeState:value=>write(githubConfig?'github-update-state.json':'update-state.json',value),onStatus:message=>updateStatus(githubSource?message+' '+githubSource.discoverySummary():message),autoUpdater:require('electron-updater').autoUpdater,packaged:app.isPackaged,nativeInstallation:profile.nativeInstallation,publisherName:applicationConfig.windowsPublisherName});
   require('electron-updater').autoUpdater.on('error',error=>{updateStatus('Update not installed: '+error.message);updater.nativeFailure().catch(()=>updateStatus('Update failure recorded locally; administrator status unavailable.')).finally(()=>{if(closing){updater.close();app.quit();}});});
   ipcMain.handle('desktop:info',event=>{setupOnly(event);return {name:definition.name,appId:definition.id,version:app.getVersion(),updateProvider:githubConfig?'github':'publisher',status,settings:read('settings.json'),paired:fs.existsSync(file(enrollmentFile))};});
-  ipcMain.handle('desktop:directory',async event=>{setupOnly(event);const result=await dialog.showOpenDialog(settingsWindow,{properties:['openDirectory','createDirectory'],title:'Choose '+definition.name+' data directory'});if(!result.canceled){const settings={...read('settings.json'),dataDirectory:result.filePaths[0]};write('settings.json',settings);if(runtime.child)updateStatus('Data folder saved for the next application start. Your current workspace remains open.');return settings;}return read('settings.json');});
+  ipcMain.handle('desktop:directory',async event=>{setupOnly(event);const result=await dialog.showOpenDialog(settingsWindow,{properties:['openDirectory','createDirectory'],title:'Choose '+definition.name+' data directory'});if(!result.canceled){const settings={...read('settings.json'),dataDirectory:result.filePaths[0]};if(profile.isolated)try{confineIsolatedSettings(profile.boundary,settings);}catch(error){updateStatus(error.message+' Settings were not changed.');return read('settings.json');}write('settings.json',settings);if(runtime.child)updateStatus('Data folder saved for the next application start. Your current workspace remains open.');return settings;}return read('settings.json');});
   async function selectDistrict(event,district,fromSetup=false){
     if(fromSetup)setupOnly(event);else runtimeOnly(event);
-    if(definition.id!=='terrier'||askingClose||closing)throw new Error('District switching is unavailable.');
+    if(definition.id!=='terrier'||askingClose||closing||accessLifecycle?.suspended)throw new Error('District switching is unavailable.');
     if(district===read('settings.json').district)return false;
-    districtSwitch.prepare(district);askingClose=true;await confirmClose();return Boolean(districtSwitch.pending);
+    return accessOperation(()=>districtSwitch.switch(district));
   }
   ipcMain.handle('desktop:district',(event,district)=>selectDistrict(event,district,true));
   ipcMain.handle('desktop:switch-district',(event,district)=>selectDistrict(event,district));
+  ipcMain.handle('desktop:renderer-ready',event=>{runtimeOnly(event);districtSwitch?.rendererReady();});
   ipcMain.handle('desktop:districts',event=>{runtimeOnly(event);if(definition.id!=='terrier')throw new Error('Districts are only available in Terrier.');const {LABELS}=require('./district-switch.cjs'),configuration=read('settings.json');return {schema:'desktop-districts-1',current:configuration.district,districts:districtSwitch.scope(configuration).map(id=>({id,label:LABELS[id],ready:true,port:0}))};});
   ipcMain.handle('desktop:pair',async(event,bundle)=>{setupOnly(event);if(githubConfig)throw new Error('GitHub updates use the verification keys bundled with this installer. Manual publisher pairing is not required.');if(!safeStorage.isEncryptionAvailable())throw new Error('Operating-system credential protection unavailable');const result=await enrollFresh({bundle:pairing(bundle,definition.id),appId:definition.id,version:app.getVersion(),platform:process.platform,arch:process.arch,request:jsonRequest,readPrevious:()=>fs.existsSync(file(enrollmentFile))?JSON.parse(safeStorage.decryptString(fs.readFileSync(file(enrollmentFile)))):null,save:saveEnrollment,deleteCredential:(appId,deviceId)=>credentialCommand(resources,appId,deviceId,'delete')});updateStatus('Paired with a new device identity. Administrator recipient approval is required.'+(result.priorCredentialRemoved?'':' Previous credential cleanup remains pending.'));return true;});
   ipcMain.handle('desktop:launch',async event=>{setupOnly(event);await launch();});
@@ -195,14 +224,15 @@ app.whenReady().then(async()=>{
   });
   // Never override a renderer beforeunload veto; unsaved-work protections remain active.
   require('./district-switch.cjs').preserveUnloadVeto(window.webContents,()=>{closeApproved=false;districtSwitch?.cancel();});
-  await window.loadURL('about:blank');
+  if(!background&&definition.id==='terrier'){await window.loadURL(loadingURL);window.show();}else await window.loadURL('about:blank');
   if(!background){if(read('settings.json').dataDirectory)await launch().catch(()=>{});else await showSetup();}
-  if(app.isPackaged)app.setLoginItemSettings({openAtLogin:true,...(process.platform==='win32'?{name:definition.applicationId,path:process.execPath,args:['--desktop-updater']}:{})});
+  if(!portable)if(profile.registerLoginItem)app.setLoginItemSettings({openAtLogin:true,...(process.platform==='win32'?{name:definition.applicationId,path:process.execPath,args:['--desktop-updater']}:{})});
   checkUpdates();interval=setInterval(checkUpdates,15*60*1000);interval.unref();
   networkWatcher=watchNetwork({isOnline:()=>net.isOnline(),onReconnect:checkUpdates});
   presenceInterval=setInterval(()=>{accessLifecycle?.heartbeat().catch(()=>{});drainActivity();},60000);presenceInterval.unref();
-  powerMonitor.on('lock-screen',()=>{if(accessLifecycle){accessLifecycle.osLocked=true;accessLifecycle.heartbeat().catch(()=>{});}});
+  powerMonitor.on('lock-screen',()=>{if(accessLifecycle){accessLifecycle.osLocked=true;accessLifecycle.suspend('locked').catch(()=>{});}});
   powerMonitor.on('unlock-screen',()=>{if(accessLifecycle){accessLifecycle.osLocked=false;accessLifecycle.heartbeat().catch(()=>{});}});
+  powerMonitor.on('suspend',()=>{if(accessLifecycle)accessLifecycle.suspend('locked').catch(()=>{});});
   powerMonitor.on('resume',checkUpdates);
   powerMonitor.on('unlock-screen',checkUpdates);
   powerMonitor.on('shutdown',()=>updater.suspendInstallation());
@@ -211,4 +241,5 @@ app.whenReady().then(async()=>{
 });
 app.on('window-all-closed',finishClose);
 app.on('before-quit',event=>{if(!closing&&window&&!window.isDestroyed()){event.preventDefault();window.close();}else{clearInterval(interval);networkWatcher?.close();}});
+}
 }

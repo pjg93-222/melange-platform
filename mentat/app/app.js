@@ -1096,6 +1096,8 @@ async function poll() {
 }
 async function init() {
   try { const session = await api('/api/session?light=1'); token = session.token; readOnly=!!session.read_only;
+    // hosted (Cloudflare Access): the Flow views read this to switch off the candidate-spending card and panel
+    window.MentatConsole = Object.assign(window.MentatConsole || {}, {hosted: !!session.hosted});
     try { renderBuild(session); scheduleBuildPoll(); } catch { }
     evidenceCollectionAvailable=!!session.evidence_collection_available;
     // The collector form lives in the PAC evidence tab's New snapshot drawer

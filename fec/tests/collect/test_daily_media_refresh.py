@@ -3,6 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -418,7 +419,8 @@ def test_a_reused_partial_press_run_reaches_the_receipt_and_runs_press_intake(tm
     assert receipt['press_partial']['pending_body_urls'] == 2200
     assert receipt['press_partial']['intake_excused'] is True
     assert receipt['press_partial']['reused_same_day_receipt'] is True
-    assert receipt['parked_steps'] == [] and receipt['status'] == 'PASS' and receipt['error_count'] == 0
+    # An excused PARTIAL row still makes the terminal status PARTIAL: the gap is named, not hidden behind PASS.
+    assert receipt['parked_steps'] == [] and receipt['status'] == 'PARTIAL' and receipt['error_count'] == 0
 
 
 def test_an_unexcused_reused_partial_press_run_parks_the_lane(tmp_path, monkeypatch):
@@ -465,7 +467,7 @@ def test_exit_three_outside_the_press_collector_is_still_a_failure(tmp_path, nam
     assert 'partial' not in row
 
 
-def test_press_partial_passes_the_day_while_naming_the_gap(tmp_path, monkeypatch, capsys):
+def test_press_partial_closes_the_day_as_partial_while_naming_the_gap(tmp_path, monkeypatch, capsys):
     @contextmanager
     def lock(*args, **kwargs):
         yield {'pid': 17, 'token': 'lease', 'adopted': False}
@@ -497,19 +499,21 @@ def test_press_partial_passes_the_day_while_naming_the_gap(tmp_path, monkeypatch
     receipt = json.loads((tmp_path / M.RECEIPT).read_text())
     assert receipt['parked_steps'] == ['press_intake', 'press_feed', 'press_baseline_fold']
     assert receipt['schema'] == 'daily-media-refresh-receipt-v1'
-    assert receipt['status'] == 'PASS' and receipt['error_count'] == 0
+    assert receipt['status'] == 'PARTIAL' and receipt['error_count'] == 0
     assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
     assert receipt['press_partial']['pending_body_urls'] == 2200
     assert receipt['press_partial']['failed_bodies'] == 2578
     assert receipt['press_partial']['status'] == 'PARTIAL'
     assert receipt['press_partial']['intake_excused'] is False
     assert [row['status'] for row in receipt['sources'] if row['source'] == 'press'] == ['PARTIAL']
-    # The PASS success anchor carries the same partial evidence, so no later run
+    # The PARTIAL success anchor carries the same partial evidence, so no later run
     # can read it as a complete press generation.
     saved = json.loads((tmp_path / M.SUCCESS_RECEIPT).read_text())
+    assert saved['status'] == 'PARTIAL'
     assert saved['local_date'] == '2026-09-13' and saved['partial_sources'] == ['press']
-    assert re.search(r'press: PARTIAL \(\d+(\.\d+)?s\) pending_body_urls=2200 intake_excused=False',
-                     capsys.readouterr().out)
+    out = capsys.readouterr().out
+    assert re.search(r'press: PARTIAL \(\d+(\.\d+)?s\) pending_body_urls=2200 intake_excused=False', out)
+    assert '"status": "PARTIAL"' in out   # the console summary line is as truthful as the receipt
 
 
 # --- Smoke mode ---------------------------------------------------------
@@ -653,9 +657,9 @@ def test_partial_press_parks_the_intake_steps_instead_of_feeding_them(tmp_path, 
         assert rows[name]['error_count'] == 0
         assert rows[name]['note'] == ('press generation incomplete (pending_body_urls=2200); '
                                       'intake deferred until a complete run')
-    # A parked step is not an error, so the day is still a PASS that says so.
+    # A parked step is not an error, so the day still exits 0, but the PARTIAL press row makes it a PARTIAL that says so.
     assert code == 0
-    assert receipt['status'] == 'PASS' and receipt['error_count'] == 0
+    assert receipt['status'] == 'PARTIAL' and receipt['error_count'] == 0
     assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
     assert receipt['press_partial']['pending_body_urls'] == 2200
     assert receipt['parked_steps'] == ['press_intake', 'press_feed', 'press_baseline_fold', 'all_intake']
@@ -712,7 +716,7 @@ def test_excused_press_partial_keeps_the_lane_running_through_the_intake_steps(t
     assert rows['press']['status'] == 'PARTIAL' and rows['press']['partial']['intake_excused'] is True
     for name in ('press_intake', 'press_feed', 'press_baseline_fold', 'all_intake'):
         assert rows[name]['status'] == 'PASS'
-    assert code == 0 and receipt['status'] == 'PASS' and receipt['error_count'] == 0
+    assert code == 0 and receipt['status'] == 'PARTIAL' and receipt['error_count'] == 0
     assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
     assert receipt['press_partial']['intake_excused'] is True
     assert receipt['press_partial']['pending_body_urls'] == 2200
@@ -726,6 +730,115 @@ def test_unexcused_press_partial_parks_the_lane_and_the_derived_intake_step(tmp_
     assert {'hearing_extract', 'social_master'} <= set(executed)
     assert receipt['parked_steps'] == ['press_intake', 'press_feed', 'press_baseline_fold', 'all_intake']
     assert receipt['partial_sources'] == ['press'] and code == 0
+
+
+def write_sealed_partial(run_root, pairs):
+    """A run sealed the way the walk seals a PARTIAL: required files, a pending artifact, a hash-bound receipt."""
+    run_root = Path(run_root)
+    run_root.mkdir(parents=True, exist_ok=True)
+    for name in ('press_delta_fulltext.csv', 'press_delta_fulltext.rds', 'press_delta_host_articles.csv',
+                 'press_delta_article_mentions.csv', 'press_delta_scored.csv'):
+        (run_root / name).write_text('url\n', encoding='utf-8')
+    (run_root / 'press_delta_pending.csv').write_text(
+        'bioguide,url,date,collection_status\n'
+        + ''.join('%s,%s,,body_pending_network_attempt\n' % pair for pair in pairs), encoding='utf-8')
+
+    def digest(name):
+        return hashlib.sha256((run_root / name).read_bytes()).hexdigest()
+
+    return write_retry_receipt(
+        run_root, schema_version=0, pending_body_urls=len(pairs),
+        pending_body_urls_sha256=digest('press_delta_pending.csv'),
+        fulltext_csv_sha256=digest('press_delta_fulltext.csv'),
+        fulltext_rds_sha256=digest('press_delta_fulltext.rds'),
+        completed_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).replace(microsecond=0).isoformat())
+
+
+def test_a_real_sealed_partial_is_accepted_by_the_gate_and_not_parked(tmp_path, monkeypatch):
+    # No inspect_run stand-in: the intake gate's own run test reads real sealed files. Owner
+    # ruling 2026-10-15: a sealed PARTIAL carries its pending URLs to the next run, so it is
+    # promoted -- the lane is not parked and nothing waits for a tombstone streak.
+    from collect import press_pending_tombstones as tombstones
+    monkeypatch.setattr(tombstones, 'DEFAULT_TOMBSTONES', str(tmp_path / 'tombstones.json'))
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_sealed_partial(run_root, [('X000001', 'https://example.gov/a'),
+                                    ('X000002', 'https://example.gov/b')])
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    assert row['status'] == 'PARTIAL' and row['error_count'] == 0
+    assert row['partial']['intake_excused'] is True and row['partial']['pending_body_urls'] == 2
+    assert not M.parks_intake(row)
+
+
+def test_a_sealed_partial_that_repeats_a_pending_key_is_refused_and_parks(tmp_path, monkeypatch):
+    from collect import press_pending_tombstones as tombstones
+    monkeypatch.setattr(tombstones, 'DEFAULT_TOMBSTONES', str(tmp_path / 'tombstones.json'))
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_sealed_partial(run_root, [('X000001', 'https://example.gov/a'),
+                                    ('X000001', 'https://example.gov/a/')])
+    row = M.execute_step(press_step(run_root), tmp_path, tmp_path, {},
+                         lambda step, root, log, environment: M.PRESS_PARTIAL_RETURNCODE)
+    assert row['status'] == 'PARTIAL' and row['partial']['intake_excused'] is False
+    assert row['partial']['intake_refusal_reason'] == 'PENDING_BODY_ATTEMPTS'
+    assert M.parks_intake(row)
+
+
+# --- PARTIAL is a truthful, non-fatal, anchoring terminal status (DE-020) ---
+
+
+def test_an_unexcused_partial_run_exits_zero_anchors_and_the_next_run_reads_that_anchor(tmp_path, monkeypatch):
+    patch_inspect_run(monkeypatch, excused=False)
+    code, executed, receipt = parked_world(tmp_path, monkeypatch, M.PRESS_PARTIAL_RETURNCODE)
+    assert code == 0 and receipt['status'] == 'PARTIAL' and receipt['error_count'] == 0
+    anchor = json.loads((tmp_path / M.SUCCESS_RECEIPT).read_text())
+    assert anchor['schema'] == M.SCHEMA and anchor['status'] == 'PARTIAL'
+    assert anchor['local_date'] == '2026-09-13' and anchor['partial_sources'] == ['press']
+    # The reader accepts a PARTIAL anchor, so the next run's source windows start from it.
+    assert M.successful_collection_date(tmp_path, date(2026, 9, 14)) == date(2026, 9, 13)
+    seen = []
+    monkeypatch.setattr(M, 'source_steps',
+                        lambda today, last_success: seen.append(last_success) or [M.Step('crec', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: [])
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        return 0
+
+    assert M.run(tmp_path, today=date(2026, 9, 14), runner=runner, preflight_check=lambda root: None) == 0
+    assert seen == [date(2026, 9, 13)]
+    follow_up = json.loads((tmp_path / M.RECEIPT).read_text())
+    assert follow_up['status'] == 'PASS' and follow_up['last_successful_collection_date'] == '2026-09-13'
+
+
+@pytest.mark.parametrize('status', ['FAIL', 'RUNNING', 'SKIPPED_SMOKE', None])
+def test_the_catch_up_anchor_still_refuses_a_receipt_that_is_not_a_success(tmp_path, status):
+    M.write_json(tmp_path / M.SUCCESS_RECEIPT, {'schema': M.SCHEMA, 'status': status, 'local_date': '2026-09-01'})
+    with pytest.raises(RuntimeError, match='not a successful collection receipt'):
+        M.successful_collection_date(tmp_path, date(2026, 9, 13))
+
+
+def test_a_failed_source_beside_a_partial_press_is_a_fail_and_never_a_partial(tmp_path, monkeypatch):
+    @contextmanager
+    def lock(*args, **kwargs):
+        yield {'pid': 17, 'token': 'lease', 'adopted': False}
+    monkeypatch.setattr(M, 'pipeline_run_lock', lock)
+    patch_inspect_run(monkeypatch, excused=False)
+    run_root = tmp_path / 'outputs/press_refresh_20260913'
+    write_retry_receipt(run_root)
+    monkeypatch.setattr(M, 'source_steps', lambda today, last_success: [M.Step('crec', 'fixture')])
+    monkeypatch.setattr(M, 'press_steps', lambda root, today: [press_step(run_root)])
+    monkeypatch.setattr(M, 'derived_steps', lambda root, today: [M.Step('derived', 'fixture')])
+
+    def runner(step, root, log, environment):
+        log.write_text(step.name)
+        return {'crec': 2, 'press': M.PRESS_PARTIAL_RETURNCODE}.get(step.name, 0)
+
+    code = M.run(tmp_path, today=date(2026, 9, 13), runner=runner, preflight_check=lambda root: None)
+    receipt = json.loads((tmp_path / M.RECEIPT).read_text())
+    assert code == 1 and receipt['status'] == 'FAIL' and receipt['error_count'] >= 1
+    assert receipt['partial'] is True and receipt['partial_sources'] == ['press']
+    # A failed run never becomes the catch-up anchor, partial or not.
+    assert not (tmp_path / M.SUCCESS_RECEIPT).exists()
 
 
 def test_parks_intake_is_true_only_for_an_unexcused_partial_or_a_smoke_skip():

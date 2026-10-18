@@ -47,9 +47,9 @@ class DesktopAccessGate{
    return await this.info();
   }finally{this.busy=false;}
  }
- async authorize(){
+ async authorize(configuration=this.configuration()){
   const accepted=await this.evidence();if(!accepted||accepted.revoked)throw new Error('Administrator approval required');
-  const grant=accepted.grant,configuration=this.configuration(),owner=await this.owner(accepted,configuration);
+  const grant=accepted.grant,owner=await this.owner(accepted,configuration);
   if(this.appId==='terrier'){
    if(!grant.districtIds.includes(configuration.district))throw new Error('District approval required');
    if(Boolean(configuration.terrierLegacy)!==Boolean(owner))throw new Error('Explicit existing-owner migration is required');
@@ -64,4 +64,10 @@ class DesktopAccessGate{
  districts(){if(!this.accepted||this.accepted.revoked||this.appId!=='terrier')return [];return [...this.accepted.grant.districtIds];}
  async refresh(){await this.client.refresh();await this.evidence();if(this.accepted?.revoked)this.local?.lock();return this.info();}
 }
-module.exports={DesktopAccessGate,argument};
+async function authorizeAvailable(gate,onRefresh=async()=>{}){
+ let approved;try{approved=await gate.authorize();}catch{await gate.refresh();return gate.authorize();}
+ // A current signed offline lease permits immediate opening. Revalidate online
+ // concurrently; a learned revocation still suspends the native workspace.
+ gate.refresh().then(onRefresh).catch(()=>{});return approved;
+}
+module.exports={DesktopAccessGate,argument,authorizeAvailable};

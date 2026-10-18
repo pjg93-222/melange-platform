@@ -76,7 +76,9 @@ class PipelineContracts(unittest.TestCase):
 
     def test_pipeline_has_an_exclusive_run_lock(self):
         text = source("run_pipeline.py")
-        self.assertIn("with pipeline_run_lock():", text)
+        # The chain transaction (chain_transaction.py, self-healing phase 2) is entered in the SAME with-statement, after the
+        # lease and left before it, so the lease still wraps every write AND the rollback.
+        self.assertRegex(text, r"with pipeline_run_lock\(\)(?:, _ctx\.transaction\(|:)")
         lock = source("pipeline_lock.py")   # the lock moved to fec/pipeline_lock.py on 2026-08-29 (0bf7de7e0)
         self.assertIn("os.O_EXCL", lock)
         self.assertIn("finally", lock)

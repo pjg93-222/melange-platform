@@ -41,10 +41,10 @@ def day(root, date=DAY):
     return state(root)['days'][date]
 
 
-def complete(root, attempt_id, pid=8123, **changes):
+def complete(root, attempt_id, pid=8123, media_status='PASS', **changes):
     directory = root / 'audits/congress_pipeline' / attempt_id
     directory.mkdir(parents=True, exist_ok=True)
-    media = {'schema': 'daily-media-refresh-receipt-v1', 'status': 'PASS'}
+    media = {'schema': 'daily-media-refresh-receipt-v1', 'status': media_status}
     daily.write(root / daily.MEDIA_RECEIPT, media)
     daily.write(directory / 'daily_media_refresh_receipt.json', media)
     receipt = {'schema': 'congress-pipeline-status-v1', 'status': 'PASS', 'include_media': True,
@@ -105,6 +105,7 @@ def test_first_observation_runs_full_pipeline_and_success_is_once_per_day(tmp_pa
     assert daily.run(tmp_path, trigger=trigger) == 0
     success = day(tmp_path)['success']
     assert success['include_media'] is True and success['owner_pid'] == Finished.pid
+    assert success['media_status'] == 'PASS'
     assert day(tmp_path)['status'] == 'PASS'
     assert not (tmp_path / '.daily_refresh.lock').exists()
     for repeated in ('first-use', 'retry', 'manual'):
@@ -214,6 +215,32 @@ def test_partial_press_coverage_still_closes_the_day(tmp_path, monkeypatch):
     assert daily.run(tmp_path, trigger='retry') == 0
 
 
+def test_partial_media_closes_the_day_as_partial_and_a_retry_launches_nothing(tmp_path, monkeypatch, capsys):
+    """DE-020: a PARTIAL media receipt is a non-fatal success. The day is recorded PARTIAL
+    (rc 0) with success set, so the hourly retry is ALREADY_COMPLETE and starts no child."""
+    calls = fake_launch(tmp_path, monkeypatch, changes={'media_status': 'PARTIAL'})
+    assert daily.run(tmp_path, trigger='first-use') == 0
+    assert len(calls) == 1
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])['status'] == 'PARTIAL'
+    record = day(tmp_path)
+    assert record['status'] == 'PARTIAL' and record['attempts'][0]['status'] == 'PARTIAL'
+    assert record['success']['media_status'] == 'PARTIAL' and record['success']['include_media'] is True
+    assert daily.read(Path(record['success']['receipt']))['status'] == 'PASS'   # the congress run itself passed
+    assert not (tmp_path / '.daily_refresh.lock').exists()
+    monkeypatch.setattr(daily.subprocess, 'Popen',
+                        lambda *a, **k: pytest.fail('a PARTIAL day is complete and must not re-run'))
+    assert daily.run(tmp_path, trigger='retry') == 0
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])['status'] == 'ALREADY_COMPLETE'
+    assert len(day(tmp_path)['attempts']) == 1 and day(tmp_path)['status'] == 'PARTIAL'
+
+
+@pytest.mark.parametrize('media_status', ['FAIL', 'RUNNING', 'SKIPPED'])
+def test_a_media_receipt_that_is_neither_pass_nor_partial_cannot_close_the_day(tmp_path, monkeypatch, media_status):
+    fake_launch(tmp_path, monkeypatch, changes={'media_status': media_status})
+    assert daily.run(tmp_path, trigger='first-use') == 1
+    assert day(tmp_path)['success'] is None and day(tmp_path)['status'] == 'FAILED'
+
+
 def test_deferred_discovery_still_closes_the_day(tmp_path, monkeypatch):
     """A PASS receipt that defers flaky discovery is still a completed day, so
     the hourly retry stops instead of restarting the four-hour chain."""
@@ -298,6 +325,19 @@ def test_successful_child_after_parent_interruption_is_reconciled_without_second
     assert daily.run(tmp_path, trigger='retry') == 0
     assert day(tmp_path)['success']['attempt_id'] == 'interrupted'
     assert day(tmp_path)['attempts'][0]['recovered_completion'] is True
+
+
+def test_partial_child_after_parent_interruption_is_reconciled_as_partial_without_second_run(tmp_path, monkeypatch):
+    interrupted_attempt(tmp_path)
+    complete(tmp_path, 'interrupted', media_status='PARTIAL')
+    daily.write(tmp_path / daily.MEDIA_RECEIPT, {'later': 'unrelated refresh'})
+    monkeypatch.setattr(daily, 'process_alive', lambda pid: False)
+    monkeypatch.setattr(daily.subprocess, 'Popen', lambda *a, **k: pytest.fail('must not launch twice'))
+    assert daily.run(tmp_path, trigger='retry') == 0
+    record = day(tmp_path)
+    assert record['success']['attempt_id'] == 'interrupted' and record['success']['media_status'] == 'PARTIAL'
+    assert record['attempts'][0]['status'] == 'PARTIAL' and record['attempts'][0]['recovered_completion'] is True
+    assert record['status'] == 'PARTIAL'
 
 
 def test_interrupted_parent_does_not_start_over_its_live_child(tmp_path, monkeypatch):

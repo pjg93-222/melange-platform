@@ -38,21 +38,37 @@ APPROVED_CACHE_BYTES = 64 * 1024 * 1024
 _approved_cache = OrderedDict()
 _approved_cache_lock = threading.Lock()
 
+# The desktop persistence prefix of mlk-boot.js ships with the application (runtime-manifest sourceFiles).
+# A selected workspace generated before it existed still gets it: prepended at serve time, never written back.
+BOOT_PREFIX_SOURCE = Path(__file__).parent / 'approved' / 'clean' / 'mlk-boot.js'
+BOOT_PREFIX_MARKER = b'__melangeDesktopStorage'
 
-def approved_payload(path):
-    """(gzip body, ETag, raw size) of one approved asset. The ETag is the content hash it always was."""
+
+def boot_prefix():
+    """The app-owned prefix (bytes before '/* mlk-boot.js:'), or b'' when the app copy is absent or has none."""
+    try:
+        head, separator, _ = BOOT_PREFIX_SOURCE.read_bytes().partition(b'/* mlk-boot.js:')
+    except OSError:
+        return b''
+    return head if separator and BOOT_PREFIX_MARKER in head else b''
+
+
+def approved_payload(path, prefix=b''):
+    """(gzip body, ETag, raw size) of one approved asset. The ETag is the content hash it always was.
+    A non-empty prefix is prepended only when the file does not already carry the desktop prefix."""
     import gzip
     before = path.stat()
-    key = (str(path), before.st_mtime_ns, before.st_size)
+    key = (str(path), before.st_mtime_ns, before.st_size, hashlib.sha256(prefix).hexdigest() if prefix else '')
     with _approved_cache_lock:
         entry = _approved_cache.get(key)
         if entry is not None:
             _approved_cache.move_to_end(key)
             return entry
-    raw = path.read_bytes()
+    original = path.read_bytes()
+    raw = prefix + original if prefix and BOOT_PREFIX_MARKER not in original else original
     entry = (gzip.compress(raw, compresslevel=3), '"clean-' + hashlib.sha256(raw).hexdigest()[:24] + '"', len(raw))
     after = path.stat()
-    if (after.st_mtime_ns, after.st_size) == key[1:] and len(raw) == before.st_size:  # not rewritten while read
+    if (after.st_mtime_ns, after.st_size) == key[1:3] and len(original) == before.st_size:  # not rewritten while read
         with _approved_cache_lock:
             _approved_cache[key] = entry
             total = sum(len(value[0]) for value in _approved_cache.values())
@@ -525,11 +541,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = (self.server.dashboard.assertion_decision(payload) if endpoint == '/api/staffer-assertions' else
                       self.server.dashboard.identity_decision(payload.get('primary_id'), payload.get('alias_ids'), payload.get('decision')))
-            self.send_bytes(json.dumps(result).encode(), 'application/json', 202)
         except (ValueError, TypeError) as exc:
             self.send_bytes(json.dumps({'error': str(exc)}).encode(), 'application/json', 400)
+            return
         except OSError as exc:
             self.send_bytes(json.dumps({'error': 'Could not save identity decision: ' + str(exc)}).encode(), 'application/json', 503)
+            return
+        # Persistence has completed. A lost response cannot undo or retry it.
+        self.send_bytes(json.dumps(result).encode(), 'application/json', 202)
 
     def routing_options(self, query):
         options = {}
@@ -595,6 +614,9 @@ class Handler(BaseHTTPRequestHandler):
         elif parts.path == '/api/staffer-assertions':
             self.send_bytes(json.dumps({'assertions': load_coworker_assertions(), 'local_date': local_date(), 'timezone': 'America/New_York'}).encode(), 'application/json')
         elif parts.path == '/api/staffer-network-index':
+            if getattr(self.server.dashboard, 'startup_error', None) and not getattr(self.server.dashboard, 'ready', False):
+                self.send_bytes(b'{"error":"The verified people model could not be loaded. Check the selected workspace and restart the app.","code":"model_unavailable"}', 'application/json', 503)
+                return
             compressed = 'gzip' in self.headers.get('Accept-Encoding', '')
             scope = parse_qs(parts.query).get('scope', ['sources'])[0]
             if scope not in ('network', 'sources'):
@@ -611,6 +633,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self.send_bytes(body, 'application/json; charset=utf-8', etag=etag, compressed=compressed)
         elif parts.path == '/api/staffer-groups-index':
+            if getattr(self.server.dashboard, 'startup_error', None) and not getattr(self.server.dashboard, 'ready', False):
+                self.send_bytes(b'{"error":"The verified people model could not be loaded. Check the selected workspace and restart the app.","code":"model_unavailable"}', 'application/json', 503)
+                return
             compressed = 'gzip' in self.headers.get('Accept-Encoding', '')
             service = self.server.dashboard
             if not hasattr(service, 'groups_index'):
@@ -765,7 +790,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
         try:
-            zipped, etag, _size = approved_payload(path)
+            zipped, etag, _size = approved_payload(path, boot_prefix() if path == base / 'mlk-boot.js' else b'')
         except OSError:
             self.send_error(404)
             return
@@ -785,21 +810,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_bytes(path.read_bytes(), mime + "; charset=utf-8")
 
     def send_bytes(self, data, mime, status=200, etag=None, compressed=False):
-        self.send_response(status)
-        self.send_header("Content-Type", mime)
-        self.send_header("Cache-Control", "no-cache" if etag else "no-store")
-        if etag:
-            self.send_header('ETag', etag)
-        if compressed:
-            self.send_header('Content-Encoding', 'gzip')
-            self.send_header('Vary', 'Accept-Encoding')
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
         try:
+            self.send_response(status)
+            self.send_header("Content-Type", mime)
+            self.send_header("Cache-Control", "no-cache" if etag else "no-store")
+            if etag:
+                self.send_header('ETag', etag)
+            if compressed:
+                self.send_header('Content-Encoding', 'gzip')
+                self.send_header('Vary', 'Accept-Encoding')
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
-            pass  # A superseded search can cancel its HTTP request.
+            # A closed client can interrupt either the headers or response body.
+            # Do not retry the response or mistake this for a persistence error.
+            self.close_connection = True
 
     def log_message(self, fmt, *args):
         pass

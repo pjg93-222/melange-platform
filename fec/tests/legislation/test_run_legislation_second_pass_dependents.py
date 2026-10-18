@@ -5,7 +5,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
-import subprocess
+from types import SimpleNamespace
 import sys
 import tempfile
 import unittest
@@ -208,14 +208,16 @@ def child_success(run_dir: Path, calls: list[str]):
         *,
         cwd,
         env,
-        text,
-        encoding,
-        errors,
-        capture_output,
-        check,
+        timeout,
+        start_new_session,
     ):
-        del env, text, encoding, errors, capture_output, check
+        assert 0 < timeout < float("inf")
+        assert start_new_session == (os.name != "nt")
         assert Path(cwd) == run_dir
+        assert env["MONEYBALL_ROOT"] == str(run_dir)
+        assert env["LEGISLATION_SHADOW_RUN_DIR"] == str(run_dir)
+        assert env["LEGISLATION_SHADOW_MODE"] == "1"
+        assert env["PYTHONDONTWRITEBYTECODE"] == "1"
         command = [str(item) for item in command]
         if "run_legislation_network_dependents.py" in command[1]:
             calls.append("network")
@@ -294,7 +296,7 @@ def child_success(run_dir: Path, calls: list[str]):
             )
         else:
             raise AssertionError(command)
-        return subprocess.CompletedProcess(command, 0, "ok\n", "")
+        return SimpleNamespace(returncode=0, stdout="ok\n", stderr="", timed_out=False)
 
     return run
 
@@ -334,6 +336,14 @@ def shadow_environment(run_dir: Path):
 
 
 class SecondPassDependentsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Exercise production guards on an isolated root, never live outputs.
+        production = tempfile.TemporaryDirectory()
+        self.addCleanup(production.cleanup)
+        guard = mock.patch.object(MOD, "REPO_ROOT", Path(production.name))
+        guard.start()
+        self.addCleanup(guard.stop)
+
     def test_final_chain_is_ordered_generation_bound_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             run_dir = Path(temporary)
@@ -341,8 +351,8 @@ class SecondPassDependentsTests(unittest.TestCase):
             calls: list[str] = []
             with shadow_environment(run_dir):
                 with mock.patch.object(
-                    MOD.subprocess,
-                    "run",
+                    MOD,
+                    "run_bounded",
                     side_effect=child_success(run_dir, calls),
                 ):
                     with mock.patch.object(
@@ -392,8 +402,8 @@ class SecondPassDependentsTests(unittest.TestCase):
             before = (run_dir / MOD.FINAL_RECEIPT).read_bytes()
             with shadow_environment(run_dir):
                 with mock.patch.object(
-                    MOD.subprocess,
-                    "run",
+                    MOD,
+                    "run_bounded",
                     side_effect=AssertionError("must reuse receipt"),
                 ):
                     second = MOD.run_second_pass_dependents(run_dir)
@@ -409,8 +419,8 @@ class SecondPassDependentsTests(unittest.TestCase):
             fixture["say_do"].write_text("tampered\n", encoding="utf-8")
             with shadow_environment(run_dir):
                 with mock.patch.object(
-                    MOD.subprocess,
-                    "run",
+                    MOD,
+                    "run_bounded",
                     side_effect=AssertionError("child must not run"),
                 ):
                     with self.assertRaisesRegex(
@@ -445,13 +455,13 @@ class SecondPassDependentsTests(unittest.TestCase):
 
             def failed(*args, **kwargs):
                 del kwargs
-                return subprocess.CompletedProcess(
-                    args[0], 7, "", "fixture failure"
+                return SimpleNamespace(
+                    returncode=7, stdout="", stderr="fixture failure", timed_out=False
                 )
 
             with shadow_environment(run_dir):
                 with mock.patch.object(
-                    MOD.subprocess, "run", side_effect=failed
+                    MOD, "run_bounded", side_effect=failed
                 ):
                     with self.assertRaisesRegex(
                         MOD.SecondPassError, "network.*failed"

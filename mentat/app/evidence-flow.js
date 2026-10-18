@@ -62,6 +62,7 @@
     <div id="evidence-flow-foot" class="flow-foot"></div>
   </section>
   <aside class="card flow-rail" aria-labelledby="evidence-flow-rail-title">
+    <div id="evidence-flow-spending" class="flow-spending" aria-label="Candidate spending" hidden></div>
     <h3 id="evidence-flow-rail-title" class="flow-rail-title">Largest routes</h3>
     <ol id="evidence-flow-routes" class="flow-routes"></ol>
     <div id="evidence-flow-pins" class="flow-pins" hidden></div>
@@ -386,6 +387,7 @@
     const options = {width, height, grow: true, opacity: chartApi.VIEW_OPACITY, ribbons: state.ribbons, top: 0,
       title: $('evidence-flow-heading').textContent,
       explore: true, more: state.top || 8, view: state.view, prunePins: prune, pinPanel: $('evidence-flow-pins'),
+      spendingPanel: $('evidence-flow-spending'),
       context: last ? {payload: last.arranged, nodeId: last.nodeId, label: last.label} : null,
       full: state.fulls[fullUrl] || null, onFull: full => { state.fulls[fullUrl] = full; },
       // Unfolding a group the answer built needs every member's own links: the same flow at "Every node".

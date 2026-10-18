@@ -15,6 +15,7 @@ import sqlite3
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from lane_file_io import replace_atomic  # noqa: E402
 from paths import to_host  # noqa: E402  (a hard-coded Windows root maps onto the container mount; identity on Windows)
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +32,8 @@ def write_json(name, value):
 def page_data(name):
     text = (ROOT / name).read_text(encoding='utf-8')
     match = re.search(r'<script[^>]+id=["\']?page-data["\']?[^>]*>(.*?)</script>', text, re.S)
+    if match is None:
+        raise ValueError(f'{name}: no page-data script')
     return json.loads(match[1])
 
 

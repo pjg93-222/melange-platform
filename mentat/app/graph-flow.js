@@ -58,6 +58,7 @@
     <div id="graph-flow-foot" class="flow-foot"></div>
   </section>
   <aside id="graph-flow-pins" class="card flow-rail flow-pins" aria-label="Linked units" hidden></aside>
+  <aside id="graph-flow-spending" class="card flow-rail flow-spending" aria-label="Candidate spending" hidden></aside>
 </div>`;
 
   const $ = id => doc.getElementById(id);
@@ -303,7 +304,7 @@
     // FL1/FL2: bars to scale in any height (the plot grows before a label is dropped), ribbons at 20% (lane G1).
     state.chart = chartApi.mount(canvas, payload, {width, height, grow: true, opacity: chartApi.VIEW_OPACITY,
       ribbons: state.ribbons, explore: true, more: state.top || 8, view: state.view, prunePins: prune,
-      pinPanel: $('graph-flow-pins'),
+      pinPanel: $('graph-flow-pins'), spendingPanel: $('graph-flow-spending'),
       // a committee asked for from the drawer is the one in view: never folded into "Small transfers"
       focus: state.focus && !state.committee ? 'committee:' + state.focus : '',
       context: last ? {payload: last.arranged, nodeId: last.nodeId, label: last.label} : null,

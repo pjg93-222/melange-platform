@@ -123,7 +123,10 @@ def base_route_many(base, router, origin, targets, options):
     options = router._options(options)
     targets = tuple(p for p in sorted(set(targets)) if p not in options['_excluded_nodes'])
     if options['route_count'] > 1 and options['alternative_strategy'] != 'ranked':
-        return base.distinct.distinct_routes(router, origin, targets, options, None)
+        expected = base.distinct.distinct_routes(router, origin, targets, options, None)
+        if expected.get('alternatives_stop_reason') == 'search_error':
+            expected = {**expected, 'alternatives_complete': False}
+        return expected
     return router.closeness_routes.route(origin, targets, options)
 
 

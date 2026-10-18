@@ -38,9 +38,13 @@ def cue_map(path: Path) -> dict[str, dict]:
     return {str(row["member"]): row for row in SMR.read_jsonl(path, required=True)}
 
 
-def normalized_candidate(row: dict) -> dict | None:
-    """Normalize YouTube discovery and manually resolved podcast candidates."""
-    source_type = str(row.get("resolved_source_type") or "youtube")
+def normalized_candidate(row: dict, default_source_type: str | None = "youtube") -> dict | None:
+    """Normalize YouTube discovery and manually resolved podcast candidates.
+
+    Rows without ``resolved_source_type`` take ``default_source_type``; pass
+    ``None`` (supplemental general-web rows) to drop unresolved rows.
+    """
+    source_type = str(row.get("resolved_source_type") or default_source_type or "")
     if source_type not in {"youtube", "apple_directory_audio"}:
         return None
     url = row.get("resolved_url") or row.get("url")
@@ -115,11 +119,16 @@ def main() -> int:
         and member not in roles
     }
     grouped: dict[str, list[dict]] = {}
-    discovery_rows = SMR.read_jsonl(args.discovery, required=True)
+    discovery_rows = [
+        normalized_candidate(raw, "youtube")
+        for raw in SMR.read_jsonl(args.discovery, required=True)
+    ]
     if args.supplemental_discovery.is_file():
-        discovery_rows.extend(SMR.read_jsonl(args.supplemental_discovery))
-    for raw in discovery_rows:
-        row = normalized_candidate(raw)
+        discovery_rows.extend(
+            normalized_candidate(raw, None)
+            for raw in SMR.read_jsonl(args.supplemental_discovery)
+        )
+    for row in discovery_rows:
         if row:
             grouped.setdefault(str(row["member"]), []).append(row)
 

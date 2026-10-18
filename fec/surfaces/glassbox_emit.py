@@ -65,7 +65,7 @@ def emit(
     """
     try:
         EVENTS_DIR.mkdir(parents=True, exist_ok=True)
-        eid = f"evt-{_stamp()}-{uuid.uuid4().hex[:10]}"
+        eid = f"evt-{_stamp()}-py-{os.getpid()}-{uuid.uuid4().hex[:10]}"
         payload = {
             "schema_version": SCHEMA_VERSION,
             "id": eid,

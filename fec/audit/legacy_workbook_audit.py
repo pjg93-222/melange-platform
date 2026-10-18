@@ -24,7 +24,8 @@ def money_totals_match_source(rows, receipt_path):
 
 
 def capacity_share_errors(rows):
-    totals={key:sum(r[key] for r in rows) for key in ('cu','banks','finserv')}
+    pool_rows=[r for r in rows if not str(r.get('money_source_status','')).startswith('UNRESOLVED')]
+    totals={key:sum(r[key] for r in pool_rows) for key in ('cu','banks','finserv')}
     errors=[]
     for row in rows:
         weights={key:row[key]/total if total else 0 for key,total in totals.items()}

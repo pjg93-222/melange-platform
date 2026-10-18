@@ -41,6 +41,12 @@ import html
 import json
 import os
 import sys
+import re
+from pathlib import Path
+try:
+    from .source_capture import SourceCapture
+except ImportError:
+    from source_capture import SourceCapture  # stale-ok: script-execution fallback, fec/surfaces is sys.path[0]
 from collections import defaultdict
 
 import members.historical_member_names as identity
@@ -288,7 +294,7 @@ def _load_bill_members(path):
     return members, roles
 
 
-def build_payload(paths_by_label, resolver, data_root):
+def build_payload(paths_by_label, resolver, data_root, title_loader=None):
     organizations = industry._load_org_roster(paths_by_label["fullscope_org_roster"])
     # Keep this unpack in sync with make_lobby_network_html's own call site: bank-tier
     # segregation grew the return from 3 to 5, and this page went unbuildable for a day
@@ -334,7 +340,7 @@ def build_payload(paths_by_label, resolver, data_root):
         for row in ledger
         if (row.get("bill_key") or "").strip()
     }
-    titles, _title_receipt = industry._load_bill_titles(data_root, _title_keys)
+    titles, _title_receipt = (title_loader or industry._load_bill_titles)(data_root, _title_keys)
 
     orgs = _Intern()
     regs = _Intern()
@@ -1016,42 +1022,66 @@ def build(
         legislators_path=legislators_path,
         voteview_path=voteview_path,
     )
-    paths_by_label = dict(input_paths)
-    hashes = {label: industry._sha256(path, label) for label, path in input_paths}
-    try:
-        resolver = identity.MemberNameResolver.from_paths(
-            congestion_path=paths_by_label["congestion_roster"],
-            legislators_path=paths_by_label["legislators_roster"],
-            voteview_path=paths_by_label["voteview_members"],
-        )
-    except identity.IdentityError as exc:
-        raise IngestError(f"member name resolution unavailable: {exc}") from exc
-
-    payload, receipts = build_payload(paths_by_label, resolver, data_root)
-    document = _document(
-        payload, industry._hash_footer(input_paths, hashes), receipts
-    )
-    document_bytes = len(document.encode("utf-8"))
-    if document_bytes >= MAX_DOCUMENT_BYTES:
-        raise IngestError(
-            f"generated page is {document_bytes:,} bytes; limit is "
-            f"{MAX_DOCUMENT_BYTES - 1:,}; shard by sector or trim retention explicitly"
-        )
     out_path = os.path.abspath(out)
     out_dir = os.path.dirname(out_path)
     if out_dir and not os.path.isdir(out_dir):
         raise IngestError(f"output directory not found: {out_dir}")
-    industry._write_text_atomic(document, out_path)
-    print(f"interactions HTML: {out_path} ({document_bytes:,} bytes)")
-    print(
-        "  "
-        + " ".join(
-            f"{key}={value:,}" if isinstance(value, int) else f"{key}={value}"
-            for key, value in receipts.items()
-            if isinstance(value, int)
-        )
-    )
-    return document
+    with SourceCapture(out_dir) as captured:
+        paths_by_label, hashes = {}, {}
+        for index, (label, path) in enumerate(input_paths):
+            prior = captured.records.get(str(Path(path)))
+            copied = Path(prior['capture']) if prior else captured.capture(path, 'inputs/' + str(index) + Path(path).suffix)
+            paths_by_label[label] = str(copied)
+            hashes[label] = captured.records[str(Path(path))]['sha256']
+        title_inputs = []
+        def title_loader(_root, bill_keys):
+            cache = Path(data_root) / 'bill_titles/titles.json'
+            staged_cache = captured.capture(cache, 'titles/derived/bill_titles/titles.json', optional=True)
+            title_inputs.append(('bill_title_cache', str(cache)))
+            cached = {}
+            if staged_cache.is_file():
+                document = json.loads(staged_cache.read_text(encoding='utf-8'))
+                if isinstance(document, dict) and isinstance(document.get('titles'), dict):
+                    cached = document['titles']
+            archives = set()
+            for key in set(bill_keys) - set(cached):
+                match = re.fullmatch(r'(\d+):([a-z]+):(\d+)', key)
+                if match and match[2] in industry.BILL_TYPE_LABELS:
+                    archives.add((int(match[1]), match[2]))
+            for congress, kind in sorted(archives):
+                relative = f'billstatus{congress}/BILLSTATUS-{congress}-{kind}.zip'
+                original = Path(data_root).parent / 'raw' / relative
+                captured.capture(original, 'titles/raw/' + relative, optional=True)
+                title_inputs.append((f'billstatus_{congress}_{kind}', str(original)))
+            # The shared loader's cache update is confined to this private capture.
+            # Its title selection and fallback calculations remain unchanged.
+            return industry._load_bill_titles(str(captured.root / 'titles/derived'), bill_keys)
+        try:
+            resolver = identity.MemberNameResolver.from_paths(
+                congestion_path=paths_by_label['congestion_roster'],
+                legislators_path=paths_by_label['legislators_roster'],
+                voteview_path=paths_by_label['voteview_members'])
+        except identity.IdentityError as exc:
+            raise IngestError(f'member name resolution unavailable: {exc}') from exc
+        payload, receipts = build_payload(paths_by_label, resolver, data_root, title_loader=title_loader)
+        present_titles, absent_titles = [], []
+        for label, path in title_inputs:
+            record = captured.records[path]
+            if record['present']:
+                present_titles.append((label, path)); hashes[label] = record['sha256']
+            else:
+                absent_titles.append(path)
+        footer = industry._hash_footer(input_paths + present_titles, hashes)
+        footer += ''.join('<li><code>' + html.escape(os.path.basename(path)) + '</code><span>Absent when captured; no source hash</span></li>' for path in absent_titles)
+        document = _document(payload, footer, receipts)
+        document_bytes = len(document.encode('utf-8'))
+        if document_bytes >= MAX_DOCUMENT_BYTES:
+            raise IngestError(f'generated page is {document_bytes:,} bytes; limit is {MAX_DOCUMENT_BYTES - 1:,}; shard by sector or trim retention explicitly')
+        captured.verify_unchanged()
+        industry._write_text_atomic(document, out_path)
+        print(f'interactions HTML: {out_path} ({document_bytes:,} bytes)')
+        print('  ' + ' '.join(f'{key}={value:,}' if isinstance(value, int) else f'{key}={value}' for key, value in receipts.items() if isinstance(value, int)))
+        return document
 
 
 def _build_parser():

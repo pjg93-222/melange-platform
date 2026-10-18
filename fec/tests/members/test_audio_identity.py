@@ -76,6 +76,7 @@ def slices(sig, n):
 
 
 def clip(samples, event_id, seconds=70.0, evidence=EVIDENCE):
+    samples = np.resize(samples, int(round(seconds * SR)))  # declared seconds == measured
     return {"samples": samples, "sr": SR, "event_id": event_id,
             "seconds": seconds, "identity_evidence": evidence}
 
@@ -187,7 +188,7 @@ def test_enroll_cli_writes_candidate_artifact_and_guards_out_suffix():
         manifest = {"Test Member A": []}
         for i in range(3):
             wav = os.path.join(tmp, "clip%d.wav" % i)
-            sf.write(wav, parts[i], SR)
+            sf.write(wav, np.resize(parts[i], 70 * SR), SR)
             manifest["Test Member A"].append(
                 {"path": wav, "sr": SR, "event_id": "evt-%d" % i,
                  "seconds": 70.0, "identity_evidence": EVIDENCE})

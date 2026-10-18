@@ -252,6 +252,12 @@ def build():
         sponsor = resolve_person(official['sponsor'], resolver)
         people = [(official['sponsor'], 'sponsor', sponsor)]
         for node in official['cosponsors']:
+            if xml_text(node, 'sponsorshipWithdrawnDate'):
+                raise ValueError(
+                    'withdrawn cosponsor on %s|%s: %s; route through the '
+                    'adjudicated per-member withdrawal path in bill_rules'
+                    % (key + (xml_text(node, 'fullName'),))
+                )
             role = (
                 'original'
                 if xml_text(node, 'isOriginalCosponsor').casefold() == 'true'

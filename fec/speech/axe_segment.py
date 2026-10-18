@@ -470,6 +470,13 @@ def process_episode(
             "AUDIO-FAIL %s error=%s" % (episode["guid"], str(exc)[:100]), flush=True
         )
         return 0.0, 0, [], True
+    if sample_rate != 16000:
+        print(
+            "AUDIO-FAIL %s error=sample_rate %s != 16000"
+            % (episode["guid"], sample_rate),
+            flush=True,
+        )
+        return 0.0, 0, [], True
     if audio.ndim == 2:
         audio = audio.mean(axis=1)
 
@@ -516,10 +523,13 @@ def process_episode(
 def append_records(records: Sequence[dict[str, Any]]) -> None:
     if not records:
         return
+    payload = "".join(
+        json.dumps(record, ensure_ascii=True) + "\n" for record in records
+    )
     with FEATURE_PATH.open("a", encoding="utf-8", newline="\n") as handle:
-        for record in records:
-            handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        handle.write(payload)
         handle.flush()
+        os.fsync(handle.fileno())
 
 
 def print_progress(

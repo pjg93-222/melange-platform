@@ -3,7 +3,8 @@
 press_backlog_empty <- function() data.frame(
   url = character(0), attempts = integer(0), outcome = character(0),
   run_key = character(0), source_key = character(0), evidence_key = character(0),
-  last_attempt_date = character(0), last_exhausted_date = character(0), stringsAsFactors = FALSE)
+  last_attempt_date = character(0), last_exhausted_date = character(0),
+  first_seen_date = character(0), stringsAsFactors = FALSE)
 
 press_backlog_ledger_path <- function(bg) {
   if (length(bg) != 1L || !grepl("^[A-Z][0-9]{6}$", bg)) stop("invalid press backlog member identity")
@@ -17,16 +18,18 @@ press_backlog_read <- function(bg) {
   if (!identical(saved$schema, "press-body-attempts-v1") || !is.data.frame(saved$rows) ||
       !all(c("url", "attempts", "outcome", "run_key", "source_key") %in% names(saved$rows)))
     stop("invalid press body attempt ledger: ", bg)
-  for (name in c("last_attempt_date", "last_exhausted_date")) {
+  # Older ledgers did not bind listing evidence. They reopen once; never infer
+  # a completed attempt for an evidence generation they did not record. A legacy
+  # row has no recorded first sighting either; "" is kept as-is and ordered as the
+  # OLDEST sighting (see press_backlog_order), never stamped or inferred.
+  for (name in c("evidence_key", "last_attempt_date", "last_exhausted_date", "first_seen_date"))
+    if (!name %in% names(saved$rows)) saved$rows[[name]] <- rep("", nrow(saved$rows))
+  for (name in c("last_attempt_date", "last_exhausted_date", "first_seen_date")) {
     value <- saved$rows[[name]][nzchar(saved$rows[[name]])]
     parsed <- suppressWarnings(as.Date(value, format = "%Y-%m-%d"))
     if (anyNA(parsed) || any(!grepl("^[0-9]{4}-[0-9]{2}-[0-9]{2}$", value)) ||
         any(as.character(parsed) != value)) stop("invalid press attempt date in ledger: ", bg)
   }
-  # Older ledgers did not bind listing evidence. They reopen once; never infer
-  # a completed attempt for an evidence generation they did not record.
-  for (name in c("evidence_key", "last_attempt_date", "last_exhausted_date"))
-    if (!name %in% names(saved$rows)) saved$rows[[name]] <- rep("", nrow(saved$rows))
   if (
       anyNA(saved$rows) || anyDuplicated(saved$rows$url) || any(!nzchar(saved$rows$url)) ||
       !is.numeric(saved$rows$attempts) || any(saved$rows$attempts < 0) ||
@@ -38,9 +41,15 @@ press_backlog_read <- function(bg) {
   keys <- press_backlog_url_key(saved$rows$url)
   if (anyDuplicated(keys)) {
     totals <- tapply(saved$rows$attempts, keys, sum)
+    # The earliest sighting of any alias is the URL's first sighting.
+    firsts <- vapply(split(saved$rows$first_seen_date, keys), function(values) {
+      values <- values[nzchar(values)]
+      if (length(values)) min(values) else ""
+    }, character(1))
     keep <- !duplicated(keys, fromLast = TRUE)
     saved$rows <- saved$rows[keep, , drop = FALSE]
     saved$rows$attempts <- as.integer(totals[keys[keep]])
+    saved$rows$first_seen_date <- as.character(firsts[keys[keep]])
   }
   saved$rows
 }
@@ -188,7 +197,8 @@ press_member_network_result <- function(result) {
     if (is.na(index)) {
       rows <- rbind(rows, data.frame(url = url, attempts = 0L, outcome = "pending",
         run_key = "", source_key = "", evidence_key = "", last_attempt_date = "",
-        last_exhausted_date = "", stringsAsFactors = FALSE))
+        last_exhausted_date = "", first_seen_date = as.character(press_backlog_run_date()),
+        stringsAsFactors = FALSE))
       index <- nrow(rows)
     }
     attempted <- url %in% result$attempted_urls
@@ -196,7 +206,10 @@ press_member_network_result <- function(result) {
     retain_exhaustion <- maintenance && rows$outcome[index] == "exhausted" &&
       isTRUE(press_backlog_current(rows[index, , drop = FALSE], bg))
     rows$attempts[index] <- rows$attempts[index] + as.integer(attempted)
+    # Three attempts end a URL's turn even if this run deferred it or never reached it;
+    # otherwise a URL the budget keeps cutting short would hold the member pending forever.
     outcome <- if (url %in% completed) "completed" else
+      if (rows$attempts[index] >= 3L) "exhausted" else
       if (url %in% result$budget_deferred_urls || !attempted) "pending" else "exhausted"
     rows$outcome[index] <- if (retain_exhaustion && outcome != "completed") "exhausted" else outcome
     if (attempted) rows$last_attempt_date[index] <- as.character(press_backlog_attempt_date())
@@ -225,9 +238,20 @@ press_backlog_order <- function(bg, urls, force = FALSE) {
   index <- index[index$bioguide == bg, , drop = FALSE]
   dates <- as.numeric(as.Date(index$date[match(urls, index$url)]))
   dates[is.na(dates)] <- -Inf
-  # Never-attempted URLs precede repeatedly failing URLs. Stable date/URL order
-  # makes the finite backlog advance without relying on worker completion order.
-  urls[order(counts, -dates, urls)]
+  matched <- match(press_backlog_url_key(urls), press_backlog_url_key(rows$url))
+  first <- suppressWarnings(as.numeric(as.Date(rows$first_seen_date[matched], format = "%Y-%m-%d")))
+  # A legacy ledger row ("" first_seen_date) is the oldest sighting; only a URL with no
+  # ledger row at all is new and counts as first seen today.
+  first[is.na(first) & !is.na(matched)] <- -Inf
+  first[is.na(matched)] <- as.numeric(press_backlog_run_date())
+  # FIFO fairness: a URL with three failed attempts goes behind everything else; the rest are
+  # served oldest-first-sighting, so a member that lists new URLs every run cannot keep pushing
+  # the URLs it listed earlier past the per-member request budget. A legacy ledger row with no
+  # recorded first sighting ("") is the oldest and goes first; a brand-new URL not yet in the
+  # ledger counts as first seen today and goes after every ledger row. Within one sighting
+  # day, never-attempted URLs precede repeat failures; newer publication dates and
+  # the URL key then make the finite backlog advance without relying on worker completion order.
+  urls[order(counts >= 3L, first, counts, -dates, press_backlog_url_key(urls))]
 }
 
 press_backlog_coverage_status <- function(index) {
@@ -368,7 +392,10 @@ press_backlog_due_maintenance <- function() {
 press_backlog_maintain <- function(js_bgs = character(0), envir = .GlobalEnv) {
   due <- press_backlog_due_maintenance()
   cap <- press_backlog_revisit_cap()
-  selected <- if (nrow(press_backlog_snapshot())) due[FALSE, , drop = FALSE] else head(due, cap)
+  # A member that still has pending bodies spends its budget on them; every other member's
+  # due revisits proceed, so one stuck member cannot switch maintenance off for everybody.
+  busy <- unique(press_backlog_snapshot()$bioguide)
+  selected <- head(due[!due$bioguide %in% busy, , drop = FALSE], cap)
   metrics <- list(minimum_age_days = 7L, url_cap = cap, due = nrow(due),
                   selected = nrow(selected), attempted = 0L, recovered = 0L,
                   historical_retained = nrow(press_backlog_historical_snapshot()),

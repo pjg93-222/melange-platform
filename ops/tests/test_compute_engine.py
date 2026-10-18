@@ -324,7 +324,7 @@ def fake_run(monkeypatch, *, stdout="", stderr="", returncode=0, calls=None):
     def run(argv, **kwargs):
         (calls if calls is not None else []).append(argv)
         return SimpleNamespace(stdout=stdout, stderr=stderr, returncode=returncode)
-    monkeypatch.setattr(CE.subprocess, "run", run)
+    monkeypatch.setattr(CE, "run_bounded", run)
 
 
 def test_the_env_override_wins_and_the_manifest_is_not_asked(monkeypatch, tmp_path):
@@ -376,12 +376,12 @@ def step_world(result=None, producer="producer.py", handoff=True):
         raise HardAbort(why)
 
     ns = {"bounded_subprocess": SimpleNamespace(run_bounded=run_bounded), "compute_engine": CE, "subprocess": subprocess,
-          "sys": sys, "os": os, "time": __import__("time"), "datetime": datetime, "FE": str(FEC), "_LIVE_CHILD": [None], "_tolerated": [],
+          "sys": sys, "os": os, "time": __import__("time"), "datetime": datetime, "FE": str(FEC), "_LIVE_CHILD": [None], "_tolerated": [], "_soft_failures": [],
           "_producer_path": lambda name: producer if os.path.isabs(producer) else os.path.join(str(FEC), *producer.split("/")),
           "_chain_tail_is_audit_full": lambda: True, "log": logs.append, "_write_status": lambda **kw: None,
           "_emit": lambda *a, **k: None, "_hard_abort": hard_abort,
           "_lease_handoff_out": lambda: events.append("out"), "_lease_handoff_in": lambda: events.append("in")}
-    for name in ("_adopt_live_child", "step"):
+    for name in ("_adopt_live_child", "_soft_fail", "step"):
         exec(function_source(name), ns)
     return SimpleNamespace(ns=ns, calls=calls, logs=logs, aborts=aborts, events=events)
 
@@ -414,7 +414,7 @@ def test_press_partial_is_unchanged_on_every_engine_setting(monkeypatch, tmp_pat
 def test_a_chain_container_hands_the_lease_over_and_takes_it_back_and_reaps(monkeypatch, tmp_path):
     container_world(monkeypatch, tmp_path, "chain")
     reaped = []
-    monkeypatch.setattr(CE.subprocess, "run", lambda argv, **kw: reaped.append(argv))
+    monkeypatch.setattr(CE, "run_bounded", lambda argv, **kw: reaped.append(argv))
     world = step_world(producer=str(REPO / "fec" / "run_pipeline.py"))
     assert world.ns["step"]("FULL PIPELINE + dashboards", ["run_pipeline.py"], timeout=7200, hard=True) is True
     (argv, kwargs), = world.calls
@@ -436,7 +436,7 @@ def test_reap_still_removes_the_container_when_the_stop_fails(monkeypatch, tmp_p
         if argv[1] == "stop":
             raise OSError("docker stop failed")
 
-    monkeypatch.setattr(CE.subprocess, "run", run)
+    monkeypatch.setattr(CE, "run_bounded", run)
     CE.reap(spec)
     assert seen == [["docker", "stop", "-t", "30", "melange-chain-x"], ["docker", "rm", "-f", "melange-chain-x"]]
 
@@ -540,7 +540,7 @@ def test_the_office_view_never_raises(monkeypatch, tmp_path, failure):
     root = office_tree(tmp_path)
     container_world(monkeypatch, tmp_path, "office")
     reaped = []
-    monkeypatch.setattr(CE.subprocess, "run", lambda argv, **kw: reaped.append(argv))
+    monkeypatch.setattr(CE, "run_bounded", lambda argv, **kw: reaped.append(argv))
     result = {"exit": SimpleNamespace(returncode=4, timed_out=False, stderr="LibreOffice failed\n"),
               "timeout": SimpleNamespace(returncode=None, timed_out=True, stderr="")}.get(failure)
     monkeypatch.setattr(bounded_subprocess, "run_bounded", lambda argv, **kw: result)

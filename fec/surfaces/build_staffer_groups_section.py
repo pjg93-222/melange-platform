@@ -473,13 +473,14 @@ def bind_file(path, spec, role, bound_against):
         raise InputContradiction('%s input is missing: %s' % (role, path))
     size = os.path.getsize(path)
     got = digest(path)
-    if spec is not None:
-        want_bytes, want_sha = spec.get('bytes'), spec.get('sha256')
-        if want_bytes is not None and int(want_bytes) != size:
-            raise InputContradiction('%s is %d bytes, receipt says %s' % (role, size, want_bytes))
-        if want_sha and want_sha != got:
-            raise InputContradiction('%s sha256 %s does not match the receipt %s'
-                                     % (role, got, want_sha))
+    if not isinstance(spec, dict) or not isinstance(spec.get('sha256'), str) or not spec['sha256'].strip():
+        raise InputContradiction('%s receipt records no sha256' % role)
+    want_bytes, want_sha = spec.get('bytes'), spec['sha256']
+    if want_bytes is not None and int(want_bytes) != size:
+        raise InputContradiction('%s is %d bytes, receipt says %s' % (role, size, want_bytes))
+    if want_sha != got:
+        raise InputContradiction('%s sha256 %s does not match the receipt %s'
+                                 % (role, got, want_sha))
     return {'path': path, 'bytes': size, 'sha256': got, 'bound_against': list(bound_against)}
 
 
@@ -492,13 +493,16 @@ def bind_generation_groups(binding):
     A receipt that DOES declare the file and cannot produce it, or produces a
     different one, IS a fault and refuses here like every other bound byte.
 
-    The file is bound twice where the verification receipt independently recorded
-    it: once against the generation receipt's own sha256 and once against the
-    verifier's recomputation, exactly as network.bind_inputs binds the three
-    files it consumes.
+    A declared groups file must also have an independent verifier integrity row:
+    it is bound against the generation receipt's own sha256 and both hashes in
+    that row. Older v5 generations remain compatible because they declare no
+    groups file at all.
     """
     declared = None
-    for entry in binding['receipt'].get('files') or []:
+    entries = binding['receipt'].get('files')
+    if not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries):
+        raise InputContradiction('generation receipt files must be a list of objects')
+    for entry in entries:
         if entry.get('role') == GROUPS_ROLE:
             declared = entry
             break
@@ -512,17 +516,19 @@ def bind_generation_groups(binding):
     integrity = {entry.get('path'): entry
                  for entry in binding['verification'].get('primary_file_integrity') or []}
     recorded = integrity.get(GROUPS_NAME)
-    if recorded is not None:
-        for label, expected in (
-                ('verification_receipt.primary_file_integrity.receipt_sha256',
-                 recorded.get('receipt_sha256')),
-                ('verification_receipt.primary_file_integrity.recomputed_sha256',
-                 recorded.get('recomputed_sha256'))):
-            if expected and expected != bound['sha256']:
-                raise InputContradiction('sha256 mismatch for %s: computed %s, %s records %s'
-                                         % (GROUPS_NAME, bound['sha256'], label, expected))
-            if expected:
-                bound['bound_against'].append(label)
+    if recorded is None:
+        raise InputContradiction('verification receipt records no integrity row for %s' % GROUPS_NAME)
+    for label, expected in (
+            ('verification_receipt.primary_file_integrity.receipt_sha256',
+             recorded.get('receipt_sha256')),
+            ('verification_receipt.primary_file_integrity.recomputed_sha256',
+             recorded.get('recomputed_sha256'))):
+        if not expected:
+            raise InputContradiction('%s records no sha256 for %s' % (label, GROUPS_NAME))
+        if expected != bound['sha256']:
+            raise InputContradiction('sha256 mismatch for %s: computed %s, %s records %s'
+                                     % (GROUPS_NAME, bound['sha256'], label, expected))
+        bound['bound_against'].append(label)
     bound['bound_against'] = sorted(set(bound['bound_against']))
     return path, {'staffer_social_groups': bound}
 
@@ -1283,9 +1289,16 @@ def write_all_atomic(items):
                 raise failure
         return attempts
     finally:
+        failure_in_flight = sys.exc_info()[0] is not None
         for _path, temp in staged:
             if os.path.exists(temp):
-                os.remove(temp)
+                try:
+                    os.remove(temp)
+                except OSError:
+                    # Cleanup can fail under OneDrive too. Keep the producer's
+                    # original failure; a surviving temp is not a clean build.
+                    if not failure_in_flight:
+                        raise
 
 
 def serialize(payload):
@@ -2086,8 +2099,8 @@ def main(argv=None):
                        lda_root=args.lda_root, lda_generation=args.lda_generation,
                        hon_ledger_generation=args.hon_ledger_generation,
                        use_glassbox=not args.no_glassbox)
-    except InputContradiction as exc:
-        print('REFUSED: %s' % exc)
+    except (InputContradiction, lda_employment.EmploymentContradiction) as exc:
+        print('REFUSED: %s' % ' '.join(str(exc).split())[:800])
         return 2
     if not result['ok']:
         for line in result['lines']:

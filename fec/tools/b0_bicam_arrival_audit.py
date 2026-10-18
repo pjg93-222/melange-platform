@@ -323,12 +323,30 @@ def build_arrival_manifest(
     }
 
 
+class _AllowedHostRedirect(urllib.request.HTTPRedirectHandler):
+    """Apply the caller-approved host policy to every redirect hop."""
+    def __init__(self, url, allowed_hosts=None):
+        self.allowed_hosts = None if allowed_hosts is None else {str(host).casefold() for host in allowed_hosts}
+        validate_source_url(url, self.allowed_hosts)
+        parsed = urlsplit(url)
+        self.origin = (parsed.hostname.casefold(), parsed.port or 443)
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        validate_source_url(newurl, self.allowed_hosts)
+        parsed = urlsplit(newurl)
+        if self.allowed_hosts is None and (parsed.hostname.casefold(), parsed.port or 443) != self.origin:
+            raise UsageError("component redirect escaped its approved origin")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def atomic_download(
     url: str,
     target: Path,
     expected_sha256: str,
     format_name: str,
     columns: Mapping[str, str],
+    *,
+    allowed_hosts: Iterable[str] | None = None
 ) -> dict[str, Any]:
     temporary_path: Path | None = None
     try:
@@ -341,7 +359,8 @@ def atomic_download(
         ) as stream:
             temporary_path = Path(stream.name)
             try:
-                with urllib.request.urlopen(url, timeout=120) as response:
+                opener = urllib.request.build_opener(_AllowedHostRedirect(url, allowed_hosts))
+                with opener.open(url, timeout=120) as response:
                     while True:
                         block = response.read(1024 * 1024)
                         if not block:
@@ -369,7 +388,10 @@ def fetch_snapshot(
     snapshot_dir: Path,
     source_manifest: Mapping[str, Any],
     source_manifest_sha256: str,
+    *,
+    allowed_hosts: Iterable[str] | None = None
 ) -> dict[str, Any]:
+    approved_hosts = None if allowed_hosts is None else frozenset(allowed_hosts)
     if snapshot_dir.exists():
         if not snapshot_dir.is_dir() or any(snapshot_dir.iterdir()):
             raise UsageError("--fetch requires an empty or nonexistent snapshot directory")
@@ -383,6 +405,7 @@ def fetch_snapshot(
             specification.get("expected_sha256", ""),
             specification["format"],
             specification["columns"],
+            allowed_hosts=approved_hosts,
         )
     return build_arrival_manifest(
         snapshot_dir, source_manifest, source_manifest_sha256
@@ -1539,7 +1562,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             if os.environ.get("BICAM_FETCH_OK") != "1":
                 raise UsageError("--fetch requires BICAM_FETCH_OK=1")
             arrival = fetch_snapshot(
-                args.snapshot_dir, source_manifest, source_hash
+                args.snapshot_dir, source_manifest, source_hash,
+                allowed_hosts=args.allow_host,
             )
         else:
             arrival = build_arrival_manifest(

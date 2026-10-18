@@ -6,7 +6,7 @@ import sys
 import tempfile
 import unittest
 
-from build_runtime import HERE, BOOTSTRAP_FILES, POCKET_TEMPLATE, stage_file, stage_bootstrap
+from build_runtime import HERE, BOOTSTRAP_FILES, POCKET_TEMPLATE, selected_files, stage_file, stage_bootstrap
 
 
 class TemplateStagingTests(unittest.TestCase):
@@ -29,6 +29,21 @@ class TemplateStagingTests(unittest.TestCase):
                   if isinstance(node, ast.ImportFrom) and node.module
                   and (HERE / (node.module + '.py')).is_file()}
         self.assertTrue(needed.issubset(BOOTSTRAP_FILES), needed - set(BOOTSTRAP_FILES))
+
+    def test_mentat_runtime_served_assets_outside_data_extensions_are_staged(self):
+        # /template.csv (server.py STATIC_ASSETS) and the Pocket publisher's manifest.webmanifest
+        # (server.py publish()) have no code extension, so only sourceFiles can keep them.
+        spec = json.loads((HERE / 'runtime-manifest.json').read_text(encoding='utf-8'))['apps']['mentat']
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for relative in spec['sourceDirectories']:
+                (root / relative).mkdir(parents=True, exist_ok=True)
+            for relative in spec['sourceFiles']:
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text('x', encoding='utf-8')
+            staged = {path.as_posix() for path in selected_files(root, spec)}
+        self.assertIn('mentat/app/template.csv', staged)
+        self.assertIn('mentat/tools/pocket/manifest.webmanifest', staged)
 
     def test_pocket_template_retains_code_and_removes_embedded_data(self):
         with tempfile.TemporaryDirectory() as folder:

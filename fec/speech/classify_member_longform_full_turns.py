@@ -279,20 +279,19 @@ def main() -> int:
     input_sha256 = SMR.sha256_file(args.input)
     rows = SMR.read_jsonl(args.input, required=True)
     wanted = set(args.member)
-    selected = [
-        row for row in rows
-        if row.get("status") in INPUT_CANDIDATE_STATUSES
-        and (not wanted or row.get("member") in wanted)
-    ]
-    selected_keys = [source_key(row) for row in selected]
-    if len(set(selected_keys)) != len(selected_keys):
+    all_inputs = [row for row in rows if row.get("status") in INPUT_CANDIDATE_STATUSES]
+    selected = [row for row in all_inputs if not wanted or row.get("member") in wanted]
+    all_keys = [source_key(row) for row in all_inputs]
+    if len(set(all_keys)) != len(all_keys):
         raise SystemExit("duplicate input member/source_id")
+    all_keys = set(all_keys)
     existing = {}
     for row in SMR.read_jsonl(args.output) if args.output.exists() else []:
         key = source_key(row)
         if key in existing:
             raise SystemExit("duplicate output member/source_id")
-        if key in set(selected_keys):
+        # Keep every current input's prior row; --member only narrows `pending`, never the cache.
+        if key in all_keys:
             existing[key] = row
     classifier_settings = settings(args.max_output_tokens, args.timeout_seconds)
     pending = [row for row in selected if needs_processing(row, existing.get(source_key(row)), classifier_settings,

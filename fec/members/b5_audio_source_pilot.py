@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -48,6 +49,8 @@ TOPIC_RULES = {
     "immigration": ("immigration", "immigrant", "border", "asylum", "visa", "deport"),
     "energy_environment": ("energy", "climate", "environment", "oil", "gas", "emissions"),
 }
+TOPIC_PATTERNS = {topic: re.compile(r"\b(?:" + "|".join(map(re.escape, tokens)) + r")(?:s|es|ed|ing|ation|ism|ists?)?\b")
+                  for topic, tokens in TOPIC_RULES.items()}
 
 
 def sha_bytes(data):
@@ -63,9 +66,9 @@ def sha_file(path):
 
 
 def topic_for(text):
-    lowered = " " + str(text or "").lower() + " "
-    scored = [(sum(lowered.count(token) for token in tokens), topic)
-              for topic, tokens in TOPIC_RULES.items()]
+    lowered = str(text or "").lower()
+    scored = [(len(rx.findall(lowered)), topic)
+              for topic, rx in TOPIC_PATTERNS.items()]
     score, topic = max(scored)
     return topic if score else "other"
 
@@ -465,7 +468,11 @@ def self_test():
     assert topic_for("jobs and inflation hurt wages") == "economy_jobs"
     assert topic_for("the border and asylum system") == "immigration"
     assert topic_for("hello world") == "other"
-    print("b5_audio_source_pilot self-test: 3 passed, 0 failed")
+    assert topic_for("I look forward to it") == "other"
+    assert topic_for("deportation of immigrants") == "immigration"
+    assert topic_for("terrorism threats") == "foreign_security"
+    assert topic_for("the elections") == "elections_government"
+    print("b5_audio_source_pilot self-test: 7 passed, 0 failed")
 
 
 def main():

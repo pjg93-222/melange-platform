@@ -15,6 +15,21 @@ image has no digest yet (CI has not built it). The Windows jobs are still the re
 | `pocket-build` | the pocket page build of the console publish | none | no | 10 min | `pocket-build` |
 | `collect-fanout` | the collect lane of the industry report (`api_company_cycle_fanout.py`) | `collect` | yes | 1440 min | `collect-fanout` |
 | `pac-evidence` | `tools/pac_evidence.py` (console) | `collect` | yes | 120 min | `pac-evidence` |
+| `collect-downstream` | the downstream spending collector (`collect_committee_activity.py`), container runtime, keys held by the host broker (D075; opt-in) | `collect` | no | 720 min | `collect-downstream` |
+| `collect-downstream-recover` | crash recovery of that collector inside its volume (D075) | none | no | 60 min | `collect-downstream-recover` |
+| `collect-downstream-import` | seed an empty frontier volume from a host snapshot (D075) | none | no | 60 min | `collect-downstream-import` |
+
+The three `collect-downstream*` rows are the D075 container runtime of the downstream spending collector. It is OPT-IN (`run_job.ps1 -Job collect-downstream -Runtime container`); the
+host-native `-Job collect-downstream` without `-Runtime` is unchanged and stays the production default. The container holds NO FEC key: `tools/api_host_pool.py --scope
+spending-evidence-v2` runs on the host for exactly one run (per-run token bound to the run id, the endpoint families of the arguments and the physical cap), charges the shared quota
+ledger, archives and fsyncs the original bytes in the host evidence folder and only then answers; the container mounts that folder read-only. The live ledger is in the external
+Docker volume `mentat-downstream-frontier` (never pruned), and every run ends with an export under `state\committee-activity\exports\<run id>` that the wrapper verifies from the
+host (`compute_job.py verify --map /export=...`). After the broker exits, the wrapper requires that what it charged, what it journalled and the receipt's `http_attempts` plus its
+undelivered attempts agree (`downstream_volume.py reconcile`); any gap fails the run (exit 1, nothing to promote). After a successful `collect-downstream-import` it copies the verified exported
+receipts of the earlier runs into the state folder (`downstream_volume.py restore-receipts`), so a re-imported volume has no unresolved response folders (a receipt is restored only when the imported ledger holds that run's pages: a run exported on another branch of the lineage, or one an abandon marker already resolves, stays for a human; importing an older export starts a branch). Receipts record the Windows spelling of every path (`MENTAT_STORED_PATH_MAP`, `tools/stored_paths.py`), so the receipt chain with the
+host-native batches holds. Arguments: `--batch`, `--collector-run-id`, `--expect-base-sha256`, `--seeds /inputs/...`, `--max-requests`, `--max-failed-attempts`, `--workers`, `--live` (always
+the caller's), `--stop-after-seconds`, `--enable-endpoint-contract`, `--priority-candidates /inputs/...`, `--ccl`, `--ccl-vintage`, `--include-later-cycle-context`, `--optional-receipts`.
+Replay (no network): `compute.replay.yaml` runs the same broker inside the container against a cassette built from archived responses (`tools/archive_cassette.py`, `tools/replay_downstream.py`).
 
 Not covered, on purpose: the industry report build (PowerShell 5.1 orchestrators, the Excel finalizer, `@oai/artifact-tool`; design
 tasks M2-c and M2-d), the console prewarm, the figure PNG export and the analytics index (console-side), and the manual ingest and
@@ -30,7 +45,9 @@ they are bind mounts with `create_host_path: false`. A missing file fails the co
 | `tools/compute_job.py` | Container entry point: `run <job>`, `verify`, `event`, `jobs`. A job is complete only when its own check passes; the receipt `<LOCALAPPDATA>/Mentat/compute/receipts/<run id>.json` holds the output hashes and key fingerprints, never a key. Runs natively on Windows too. |
 | `tools/compute_secrets.py` | Windows side of the key handoff: DPAPI store to one owner-only per-run file (`stage`), overwritten and deleted (`wipe`), stale folders removed (`sweep`). |
 | `tools/run_job.ps1` | Windows wrapper (PowerShell 5.1): lock, start Docker, digest-only image, clock check, stage keys, `docker compose run --rm`, verify the receipt, wipe, Glass Box events, logs under `%LOCALAPPDATA%\Mentat\logs\compute`. |
-| `compute.compose.yaml` | One hardened service per job: read-only root, uid 10001, `cap_drop ALL`, limits, `/mentat` read-only, a writable mount only where the job writes, network only for the two FEC collectors, keys as a Docker secret file. |
+| `compute.compose.yaml` | One hardened service per job: read-only root, uid 10001, `cap_drop ALL`, limits, `/mentat` read-only, a writable mount only where the job writes, network only for the two FEC collectors and for `collect-downstream` (to reach the host broker, no key), keys as a Docker secret file; the external volume `frontier` for the three downstream services. |
+| `tools/downstream_volume.py` | D075: preflight (base hash, no sidecars, no unresolved run, descriptor hashes), the in-job export (exclusive, fsynced, hash-checked, `EXPORT.json` last) and the exclusive volume import; host side, the broker reconciliation and the receipt restore after an import. |
+| `tools/stored_paths.py` | D075: `MENTAT_STORED_PATH_MAP`; `to_stored` for what a receipt records, `to_host` for how it is read back. Identity when unset. |
 | `compute.images.lock` | The image by digest. `digest` is `null` until CI publishes one; the wrapper refuses a tag or `null`. |
 | `tools/mentat_env.py` | The two tool locations with a Windows default (`MENTAT_RSCRIPT`, `MENTAT_R_LIBRARY`). Every other location already had its own variable. |
 | `tools/compute_parity.py` | Content-level parity (below). |

@@ -114,7 +114,7 @@ class StatuteIdentityMismatch(ValueError):
 
 
 class SourceUnavailable(ValueError):
-    """The House Code service answered with its maintenance page or a 5xx instead of a document. That says nothing
+    """The House Code service answered with its maintenance page, a 5xx or a 429 instead of a document. That says nothing
     about the bill, so it is not an identity mismatch: main() carries an admitted bill's published verdict forward
     under the sentinel source-outage rule (2026-10-11) and defers a new one. Carries the bill-side evidence
     collected before the outage."""
@@ -123,6 +123,19 @@ class SourceUnavailable(ValueError):
         ValueError.__init__(self, message)
         self.snapshot = snapshot
         self.texts = texts
+
+
+class ClassifierQuotaExhausted(RuntimeError):
+    """The classifier reported a rate or spend limit (HTTP 429, "spend limit", "usage limit"). Every later call would
+    fail and bill the same way, so main() stops the per-key loop instead of recording one more error per key."""
+
+
+_QUOTA_TEXT = re.compile(r'spend limit|usage limit|"api_error_status"\s*:\s*429', re.IGNORECASE)
+
+
+def _quota_limit(text, envelope=None):
+    """Did the classifier's output (stdout/stderr text, or an already-parsed JSON envelope) report a rate/spend limit?"""
+    return str((envelope or {}).get('api_error_status')) == '429' or bool(_QUOTA_TEXT.search(text or ''))
 
 
 class BelowHighConfidence(ValueError):
@@ -376,12 +389,17 @@ def classify(key, texts, categories, *, model, key_path, transport='api'):
             '--no-session-persistence', '--no-chrome', '--permission-mode', 'dontAsk',
             '--output-format', 'json', '--model', model, '--system-prompt', system],
             input=json.dumps(prompt, ensure_ascii=False), text=True, encoding='utf-8',
-            capture_output=True, timeout=CLASSIFIER_TIMEOUT_SECONDS, cwd=tempfile.gettempdir())
+            capture_output=True, timeout=CLASSIFIER_TIMEOUT_SECONDS, cwd=tempfile.gettempdir(),
+            # Cost (2026-10-15): every call wrote a 1 h prompt cache (2x input price) that was never read back
+            # (0 cache reads over 116 calls). The CLI honours DISABLE_PROMPT_CACHING; no prompt or model change.
+            env={**os.environ, 'DISABLE_PROMPT_CACHING': '1'})
         if result.returncode:
-            raise RuntimeError('tool-free classifier failed (rc %d): stderr=%r stdout=%r' % (result.returncode, (result.stderr or '')[-600:], (result.stdout or '')[-600:]))
+            fail = ClassifierQuotaExhausted if _quota_limit((result.stdout or '') + '\n' + (result.stderr or '')) else RuntimeError
+            raise fail('tool-free classifier failed (rc %d): stderr=%r stdout=%r' % (result.returncode, (result.stderr or '')[-600:], (result.stdout or '')[-600:]))
         envelope = json.loads(result.stdout)
         if envelope.get('is_error'):
-            raise RuntimeError('tool-free classifier: ' + str(envelope.get('result'))[:1000])
+            fail = ClassifierQuotaExhausted if _quota_limit(str(envelope.get('result')), envelope) else RuntimeError
+            raise fail('tool-free classifier: ' + str(envelope.get('result'))[:1000])
         output = envelope.get('structured_output') or envelope.get('result')
         if isinstance(output, str):
             output = json.loads(re.sub(r'^```(?:json)?\s*|\s*```$', '', output.strip()))
@@ -392,7 +410,12 @@ def classify(key, texts, categories, *, model, key_path, transport='api'):
     body = json.dumps({'model':model,'max_tokens':5000,'system':system,'messages':[{'role':'user','content':json.dumps(prompt,ensure_ascii=False)}]}).encode('utf-8')
     request = urllib.request.Request('https://api.anthropic.com/v1/messages',data=body,headers={
         'content-type':'application/json','x-api-key':api_key,'anthropic-version':'2023-06-01'})
-    result = json.loads(_http_bytes(request, timeout=180, source='classifier API'))
+    try:
+        result = json.loads(_http_bytes(request, timeout=180, source='classifier API'))
+    except urllib.error.HTTPError as error:
+        if error.code == 429:
+            raise ClassifierQuotaExhausted(f'classifier API rate/spend limit (HTTP 429): {error.reason}') from error
+        raise
     if result.get('stop_reason') != 'end_turn':
         raise ValueError('incomplete classifier response')
     text = '\n'.join(block['text'] for block in result['content'] if block['type']=='text').strip()
@@ -440,7 +463,7 @@ def collect(key, directory, stamp):
                                max_bytes=2000000, expected_host='uscode.house.gov')
             texts[statute_url]=statute_text(body,title,section)
         except (SourceUnavailable, urllib.error.HTTPError) as exc:
-            if isinstance(exc, urllib.error.HTTPError) and exc.code < 500:
+            if isinstance(exc, urllib.error.HTTPError) and exc.code < 500 and exc.code != 429:  # 429 = throttled, an outage like a 5xx
                 raise
             raise SourceUnavailable(f'official statute service unavailable for {title} USC {section}: {exc}',
                                     snapshot=snapshot, texts=dict(texts)) from exc
@@ -461,12 +484,18 @@ def main(argv=None):
     p.add_argument('--model',default=os.environ.get('MELANGE_SENTINEL_MODEL'))
     p.add_argument('--transport',choices=('api','claude-cli'),default=os.environ.get('MELANGE_SENTINEL_TRANSPORT'))
     p.add_argument('--no-install',action='store_true')
+    p.add_argument('--max-classifier-calls',type=int,default=None,
+        help='Stop after this many real classifier calls (cache hits, --no-llm carries and deferrals are free). '
+             'A budget stop is a normal bounded run, not a failure: unattempted keys wait for the next run. '
+             'Default: unlimited.')
     p.add_argument('--no-llm',action='store_true',
         help='Never call the classifier. Reuse a cached decision when the evidence is unchanged, '
              'carry a published decision forward with its original fingerprint when the evidence '
              'moved, and defer any key that has no published decision.')
     args=p.parse_args(argv)
     if args.limit < 1: raise ValueError('--limit must be positive')
+    if args.max_classifier_calls is not None and args.max_classifier_calls < 1:
+        raise ValueError('--max-classifier-calls must be positive')
     root=args.root.resolve(); target=root/SA.RELATIVE
     config_path=root/'data/engine/sentinel_admission_policy.json'
     config=json.loads(config_path.read_text(encoding='utf-8')) if config_path.exists() else {}
@@ -501,9 +530,13 @@ def main(argv=None):
     # Refresh EVERY active bill. Spend the bounded classification allowance on
     # unseen evidence first, then the oldest decisions, preventing starvation.
     active=requested & set(previous['bills'])
+    # Cost (2026-10-15): a new measure whose official source was down last run was deferred untouched; behind every
+    # other unseen key it goes, so a lingering outage does not keep taking selection slots. Order only, not eligibility.
+    prior_unavailable=set(previous.get('source_unavailable_deferred_keys') or [])
     candidates=sorted(requested-active,key=lambda k:(
         cached_decisions.get(k,{}).get('disposition')!='include',
         k in cached_decisions,
+        k in prior_unavailable,
         supplemental.get(k,{}).get('action')!='upsert_candidate_memberships',
         cached_decisions.get(k,{}).get('checked_at',''),
         -int(k.split(':')[0]),-int(k.split(':')[2])))
@@ -513,7 +546,7 @@ def main(argv=None):
     # re-picked first forever; keys in the previous checkpoint's errors go behind every other held key.
     prior_errors=checkpoint.get('errors') or {}
     retry=sorted((k for k in candidates if cached_decisions.get(k,{}).get('disposition')=='hold'),
-                 key=lambda k:(k in prior_errors,cached_decisions[k].get('checked_at',''),k))
+                 key=lambda k:(k in prior_errors or k in prior_unavailable,cached_decisions[k].get('checked_at',''),k))
     retry=retry[:max(1,args.limit//4)] if args.limit>1 else []
     selected=sorted(active)+list(dict.fromkeys(retry+[k for k in candidates if k not in retry]))[:args.limit]
     registry=json.loads((root/'source_data/legislation/acu_legislation_search_registry.json').read_text(encoding='utf-8'))
@@ -523,6 +556,7 @@ def main(argv=None):
     decisions=dict(cached_decisions); bills=dict(previous.get('bills',{})); sources=[]; errors={}
     catalog=dict(previous.get('bill_catalog',previous.get('bills',{})))
     no_llm_deferred=[]; source_unavailable_deferred=[]
+    aborted_reason=None; not_attempted=0; classifier_calls=0
     for key in selected:
         try:
             # Paul 2026-10-01 ("Hold before fetch"): a published include that already fails the direction rule is held
@@ -540,6 +574,7 @@ def main(argv=None):
             if reused is not None:
                 decision,meta=reused
             elif not args.no_llm:
+                classifier_calls+=1  # counted on attempt: a call that then fails validation or errors was still billed
                 decision,meta=classify(key,texts,categories,model=args.model,key_path=root/'fec/anthropic_key.txt',transport=args.transport)
             else:
                 published=previous.get('decisions',{}).get(key)
@@ -575,6 +610,11 @@ def main(argv=None):
                     print(key,decision['disposition'],'carried_forward_no_llm',flush=True)
                 else:
                     print(key,decision['disposition'],flush=True)
+        except ClassifierQuotaExhausted as exc:
+            # A spend/rate limit fails every later call the same way: record this key, checkpoint below, then stop the loop.
+            errors[key]=f'CLASSIFIER_QUOTA_EXHAUSTED: {exc}'
+            aborted_reason='CLASSIFIER_QUOTA_EXHAUSTED'; not_attempted=len(selected)-selected.index(key)-1
+            print(key,errors[key],flush=True)
         except Exception as exc:
             reason=f'{type(exc).__name__}: {exc}'
             classifier_validation_hold=(isinstance(exc,ValueError) and str(exc) in (
@@ -623,6 +663,21 @@ def main(argv=None):
                 print(key,reason,flush=True)
         # Checkpoint is a resumable work queue, never a scoring authority.
         write_json(checkpoint_path,{'schema':'sentinel-admission-checkpoint-v1','decisions':decisions,'errors':errors})
+        # Call budget (2026-10-15): the same stop as the quota, but a bounded run, not a failure -- no error is
+        # recorded, so the status stays PASS and the generation installs. Reaching the budget on the last selected key
+        # stops nothing, so it records no reason.
+        if (aborted_reason is None and args.max_classifier_calls is not None
+                and classifier_calls>=args.max_classifier_calls):
+            not_attempted=len(selected)-selected.index(key)-1
+            if not_attempted: aborted_reason='CLASSIFIER_CALL_BUDGET'
+        if aborted_reason=='CLASSIFIER_CALL_BUDGET':
+            print(f'Run stopped on the classifier call budget ({classifier_calls} call(s)) at {key}; {not_attempted} '
+                  'selected key(s) not attempted and left for the next run.',flush=True)
+            break
+        if aborted_reason:
+            print(f'Run stopped on classifier quota at {key}; {not_attempted} selected key(s) not attempted. '
+                  'Checkpointed decisions will be reused on rerun.',flush=True)
+            break
     # QME 2026-10-01: the loop above checks only the keys this run selected. An admitted include it did not select
     # (a --keys run, or an admitted key on the ratified-exclusion list) would otherwise keep a mixed-direction verdict
     # in bills, and SA.load refuses the whole generation for it. Same hold, same shape, as the in-loop branch.
@@ -660,14 +715,19 @@ def main(argv=None):
         'bills':bills,'decisions':decisions,'memberships':memberships,
         'bill_catalog':catalog,
         'sources':list({r['path']:r for r in sources}.values()),'errors':errors,
-        'unresolved_members':unresolved,'deferred_keys':sorted(pool-set(selected)),
+        # Keys a stop left unattempted are still backlog (a budget stop installs this generation).
+        'unresolved_members':unresolved,'deferred_keys':sorted(pool-set(selected[:len(selected)-not_attempted])),
         'processed':len(selected),'ratified_exclusions_retained':len(excluded),
         # Selected keys that a --no-llm pass could neither reuse nor carry forward.
         # They are unsealed work, not verdicts, and stay eligible for the next pass.
         'no_llm':bool(args.no_llm),'no_llm_deferred':len(no_llm_deferred),
         'no_llm_deferred_keys':sorted(no_llm_deferred),
         # New measures whose statute service was down: not verdicts, eligible again next pass.
-        'source_unavailable_deferred_keys':sorted(source_unavailable_deferred)}
+        'source_unavailable_deferred_keys':sorted(source_unavailable_deferred),
+        # Set only when the loop stopped early. CLASSIFIER_QUOTA_EXHAUSTED (rate/spend limit) leaves the run FAIL and
+        # never installed; CLASSIFIER_CALL_BUDGET (--max-classifier-calls) is a normal bounded run, PASS, installed.
+        'aborted_reason':aborted_reason,'not_attempted':not_attempted,
+        'classifier_calls':classifier_calls,'max_classifier_calls':args.max_classifier_calls}
     write_json(run/'generation.json',document)
     if status=='PASS' and not args.no_install:
         write_json(target,document)

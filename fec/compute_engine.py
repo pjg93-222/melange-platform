@@ -36,6 +36,7 @@ import tempfile
 import uuid
 
 import paths
+from bounded_subprocess import run_bounded
 
 ENGINES = ('windows', 'container')
 KEYS = ('collect', 'chain', 'office')
@@ -130,7 +131,8 @@ def image(name, var, root=None, environ=None):
     if not ref:
         current = os.path.join(os.path.abspath(root or paths.ROOT), 'ops', 'release_lib', 'current.py')
         try:
-            done = subprocess.run([sys.executable, current, 'image', name], capture_output=True, text=True, timeout=60)
+            done = run_bounded([sys.executable, current, 'image', name], timeout=60,
+                               start_new_session=os.name != 'nt')
         except (OSError, subprocess.SubprocessError) as error:
             raise EngineError('no verified image for %s: not running (%s: %s)' % (name, type(error).__name__, error))
         ref = done.stdout.strip()
@@ -240,7 +242,7 @@ def reap(spec):
     if spec.container:
         for argv, limit in ((['docker', 'stop', '-t', '30', spec.container], 90), (['docker', 'rm', '-f', spec.container], 60)):
             try:
-                subprocess.run(argv, capture_output=True, timeout=limit)
+                run_bounded(argv, timeout=limit, start_new_session=os.name != 'nt')
             except Exception:
                 pass
 

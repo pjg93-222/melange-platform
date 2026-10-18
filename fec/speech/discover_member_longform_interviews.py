@@ -173,20 +173,28 @@ def main() -> int:
         members = [name for name in members if name in wanted]
     prior_coverage = {}
     prior_rows = []
-    if args.resume_errors or args.emit_from_existing:
-        if not args.coverage.exists() or not args.out.exists():
+    resume_mode = args.resume_errors or args.emit_from_existing
+    if resume_mode or args.member:
+        have_coverage, have_candidates = args.coverage.exists(), args.out.exists()
+        if have_coverage != have_candidates:
+            raise SystemExit("incremental mode requires both prior coverage and candidate outputs; incomplete pair preserved")
+        have_prior = have_coverage and have_candidates
+        if resume_mode and not have_prior:
             raise SystemExit("resume/emit mode requires the prior coverage and candidate outputs")
-        prior_coverage = json.loads(args.coverage.read_text(encoding="utf-8-sig")).get("members") or {}
-        prior_rows = [json.loads(line) for line in args.out.read_text(encoding="utf-8-sig").split("\n") if line.strip()]
-        members = (
-            [] if args.emit_from_existing else
-            [name for name in members if (prior_coverage.get(name) or {}).get("search_status") == "ERROR"]
-        )
-        if args.member:
-            wanted = set(args.member)
-            members = [name for name in members if name in wanted]
-        if args.resume_errors and not members:
-            print("no prior search errors remain", flush=True)
+        # A single-member refresh merges into prior outputs instead of truncating them.
+        if have_prior:
+            prior_coverage = json.loads(args.coverage.read_text(encoding="utf-8-sig")).get("members") or {}
+            prior_rows = [json.loads(line) for line in args.out.read_text(encoding="utf-8-sig").split("\n") if line.strip()]
+        if resume_mode:
+            members = (
+                [] if args.emit_from_existing else
+                [name for name in members if (prior_coverage.get(name) or {}).get("search_status") == "ERROR"]
+            )
+            if args.member:
+                wanted = set(args.member)
+                members = [name for name in members if name in wanted]
+            if args.resume_errors and not members:
+                print("no prior search errors remain", flush=True)
 
     generated_at = utc_now()
     discovered: dict[str, tuple[str, list[dict], str | None]] = {}
@@ -290,12 +298,13 @@ def main() -> int:
         "members": coverage_members,
     }
     write_json_atomic(args.coverage, coverage)
+    every_member_searched = set(coverage_members) == set(roster_members)
     receipt = {
         "schema": "member-longform-discovery-receipt-v1",
-        "status": "PASS" if not coverage["search_errors"] else "PARTIAL_SEARCH_ERRORS_VISIBLE",
+        "status": "PASS" if not coverage["search_errors"] and every_member_searched else "PARTIAL_SEARCH_ERRORS_VISIBLE",
         "generated_at": generated_at,
         "contract": {
-            "every_roster_member_has_a_search_state": set(coverage_members) == set(roster_members),
+            "every_roster_member_has_a_search_state": every_member_searched,
             "apple_api_rate_limit_respected": args.request_interval >= 3.0,
             "metadata_or_title_establishes_identity": False,
             "candidate_may_modify_profile": False,

@@ -1,4 +1,4 @@
-"""Synchronize committed application source to platform main; no tags, data or releases."""
+"""Read-only plan of the combined melange-platform source export. --apply and --push are retired (2026-10-15 per-app repository correction)."""
 from __future__ import annotations
 
 import argparse
@@ -124,9 +124,15 @@ def finish_push(cfg, bare, pending, state_path):
     save(state_path, pending)
 
 
+RETIRED = ('the combined melange-platform source sync is retired: on 2026-10-15 Paul corrected app source routing to one '
+           'repository per app (Melange -> pjg93-222/Melange, Mentat -> pjg93-222/Mentat, Terrier -> pjg93-222/Geo), so '
+           'pushing a combined Melange+Mentat tree to melange-platform main is no longer a destination. Only the read-only '
+           'plan (no --apply, no --push) remains; see ops/SOURCE_SYNC.md')
+
+
 def synchronize(cfg, *, apply=False, push=False, state_root=None):
-    if push and not apply:
-        raise core.ReleaseError('SOURCE_SYNC_USAGE', '--push requires --apply')
+    if apply or push:
+        raise core.ReleaseError('SOURCE_SYNC_RETIRED', RETIRED)
     root = Path(state_root or Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'Melange' / 'source-sync')
     bare = check_routing(cfg)
     # Plan is read-only and neither needs a signing key nor writes a lock/report.
@@ -188,8 +194,8 @@ def synchronize(cfg, *, apply=False, push=False, state_root=None):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--apply', action='store_true', help='verify and advance local platform main')
-    parser.add_argument('--push', action='store_true', help='also fast-forward remote main; no tags or releases')
+    parser.add_argument('--apply', action='store_true', help='RETIRED: refused (2026-10-15 per-app repository correction)')
+    parser.add_argument('--push', action='store_true', help='RETIRED: refused (2026-10-15 per-app repository correction)')
     args = parser.parse_args(argv)
     try:
         print(json.dumps(synchronize(core.load_config(), apply=args.apply, push=args.push), indent=2))

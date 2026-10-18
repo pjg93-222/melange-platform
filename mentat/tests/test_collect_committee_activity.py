@@ -4,6 +4,7 @@ from decimal import Decimal
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from collect_committee_activity import Frontier,captured_seeds,seed_after
+import origin_closure
 
 C1='C00000001';C2='C00000002';C3='C00000003';C4='C00000004'
 class FECAdmissionRefused(ValueError):pass
@@ -19,6 +20,12 @@ class Transport:
 def result(rows=(),count=None,next_cursor=None,**pagination):
  return {'results':list(rows),'pagination':{'count':len(rows)if count is None else count,'is_count_exact':True,**({'last_indexes':next_cursor}if next_cursor else {}),**pagination}}
 def empty(endpoint,query):return result()
+def derived(frontier):
+ """D073 adaptation: schema 3 stores no per-unit origins; these are the (committee,cycle,origin_id,metadata_json) rows schema 2 stored, rebuilt from the catalog and the derived closure."""
+ closure=frontier.closure();catalog=origin_closure.read_catalog(frontier.db);rows=[]
+ for unit in sorted(closure.units):
+  for ref in closure.origins(unit):rows.append((unit[0],unit[1],catalog[ref][0],origin_closure.metadata_json(catalog[ref][1],catalog[ref][2],unit[1])))
+ return rows
 class Tests(unittest.TestCase):
  def setUp(self):self.tmp=tempfile.TemporaryDirectory();self.root=Path(self.tmp.name);self.frontier=Frontier(self.root/'frontier.sqlite')
  def tearDown(self):self.frontier.close();self.tmp.cleanup()
@@ -30,7 +37,7 @@ class Tests(unittest.TestCase):
    if e.endswith('schedule_b/')and q['committee_id']==C2:return result([{'sub_id':'4','recipient_committee_id':C1,'disbursement_amount':Decimal('1.00')}])
    return result()
   transport=Transport(self.root/'raw',handler);proof=self.frontier.run(transport)
-  self.assertEqual(proof['units'],4);self.assertEqual(proof['edges'],4);self.assertEqual(proof['origins'],8);self.assertTrue(proof['supported_outgoing_endpoints_complete']);self.assertFalse(proof['exhaustive_disclosed_spending_complete'])
+  self.assertEqual(proof['units'],4);self.assertEqual(proof['edges'],4);self.assertEqual(proof['origin_seed_assignments'],2);self.assertEqual(proof['origin_unit_assignments'],8);self.assertEqual((proof['closure_basis'],proof['lower_bound']),('collected_edges_only',True));self.assertNotIn('origins',proof);self.assertTrue(proof['supported_outgoing_endpoints_complete']);self.assertFalse(proof['exhaustive_disclosed_spending_complete'])
   self.assertEqual(self.frontier.db.execute("SELECT amount_text FROM observations WHERE source_id='9007199254740993123'").fetchone()[0],'12.34')
  def test_request_cap_resume_never_means_zero_and_outgoing_independent_A(self):
   self.frontier.close();self.frontier=Frontier(self.root/'frontier.sqlite',optional_receipts=True);self.seed()
@@ -71,15 +78,15 @@ class Tests(unittest.TestCase):
   bad=self.root/'unknown.sqlite';c=sqlite3.connect(bad);c.execute('CREATE TABLE unrelated(x)');c.close()
   with self.assertRaises(ValueError):Frontier(bad)
  def test_explicit_later_context_preserves_origin_cycle_and_no_backwards_edge(self):
-  self.frontier.close();self.frontier=Frontier(self.root/'frontier.sqlite',include_later_cycle_context=True)
+  self.frontier.close();self.frontier=Frontier(self.root/'later-context.sqlite',include_later_cycle_context=True)   # D073: the policy is recorded when a ledger is created, so a different policy needs a new ledger
   self.frontier.seed([{'committee_id':C1,'cycle':2024,'origins':['Rust2024']}]);self.assertEqual(self.frontier.report()['units'],2)
   self.assertEqual({r[0]for r in self.frontier.db.execute('SELECT cycle FROM units')},{2024,2026})
-  metadata=[json.loads(r[0])for r in self.frontier.db.execute('SELECT metadata_json FROM origins')];self.assertTrue(all(m['first_reached_cycle']==2024 for m in metadata));self.assertEqual(sum(m['later_cycle_context']for m in metadata),1)
+  metadata=[json.loads(r[3])for r in derived(self.frontier)];self.assertTrue(all(m['first_reached_cycle']==2024 for m in metadata));self.assertEqual(sum(m['later_cycle_context']for m in metadata),1)
   self.assertEqual(self.frontier.report()['edges'],0)
  def test_new_origin_propagates_through_already_collected_cycle(self):
   self.seed()
   def handler(e,q):return result([{'sub_id':'1','recipient_committee_id':C2,'disbursement_amount':1}])if e.endswith('schedule_b/')and q['committee_id']==C1 else result()
-  self.frontier.run(Transport(self.root/'raw',handler));self.frontier.seed([{'committee_id':C1,'cycle':2026,'origins':['industryC']}]);self.assertEqual(self.frontier.db.execute('SELECT COUNT(*) FROM origins WHERE committee_id=?',(C2,)).fetchone()[0],3)
+  self.frontier.run(Transport(self.root/'raw',handler));self.frontier.seed([{'committee_id':C1,'cycle':2026,'origins':['industryC']}]);self.assertEqual(len([r for r in derived(self.frontier)if r[0]==C2]),3)
  def test_more_than_1000_pages_and_regular_notice_never_combine(self):
   self.seed()
   def handler(e,q):
@@ -128,13 +135,13 @@ class Tests(unittest.TestCase):
    return result()
   proof=self.frontier.run(Transport(self.root/'raw',handler));self.assertEqual(proof['endpoint_status_counts']['B:closed_unknown'],1);self.assertFalse(proof['supported_outgoing_endpoints_complete'])
  def test_late_origin_propagates_existing_multi_hop_and_later_cycles(self):
-  self.frontier.close();self.frontier=Frontier(self.root/'frontier.sqlite',include_later_cycle_context=True)
+  self.frontier.close();self.frontier=Frontier(self.root/'later-context.sqlite',include_later_cycle_context=True)   # D073: the policy is recorded when a ledger is created, so a different policy needs a new ledger
   self.frontier.seed([{'committee_id':C1,'cycle':2022,'origins':['old']}])
   def handler(e,q):
    target={C1:C2,C2:C3}.get(q['committee_id'])
    return result([{'sub_id':'1','recipient_committee_id':target,'disbursement_amount':1}])if e.endswith('schedule_b/')and q['two_year_transaction_period']==2022 and target else result()
   self.frontier.run(Transport(self.root/'raw',handler));self.frontier.seed([{'committee_id':C1,'cycle':2022,'origins':['late']}])
-  rows=self.frontier.db.execute("SELECT cycle,metadata_json FROM origins WHERE committee_id=? AND origin_id='late'",(C3,)).fetchall();self.assertEqual({r[0]for r in rows},{2022,2024,2026})
+  rows=[(r[1],r[3])for r in derived(self.frontier)if r[0]==C3 and r[2]=='late'];self.assertEqual({r[0]for r in rows},{2022,2024,2026})
   self.assertTrue(all(json.loads(r[1])['activity_cycle']==r[0]and json.loads(r[1])['first_reached_cycle']==2022 for r in rows))
  def test_seed_bytes_hash_capture_survives_file_mutation(self):
   p=self.root/'seed.json';p.write_text(json.dumps({'schema_version':1,'seed_units':[{'committee_id':C1,'cycle':2026}]}));rows,receipt,raw=captured_seeds(p);expected=hashlib.sha256(raw).hexdigest()
@@ -147,16 +154,16 @@ class Tests(unittest.TestCase):
   for label,cycles in [('later-first',(2024,2022)),('earlier-first',(2022,2024))]:
    f=Frontier(self.root/(label+'.sqlite'),include_later_cycle_context=True)
    for cycle in cycles:f.seed([{'committee_id':C1,'cycle':cycle,'origins':['same']}])
-   results.append([tuple(row)for row in f.db.execute('SELECT committee_id,cycle,metadata_json FROM origins ORDER BY committee_id,cycle')]);f.close()
+   results.append(([(r[0],r[1],r[3])for r in derived(f)],[tuple(r)for r in f.db.execute('SELECT origin_id,base_metadata_json,first_reached_cycle FROM origin_catalog')]));f.close()
   self.assertEqual(results[0],results[1])
-  self.frontier.close();self.frontier=Frontier(self.root/'frontier.sqlite',include_later_cycle_context=True)
+  self.frontier.close();self.frontier=Frontier(self.root/'later-context.sqlite',include_later_cycle_context=True)   # D073: the policy is recorded when a ledger is created, so a different policy needs a new ledger
   self.frontier.seed([{'committee_id':C1,'cycle':2024,'origins':['same']}])
   def handler(e,q):
    target={C1:C2,C2:C3}.get(q['committee_id'])
    return result([{'sub_id':'1','recipient_committee_id':target,'disbursement_amount':1}])if e.endswith('schedule_b/')and q['two_year_transaction_period']==2024 and target else result()
   self.frontier.run(Transport(self.root/'late-first-raw',handler));before=[tuple(r)for r in self.frontier.db.execute('SELECT * FROM observations ORDER BY committee_id,cycle,kind,observation_id')]
   self.frontier.seed([{'committee_id':C1,'cycle':2022,'origins':['same']}])
-  rows=self.frontier.db.execute("SELECT cycle,metadata_json FROM origins WHERE committee_id=? AND origin_id='same'",(C3,)).fetchall();self.assertEqual({r[0]for r in rows},{2024,2026})
+  rows=[(r[1],r[3])for r in derived(self.frontier)if r[0]==C3 and r[2]=='same'];self.assertEqual({r[0]for r in rows},{2024,2026})
   self.assertTrue(all(json.loads(r[1])['first_reached_cycle']==2022 and json.loads(r[1])['activity_cycle']==r[0]and json.loads(r[1])['later_cycle_context']for r in rows))
   self.assertEqual(before,[tuple(r)for r in self.frontier.db.execute('SELECT * FROM observations ORDER BY committee_id,cycle,kind,observation_id')])
 

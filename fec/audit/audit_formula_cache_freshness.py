@@ -557,6 +557,11 @@ def build_audit(
     receipt_b_path = receipt_b_path.resolve()
     out_root = out_root.resolve()
     temp_root = temp_root.resolve()
+    for first, second in ((calculated_a_path, calculated_b_path), (receipt_a_path, receipt_b_path)):
+        require(
+            first != second and not (first.exists() and second.exists() and first.samefile(second)),
+            "Independent recalculations require distinct workbook and receipt files",
+        )
     source_before = file_item(source_path)
     require(
         source_before["sha256"] == expected_source_sha256,

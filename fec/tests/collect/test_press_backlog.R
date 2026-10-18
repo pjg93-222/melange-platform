@@ -140,6 +140,93 @@ stopifnot(identical(env$press_cached_body_complete(data.frame(
            paste(rep(strrep("x", 30L), 10L), collapse = " "), env$fixture_body),
   date_detail = as.Date("2026-09-12"))), c(FALSE, FALSE, FALSE, FALSE, TRUE)))
 
+# FIFO fairness across runs: a URL first seen on an earlier run is served before one first seen
+# later, even when the later one has a newer publication date; a new row is stamped with its
+# run's date.
+day_one <- env$run_root
+fifo_urls <- paste0("https://example.gov/fifo-", c("old-a", "old-b", "new"))
+env$run_root <- file.path(root, "press_refresh_20260901")
+env$PRESS_BACKLOG_CONTEXT$index <- data.frame(bioguide = "X000006", url = fifo_urls[1:2],
+                                            date = as.Date(NA))
+env$press_member_network_result(list(bioguide = "X000006", requested_urls = fifo_urls[1:2],
+  attempted_urls = character(0), completed_urls = character(0), budget_deferred_urls = fifo_urls[1:2]))
+env$run_root <- file.path(root, "press_refresh_20260908")
+env$PRESS_BACKLOG_CONTEXT$index <- data.frame(bioguide = "X000006", url = fifo_urls,
+                                            date = as.Date(c(NA, NA, "2026-09-07")))
+env$press_member_network_result(list(bioguide = "X000006", requested_urls = fifo_urls[3],
+  attempted_urls = character(0), completed_urls = character(0), budget_deferred_urls = fifo_urls[3]))
+fifo <- env$press_backlog_read("X000006")
+stopifnot(identical(fifo$first_seen_date[match(fifo_urls, fifo$url)],
+                    c("2026-09-01", "2026-09-01", "2026-09-08")),
+          identical(env$press_backlog_order("X000006", rev(fifo_urls)), fifo_urls))
+# Three failed attempts send a URL behind every URL still owed its turn, however old.
+fifo$attempts[match(fifo_urls[1], fifo$url)] <- 3L
+saveRDS(list(schema = "press-body-attempts-v1", rows = fifo), env$press_backlog_ledger_path("X000006"))
+stopifnot(identical(env$press_backlog_order("X000006", fifo_urls), fifo_urls[c(2, 3, 1)]))
+env$run_root <- day_one
+
+# A legacy ledger row has no recorded first sighting: it reads back as "" (kept as-is, never
+# stamped or inferred), and a malformed first_seen_date is refused like any attempt date.
+legacy_path <- env$press_backlog_ledger_path("X000007")
+legacy_rows <- data.frame(url = paste0("https://example.gov/legacy-", c("a", "b")),
+  attempts = c(1L, 2L), outcome = "pending", run_key = "old", source_key = "old",
+  stringsAsFactors = FALSE)
+saveRDS(list(schema = "press-body-attempts-v1", rows = legacy_rows), legacy_path)
+legacy <- env$press_backlog_read("X000007")
+stopifnot(identical(legacy$first_seen_date, c("", "")), identical(legacy$attempts, c(1L, 2L)))
+legacy_rows$first_seen_date <- c("2026-09-01", "not-a-date")
+saveRDS(list(schema = "press-body-attempts-v1", rows = legacy_rows), legacy_path)
+stopifnot(inherits(try(env$press_backlog_read("X000007"), silent = TRUE), "try-error"))
+
+# Legacy "" is the OLDEST sighting, not "today": a legacy row is attempted before a row first seen
+# yesterday, a brand-new URL (no ledger row yet) sorts after both, and a row with three attempts
+# stays last. First sighting outranks the newer publication date the brand-new URL carries, and
+# recording a later attempt never stamps the legacy "".
+env$run_root <- file.path(root, "press_refresh_20260910")
+legacy_order_urls <- paste0("https://example.gov/legacy-order-", c("legacy", "yesterday", "exhausted", "new"))
+saveRDS(list(schema = "press-body-attempts-v1", rows = data.frame(url = legacy_order_urls[1:3],
+  attempts = c(1L, 0L, 3L), outcome = "pending", run_key = "old", source_key = "old",
+  first_seen_date = c("", "2026-09-09", ""), stringsAsFactors = FALSE)),
+  env$press_backlog_ledger_path("X000010"))
+env$PRESS_BACKLOG_CONTEXT$index <- data.frame(bioguide = "X000010", url = legacy_order_urls,
+  date = as.Date(c(NA, NA, NA, "2026-09-09")))
+stopifnot(identical(env$press_backlog_order("X000010", rev(legacy_order_urls)),
+                    legacy_order_urls[c(1, 2, 4, 3)]))
+env$press_member_network_result(list(bioguide = "X000010", requested_urls = legacy_order_urls[1:2],
+  attempted_urls = character(0), completed_urls = character(0), budget_deferred_urls = legacy_order_urls[1:2]))
+stopifnot(identical(env$press_backlog_read("X000010")$first_seen_date[1:2], c("", "2026-09-09")),
+          identical(env$press_backlog_order("X000010", rev(legacy_order_urls)),
+                    legacy_order_urls[c(1, 2, 4, 3)]))
+env$run_root <- day_one
+
+# Aliases of one canonical URL merge into a single row that keeps the EARLIEST recorded first
+# sighting (an unrecorded "" never beats a real date) and the sum of the actual attempts.
+alias_urls <- paste0(c("https://example.gov/", "https://www.example.gov/"), rep(c("alias-a", "alias-b"), each = 2L))
+alias_urls[c(2, 4)] <- paste0(alias_urls[c(2, 4)], "/")
+saveRDS(list(schema = "press-body-attempts-v1", rows = data.frame(url = alias_urls,
+  attempts = c(1L, 2L, 1L, 1L), outcome = "pending", run_key = "old", source_key = "old",
+  first_seen_date = c("2026-09-05", "2026-09-01", "", "2026-09-03"), stringsAsFactors = FALSE)),
+  env$press_backlog_ledger_path("X000009"))
+merged <- env$press_backlog_read("X000009")
+stopifnot(nrow(merged) == 2L, identical(merged$attempts, c(3L, 2L)),
+          identical(merged$first_seen_date, c("2026-09-01", "2026-09-03")))
+
+# Three attempts exhaust a URL even when the run that made the third one was budget-deferred or
+# never reached it: a URL the budget keeps cutting short must not hold its member pending forever.
+three <- "https://example.gov/three-attempts"
+env$PRESS_BACKLOG_CONTEXT$index <- data.frame(bioguide = "X000008", url = three, date = as.Date(NA))
+deferred <- list(bioguide = "X000008", requested_urls = three, attempted_urls = three,
+                 completed_urls = character(0), budget_deferred_urls = three)
+for (attempt in 1:2) env$press_member_network_result(deferred)
+two <- env$press_backlog_read("X000008")
+stopifnot(identical(two$attempts, 2L), identical(two$outcome, "pending"),
+          identical(env$press_backlog_snapshot()$url, three))
+env$press_member_network_result(deferred)
+env$press_member_network_result(modifyList(deferred, list(attempted_urls = character(0))))
+three_rows <- env$press_backlog_read("X000008")
+stopifnot(identical(three_rows$attempts, 3L), identical(three_rows$outcome, "exhausted"),
+          nrow(env$press_backlog_snapshot()) == 0L, !three %in% env$press_backlog_order("X000008", three))
+
 # Corrupt ledgers cannot silently suppress an unattempted URL.
 path <- env$press_backlog_ledger_path("X000003")
 corrupt <- readRDS(path)

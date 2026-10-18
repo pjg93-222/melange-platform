@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld('desktop',Object.freeze({
   district:value=>ipcRenderer.invoke('desktop:district',value),
   districts:()=>ipcRenderer.invoke('desktop:districts'),
   switchDistrict:value=>ipcRenderer.invoke('desktop:switch-district',value),
+  rendererReady:()=>ipcRenderer.invoke('desktop:renderer-ready'),
   pair:value=>ipcRenderer.invoke('desktop:pair',value),
   launch:()=>ipcRenderer.invoke('desktop:launch'),
   onStatus:callback=>{const listener=(_event,value)=>callback(String(value));ipcRenderer.on('desktop:status',listener);return()=>ipcRenderer.removeListener('desktop:status',listener);}

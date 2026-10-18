@@ -209,6 +209,9 @@ def main():
         'official_rank_sha256_before': rank_hash,
         'official_rank_sha256_after': rank_hash,
     }
+    passed = all(result['gates'].values())
+    if not passed:
+        result['status'] = 'FAIL_AUTHORIZED_TIER13_RECOMPUTE'
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     temporary = OUTPUT.with_name('.%s.%d.tmp' % (
         OUTPUT.name, os.getpid()
@@ -226,7 +229,7 @@ def main():
         result['top13_score_math']['members'],
         sort_keys=True,
     ))
-    return 0
+    return 0 if passed else 1
 
 
 if __name__ == '__main__':

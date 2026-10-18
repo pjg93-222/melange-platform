@@ -141,7 +141,11 @@ derived `all_intake`, each with status `SKIPPED_PARTIAL` and a note naming the
 outstanding `pending_body_urls`. The gate itself is untouched. This wrapper's
 `media` step row and its Glass Box completion event carry `partial_sources`,
 `press_partial` and `parked_steps`, so a PASS never reads as complete press
-coverage. The canonical chain's own `audit_collection.py` step discovers a press
+coverage. A media receipt with terminal status `PARTIAL` (any PARTIAL source row)
+is accepted as a non-fatal success: the wrapper stays `PASS`, records
+`media_status` and `partial_sources` in its status document and receipt, and
+appends `- media PARTIAL: <sources>` to its Glass Box completion summary; `FAIL`
+and `RUNNING` media receipts are still refused. The canonical chain's own `audit_collection.py` step discovers a press
 run rather than being handed one, so it audits the last complete generation and
 is unaffected. Full detail is in [`../DAILY_REFRESH.md`](../DAILY_REFRESH.md).
 
