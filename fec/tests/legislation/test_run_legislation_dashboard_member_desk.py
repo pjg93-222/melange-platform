@@ -134,6 +134,31 @@ class DashboardMemberDeskPhaseTests(unittest.TestCase):
             NETWORK.RECEIPT_NAME, NETWORK.FIRST_RECEIPT_NAME
         )
 
+    def test_member_desk_producer_writes_the_pinned_freshness(self) -> None:
+        # verify_member_desk_freshness only passes if make_member_desk.py
+        # uses the DESK_FRESHNESS_PIN file the wrapper hands it.
+        import os
+        import textwrap
+        from unittest import mock
+
+        source = (FEC / "surfaces" / "make_member_desk.py").read_text(
+            encoding="utf-8"
+        )
+        start = source.index("    if os.environ.get('DESK_FRESHNESS_PIN'):")
+        end = source.index("    bundle['integrity']['validation']", start)
+        inputs = {"ranks_python.json": {"sha256": "a" * 64}}
+        with tempfile.TemporaryDirectory() as temporary:
+            run_dir = Path(temporary)
+            pin = DASHBOARD.write_freshness_pin(run_dir, "generation-1", inputs)
+            bundle = {"freshness": {"generated_at": "2026-10-18T09:00:00-05:00"}}
+            with mock.patch.dict(os.environ, {"DESK_FRESHNESS_PIN": str(pin)}):
+                exec(
+                    textwrap.dedent(source[start:end]),
+                    {"os": os, "json": json, "bundle": bundle},
+                )
+            write_json(run_dir / "member_desk_bundle.json", bundle)
+            DASHBOARD.verify_member_desk_freshness(run_dir, "generation-1", inputs)
+
 
 if __name__ == "__main__":
     unittest.main()

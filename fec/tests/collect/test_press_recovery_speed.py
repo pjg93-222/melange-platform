@@ -87,6 +87,15 @@ def test_http_status_counts_as_attempted(monkeypatch,tmp_path):
     out=run_worker(monkeypatch,tmp_path,lambda url,clock:response(404))
     assert json.loads((out/'replay.json').read_text(encoding='utf-8'))[0]['attempted'] is True
 
+def test_oversized_body_stops_downloading_at_the_cap(monkeypatch,tmp_path):
+    reads=[]
+    def endless(size):
+        while True: reads.append(size);yield b'x'*size
+    get=lambda url,clock:types.SimpleNamespace(status_code=200,url=URL,headers={},iter_content=endless,close=lambda:None)
+    out=run_worker(monkeypatch,tmp_path,get)
+    assert ledger(out)[0]['attempts'][0]['rejection']=='response_size'
+    assert sum(reads)<=8_000_000+65536  # the body is never buffered past the cap
+
 @pytest.mark.parametrize('content',['','not-a-pid','   \n'])
 def test_unparsable_lock_is_stale(monkeypatch,tmp_path,content):
     def prefill(out): (out/'worker.lock').write_text(content,encoding='utf-8')
@@ -118,5 +127,15 @@ def test_stale_refresh_receipt_from_an_earlier_run_does_not_complete(monkeypatch
     receipt=json.loads((out/'recovery_receipt.json').read_text(encoding='utf-8'))
     assert receipt['status']=='REFRESH_FAILED' and 'refresh_receipt' not in receipt
     assert (out/'refresh'/'press_network_retry_receipt.json').exists()  # never deleted
+
+def test_fulltext_csv_from_an_earlier_refresh_is_not_counted_as_included(monkeypatch,tmp_path):
+    def prefill(out):
+        refresh=out/'refresh';refresh.mkdir()
+        with (refresh/'press_delta_fulltext.csv').open('w',encoding='utf-8-sig',newline='') as f:
+            w=csv.DictWriter(f,fieldnames=['bioguide','url','body']);w.writeheader()
+            w.writerow({'bioguide':'X000001','url':URL,'body':' '.join(['word']*30)})
+    out=run_worker(monkeypatch,tmp_path,lambda url,clock:response(404),prefill=prefill)  # R wrote nothing new
+    with (out/'article_outcomes.csv').open(encoding='utf-8-sig',newline='') as f: rows=list(csv.DictReader(f))
+    assert [r['included_in_refresh'] for r in rows]==['False']
 
 if __name__=='__main__': unittest.main()

@@ -3515,7 +3515,7 @@ def run_align(args: argparse.Namespace) -> int:
     # Any per-item failure (corrupt WAV, ASR model error, malformed transcript
     # row) must become an error disposition, never abort the run before the
     # manifest/inventory checkpoint.
-    align_errors = (RecoveryError, OSError, sqlite3.Error, RuntimeError, ValueError, KeyError)
+    align_errors = (RecoveryError, OSError, sqlite3.Error, RuntimeError, ValueError, KeyError, TypeError)
 
     def align_failure(exc: BaseException) -> tuple[list[dict[str, Any]], dict[str, Any], bool]:
         return ([], {"status": "error", "reason": str(exc)[:500],

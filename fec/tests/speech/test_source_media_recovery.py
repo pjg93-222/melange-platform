@@ -707,6 +707,14 @@ class SourceMediaRecoveryTests(unittest.TestCase):
         self.assertIn("stale_clip_ids", source)
         self.assertIn('"clip_schema_counts"', source)
 
+    def test_malformed_stored_asr_word_is_a_per_row_alignment_error(self):
+        # A non-numeric stored index raises TypeError; the runner must record it, not abort.
+        with self.assertRaises(TypeError):
+            SMR._validate_asr_rows([{"schema": SMR.ASR_WORD_SCHEMA, "index": [0]}])
+        source = Path(SMR.__file__).read_text(encoding="utf-8")
+        line = next(l for l in source.splitlines() if l.strip().startswith("align_errors = ("))
+        self.assertIn("TypeError", line)
+
     def test_parallel_runners_checkpoint_completion_order(self):
         source = Path(SMR.__file__).read_text(encoding="utf-8")
         self.assertIn("concurrent.futures.as_completed", source)

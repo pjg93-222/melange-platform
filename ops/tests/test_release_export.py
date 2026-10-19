@@ -70,6 +70,13 @@ class ExportConfigTests(Base):
             self.assertIsNone(export.MELANGE_EXCLUDE.match(path), path)
         self.assertTrue(export.MELANGE_EXCLUDE.match("fec/research/anything.py"))
 
+    def test_the_local_artifact_workspace_test_is_excluded_by_exact_path(self):
+        self.assertEqual(export.MELANGE_LOCAL_ARTIFACT_TESTS, ("fec/tests/surfaces/test_original_workspace.py",))
+        self.assertTrue(export.MELANGE_EXCLUDE.match("fec/tests/surfaces/test_original_workspace.py"))
+        for path in ("fec/tests/surfaces/test_original_workspace.pyc", "fec/tests/surfaces/test_original_workspace_extra.py",
+                     "fec/tests/surfaces/test_clean_workspace.cjs", "x/fec/tests/surfaces/test_original_workspace.py"):
+            self.assertIsNone(export.MELANGE_EXCLUDE.match(path), path)
+
     def test_the_shipped_config_keeps_the_r_lock_that_deps_yml_reads(self):
         shipped = core.load_config()["export"]
         self.assertTrue(export.allowed_name("ops/locks/r-packages.txt", shipped))

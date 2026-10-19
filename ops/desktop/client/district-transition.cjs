@@ -49,6 +49,8 @@ class DistrictTransition{
    const loadedFingerprint=this.fingerprint(selected);
    if(approvalIdentity(target.authorization)!==approvalIdentity(old.authorization)){await this.clearInactive();throw new Error('Access changed. Reopen the workspace before switching districts.');}
    if(await old.activity()===true)throw new Error('Wait for the current calculation to finish before switching districts.');check();
+   // The outgoing backend's own writes are not a replacement: re-fingerprint it now, while quiescent, so a return reuses it.
+   if(this.pool.get(previous.district)?.runtime===old)this.remember(previous,old);
    this.write(selected);this.activate(target);changed=true;
    if(!await this.canReveal(target.authorization))throw new Error('Access changed while opening the district.');check();
    if(this.fingerprint(selected)!==loadedFingerprint)throw new Error('District data changed while opening. Please try again.');

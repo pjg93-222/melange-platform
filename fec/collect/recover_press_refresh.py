@@ -238,7 +238,7 @@ def main():
                     for attempt in range(2):
                         try:
                             telemetry.event('fetching',row,route=route,request_url=target,attempt=attempt+1)
-                            response=session.get(target,timeout=(7,18))
+                            response=session.get(target,timeout=(7,18),stream=True)
                             evidence={'route':route,'url':target,'http_status':response.status_code,'final_url':response.url}
                             item['attempts'].append(evidence)
                             telemetry.event('response',row,route=route,http_status=response.status_code)
@@ -246,20 +246,24 @@ def main():
                                 time.sleep(min(10,max(1,int(response.headers.get('Retry-After','2')) if response.headers.get('Retry-After','2').isdigit() else 2)));continue
                             if response.status_code!=200: break
                             if (urlsplit(response.url).hostname or '').removeprefix('www.') != host.removeprefix('www.'): evidence['rejection']='redirected_host';break
-                            content=response.content
+                            chunks=[];size=0  # stop reading past the cap; never buffer an oversized body
+                            for chunk in response.iter_content(65536):
+                                chunks.append(chunk);size+=len(chunk)
+                                if size>8_000_000: break
+                            response.close();content=b''.join(chunks)
                             if len(content)>8_000_000: evidence['rejection']='response_size';break
                             digest=hashlib.sha256(content).hexdigest();evidence['sha256']=digest
                             (raw/(digest+('.json' if route=='wordpress' else '.html'))).write_bytes(content)
                             recovered=None
                             telemetry.event('parsing',row,route=route,bytes=len(content))
                             if route=='wordpress':
-                                data=response.json();data=data if isinstance(data,list) else [data]
+                                data=json.loads(content);data=data if isinstance(data,list) else [data]
                                 for post in data:
                                     if key(post.get('link',''))!=k: continue
                                     body=post.get('content',{}).get('rendered','');title=post.get('title',{}).get('rendered','')
                                     recovered=extract('<article><h1>'+title+'</h1>'+body+'</article>',u,row.get('title',''))
                                     if recovered: recovered.update(date_detail=str(post.get('date',''))[:10],date_source='wordpress.date');break
-                            else: recovered=extract(response.content,u,row.get('title',''))
+                            else: recovered=extract(content,u,row.get('title',''))
                             if recovered:
                                 item.update(recovered,status='recovered',recovery_route=route,response_sha256=digest,source_url=response.url);break
                             evidence['rejection']='no_verified_article_body'
@@ -339,7 +343,10 @@ fetch_member_fulltext <- function(bg, urls, force=FALSE, js=FALSE) {
         started_epoch=time.time()  # refresh/ is reused, not cleared; only a receipt written after this counts
         with (out/'refresh.log').open('w',encoding='utf-8') as log:
             run=subprocess.run([str(rscript),str(driver),str(refresh),'2026-06-25','1','50000','--retry-from',str(a.source.resolve())],cwd=ROOT,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=3600)
-        finalrows=read(refresh/'press_delta_fulltext.csv'); finalmap={(r.get('bioguide'),key(r['url'])):r for r in finalrows}
+        refresh_receipt=refresh/'press_network_retry_receipt.json'
+        fresh=refresh_receipt.exists() and refresh_receipt.stat().st_mtime>=started_epoch
+        # R writes the receipt after the fulltext CSV, so only a fresh receipt proves this run wrote the CSV.
+        finalrows=read(refresh/'press_delta_fulltext.csv') if fresh else []; finalmap={(r.get('bioguide'),key(r['url'])):r for r in finalrows}
         outcomes=[]
         for row in ordered:
             r=results[key(row['url'])]; f=finalmap.get((row.get('bioguide'),key(row['url'])),{})
@@ -347,8 +354,6 @@ fetch_member_fulltext <- function(bg, urls, force=FALSE, js=FALSE) {
         writecsv(out/'article_outcomes.csv',outcomes,list(outcomes[0]) if outcomes else ['url','status'])
         unique=Counter(results[k]['status'] for k in seen); counts=Counter(x['status'] for x in outcomes)
         source_receipt=a.source/'press_network_retry_receipt.json'
-        refresh_receipt=refresh/'press_network_retry_receipt.json'
-        fresh=refresh_receipt.exists() and refresh_receipt.stat().st_mtime>=started_epoch
         receipt.update(status='COMPLETE' if run.returncode in (0,3) and fresh else 'REFRESH_FAILED',stage='finished',completed_at=now(),refresh_exit_code=run.returncode,unique_articles=dict(unique),article_member_rows=dict(counts),original_pending_rows=len(pending),original_failed_rows=len(failed),pending_is_subset_not_additive=diagnosis['pending_overlap_failed']==len(pending),excluded_short_mentions=diagnosis['excluded_short_mentions'],recovered_rows_in_refresh=sum(x['included_in_refresh'] and x['status']=='recovered' for x in outcomes),scope='Historical September 20 body recovery; no claim of fresh inventory or downstream stance promotion',sha256={str(p.relative_to(out)):sha(p) for p in [out/'diagnosis.json',out/'priority_queue.csv',out/'member_priority.csv',out/'replay.json',driver,out/'article_outcomes.csv']},source_receipt_sha256=sha(source_receipt) if source_receipt.exists() else None,worker_sha256=sha(__file__))
         if fresh: receipt['refresh_receipt']=json.loads(refresh_receipt.read_text(encoding='utf-8'))
         save(out/'recovery_receipt.json',receipt)

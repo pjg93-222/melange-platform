@@ -55,3 +55,18 @@ test('navigation carries research scope and selected bill',()=>{
  const {u}=harness('?issue=Payments&congress=119&period=2026-01-01&bill=119%3Ahr%3A1');const q=new URL(u.url('profile',{m:'Example'}),'http://localhost').searchParams;
  assert.equal(q.get('issue'),'Payments');assert.equal(q.get('bill'),'119:hr:1');assert.equal(q.get('m'),'Example');
 });
+test('influence Fit frame survives an engine (window) resize until the reader moves the camera',()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../../surfaces/approved/clean/network.js'),'utf8').replace(/\r\n/g,'\n');
+ const framing=src.slice(src.indexOf('const CORE_PCT'),src.indexOf('// ---- URL parameters'));
+ // Three nodes; only 0 and 1 are linked, so the Standard layout's automatic frame is the zoomed-in core.
+ const c={W:800,H:600,N:3,LX:[0,100,200],LY:[0,100,200],EDGES:[[0,1]],ELAYS:null,DATA:{},layout:'cosp',sel:-1,route:null,RMQ:false,
+  card:null,legendOpen:false,cv:null,cam:{s:1,tx:0,ty:0},$:()=>null,safe:(fn,fb)=>{try{return fn();}catch(e){return fb;}},
+  draw(){},requestAnimationFrame:()=>0,cancelAnimationFrame(){},performance,Math,Number,Array,Set,Object};
+ c.fit=function(){c.cam.s=2;c.cam.tx=10;c.cam.ty=10;};   // the engine's own fit()
+ vm.createContext(c);
+ const {view,installFraming,fitEveryone}=vm.runInContext(framing+';({view,installFraming,fitEveryone})',c);
+ installFraming();c.fit();assert.equal(view.last.kind,'core');
+ fitEveryone();assert.equal(view.last.kind,'all');
+ c.W=1000;c.H=700;c.fit();assert.equal(view.last.kind,'all','an untouched Fit frame stays on everyone');
+ c.cam.s*=1.5;c.W=900;c.fit();assert.equal(view.last.kind,'core','a camera the reader moved is framed again as before');
+});

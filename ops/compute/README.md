@@ -86,6 +86,8 @@ Rules the code keeps:
   set (a caller's own file, as `collectors_replay.py` uses, wins): `GOVINFO_KEY_FILE_HOST` and `FEC_DATA_GOV_FILE_HOST` (collect) get a one-line file in a per-run folder
   `%TEMP%\melange-secrets\<container name>` holding the key from where the Windows collectors look (`GOVINFO_KEY`, else `fec/govinfo_key.txt` of the tree; `FEC_API_KEY`,
   else `data_gov.keys[0]` of `%USERPROFILE%\OneDrive\Desktop\API Keys\keys.json`); the folder carries an ACL for the current user alone (`icacls`; POSIX mode 0700).
+  Windows only: on any other OS `launch()` refuses to stage, because a native Linux engine mounts a `file:` secret with its host owner and mode
+  (Compose ignores `uid`/`gid`/`mode` for one), so uid 10001 could not read the owner-only file; a caller there sets the variables itself.
   `CLAUDE_CREDENTIALS_FILE_HOST` (admissions) names `%USERPROFILE%\.claude\.credentials.json` itself, which Compose mounts read-only: not copied (D-179). A file that
   cannot be found or is not one line stops the run, naming the variable and the sources, never a value. A variable a service does not use points at an empty scratch file.
 * The staged folder is deleted by `compute_engine.release(spec)` / `reap(spec)` when the run ends (the callers call one of them on every path, a failed `launch()`

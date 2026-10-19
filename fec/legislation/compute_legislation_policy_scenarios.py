@@ -322,6 +322,9 @@ def build_events(
     ] = defaultdict(list)
     names: dict[str, str] = {}
     required_direction_edges: set[tuple[str, str]] = set()
+    # The direction ledger's edge universe (build_legislation_direction_ledger
+    # is_included_scoring_row): an inactive edge may carry a direction.
+    accepted_direction_edges: set[tuple[str, str]] = set()
     for row in accepted_rows:
         key, congress, measure_type, number = accepted_identity(row)
         category = accepted_category_from_row(row)
@@ -402,11 +405,13 @@ def build_events(
         }
         group = (key, category, bioguide, membership, relationship)
         candidates[group].append(normalized)
+        if membership == "included" and normalized["scoring_category"]:
+            accepted_direction_edges.add((key, category))
         if zero_reason(normalized) is None:
             required_direction_edges.add((key, category))
 
     missing_directions = sorted(required_direction_edges - set(directions))
-    extra_directions = sorted(set(directions) - required_direction_edges)
+    extra_directions = sorted(set(directions) - accepted_direction_edges)
     if missing_directions or extra_directions:
         details = []
         if missing_directions:

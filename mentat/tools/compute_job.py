@@ -565,9 +565,13 @@ def run(name, run_id, extra, env=None, dry_run=False):
         finished = job.finish(ctx, extra, started, code) if job.finish else []
     except OSError as error:                                      # e.g. the export disk is full: the receipt still records why
         finished = ['the finish step failed: ' + (str(error) or type(error).__name__)]
-    outputs = job.outputs(ctx, extra) if job.finish else outputs         # the export is only there now
-    problems = finished + ([] if code else job.check(ctx, extra, started))
-    files = [{'path': str(path), 'sha256': _sha256(path), 'bytes': path.stat().st_size} for path in outputs if path.is_file()]
+    problems, files = finished, []
+    try:
+        outputs = job.outputs(ctx, extra) if job.finish else outputs     # the export is only there now
+        problems += [] if code else job.check(ctx, extra, started)
+        files = [{'path': str(path), 'sha256': _sha256(path), 'bytes': path.stat().st_size} for path in outputs if path.is_file()]
+    except OSError as error:                                      # e.g. the export mount fails after the finish step: the receipt still records why
+        problems.append('reading the outputs failed: ' + (str(error) or type(error).__name__))
     status = 'ok' if code == 0 and not problems else 'failed'
     _write_json(_receipt_dir(env) / (run_id + '.json'), {
         'schema': SCHEMA, 'job': name, 'run_id': run_id, 'status': status, 'exit_code': code, 'started_utc': _utc(started), 'finished_utc': _utc(time.time()),

@@ -384,9 +384,10 @@ def test_every_ops_file_ci_and_the_images_read_survives_the_source_only_export()
     listed = ["ops/desktop/client/" + n for n in re.findall(r"'([^']+)'", (OPS / "desktop/client/release-files.cjs").read_text(encoding="utf-8"))]
     sys.path.insert(0, str(OPS))
     import security_gate
-    # tests/release-files.test.cjs reads every file the desktop builder lists, except the extensions the security gate denies
-    # (the loading .mp4): denied by the security gate's data_leak rule; shipping them needs an exception (Paul)
-    needed |= {p for p in listed if (OPS.parent / p).is_file() and Path(p).suffix.lower() not in security_gate.DENY_EXT}
+    # tests/release-files.test.cjs reads every file the desktop builder lists, except the extensions the security gate denies;
+    # a file the gate pins by path and hash (the loading .mp4, owner ruling 2026-10-19) ships and so must survive the export
+    needed |= {p for p in listed if (OPS.parent / p).is_file()
+               and (Path(p).suffix.lower() not in security_gate.DENY_EXT or p in security_gate.PINNED_FILES)}
     assert {"ops/ci/no_data_tests.txt", "ops/ci/mentat_tests.txt", "ops/locks/mentat-console.linux.txt", "ops/locks/r-packages.txt",
             "ops/compose.env.example",
             "ops/images.lock", "ops/compose.yaml", "ops/security_gate.py"} <= needed

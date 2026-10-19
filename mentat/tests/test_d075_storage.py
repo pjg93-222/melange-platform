@@ -676,6 +676,18 @@ class JobFlow(Rig):
         self.assertEqual((code, receipt and receipt['status']), (1, 'failed'))
         self.assertTrue(any('No space left on device' in problem for problem in receipt['check']['problems']), receipt['check']['problems'])
 
+    def io_error_after_the_finish_step(self, name):
+        with mock.patch.object(cj, name, side_effect=OSError(5, 'Input/output error')):
+            code, receipt = self.run_job()
+        self.assertEqual((code, receipt and receipt['status'], receipt and receipt['outputs']), (1, 'failed', []))
+        self.assertTrue(any('Input/output error' in problem for problem in receipt['check']['problems']), receipt['check']['problems'])
+
+    def test_an_io_error_in_the_completion_check_still_writes_a_failed_receipt(self):
+        self.io_error_after_the_finish_step('_json')                     # _downstream_check reads the exported RECEIPT
+
+    def test_an_io_error_hashing_the_exported_outputs_still_writes_a_failed_receipt(self):
+        self.io_error_after_the_finish_step('_sha256')
+
     def test_the_preflight_refuses_before_the_child_starts_and_writes_nothing(self):
         for name, change in {'a ledger that is not the expected base': dict(args=self.args(**{'--expect-base-sha256': '0' * 64})),
                              'no stored map': dict(env={'MENTAT_STORED_PATH_MAP': ''}), 'no descriptor': dict(env={'MENTAT_REQUEST_POOL_CONFIG': ''})}.items():

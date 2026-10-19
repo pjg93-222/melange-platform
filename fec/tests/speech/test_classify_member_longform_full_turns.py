@@ -259,3 +259,32 @@ def test_member_filter_drops_other_members_stale_rows_but_keeps_failures(tmp_pat
     if kept:
         assert rows["Other Member"]["status"] == status
     assert json.loads(receipt.read_text())["status"] == ("PARTIAL_VISIBLE" if kept else "PASS_CANDIDATES_ONLY")
+
+
+@pytest.mark.parametrize("input_changed", [False, True])
+def test_member_filter_checks_other_members_rows_against_their_own_settings(tmp_path, monkeypatch, input_changed):
+    # A non-default --timeout-seconds run must not discard another member's paid result for the settings
+    # difference alone; only a change to that member's input drops the row.
+    source = source_fixture(tmp_path)
+    other = {**source, "member": "Other Member"}
+    input_path, output, receipt = tmp_path / "input.jsonl", tmp_path / "out.jsonl", tmp_path / "receipt.json"
+    key = tmp_path / "key.txt"
+    key.write_text("fake-test-only-key")
+    prior = {**other, "source_input_sha256": module.row_hash(other), "classifier_settings": module.settings(8000, 180),
+             "status": "FULL_TURN_CANDIDATE_IDENTITY_UNVERIFIED", "turns": [{"duration_seconds": 17.0}]}
+    output.write_text(json.dumps(prior) + "\n")
+    current_other = {**other, "cues": []} if input_changed else other
+    input_path.write_text(json.dumps(source) + "\n" + json.dumps(current_other) + "\n")
+    monkeypatch.setattr(module, "classify_source", lambda row, k, config, h: {
+        **row, "source_input_sha256": module.row_hash(row), "classifier_settings": config,
+        "status": "SCREENED_OUT", "turns": [], "api_requests_attempted": 1})
+    monkeypatch.setattr("sys.argv", ["classifier", "--input", str(input_path), "--output", str(output),
+                                   "--receipt", str(receipt), "--key", str(key), "--workers", "1",
+                                   "--member", "Example Member", "--timeout-seconds", "300"])
+    assert module.main() == 0
+    rows = {json.loads(line)["member"]: json.loads(line) for line in output.read_text().splitlines()}
+    assert ("Other Member" in rows) is not input_changed
+    if not input_changed:
+        assert rows["Other Member"] == prior
+    assert rows["Example Member"]["classifier_settings"] == module.settings(8000, 300.0)
+    assert json.loads(receipt.read_text())["counts"]["sources_with_full_turn_candidates"] == (0 if input_changed else 1)

@@ -28,7 +28,7 @@ Secrets (Paul 2026-10-18): a *_FILE_HOST variable the caller already set is used
 launch() on the container path only (never on the host): the key goes into a one-line file in a per-run folder that only this
 user can read, found where the Windows collectors find it; release() / reap() delete the folder when the run ends and the next
 staging sweeps a crash leftover.  The CLI login is not copied: its own file is mounted read-only.  No key value is ever put in
-an argument, an environment value launch() returns, an error message or a log line.
+an argument, an environment value launch() returns, an error message or a log line.  Staging happens on Windows only (STAGING_OS).
 """
 import collections
 import json
@@ -61,6 +61,12 @@ ALL_SECRET_VARS = ('GOVINFO_KEY_FILE_HOST', 'FEC_DATA_GOV_FILE_HOST', 'CLAUDE_CR
 SECRET_FILE = {'GOVINFO_KEY_FILE_HOST': 'govinfo_key', 'FEC_DATA_GOV_FILE_HOST': 'fec_data_gov'}   # names in a run's folder (the compose secret names)
 KEYS_JSON = ('OneDrive', 'Desktop', 'API Keys', 'keys.json')   # under the home dir: the --key-file default of refresh_fec_money.py:162
 SECRET_TTL = 6 * 3600   # a staged folder this old is a crash leftover: a secret is read when its container starts, seconds after staging
+# Where a staged owner-only file reaches the job's uid 10001.  Docker Desktop for Windows shows a shared host file to the container as
+# mode 0777.  A native Linux engine bind-mounts a `file:` secret with its host owner and mode, and Compose ignores long-syntax
+# uid/gid/mode for one, so uid 10001 could not read it and the entrypoint would die on it.  Compute runs on the Windows laptop (D-175).
+# ponytail: refuse elsewhere; a Linux compute host would need a u:10001:r ACL on the file (rootful engine, no userns-remap) and a
+# decision on the CLI login, which is mounted in place, not staged (D-179).
+STAGING_OS = ('nt',)
 
 SERVICES = {
     'collect': dict(phase='collect', compose='collectors.compose.yaml', profile='collect',
@@ -260,6 +266,10 @@ def _stage_secrets(service, root, environ, name):
     for var in SECRET_VARS.get(service, ()):
         if (environ.get(var) or '').strip():
             continue                                # the caller's own file (collectors_replay, a test) wins
+        if os.name not in STAGING_OS:               # before any key is read
+            raise EngineError('%s is unset and secrets are staged on Windows only: here Docker would mount the owner-only file '
+                              'unchanged and uid 10001 in the container could not read it. Set %s to a file you have made '
+                              'readable to uid 10001 alone, or run this phase on the Windows host; not running' % (var, var))
         if var == 'CLAUDE_CREDENTIALS_FILE_HOST':
             staged[var] = os.path.join(os.path.expanduser('~'), '.claude', '.credentials.json')
             continue

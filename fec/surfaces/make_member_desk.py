@@ -3224,6 +3224,10 @@ def build_bundle():
         },
         'members': members,
     }
+    # A legislation shadow run (run_legislation_dashboard_member_desk.py) pins the volatile freshness block.
+    if os.environ.get('DESK_FRESHNESS_PIN'):
+        with open(os.environ['DESK_FRESHNESS_PIN'], encoding='utf-8') as fh:
+            bundle['freshness'] = json.load(fh)
     bundle['integrity']['validation'] = DI.postflight(bundle, preflight)
     # The observed-speech layer is attached only after the score/rank postflight.
     # This ordering is the enforceable D-013 isolation boundary: no engine,

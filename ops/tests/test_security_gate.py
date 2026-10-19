@@ -551,6 +551,32 @@ class GateTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("nested archive 'deep/more.tgz'", out)
 
+    def test_only_the_pinned_loading_video_passes_and_only_with_its_approved_bytes(self):
+        pinned = "ops/desktop/client/loading-assets/terrier-loading-hq.mp4"
+        self.assertEqual(set(gate.PINNED_FILES), {pinned})                     # exactly one file, no media in general
+        approved = (gate.HERE.parent / pinned).read_bytes()
+        self.assertEqual(hashlib.sha256(approved).hexdigest(), gate.PINNED_FILES[pinned])
+        video = self.tree / pinned
+        video.parent.mkdir(parents=True)
+        video.write_bytes(approved)
+        rc, out = self.export()
+        self.assertEqual(rc, 0, out)                                           # the approved bytes at the pinned path pass
+        for other, data in (("ops/desktop/client/loading-assets/other.mp4", approved),   # same bytes, another path
+                            ("assets/clip.mp4", b"not the approved video")):
+            with self.subTest(other):
+                p = self.tree / other
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(data)
+                rc, out = self.export()
+                p.unlink()
+                self.assertEqual(rc, 1, out)
+                self.assertIn(other + ": denied extension .mp4", out)
+                self.assertNotIn(pinned + ":", out)
+        video.write_bytes(approved[:-1] + bytes([approved[-1] ^ 1]))          # a modified copy at the pinned path
+        rc, out = self.export()
+        self.assertEqual(rc, 1, out)
+        self.assertIn(pinned + ": denied extension .mp4", out)
+
     def test_kit_zip_allowed_only_when_listed_in_sha256sums(self):
         kit = self.tmp / "kit"
         kit.mkdir()

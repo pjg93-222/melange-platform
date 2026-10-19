@@ -12,6 +12,7 @@ The app's own Host, Origin and token checks see exactly what the browser sent. E
 import socket
 import sys
 import threading
+import time
 
 
 def _pipe(src, dst):
@@ -43,7 +44,13 @@ def _handle(client, port):
 def serve(listener, port):
     # ponytail: two threads per open connection, capped by the container's pids_limit; enough for one local user.
     while True:
-        client, _ = listener.accept()
+        try:
+            client, _ = listener.accept()
+        except OSError:
+            if listener.fileno() == -1:   # the listener itself was closed
+                raise
+            time.sleep(0.1)               # EMFILE/ECONNABORTED: one refused connection, keep serving
+            continue
         try:
             threading.Thread(target=_handle, args=(client, port), daemon=True).start()
         except RuntimeError:   # pids_limit reached: refuse this one connection, keep serving

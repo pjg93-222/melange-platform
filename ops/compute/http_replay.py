@@ -263,7 +263,6 @@ class Harness:
         self._seq = 0
         self._pending: dict[str, deque] = defaultdict(deque)
         self._total = 0
-        self._in_run = threading.local()   # set while the run() hook owns a claude call: its inner Popen is not diverted again
 
     # -- lifecycle
     def __enter__(self):
@@ -463,17 +462,19 @@ class Harness:
             args = popenargs[0] if popenargs else kwargs.get("args")
             if not (isinstance(args, (list, tuple)) and args and _is_claude(args[0])):
                 return original(*popenargs, **kwargs)
+            if any(hasattr(kwargs.get(name), "write") for name in ("stdout", "stderr")):
+                # What the child writes into a caller's file through run() is not captured, so replay could not put it
+                # back: refuse in both modes (before any paid call) rather than replay an empty file.
+                raise ValueError("http_replay: claude run() with a file stdout/stderr is not supported; "
+                                 "use capture_output=True or the bounded Popen shape")
             key, request = self._cli_key(args, kwargs.get("input"))
             if self.mode == "replay":
                 return self._cli_result(self._next(key, "claude CLI call"), args, kwargs)
-            self._in_run.on = True
             try:
                 done = original(*popenargs, **kwargs)
             except Exception as exc:
                 self._record("cli", key, request, error=dump_exc(exc))
                 raise
-            finally:
-                self._in_run.on = False
             text = isinstance(done.stdout, str) or isinstance(done.stderr, str)
             blobs = [None if s is None else (s.encode("utf-8") if isinstance(s, str) else s) for s in (done.stdout, done.stderr)]
             self._record("cli", key, request, response={
@@ -510,15 +511,14 @@ class Harness:
     # -- the claude CLI, bounded shape. D-211: classifier_runtime.classify_json no longer calls run(); it spawns Popen with temp-file
     #    stdin/stdout/stderr and waits with a timeout, which the run() hook cannot see. Popen is replaced by a SUBCLASS (subclassing
     #    and isinstance against subprocess.Popen keep working) that diverts only a claude argv whose stdout is a file; every other
-    #    Popen, including the one run() builds internally (the run() hook already owns that call), is constructed untouched.
+    #    Popen, including the PIPE one run() builds internally, is constructed untouched (run() refuses a file stdout).
     def _cli_popen(self, original):
         harness = self
 
         class Popen(original):
             def __new__(cls, *popenargs, **kwargs):
                 args = popenargs[0] if popenargs else kwargs.get("args")
-                if (not getattr(harness._in_run, "on", False) and isinstance(args, (list, tuple)) and args
-                        and _is_claude(args[0]) and hasattr(kwargs.get("stdout"), "write")):
+                if isinstance(args, (list, tuple)) and args and _is_claude(args[0]) and hasattr(kwargs.get("stdout"), "write"):
                     return harness._cli_spawn(original, popenargs, kwargs)
                 return super().__new__(cls)
 

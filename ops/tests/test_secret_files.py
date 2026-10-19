@@ -53,6 +53,7 @@ def world(monkeypatch, tmp_path):
     monkeypatch.setenv("MELANGE_ENGINE_COLLECT", "container")
     monkeypatch.setenv("IMAGE_COMPUTE_COLLECTOR", COLLECT_IMG)
     monkeypatch.setenv("IMAGE_COMPUTE_MELANGE", CHAIN_IMG)
+    monkeypatch.setattr(CE, "STAGING_OS", (os.name,))          # the staging mechanics are tested on every OS; the refusal has its own test
     CE.reset()
     yield SimpleNamespace(home=home, temp=temp, root=root, secrets=temp / "melange-secrets")
     CE.reset()
@@ -218,6 +219,24 @@ def test_an_image_that_cannot_be_verified_stages_nothing(world, monkeypatch):
     with pytest.raises(CE.EngineError, match="no verified image"):
         collect(world)
     assert not world.secrets.exists()
+
+
+def test_off_windows_nothing_is_staged_because_uid_10001_could_not_read_it(world, monkeypatch):
+    """A native Linux engine mounts a `file:` secret with its host owner and mode 0o600 (Compose ignores uid/gid/mode for one)."""
+    keys_json(world)
+    govinfo_file(world)
+    credentials(world)
+    monkeypatch.setattr(CE, "STAGING_OS", ())
+    monkeypatch.setattr(CE, "_key_line", lambda *a: pytest.fail("a key was read for a run that cannot stage it"))
+    for start, var in ((collect, "GOVINFO_KEY_FILE_HOST"), (admissions, "CLAUDE_CREDENTIALS_FILE_HOST")):
+        with pytest.raises(CE.EngineError, match="uid 10001") as error:
+            start(world)
+        assert var in str(error.value) and not leaked(str(error.value)) and not world.secrets.exists()
+    mine = world.temp / "mine.txt"
+    mine.write_text("CANARY-callers-own", encoding="utf-8")
+    for var in CE.ALL_SECRET_VARS:
+        monkeypatch.setenv(var, str(mine))
+    assert collect(world).env["FEC_DATA_GOV_FILE_HOST"] == str(mine) and not world.secrets.exists()   # the caller's own files: used as given
 
 
 def test_a_planted_link_or_junction_as_the_secret_root_is_refused(world):

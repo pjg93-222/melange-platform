@@ -65,6 +65,12 @@ DENY_EXT = {".sqlite", ".sqlite3", ".db", ".parquet", ".csv", ".tsv", ".xlsx", "
             ".pickle", ".jsonl", ".ndjson", ".wav", ".mp3", ".mp4", ".m4a", ".flac",
             # opaque containers and R / columnar / dump formats: the gate cannot read inside them (lower case: ext is lower-cased)
             ".gz", ".tgz", ".tar", ".7z", ".bz2", ".xz", ".rar", ".rds", ".rda", ".rdata", ".feather", ".npz", ".sql", ".bak"}
+# DENY_EXT files allowed one by one: path under the scan root -> sha256 of the approved bytes. Any other file with a denied
+# extension, or a listed path with other bytes, is still denied. Owner ruling 2026-10-19: the desktop loading video only.
+PINNED_FILES = {
+    "ops/desktop/client/loading-assets/terrier-loading-hq.mp4":
+        "64fa7000f928953031e9cb5e49a034b355497eb6a4cd7d99670f77e769711c95",
+}
 # .gitleaks.toml / .gitleaksignore inside a scan target could silence gitleaks, so they are denied too.
 DENY_NAMES = ("keys.json", "*key*.txt", "dashboard_password*", ".secret", "*salt*", ".demo-key", "*.dpapi",
               ".env", ".env.*", ".gitleaks.toml", "gitleaks.toml", ".gitleaksignore")
@@ -485,7 +491,7 @@ def check_data_leak(g, roots):
                     continue
                 rel_in = posix(full.relative_to(root))
                 rel, parts, low, ext = prefix + rel_in, rel_in.split("/"), n.lower(), full.suffix.lower()
-                if ext in DENY_EXT:
+                if ext in DENY_EXT and not (rel_in in PINNED_FILES and sha256_file(full) == PINNED_FILES[rel_in]):
                     findings.append((rel, f"denied extension {ext}"))
                 elif ext == ".zip" and not (len(parts) == 1 and sums.get(n) == sha256_file(full)):
                     findings.append((rel, "denied extension .zip (only kit top-level zips listed in SHA256SUMS)"))

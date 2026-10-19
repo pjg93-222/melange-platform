@@ -28,8 +28,14 @@ MELANGE_RESEARCH_TESTS = (
     "fec/tests/research/test_research_assertion_boundaries.py",
     "fec/tests/research/test_institutions_reference_report.py",
 )
+# 2026-10-19: tests that read gitignored local build products (root lobby-*.html / cu-member-desk.html pages and
+# fec/surfaces/staffer_live/approved/), never in git, so an exported copy could never run either.
+MELANGE_LOCAL_ARTIFACT_TESTS = (
+    "fec/tests/surfaces/test_original_workspace.py",
+)
 MELANGE_EXCLUDE = re.compile(r"^fec/(_quarantine_[^/]*/|attic/|research/|docs/|pas224\.zip$)"
-                             r"|^(?:" + "|".join(re.escape(p) for p in MELANGE_RESEARCH_TESTS) + r")$")
+                             r"|^(?:" + "|".join(re.escape(p) for p in MELANGE_RESEARCH_TESTS + MELANGE_LOCAL_ARTIFACT_TESTS)
+                             + r")$")
 # mentat-pocket.html is the Pocket TEMPLATE with a stale 2026-09-14 data snapshot (~119.6k chars) baked in between its
 # DATA markers. The release rebuilds Pocket from live data (manifest.build_pocket reads this template from the live
 # Mentat checkout, not from the export), so the old snapshot must not ride the source-only export.

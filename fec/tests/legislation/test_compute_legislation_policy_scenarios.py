@@ -368,6 +368,60 @@ class PolicyScenarioTests(unittest.TestCase):
                 )
             self.assertFalse(out.exists())
 
+    def test_inactive_accepted_edge_may_carry_a_direction(self) -> None:
+        # The direction ledger covers every included scoring-category edge,
+        # so a scoring-ineligible-only edge arrives with a direction.
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            accepted, directions = fixture_files(root)
+            ineligible = accepted_row(
+                "119:hr:3",
+                "credit_union_capital_requirements",
+                "B000001",
+                "Beta, Bob",
+                "sponsor",
+            )
+            ineligible.update(
+                scoring_eligible=False,
+                zero_weight_reason="historical_membership_not_officially_ratified",
+            )
+            write_ndjson(accepted, [*read_ndjson(accepted), ineligible])
+            write_ndjson(
+                directions,
+                [
+                    *read_ndjson(directions),
+                    direction_row("119:hr:3", "CU Capital Requirements", 1),
+                ],
+            )
+            out = root / "scenario"
+            scenarios.compute(
+                accepted_ledger=accepted, scoring_directions=directions, out=out
+            )
+            event = next(
+                row
+                for row in read_ndjson(out / "role_activity_events.ndjson")
+                if row["measure_key"] == "119:hr:3"
+            )
+            self.assertEqual(
+                event["zero_weight_reason"],
+                "historical_membership_not_officially_ratified",
+            )
+            self.assertEqual(set(event["policy_contributions"].values()), {0.0})
+            # A direction outside the accepted edge set still fails closed.
+            write_ndjson(
+                directions,
+                [
+                    *read_ndjson(directions),
+                    direction_row("119:hr:1", "CU Tax Status", 1),
+                ],
+            )
+            with self.assertRaisesRegex(scenarios.ScenarioError, "extra="):
+                scenarios.compute(
+                    accepted_ledger=accepted,
+                    scoring_directions=directions,
+                    out=root / "blocked",
+                )
+
     def test_production_output_location_is_refused(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

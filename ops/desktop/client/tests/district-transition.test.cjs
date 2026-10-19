@@ -40,6 +40,11 @@ test('suspend stops warm and starting backends and cancels pending activation',a
 test('changed dataset fingerprint stops stale retained runtime before fresh launch',async()=>{
  const f=fixture();let version=1;f.controller.fingerprint=configuration=>configuration.district+version;f.controller.remember(f.configuration,f.current);await f.controller.switch('or-05');version++;await f.controller.switch('co-05');assert.notEqual(f.current,f.initial);assert.equal(f.initial.stops,1);assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,false);
 });
+test('writes made while a district is active do not defeat warm reuse after switching away and back',async()=>{
+ const f=fixture(),writes={};f.controller.fingerprint=configuration=>configuration.district+(writes[configuration.district]||0);f.controller.remember(f.configuration,f.current);
+ writes['co-05']=1;await f.controller.switch('or-05');await f.controller.switch('co-05');
+ assert.equal(f.current,f.initial);assert.equal(f.initial.stops,0);assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,true);
+});
 test('dataset replacement during warm authorization is rejected and cannot refresh stale fingerprint',async()=>{
  const f=fixture();let version=1;f.controller.fingerprint=configuration=>configuration.district+version;f.controller.remember(f.configuration,f.current);await f.controller.switch('or-05');
  f.initial.start=async()=>{version++;};await assert.rejects(f.controller.switch('co-05'),/data changed/);assert.equal(f.configuration.district,'or-05');assert.equal(f.initial.stops,1);assert.equal(f.controller.pool.has('co-05'),false);

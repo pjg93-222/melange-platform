@@ -464,8 +464,10 @@ function installFraming(){
    if (readerMoved()){ stopGlide(); if (pw && ph){ cam.tx += (W - pw) / 2; cam.ty += (H - ph) / 2; } return; }
    if (lastKind() === 'all'){ stopGlide(); const e = autoCamera(null, null, true); if (e) putCamera(e); return; }
   }
+  // The engine's own resize (a window size change) keeps an untouched Fit frame on everyone too.
+  const keepAll = pw > 0 && ph > 0 && (pw !== W || ph !== H) && lastKind() === 'all' && !readerMoved();
   stopGlide();
-  const c = autoCamera(); if (c) putCamera(c);
+  const c = autoCamera(null, null, keepAll); if (c) putCamera(c);
  };
  // Layout and network switches tween the nodes; a camera that is still automatic glides along to the new frame.
  if (engineTween) tweenTo = function(tx, ty, dur){

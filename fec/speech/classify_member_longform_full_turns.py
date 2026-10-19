@@ -292,10 +292,12 @@ def main() -> int:
         if key in existing:
             raise SystemExit("duplicate output member/source_id")
         # --member narrows `pending`, not the cache. An unselected prior row survives only while it still
-        # matches its current input and settings; failed/refused rows survive so the receipt keeps counting them.
+        # matches its current input; failed/refused rows survive so the receipt keeps counting them. It is
+        # checked against its own recorded settings, so this run's settings alone never discard another
+        # member's paid result.
         if key in selected_keys or (key in current and (
                 row.get("status") in {"CLASSIFIER_ERROR", "CLASSIFIER_RESPONSE_REFUSED"}
-                or not needs_processing(current[key], row, classifier_settings))):
+                or not needs_processing(current[key], row, row.get("classifier_settings")))):
             existing[key] = row
     pending = [row for row in selected if needs_processing(row, existing.get(source_key(row)), classifier_settings,
                                                          refresh=args.refresh, retry_errors=args.retry_errors)]
