@@ -126,6 +126,7 @@ class Fixture:
         g("remote", "add", "origin", str(self.tmp / "geo-remote.git"), cwd=self.terrier)
         self.cfg = core.load_config(overrides={
             "melange_live": str(self.melange), "mentat_live": str(self.mentat), "terrier_checkout": str(self.terrier),
+            "terrier_ref": "claude/walk-list",      # the fixture's branch; the shipped config moved to main (bdf6e0c92)
             "platform_bare": str(self.tmp / "platform.git"), "platform_remote_url": str(self.tmp / "platform-remote.git"),
             "terrier_remote_url": str(self.tmp / "geo-remote.git"),
             "releases_dir": str(self.tmp / "releases"), "downloads": {"workbooks": []},

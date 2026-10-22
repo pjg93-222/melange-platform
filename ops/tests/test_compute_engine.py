@@ -641,16 +641,18 @@ def test_the_congress_pipeline_runs_collectors_per_the_collect_engine_and_the_ch
 
     def launch(command, *, cwd, env, stdout, stderr):
         seen.append((command, env))
-        return Finished(0 if len(seen) == 1 else 4)       # calibration passes; the first container collector then fails the run
+        return Finished(0 if len(seen) <= 2 else 4)       # calibration and roster pass; the first container collector then fails the run
 
     monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
     assert pipeline.run(root) == 1
-    host, container = seen[0], seen[1]
+    host, roster, container = seen[0], seen[1], seen[2]
     assert host[0] == [sys.executable, str(root / "fec" / "calibration_guard.py")] and host[1]["MONEYBALL_ROOT"] == str(root)
+    # the roster step (632029479) runs on the host: refresh_roster.py is no registered collector service
+    assert roster[0] == [sys.executable, str(root / "fec" / "collect" / "refresh_roster.py"), "--apply"]
     assert container[0][:2] == ["docker", "compose"] and container[1]["IMAGE_COMPUTE_COLLECTOR"] == COLLECT_IMG
     assert container[0][-3:] == ["collect", "python", "/melange/fec/legislation/refresh_legislation_discovery.py"]
     # discovery, its one retry, then admissions on the llm service (which fails the run); every one of them a container
-    assert [cmd[cmd.index("python") - 1] for cmd, _env in seen[1:]] == ["collect", "collect", "llm"]
+    assert [cmd[cmd.index("python") - 1] for cmd, _env in seen[2:]] == ["collect", "collect", "llm"]
     assert pipeline.read(root / pipeline.STATUS)["status"] == "FAILED"
     steps = {name: script for name, script, _arguments, _timeout in pipeline.steps(32, include_media=True)}
     assert CE.engine_of(str(root / "fec" / steps["pipeline"]), ("collect",)) == "windows"        # the chain step is not a collector here

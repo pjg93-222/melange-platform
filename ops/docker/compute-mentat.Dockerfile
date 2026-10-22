@@ -29,7 +29,10 @@ FROM ${DEBIAN_BASE} AS base
 # 20261013T000000Z -> 20261017T000000Z, with CHROMIUM_VERSION below (D-181): trixie-security fixed the next chromium findings (CVE-2026-110136
 # through CVE-2026-110161) at 155.0.8059.79-1~deb13u1 (DSA-6562-1), libcurl at 8.14.1-2+deb13u7 (DSA-6558-1) and libexpat at 2.9.0-1~deb13u1
 # (DSA-6566-1); the 20261013 snapshot holds chromium 155.0.8059.39-1~deb13u1, libcurl 8.14.1-2+deb13u5 and libexpat 2.8.3-1~deb13u1.
-ARG DEBIAN_SNAPSHOT=20261017T000000Z
+# 20261017T000000Z -> 20261022T170820Z, with CHROMIUM_VERSION below (D-181): the 2026.10.22.1 images gate failed this image on 120 fixable HIGH
+# chromium findings (CVE-2026-110913 onward) in 155.0.8059.79-1~deb13u1; trixie-security fixed them at 156.0.8078.47-1~deb13u1, whose amd64
+# build snapshot.debian.org first saw at 20261022T170820Z. Every package named below resolves at that snapshot (checked against its indexes).
+ARG DEBIAN_SNAPSHOT=20261022T170820Z
 RUN printf '%s\n' \
       'Types: deb' \
       "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/" \
@@ -75,7 +78,7 @@ RUN /opt/venv/bin/pip uninstall -y pip && /opt/python/bin/python3 -m pip uninsta
 
 FROM base
 ARG DEBIAN_FRONTEND=noninteractive
-ARG CHROMIUM_VERSION=155.0.8059.79-1~deb13u1
+ARG CHROMIUM_VERSION=156.0.8078.47-1~deb13u1
 ARG PPM_SNAPSHOT_DATE=2026-06-19
 ARG GIT_SHA=unknown
 ARG BUILD_TIME=unknown

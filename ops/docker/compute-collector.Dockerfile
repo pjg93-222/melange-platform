@@ -90,7 +90,9 @@ ARG BUILD_TIME=unknown
 # 20261013T000000Z -> 20261017T000000Z, the same bump as ops/docker/compute-mentat.Dockerfile (D-181): the 20261013 snapshot holds chromium
 # 155.0.8059.39-1~deb13u1, libcurl 8.14.1-2+deb13u5 and libexpat 2.8.3-1~deb13u1, all with fixable findings at the images gate; 20261017 holds
 # chromium 155.0.8059.79-1~deb13u1 (DSA-6562-1), libcurl 8.14.1-2+deb13u7 (DSA-6558-1) and libexpat 2.9.0-1~deb13u1 (DSA-6566-1).
-ARG DEBIAN_SNAPSHOT=20261017T000000Z
+# 20261017T000000Z -> 20261022T170820Z, the same bump as ops/docker/compute-mentat.Dockerfile (D-181): the 2026.10.22.1 images gate failed this
+# image on 120 fixable HIGH chromium findings in 155.0.8059.79-1~deb13u1; 20261022T170820Z is the first snapshot holding 156.0.8078.47-1~deb13u1.
+ARG DEBIAN_SNAPSHOT=20261022T170820Z
 LABEL org.opencontainers.image.title="compute-collector" \
       org.opencontainers.image.description="Melange collectors: CPython 3.12.10, Node/Playwright, Chromium, claude CLI (no credentials)" \
       org.opencontainers.image.source="https://github.com/pjg93-222/melange-platform" \

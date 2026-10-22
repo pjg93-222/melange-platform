@@ -75,7 +75,9 @@ def main():
         ok(True,'A3 funded: SKIP (view cache stale)')
     ok(nmem==roster.count(),'A4 members = %d (roster %d)'%(nmem,roster.count()))
     # B influence = committee-only
-    ab12=bm.cell(12,28).value; ab13=bm.cell(13,28).value
+    # the dial block's row moves when the roster refresh inserts rows above it, so the two dials are found by label (a missing label reads None and fails)
+    _dial={k:v for k,v in bm.iter_rows(min_row=2,max_row=40,min_col=27,max_col=28,values_only=True)}
+    ab12=_dial.get('Influence: committee'); ab13=_dial.get('Influence: centrality')
     ok(ab12==1.0 and ab13==0.0,'B1 influence weights committee=%s centrality=%s (expect 1.0/0.0)'%(ab12,ab13))
     # C legislative = restored curated (NOT the failed refresh): Tim Scott high, Durbin low.
     # C3 updated 2026-07-15: the Normalized sheet was one-row-misaligned (each member carried their

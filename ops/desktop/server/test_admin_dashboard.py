@@ -1,10 +1,12 @@
 import http.client
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -20,13 +22,17 @@ from admin_dashboard import AdminSession, AdminSessions, LIFETIME, SessionCapaci
 from desktop_admin import Refused
 import test_access_store as store_tests
 import test_apps_admin as apps_tests
+from desktop_apps_admin import DesktopApps
 
 
 class AdminDashboardTests(unittest.TestCase):
     def setUp(self):
         store_tests.AccessStoreTests.setUp(self)
         self.apps, self.runner = apps_tests.make_apps(self.temp.name, self.store)
-        self.server, self.url = create_server(self.store, apps=self.apps)
+        self.desktop_launches = []
+        self.desktop_root = Path(self.temp.name) / 'installed-desktop'
+        self.desktop = DesktopApps(self.desktop_root, launch=lambda *args, **kwargs: self.desktop_launches.append((args, kwargs)), version=lambda _: '1.0.16')
+        self.server, self.url = create_server(self.store, apps=self.apps, desktop=self.desktop)
         self.addCleanup(self.server.server_close)
         worker = threading.Thread(target=self.server.serve_forever, daemon=True); worker.start()
         self.addCleanup(worker.join, 3); self.addCleanup(self.server.shutdown)
@@ -57,6 +63,23 @@ class AdminDashboardTests(unittest.TestCase):
             self.assertEqual(self.call('/dashboard', {}, {**headers, **override})[0], 403)
         self.assertEqual(self.call('/dashboard', {})[0], 403)
         self.assertEqual(self.server.server_address[0], '127.0.0.1')
+
+    def test_desktop_launch_requires_protected_session_and_ignores_no_guards(self):
+        exe = self.desktop_root / 'Melange' / 'Melange.exe'
+        exe.parent.mkdir(parents=True)
+        exe.write_bytes(b'fixture; never run')
+        headers = self.session()
+        for route, value in (('/desktop-apps', {}), ('/desktop-apps/open', {'appId': 'melange'})):
+            self.assertEqual(self.call(route, value)[0], 401)
+            for changed in ({'Origin': 'http://127.0.0.1:1'}, {'X-Admin-CSRF': secrets.token_urlsafe(32)}, {'Host': 'foreign.invalid'}):
+                self.assertEqual(self.call(route, value, {**headers, **changed})[0], 403)
+        self.assertEqual(self.desktop_launches, [])
+        self.assertTrue(self.call('/desktop-apps', {}, headers)[1]['applications'][0]['installed'])
+        self.assertEqual(self.call('/desktop-apps/open', {'appId': 'melange', 'args': ['--bad']}, headers)[0], 403)
+        self.assertEqual(self.call('/desktop-apps/open', {'appId': '../anything'}, headers)[0], 400)
+        self.assertEqual(self.desktop_launches, [])
+        self.assertEqual(self.call('/desktop-apps/open', {'appId': 'melange'}, headers)[0], 200)
+        self.assertEqual(self.desktop_launches[0][0], ([str(exe)],))
 
     def test_explicit_role_scope_approve_deny_and_revoke(self):
         request = store_tests.AccessStoreTests.request(self, 'terrier')
@@ -165,6 +188,66 @@ class AdminDashboardTests(unittest.TestCase):
                 self.assertEqual(response.status,404)
                 response.read()
             finally: connection.close()
+
+    @contextmanager
+    def held_gets(self, routes):
+        """Wait until every connection has a worker, keeping headers incomplete until the test releases them."""
+        connections, entered = [], threading.Condition()
+        count = 0
+        handler = self.server.RequestHandlerClass
+        setup = handler.setup
+
+        def observed_setup(request):
+            nonlocal count
+            setup(request)
+            with entered:
+                count += 1
+                entered.notify_all()
+
+        with mock.patch.object(handler, 'setup', observed_setup):
+            try:
+                for route in routes:
+                    connection = socket.create_connection(('127.0.0.1', self.server.server_port), timeout=3)
+                    connections.append(connection)
+                    connection.sendall(f'GET {route} HTTP/1.1\r\nHost: 127.0.0.1:{self.server.server_port}\r\n'.encode('ascii'))
+                with entered:
+                    self.assertTrue(entered.wait_for(lambda: count == len(routes), timeout=3),
+                                    'parallel asset connections did not all get a worker')
+                yield connections
+            finally:
+                for connection in connections:
+                    connection.close()
+
+    def test_initial_browser_asset_connections_are_all_served(self):
+        assets = [('/style.css', STATIC/'style.css'), ('/desktop-chrome.css', CLIENT/'desktop-chrome.css'),
+                  *[('/icons/'+app+'.ico', CLIENT/'icons'/(app+'.ico')) for app in ('melange', 'terrier', 'mentat')],
+                  ('/app.js', STATIC/'app.js')]
+        with self.held_gets([route for route, _ in assets]) as connections:
+            # All six are accepted before any request can finish: a fast machine cannot hide a four-worker limit.
+            for connection in connections:
+                connection.sendall(b'\r\n')
+            for connection, (route, path) in zip(connections, assets):
+                with self.subTest(route=route):
+                    response = http.client.HTTPResponse(connection)
+                    try:
+                        response.begin()
+                        self.assertEqual(response.status, 200)
+                        self.assertEqual(response.read(), path.read_bytes())
+                    finally:
+                        response.close()
+
+    def test_dashboard_connection_workers_remain_bounded(self):
+        with self.held_gets(['/'] * 16):
+            connection = socket.create_connection(('127.0.0.1', self.server.server_port), timeout=3)
+            try:
+                connection.sendall(f'GET /app.js HTTP/1.1\r\nHost: 127.0.0.1:{self.server.server_port}\r\n\r\n'.encode('ascii'))
+                try:
+                    response = connection.recv(1)
+                except (ConnectionResetError, ConnectionAbortedError):
+                    response = b''
+                self.assertEqual(response, b'', 'a seventeenth connection exceeded the worker limit')
+            finally:
+                connection.close()
 
     def test_session_close_releases_only_authenticated_session(self):
         first=self.session()
@@ -326,14 +409,16 @@ class AdminDashboardTests(unittest.TestCase):
 
     def test_a_reopen_after_the_shutdown_timer_fired_or_the_server_closed_is_refused(self):
         self.server.expire()                                         # what the timer does at the end of the 8 h: serving stops
-        with self.assertRaises(SessionCapacityReached):              # answered BUSY by the reopen, never a window on a closed port
+        with self.assertRaises(Refused) as ended:                    # answered BUSY by the reopen, never a window on a closed port
             self.server.fresh_bootstrap_url()
+        self.assertNotIsInstance(ended.exception, SessionCapacityReached)   # which the reopen would show as "four sessions are open"
         quiet, _ = create_server(self.store, apps=self.apps)
         self.addCleanup(quiet.server_close)
         self.assertTrue(quiet.fresh_bootstrap_url())
         quiet.server_close()                                         # closing the dashboard closes it for reopens too
-        with self.assertRaises(SessionCapacityReached):
+        with self.assertRaises(Refused) as ended:
             quiet.fresh_bootstrap_url()
+        self.assertNotIsInstance(ended.exception, SessionCapacityReached)
 
     def test_serving_arms_the_shutdown_and_each_reopen_re_arms_it(self):
         deadline = time.monotonic() + 5
@@ -357,14 +442,36 @@ class AdminDashboardTests(unittest.TestCase):
         quiet.make_timer = Recorded
         for _ in range(3):                                           # with the one create_server issued: four sessions
             quiet.fresh_bootstrap_url()
-        self.assertEqual([(t.seconds, t.stop, t.started, t.daemon, t.cancelled) for t in made],
-                         [(LIFETIME, quiet.expire, True, True, True)] * 2 + [(LIFETIME, quiet.expire, True, True, False)])
+        self.assertEqual([(t.seconds, t.started, t.daemon, t.cancelled) for t in made],   # what each timer's stop does: the test below
+                         [(LIFETIME, True, True, True)] * 2 + [(LIFETIME, True, True, False)])
         with self.assertRaises(SessionCapacityReached):
             quiet.fresh_bootstrap_url()
         self.assertEqual((len(made), made[-1].cancelled), (3, False))   # the cap of four holds, and a refused reopen moves nothing
         self.server.shutdown()
         self.server.server_close()
         self.assertTrue(self.server.lifetime.finished.is_set())      # closing the dashboard cancels the timer
+
+    def test_a_shutdown_timer_replaced_while_it_fired_does_not_end_the_reopened_dashboard(self):
+        made, stopped = [], []
+
+        class Recorded:
+            def __init__(self, seconds, stop):
+                self.stop, self.daemon = stop, False
+                made.append(self)
+
+            def start(self): pass
+
+            def cancel(self): pass   # too late for a timer that has already fired
+        quiet, _ = create_server(self.store, apps=self.apps)
+        self.addCleanup(quiet.server_close)
+        quiet.make_timer, quiet.shutdown = Recorded, lambda: stopped.append(True)   # not serving: record the stop
+        quiet.fresh_bootstrap_url()
+        quiet.fresh_bootstrap_url()                                  # a reopen replaces the first timer under the lock ...
+        made[0].stop()                                               # ... which had fired and was waiting for that lock
+        self.assertEqual((quiet.closed, stopped), (False, []))
+        self.assertTrue(quiet.fresh_bootstrap_url())                 # the reopened window keeps its dashboard
+        made[-1].stop()                                              # the timer that is current still ends it
+        self.assertEqual((quiet.closed, stopped), (True, [True]))
 
 
 # Runs the page's own app.js under node against the page's own index.html, with a scripted fetch and a minimal DOM (the
@@ -385,15 +492,17 @@ const ids=new Map();
 for(const m of html.matchAll(/<[a-z0-9]+\b[^>]*>/g)){const id=/ id="([^"]+)"/.exec(m[0]);if(id){const e=new El(id[1]);e.hidden=/\shidden[\s>]/.test(m[0]);e.disabled=/\sdisabled[\s>]/.test(m[0]);ids.set(id[1],e);}}
 const row={service:'melange-desk',name:'Melange desk',state:'stopped',terrier:false,backup:'not_set_up',lastBackup:null,busy:null,last:null,actions:['start','logs'],since:1800000000,exitCode:0,update:false,version:null,readyVersion:null,disk:null,openUrl:null,note:null};
 const answers={'/session':{bearer:'B',csrf:'C'},
+  '/desktop-apps':{applications:[{appId:'melange',name:'Melange',installed:true,version:'1.0.16',path:'C:/installed/Melange/Melange.exe'}]},'/desktop-apps/open':{ok:true},
   '/dashboard':{serverTime:1,notifications:{pendingRequests:0},requests:[],grants:[],activity:[],invites:[],appActions:[]},
   '/apps':Object.assign({checkedAt:1800000000,docker:{ok:true,message:null},notice:null,stale:false,services:[row],activity:[]},scenario.overview),
   '/apps/detail':{checkedAt:1800000000,notice:null,stale:false,service:row,accounts:{supported:false,listing:false,roles:[]},health:{status:'none',checkedAt:null},started:null,uptime:null,image:{update:false,pinnedByDigest:true,version:null,readyVersion:null},storage:[]},
   '/apps/logs':{service:row.service,lines:[]},'/apps/action':{ok:true,accepted:true},'/apps/docker-start':{ok:true,accepted:true}};
-let live=false;const calls=[];
+let live=false;const calls=[],startupCalls=[],held=[];
 const realTimeout=setTimeout;let rechecks=0,rejected=false;const closes=[],pagehide=[];
 globalThis.setTimeout=(fn,ms,...rest)=>{if(live&&ms===10000&&rejected&&!rechecks){rechecks++;ms=0;}return realTimeout(fn,ms,...rest);};   // the first 10 s timer started right after a status-less rejection (the page's re-check) runs at once
 globalThis.fetch=async (route,init)=>{
-  const routes=scenario.routes||{};let spec=live&&(routes[route]||routes['*']);
+  const initial=!live,routes=(initial?scenario.startupRoutes:scenario.routes)||{};let spec=routes[route]||routes['*'];
+  if(initial){startupCalls.push(route);if(scenario.hold===route)await new Promise(resolve=>held.push(resolve));}
   if(live)calls.push(route);
   if(route==='/session-close')closes.push(init.headers.Authorization);
   rejected=false;
@@ -410,15 +519,17 @@ const find=(node,key)=>{if(node.dataset&&node.dataset.key===key)return node;for(
 const snap=()=>{const text=id=>ids.get(id).textContent,line=ids.get('apps-table').inserted.slice(-1)[0],b=ids.get('start-docker');
   return {expired:!ids.get('expired').hidden,shell:!ids.get('shell').hidden,title:text('expired-title'),notice:text('expired-text'),table:!ids.get('apps-table').hidden,
     message:ids.get('apps-message').hidden?'':text('apps-message'),stale:line&&!line.hidden?line.textContent:'',button:{present:!!b,shown:!!b&&!b.hidden,disabled:!!b&&b.disabled},
-    banner:{shown:!ids.get('unanswered').hidden,text:text('unanswered')}};};
+    banner:{shown:!ids.get('unanswered').hidden,text:text('unanswered')},subtitle:text('apps-sub'),accessStatus:text('status'),serviceRows:ids.get('apps-body').children.length,
+    desktopRows:ids.get('desktop-apps-body').children.length,desktopStatus:text('desktop-status'),
+    controls:{refreshDisabled:ids.get('refresh').disabled,endDisabled:ids.get('end-session').disabled,checkDisabled:ids.get('check-now').disabled}};};
 (async()=>{
-  await wait(150);live=true;const before=snap();
-  const target=['check-now','start-docker'].includes(scenario.click)?ids.get(scenario.click):find(ids.get('apps-body'),scenario.click);
+  await wait(150);const startup=snap();if(scenario.endWhileLoading)await ids.get('end-session').listeners.click[0]();for(const resume of held)resume();await wait(50);live=true;const before=snap();
+  const target=['check-now','start-docker','desktop-refresh'].includes(scenario.click)?ids.get(scenario.click):find(ids.get('apps-body'),scenario.click)||find(ids.get('desktop-apps-body'),scenario.click);
   if(!target)throw new Error('no control '+scenario.click+'; the page says: '+before.message);
   await target.listeners.click[0]();await wait(150);
   const seen=[...calls],shown=snap();
   if(scenario.pagehide){for(const fn of pagehide)fn();await wait(50);}   // the window closing
-  process.stdout.write(JSON.stringify({...shown,before,calls:seen,rechecks,closes}),()=>process.exit(0));
+  process.stdout.write(JSON.stringify({...shown,startup,startupCalls,before,calls:seen,rechecks,closes}),()=>process.exit(0));
 })().catch(e=>{process.stderr.write(String(e&&e.stack||e)+'\n');process.exit(1);});
 '''
 NODE = shutil.which('node')
@@ -426,13 +537,71 @@ NODE = shutil.which('node')
 
 @unittest.skipUnless(NODE, 'node is required to run the page')
 class AdminPageTests(unittest.TestCase):
-    def page(self, click, routes=None, overview=None, pagehide=False):
-        scenario = json.dumps({'click': click, 'routes': routes or {}, 'overview': overview or {}, 'pagehide': pagehide})
+    def page(self, click, routes=None, overview=None, pagehide=False, hold=None, startup_routes=None, end_while_loading=False):
+        scenario = json.dumps({'click': click, 'routes': routes or {}, 'overview': overview or {}, 'pagehide': pagehide,
+                               'hold': hold, 'startupRoutes': startup_routes or {}, 'endWhileLoading': end_while_loading})
         done = subprocess.run([NODE, '-e', PAGE, str(STATIC/'app.js'), str(STATIC/'index.html'), scenario], capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
     NOT_ANSWERING = 'Melange Admin is not answering. Trying again\u2026 If this keeps up, open Melange Admin again from its icon.'
+
+    def test_desktop_apps_load_while_docker_status_is_pending(self):
+        page = self.page('desktop-melange', hold='/apps')
+        self.assertEqual(page['startup']['desktopRows'], 1)
+        self.assertEqual(page['calls'], ['/desktop-apps/open'])
+        self.assertEqual(page['desktopStatus'], 'Melange launch requested. Check its desktop window.')
+
+    def test_desktop_open_failure_does_not_claim_success_or_open_a_web_service(self):
+        page = self.page('desktop-melange', routes={'/desktop-apps/open': {'status':503,'body':{'message':'Windows blocked this app'}}})
+        self.assertEqual(page['calls'], ['/desktop-apps/open'])
+        self.assertEqual(page['desktopStatus'], 'Windows blocked this app')
+
+    def test_session_controls_unlock_while_either_initial_view_is_still_loading(self):
+        for route in ('/apps', '/dashboard'):
+            with self.subTest(route=route):
+                page = self.page('check-now', hold=route)
+                startup = page['startup']
+                self.assertEqual((startup['expired'], startup['shell']), (False, True))
+                self.assertEqual(startup['controls'], {'refreshDisabled': False, 'endDisabled': False, 'checkDisabled': False})
+                self.assertEqual(page['startupCalls'], ['/session', '/dashboard', '/desktop-apps', '/apps'])
+                if route == '/apps':
+                    self.assertEqual((startup['subtitle'], startup['serviceRows']), ('Checking local services…', 0))
+                    self.assertTrue(startup['accessStatus'].startswith('Updated '))   # access requests finished without Docker
+                else:
+                    self.assertEqual((startup['accessStatus'], startup['serviceRows']), ('Loading access requests…', 1))
+                    self.assertIn('Last checked', startup['subtitle'])               # Docker finished without the access store
+
+    def test_first_services_failure_replaces_the_opening_session_message(self):
+        for response, message in (({'reject': 'AbortError'}, 'Could not read the services. Choose Check now to try again.'),
+                                  ({'status': 503, 'body': {'error': 'docker_unavailable', 'message': 'Docker took too long to answer.'}},
+                                   'Docker took too long to answer.')):
+            with self.subTest(response=response):
+                startup = self.page('check-now', startup_routes={'/apps': response})['startup']
+                self.assertEqual((startup['expired'], startup['shell']), (False, True))
+                self.assertEqual((startup['subtitle'], startup['message']), ('Local services have not been checked yet.', message))
+                self.assertFalse(startup['controls']['endDisabled'])
+
+    def test_ending_session_while_initial_view_loads_ignores_its_late_response(self):
+        for route in ('/apps', '/dashboard'):
+            with self.subTest(route=route):
+                page = self.page('check-now', hold=route, end_while_loading=True)
+                self.assertEqual(page['closes'], ['Bearer B'])
+                self.assertEqual(page['before']['serviceRows'], 0)
+                self.assertTrue(page['before']['subtitle'].startswith('Session ended.'))
+                self.assertTrue(page['before']['accessStatus'].startswith('Session ended.'))
+                self.assertEqual(page['before']['controls']['endDisabled'], True)
+
+    def test_ending_session_while_initial_view_loads_ignores_its_late_rejection(self):
+        for route in ('/apps', '/dashboard'):
+            with self.subTest(route=route):
+                page = self.page('check-now', hold=route, startup_routes={route: {'reject': 'TypeError'}}, end_while_loading=True)
+                self.assertEqual(page['closes'], ['Bearer B'])
+                self.assertFalse(page['banner']['shown'])
+                self.assertEqual(page['rechecks'], 0)
+                self.assertEqual(page['serviceRows'], 0)
+                self.assertTrue(page['subtitle'].startswith('Session ended.'))
+                self.assertTrue(page['accessStatus'].startswith('Session ended.'))
 
     def test_a_dashboard_that_does_not_answer_keeps_the_session_and_says_so(self):
         dead = {'*': {'reject': 'TypeError'}}   # fetch rejects with no HTTP status, every time: busy for good, or ended

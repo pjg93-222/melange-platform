@@ -23,7 +23,9 @@ python-dateutil==2.9.0.post0
 six==1.17.0
 tzdata==2026.3
 packaging==26.3
-certifi==2026.7.22
+# 2026-10-22: 2026.7.22 -> 2026.10.19, GHSA-6q48-6c7w-9gw2 (CRITICAL, compromised emSign intermediates; D-181). The Windows venv was
+# upgraded to the same wheel (sha256 42d35340...0e1b), so the pin is still the host's; requirements-console.txt still says 2026.7.22.
+certifi==2026.10.19
 psutil==7.2.2
 geopy==2.5.0
 geographiclib==2.1

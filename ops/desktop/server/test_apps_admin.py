@@ -650,6 +650,7 @@ class AppsAdminTests(unittest.TestCase):
             user = Path(local) / 'Programs' / 'DockerDesktop' / 'Docker Desktop.exe'
             user.parent.mkdir(parents=True)
             user.write_bytes(b'')
+            self.apps.overview()                                                 # Docker answered, so another start is accepted
             self.apps.handle('/apps/docker-start', {})
             argv, kwargs = launched[-1]
             self.assertEqual(argv, [str(user)])                                  # the per-user install comes first
@@ -667,10 +668,61 @@ class AppsAdminTests(unittest.TestCase):
 
             def broken(argv, **kwargs):
                 raise OSError('not allowed')
+            self.apps.overview()
             self.apps.docker.launch = broken
             with self.assertRaises(ActionFailed):
                 self.apps.handle('/apps/docker-start', {})
             self.assertEqual(self.entries()[0]['outcome'], 'failed')
+
+    def test_a_second_docker_start_while_one_is_starting_is_refused_and_not_logged(self):
+        launched, now = [], [1000.0]
+        self.apps.docker.launch = lambda argv, **kwargs: launched.append(argv)
+        self.apps.monotonic = lambda: now[0]
+        with tempfile.TemporaryDirectory() as local, tempfile.TemporaryDirectory() as machine, \
+                mock.patch.dict(os.environ, {'LOCALAPPDATA': local, 'ProgramFiles': machine}):
+            exe = Path(machine) / 'Docker' / 'Docker' / 'Docker Desktop.exe'
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b'')
+            self.apps.handle('/apps/docker-start', {})
+            now[0] += 170                                                        # Docker has not answered: a second click, another tab
+            with self.assertRaises(Busy) as refused:
+                self.apps.handle('/apps/docker-start', {})
+            self.assertIn('already starting', refused.exception.message)
+            self.assertEqual((len(launched), [e['outcome'] for e in self.entries()]), (1, ['succeeded']))   # one launch, one entry
+            now[0] += 11                                                         # three minutes without an answer: it may be tried again
+            self.apps.handle('/apps/docker-start', {})
+            self.apps.overview()                                                 # Docker answers
+            self.apps.handle('/apps/docker-start', {})                           # so a later start is not held back
+            self.assertEqual(len(launched), 3)
+
+            gate, entered = threading.Event(), threading.Event()
+
+            def slow(argv, **kwargs):
+                entered.set()
+                gate.wait(5)
+                launched.append(argv)
+            self.apps.overview()
+            self.apps.docker.launch = slow
+            first = threading.Thread(target=self.apps.handle, args=('/apps/docker-start', {}), daemon=True)
+            first.start()
+            self.assertTrue(entered.wait(5))
+            with self.assertRaises(Busy):                                        # two at once: one launch, not two
+                self.apps.handle('/apps/docker-start', {})
+            gate.set()
+            first.join(5)
+            self.assertEqual(len(launched), 4)
+
+            def broken(argv, **kwargs):
+                raise OSError('not allowed')
+            self.apps.overview()
+            self.apps.docker.launch = broken
+            with self.assertRaises(ActionFailed):
+                self.apps.handle('/apps/docker-start', {})
+            self.apps.docker.launch = lambda argv, **kwargs: launched.append(argv)
+            self.apps.handle('/apps/docker-start', {})                           # a launch that failed holds nothing back
+            self.assertEqual(len(launched), 5)
+            self.assertEqual([e['outcome'] for e in self.entries()].count('failed'), 1)
+            self.assertEqual(len(self.entries()), 6)                             # five launches and the failed one; no refusal is logged
 
     def test_failed_action_logs_one_failed_entry_with_redacted_reason(self):
         failing, runner = make_apps(self.temp.name, self.store, FakeRunner(fail=('restart',)))

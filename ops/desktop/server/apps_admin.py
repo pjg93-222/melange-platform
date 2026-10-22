@@ -247,6 +247,7 @@ def find_docker(which=shutil.which, environ=os.environ):
 DESKTOP_APP = (('LOCALAPPDATA', r'Programs\DockerDesktop\Docker Desktop.exe'),   # this user's install first,
                ('ProgramFiles', r'Docker\Docker\Docker Desktop.exe'))            # then the machine-wide one
 DOCKER_SERVICE = 'docker-desktop'   # the name the activity log records for starting Docker Desktop
+DOCKER_START_WAIT = 180   # seconds one Docker Desktop launch is given to answer before another is accepted (the page waits as long)
 
 
 def find_desktop_app(environ=os.environ):
@@ -602,6 +603,7 @@ class AppsAdmin:
         self.failed = None                    # the DockerUnavailable the latest finished read ended with, or None when it succeeded
         self.config_cache = None              # (watched paths, their stamps, {service: pinned image}) of the last good `compose config`
         self.logs_running = set()             # services whose logs are being read right now
+        self.docker_started = None            # monotonic time of the Docker Desktop launch that Docker has not answered since
 
     # routing
     def handle(self, path, value):
@@ -714,6 +716,8 @@ class AppsAdmin:
             with self.lock:
                 self.reading = None
                 self.failed = job.error if isinstance(job.error, DockerUnavailable) else None
+                if job.error is None:
+                    self.docker_started = None   # Docker answered: a later start is a new one
             job.done.set()
 
     def read_services(self, deadline):
@@ -981,14 +985,23 @@ class AppsAdmin:
 
     def start_docker(self):
         """Start Docker Desktop. Nothing in the request chooses what runs; the page then polls until Docker answers, and the
-        containers (restart: unless-stopped) come back on their own."""
+        containers (restart: unless-stopped) come back on their own. One launch at a time: until Docker answers a read, or for
+        DOCKER_START_WAIT, another start (a second click, another tab) is refused Busy and not recorded."""
+        with self.lock:
+            started = self.docker_started
+            if started is not None and self.monotonic() - started < DOCKER_START_WAIT:
+                raise Busy('Docker Desktop is already starting. This can take a minute or two.')
+            self.docker_started = self.monotonic()
+        outcome = None
         try:
-            self.docker.start_desktop()
+            self.docker.start_desktop()   # NotSetUp passes through: nothing was started, so nothing is recorded
             outcome = 'succeeded'
-        except NotSetUp:
-            raise   # nothing was started, so nothing is recorded
         except (OSError, subprocess.SubprocessError):
             outcome = 'failed'
+        finally:
+            if outcome != 'succeeded':   # nothing is starting, so the next click may try again at once
+                with self.lock:
+                    self.docker_started = None
         try:
             self.audit.audit_app_action(self.config.actor, DOCKER_SERVICE, 'start', outcome)
         except Exception:   # the launch already happened; the response says so whatever the log could do

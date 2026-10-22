@@ -44,7 +44,7 @@ def fake_roster(tmp_path):
     os.makedirs(tmp_path / 'data' / 'engine')
     (tmp_path / 'data' / 'engine' / 'roster.json').write_text(json.dumps(
         {'schema': roster_module.SCHEMA, 'members': ROWS, 'departed': DEPARTED}), encoding='utf-8')
-    return SimpleNamespace(names=lambda: list(NAMES),
+    return SimpleNamespace(names=lambda: list(NAMES), departed=lambda: roster_module.departed(str(tmp_path)),
                            drift=lambda current, covered: roster_module.drift(current, covered, str(tmp_path)))
 
 
@@ -135,3 +135,30 @@ def test_audio_site_uses_the_roster_aware_check_and_keeps_its_companion_conditio
 def test_the_exact_count_conditions_are_gone_from_both_sites():
     assert 'len(_rj)==roster.count()' not in SOURCE
     assert 'len(_alrows)==roster.count()' not in SOURCE
+
+
+# --- departed-aware helper and the roster-scoped call sites -----------------------------------------------------------------
+
+BIG_FIVE = 'every member renders a Big-Five panel (gold or labeled estimate; Paul fill 2026-07-17)'
+WIKIPEDIA = 'Wikipedia biography summaries account for the full current roster'
+
+
+def run_departed_carried(fake_roster, names):
+    notices = []
+    namespace = {'roster': fake_roster, 'print': lambda *a, **k: notices.append(' '.join(str(x) for x in a))}
+    exec(compile(ast.Module([function('departed_carried')], type_ignores=[]), 'isolated-audit-block', 'exec'), namespace)  # noqa: S102
+    return namespace['departed_carried']('artifact', names), notices
+
+
+def test_departed_carried_names_only_roster_departures(fake_roster):
+    gone, notices = run_departed_carried(fake_roster, ['Resigned', 'Continuing'])
+    assert gone == {'Resigned'}
+    [line] = notices
+    assert line.startswith('  !!') and 'artifact' in line and 'Resigned' in line and 'Continuing' not in line
+    gone, notices = run_departed_carried(fake_roster, ['Continuing'])
+    assert gone == set() and notices == []
+
+
+@pytest.mark.parametrize('label', [BIG_FIVE, WIKIPEDIA])
+def test_roster_scoped_checks_route_through_ck_roster(label):
+    assert len(calls(label)) == 1

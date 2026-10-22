@@ -30,6 +30,9 @@ jobs:
       # (which skip without it) from silently skipping if that file ever changes.
       - run: python -m pip install -r requirements.txt pyyaml==6.0.3 cryptography==49.0.0
       - run: python -m compileall -q ops fec mentat
+      # fec/roster.py raises without data/engine/roster.json, which the source-only export never carries, and fec/legislation
+      # modules the no-data tests import read it at import time: plant a synthetic one (ops/ci/synthetic_roster.py).
+      - run: python ops/ci/synthetic_roster.py
       - name: No-data tests (ops/ci/no_data_tests.txt)
         run: python -m pytest -q $(grep -vE '^\s*(#|$)' ops/ci/no_data_tests.txt)
       # contribution_data stats mentat/inputs/fec_receipt_rules.json at import and the source-only export drops

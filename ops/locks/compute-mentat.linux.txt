@@ -6,8 +6,9 @@
 # (it resolved exactly the 19 inputs, nothing added), then, for each resolved name==version, every wheel of that version on PyPI (JSON API)
 # that the platform tags above accept; each hash is that file's sha256 from PyPI.
 # Install: pip install --require-hashes --only-binary=:all: -r ops/locks/compute-mentat.linux.txt
-certifi==2026.7.22 \
-    --hash=sha256:62f22742b58a1a33014a2b6b706588a8d7e2a88ae7bd1a6ebe8c992928483775
+# certifi 2026.10.19 (2026-10-22, D-181): GHSA-6q48-6c7w-9gw2 (CRITICAL) in 2026.7.22. The recipe above re-run that day changed this entry only.
+certifi==2026.10.19 \
+    --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
 et-xmlfile==2.0.0 \
     --hash=sha256:7a91720bc756843502c3b7504c77b8fe44217c85c537d85037f0f536151b2caa
 geographiclib==2.1 \

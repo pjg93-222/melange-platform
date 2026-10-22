@@ -42,6 +42,11 @@ def ck_roster(name,covered,cond=True,detail=''):
             name,len(withheld),', '.join(sorted(withheld)),len(dropped),', '.join(sorted(dropped))))
     ck(name,cond and not bad_missing and not bad_extra,
        (detail+'; ' if detail else '')+'missing=%s extra=%s'%(sorted(bad_missing)[:5],sorted(bad_extra)[:5]))
+def departed_carried(label,names):
+    # Roster departures a pre-refresh artifact still carries: returned so the caller can set them aside, and named on a "!!" line.
+    gone=sorted({d['member'] for d in roster.departed()}&set(names))
+    if gone: print('  !! %s: %d departed member(s) still carried, not expected downstream (%s)'%(label,len(gone),', '.join(gone)))
+    return set(gone)
 def run(script):
     result=subprocess.run([sys.executable,os.path.join(FE,*script.split('/'))],capture_output=True,text=True,encoding='utf-8',errors='replace')   # step names are slash-separated; join natively
     return result.stdout if result.returncode==0 else 'sub-audit execution failed (exit %s)'%result.returncode
@@ -670,7 +675,7 @@ if os.path.exists(_lra_p):
         'Alexander X. Mooney',  # left the House after the 118th
         'Marco Rubio',          # resigned Jan 2025 (Secretary of State)
     }
-    _lrknown=_lrdelegates|_lrdeparted
+    _lrknown=_lrdelegates|_lrdeparted|departed_carried('legislation_routing_audit unmatched sponsors',_lrsum.get('unmatched_members') or {})
     _lrunmap=_lrsum.get('unmatched_members') or {}
     _lrun=set(_lrunmap)
     ck('unmatched members stay the known delegates and departed members',
@@ -1310,8 +1315,12 @@ if os.path.exists(os.path.join(B, 'member_desk_bundle.json')) and os.path.exists
             for _i in range(5):
                 if (_i>=len(_g) or _g[_i] is None) and _i<len(_f) and _f[_i] is not None and not (_i<len(_s) and _s[_i]):
                     _fb_unlabeled+=1
-        ck('every member renders a Big-Five panel (gold or labeled estimate; Paul fill 2026-07-17)',
-           not _b5empty, str(_b5empty[:6]))
+        # arrivals with an empty panel are withheld by ck_roster (logged "!!"); an empty panel for a continuing member, or for a
+        # name that is neither on the roster nor departed, still fails
+        _b5known=set(roster.names())|{d['member'] for d in roster.departed()}
+        ck_roster('every member renders a Big-Five panel (gold or labeled estimate; Paul fill 2026-07-17)',
+                  [m.get('name') for m in _bun.get('members',[]) if m.get('name') not in set(_b5empty)],
+                  not (set(_b5empty)-_b5known), str(_b5empty[:6]))
         ck('every estimate slot carries a provenance label', _fb_unlabeled==0, '%d unlabeled'%_fb_unlabeled)
     _fr=json.load(open(os.path.join(B, 'data', 'members', 'formal_visibility_roles.json'),encoding='utf-8'))
     from engine import influence_roles as _ir
@@ -1447,8 +1456,9 @@ if os.path.exists(os.path.join(B, 'member_desk_bundle.json')) and os.path.exists
            (len(_avm),_av.get('reliability_sb'),_mal))
         _desk_av={m.get('name'):(m.get('psy') or {}).get('a_validated_pct')
                   for m in _bun.get('members',[]) if (m.get('psy') or {}).get('a_validated_pct') is not None}
+        _av_cur=set(_avm)-departed_carried('interview_antagonism.json',_avm)
         ck('validated A facet propagates to desk without replacing engine/text A',
-           len(_desk_av)==len(_avm) and all(0<=v<=1 for v in _desk_av.values())
+           set(_desk_av)==_av_cur and all(0<=v<=1 for v in _desk_av.values())
            and all((m.get('psy') or {}).get('a_validated_scope')=='interview/media-covered stratum only'
                    for m in _bun.get('members',[]) if (m.get('psy') or {}).get('a_validated_pct') is not None),
            '%d artifact members, %d desk values'%(len(_avm),len(_desk_av)))
@@ -1664,22 +1674,21 @@ else:
 _wkp=os.path.join(B, 'data', 'members', 'member_wikipedia_summaries.json')
 if os.path.exists(_wkp):
     _wk=json.load(open(_wkp,encoding='utf-8')); _wkm=_wk.get('members') or {}; _wkc=_wk.get('coverage') or {}
-    _wk_roster=json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'),encoding='utf-8'))
-    _wk_roster_n=len(_wk_roster)
     _wk_bad=sum(1 for _name,_row in _wkm.items() if (
         _row.get('status') not in ('ok','missing') or not _row.get('bioguide') or
         (_row.get('status')=='ok' and (
             not _row.get('url') or not _row.get('revision_id') or
             not (_row.get('summary') or {}).get('overview')))))
-    ck('Wikipedia biography summaries account for the full current roster',
-       _wk.get('schema')=='member-wikipedia-biographies-v1' and len(_wkm)==_wk_roster_n and
-       _wkc.get('rows')==_wk_roster_n and not _wkc.get('missing') and _wk_bad==0,
+    ck_roster('Wikipedia biography summaries account for the full current roster', _wkm,
+       _wk.get('schema')=='member-wikipedia-biographies-v1' and
+       _wkc.get('rows')==len(_wkm) and not _wkc.get('missing') and _wk_bad==0,
        '%d rows, %d summarized, %d missing, %d malformed'%(
            len(_wkm),_wkc.get('ok',0),len(_wkc.get('missing') or []),_wk_bad))
     if os.path.exists(os.path.join(B, 'member_desk_bundle.json')):
         _desk_bio={m.get('name'):(m.get('bio') or {}).get('wikipedia')
                    for m in json.load(open(os.path.join(B, 'member_desk_bundle.json'),encoding='utf-8')).get('members',[])}
-        _wk_mis=sum(1 for name,row in _wkm.items() if row.get('status')=='ok' and
+        _wk_gone=departed_carried('member_wikipedia_summaries.json',_wkm)
+        _wk_mis=sum(1 for name,row in _wkm.items() if name not in _wk_gone and row.get('status')=='ok' and
                     ((_desk_bio.get(name) or {}).get('revision_id')!=row.get('revision_id')))
         ck('Wikipedia summaries propagate revision-identically to member profiles',
            _wk_mis==0,'%d revision mismatches'%_wk_mis)
@@ -1909,6 +1918,8 @@ ck('observable communication facets and role-adjusted exposure propagate as sepa
    '%d style members, %d style errors, %d E errors, %d broad-trait errors; Mike raw %.3f adjusted %.3f'%
    (len(_csrc),_cbad,_egbad,_gbad,_mexp.get('observed_visibility_percentile',-1),_mexp.get('role_adjusted_percentile',-1)))
 _goldn=((_gtraits.get('N') or {}).get('members') or {})
+_goldn_gone=departed_carried('big5_gold_anchored.json N',_goldn)
+_goldn={m:d for m,d in _goldn.items() if m not in _goldn_gone}
 _golddesk={m.get('name'):((m.get('psy') or {}).get('big5_pct') or [None]*5)[4]
           for m in _bun.get('members',[]) if ((m.get('psy') or {}).get('big5_pct') or [None]*5)[4] is not None}
 _profm=(json.load(open(os.path.join(B, 'data', 'members', 'profile_basis_v2.json'),encoding='utf-8')).get('members') or {})

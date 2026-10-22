@@ -4,17 +4,39 @@
   const legacyViews=['requests','grants','activity','invites'], expanded=new Set(['terrier']), logOptions={count:500,follow:true,filter:''};
   const drafts=new Map(), apps={melange:'Melange',terrier:'Terrier',mentat:'Mentat'}, appOf={'melange-desk':'melange','mentat-console':'mentat',terrier:'terrier'};
   const byId=id=>document.getElementById(id);
+  let desktopLoading=false;
+  async function loadDesktopApps(){
+    if(!bearer||desktopLoading)return;
+    desktopLoading=true;const token=bearer,notice=byId('desktop-status');
+    try{
+      const data=await call('/desktop-apps',{});if(token!==bearer)return;
+      const body=byId('desktop-apps-body');body.replaceChildren();
+      for(const row of data.applications){
+        const tr=element('tr',undefined,body),name=element('td',row.name,tr);
+        name.title=row.path||'';element('td',row.installed?'Installed'+(row.version?' · '+row.version:''):'Not installed',tr);
+        const button=element('button','Open '+row.name,element('td',undefined,tr),'btn primary');button.type='button';button.disabled=!row.installed;button.dataset.key='desktop-'+row.appId;
+        button.addEventListener('click',async()=>{
+          if(!bearer)return;button.disabled=true;notice.textContent='Opening '+row.name+'…';
+          try{await call('/desktop-apps/open',{appId:row.appId});notice.textContent=row.name+' launch requested. Check its desktop window.';}
+          catch(error){if(!lost(error))notice.textContent=error.body?.message||'Could not open '+row.name+'. Check its installation and Windows notification.';}
+          finally{button.disabled=!bearer||!row.installed;}
+        });
+      }
+      notice.textContent='Installed desktop applications on this computer.';
+    }catch(error){if(token===bearer&&!lost(error))notice.textContent='Could not read installed apps. Choose Refresh apps to try again.';}
+    finally{desktopLoading=false;}
+  }
   const status=(text,attention=false)=>{byId('status').textContent=text;byId('status').dataset.tone=attention?'attention':'neutral';};
   const element=(tag,text,parent,className)=>{const e=document.createElement(tag);if(text!==undefined)e.textContent=text;if(className)e.className=className;if(parent)parent.append(e);return e;};
   const titles={requests:'Access requests',grants:'Device sessions',activity:'Successful changes',invites:'Invites'};
   const descriptions={requests:'Verify the requester before choosing their role and issuing a single-use key.',grants:'Signed in / recently online means an authenticated session checked in within three minutes. It does not indicate a person is typing. Update contact is separate.',activity:'Reported successful changes contain operation metadata and counts. Record contents and passwords are not included.',invites:'When the listener enforces invites (inviteRequired is true in listener-status.json), a tester needs an invite code to request access. Each code works for a limited number of requests until it expires, and is shown only once when issued. Testers type it into the access request form.'};
   const reveal={key:{title:'Single-use access key',note:'Give this key only to the requester you verified. It expires in ten minutes and works only for that request and device.',field:'activationKey'},
     invite:{title:'Invite code',note:'Give this code only to the tester you invited. It is shown once and cannot be shown again; revoke it here if it is lost or shared. The tester types it into the access request form.',field:'code'}};
-  // error.unanswered: fetch rejected with no HTTP status and not by our own timeout. A busy dashboard (all four request slots taken) gives no answer, and so
+  // error.unanswered: fetch rejected with no HTTP status and not by our own timeout. A busy dashboard (all request slots taken) gives no answer, and so
   // does one that ended; either way the session is kept, so closing the window still ends it on the server. Only a 401 ends it here.
   async function call(route,value,wait=12000){
-    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),wait);
-    try{const response=await fetch(route,{method:'POST',credentials:'omit',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json',...(bearer?{'Authorization':'Bearer '+bearer,'X-Admin-CSRF':csrf}:{})},body:JSON.stringify(value)}).catch(error=>{if(error.name!=='AbortError'){error.unanswered=true;notAnswering();}throw error;});answering();if(!response.ok){const error=new Error('refused');error.status=response.status;error.body=await response.json().catch(()=>({}));throw error;}return await response.json();}finally{clearTimeout(timer);}
+    const token=bearer,controller=new AbortController(),timer=setTimeout(()=>controller.abort(),wait);
+    try{const response=await fetch(route,{method:'POST',credentials:'omit',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json',...(bearer?{'Authorization':'Bearer '+bearer,'X-Admin-CSRF':csrf}:{})},body:JSON.stringify(value)}).catch(error=>{if(error.name!=='AbortError'){error.unanswered=true;if(token===bearer)notAnswering();}throw error;});if(token===bearer)answering();if(!response.ok){const error=new Error('refused');error.status=response.status;error.body=await response.json().catch(()=>({}));throw error;}return await response.json();}finally{clearTimeout(timer);}
   }
   // Say so and look again every 10 s, in the view that is open, until the dashboard answers (any answer clears the line).
   function notAnswering(){const line=byId('unanswered');line.textContent='Melange Admin is not answering. Trying again\u2026 If this keeps up, open Melange Admin again from its icon.';line.hidden=false;clearTimeout(unansweredTimer);unansweredTimer=setTimeout(()=>{if(bearer)poll();},10000);}
@@ -23,7 +45,7 @@
   const lost=error=>{if(error.status===401)showExpired(true);return error.status===401||Boolean(error.unanswered);};
   function lock(value){busy=value;byId('refresh').disabled=value||!bearer;byId('end-session').disabled=value||!bearer;for(const button of document.querySelectorAll('[data-action]'))button.disabled=value||!bearer;}
   function remember(){for(const card of byId('requests').querySelectorAll('[data-request]')){const role=card.querySelector('select');if(role)drafts.set(card.dataset.request,{role:role.value,districts:[...card.querySelectorAll('input:checked')].map(c=>c.value)});}}
-  async function refresh(){const data=await call('/dashboard',{});remember();snapshot=data;render();status('Updated '+new Date(data.serverTime*1000).toLocaleTimeString()+'.');}
+  async function refresh(){const token=bearer,data=await call('/dashboard',{});if(token!==bearer)return;remember();snapshot=data;render();status('Updated '+new Date(data.serverTime*1000).toLocaleTimeString()+'.');}
   async function action(callback){if(busy)return;lock(true);try{if(await callback()!==false)await refresh();}catch{status('The action response was not confirmed. Refresh to check its state before trying again. Reopen Melange Admin if the session expired.',true);}finally{lock(false);}}
   function button(parent,label,run,secondary=false){const b=element('button',label,parent,secondary?'secondary':'');b.type='button';b.dataset.action='';b.disabled=busy;b.addEventListener('click',()=>action(run));return b;}
   function heading(parent,app,name,detail,state,kind=''){const h=element('div',undefined,parent,'row-head');if(apps[app]){const logo=element('img',undefined,h);logo.src='/icons/'+app+'.ico';logo.alt=apps[app];}const text=element('div',undefined,h,'row-heading');element('strong',name+(app?' · '+(apps[app]||app):''),text);element('div',detail,text,'details');element('span',state,h,'badge '+kind);}
@@ -78,7 +100,7 @@
   function rowActions(parent,row){
     const cell=element('div',undefined,parent,'row-actions');
     for(const name of row.actions){
-      if(name==='open'){const a=element('a','Open',cell,'link');a.href=row.openUrl;a.target='_blank';a.rel='noopener noreferrer';a.dataset.key='open-'+row.service;continue;}
+      if(name==='open'){const a=element('a','Open web service',cell,'link');a.href=row.openUrl;a.target='_blank';a.rel='noopener noreferrer';a.dataset.key='open-'+row.service;continue;}
       const primary=name==='update'||(name==='start'&&!row.actions.includes('update')),b=element('button',name==='logs'?'View logs':name[0].toUpperCase()+name.slice(1),cell,primary?'btn primary':'link');b.type='button';b.disabled=appsWorking;b.dataset.key=name+'-'+row.service;
       b.addEventListener('click',()=>name==='logs'?openDetail(row.service,'logs'):name==='update'?confirmUpdate(row):runAction(row.service,name));
     }
@@ -114,10 +136,13 @@
   const dockerWaiting=()=>Boolean(dockerStarted&&Date.now()-dockerStarted<18e4&&!(appsData&&appsData.docker.ok&&!appsData.stale&&appsData.services.every(s=>s.state==='running'||s.state==='update_ready')));
   function keepPolling(delay=2500){clearTimeout(appsTimer);if(!bearer)return;if(isLate())appsTimer=setTimeout(poll,10000);else if(anyBusy())appsTimer=setTimeout(poll,delay);else if(dockerWaiting())appsTimer=setTimeout(poll,4000);}
   async function loadApps(){
-    try{appsData=await call('/apps',{});slow=false;}
+    const token=bearer;
+    try{const data=await call('/apps',{});if(token!==bearer)return false;appsData=data;slow=false;}
     catch(error){
+      if(token!==bearer)return false;
       if(lost(error))return false;
       if(appsData&&appsData.docker.ok&&!(error.body&&error.body.message)){slow=true;drawStale();keepPolling();return false;}   // keep the list that is showing
+      if(!appsData)byId('apps-sub').textContent='Local services have not been checked yet.';
       say(error.body&&error.body.message?error.body.message:'Could not read the services. Choose Check now to try again.',true);keepPolling();return false;
     }
     renderApps();keepPolling();
@@ -273,7 +298,7 @@
     for(const nav of document.querySelectorAll('[data-view]')){if(nav.dataset.view===name)nav.setAttribute('aria-current','page');else nav.removeAttribute('aria-current');}
     const isApps=name==='apps';byId('apps-view').hidden=!isApps;byId('legacy-view').hidden=isApps;byId('app-detail').hidden=true;byId('apps-list').hidden=!isApps;
     byId('nav').classList.remove('open');byId('menu').setAttribute('aria-expanded','false');
-    if(isApps){if(appsData)renderApps();if(bearer)loadApps();}else render();
+    if(isApps){if(appsData)renderApps();if(bearer){loadDesktopApps();loadApps();}}else render();
   }
   function render(){
     if(!snapshot)return;
@@ -324,11 +349,21 @@
     finally{appsWorking=false;if(appsData)renderApps();if(problem)say(problem,true);}   // after renderApps, which rewrites the message line
   });
   byId('app-scope').addEventListener('change',()=>{remember();render();});for(const nav of document.querySelectorAll('[data-view]'))nav.addEventListener('click',()=>go(nav.dataset.view));
+  byId('desktop-refresh').addEventListener('click',loadDesktopApps);
   byId('menu').addEventListener('click',()=>{const open=byId('nav').classList.toggle('open');byId('menu').setAttribute('aria-expanded',String(open));});
   byId('expired-close').addEventListener('click',()=>{close();setTimeout(()=>{byId('expired-close').textContent='You can close this tab';byId('expired-close').disabled=true;},300);});
   setInterval(()=>{if(view==='apps'&&bearer)renderSub();},30000);
   // The requests, grants and activity views refresh themselves too; not mid-action, behind the key dialog, or while a form field is being used (the render rebuilds the cards).
   setInterval(()=>{if(['requests','grants','activity'].includes(view)&&bearer&&!busy&&!byId('key').open&&!document.activeElement?.closest('#legacy-view select, #legacy-view input'))refresh().catch(()=>{});},30000);
   const fragment=new URLSearchParams(location.hash.slice(1)),bootstrap=fragment.get('bootstrap');history.replaceState(null,'','/');
-  (async()=>{lock(true);try{if(!bootstrap){showExpired();return;}const session=await call('/session',{bootstrap});bearer=session.bearer;csrf=session.csrf;byId('check-now').disabled=false;const [first]=await Promise.allSettled([refresh(),loadApps()]);if(first.status==='rejected')status('Could not load access requests. Use Refresh to try again.',true);}catch{showExpired();}finally{lock(false);}})();
+  (async()=>{
+    lock(true);
+    try{if(!bootstrap){showExpired();return;}const session=await call('/session',{bootstrap});bearer=session.bearer;csrf=session.csrf;byId('check-now').disabled=false;byId('apps-sub').textContent='Checking local services…';status('Loading access requests…');}
+    catch{showExpired();return;}
+    finally{lock(false);}
+    // Authentication is complete. Each view can load without keeping session controls locked behind Docker or the access store.
+    refresh().catch(()=>{if(bearer)status('Could not load access requests. Use Refresh to try again.',true);});
+    loadDesktopApps();
+    loadApps();
+  })();
 })();

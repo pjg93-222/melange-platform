@@ -41,7 +41,8 @@
                     "mentat-console.linux.txt", "r-packages.txt", "compose.env.example", "canaries.txt",
                     "compute-mentat.in", "compute-mentat.linux.txt", "r-package-repos.txt",
                     "compute-melange.in", "compute-melange.linux.txt", "melange-base.lock",
-                    "parity_readset_local_extra.args", "required_inputs.txt", "terrier-loading-hq.mp4"]
+                    "parity_readset_local_extra.args", "required_inputs.txt", "terrier-loading-hq.mp4",
+                    "melange-systems-desktop-release.cer", "turn-on-updates.cmd"]
   },
   "pocket": {"dir": null, "console_port": null, "datasets": []},
   "downloads": {"workbooks": []},

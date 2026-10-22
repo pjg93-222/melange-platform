@@ -458,8 +458,9 @@ REGISTRY = (
        # written by fec/lobbying/bill_lobbying_sidecar.py:733 via _write_json_atomic, the path
        # default declared at :70-71) holds by_size rank 2 at 6.0 MB — it has not disagreed yet,
        # which is luck, not an invariant. by_time landed on the audit scratch file, relocated out
-       # of this store by the audit_full change in this same landing.
-       sentinel_excl=['bill_lobbying_sidecar.json', 'industry_tiers.json'], sentinel_newest=False),
+       # of this store by the audit_full change in this same landing. coalition_pricing.json is likewise chain-written
+       # (fec/lobbying/coalition_pricing.py, chain step at fec/run_pipeline.py:207) and moves each run.
+       sentinel_excl=['bill_lobbying_sidecar.json', 'industry_tiers.json', 'coalition_pricing.json'], sentinel_newest=False),
     _s('repo.data_network', 'live_tree', 'data/network', 'DERIVED',
        'network builders + diagnostics',
        ['engines', 'kb_benchmark'],

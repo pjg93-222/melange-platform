@@ -91,6 +91,14 @@ class ExportConfigTests(Base):
         self.assertTrue(export.allowed_name("ops/locks/r-packages.txt", shipped))
         self.assertFalse(export.allowed_name("ops/locks/r-packages.txt", {}))             # only extra_names lets a .txt out
 
+    def test_the_shipped_config_keeps_the_files_publisher_trust_test_reads(self):
+        # 2026-10-22: release 2026.10.22.1 went red in desktop-source-checks because the export dropped both
+        # (ENOENT in ops/desktop/client/tests/publisher-trust.test.cjs). Public certificate and launcher, no secret.
+        shipped = core.load_config()["export"]
+        for path in ("ops/desktop/client/melange-systems-desktop-release.cer", "ops/desktop/client/turn-on-updates.cmd"):
+            self.assertTrue(export.allowed_name(path, shipped), path)
+            self.assertFalse(export.allowed_name(path, {}), path)                        # only extra_names lets them out
+
     def test_desktop_installer_hook_survives_export_without_admitting_other_installer_scripts(self):
         hook = "ops/desktop/client/installer.nsh"
         omitted = ("ops/other/installer.nsh", "ops/desktop/client/unreviewed.nsh",
