@@ -266,6 +266,26 @@ class M1TradeAssociationLinkageTests(unittest.TestCase):
             "national builders association",
         )
 
+    def test_15_default_backend_self_match_scores_stay_within_unit_interval(self) -> None:
+        names = [
+            m1.normalize_name(n)
+            for n in (
+                "Credit Union National Association",
+                "Securities Industry and Financial Markets Association",
+                "American Bankers Association",
+                "National Association of Realtors",
+                "National Rural Electric Cooperative Association",
+                "Independent Community Bankers of America",
+                "American Petroleum Institute",
+                "Pharmaceutical Research and Manufacturers of America",
+                "National Association of Home Builders",
+                "American Council of Life Insurers",
+            )
+        ]
+        scores = m1.CharNgramTfidfBackend()(names, names)
+        self.assertTrue(all(0.0 <= v <= 1.0 for row in scores for v in row))
+        m1.validate_score_matrix(scores, len(names), len(names))
+
 
 if __name__ == "__main__":
     unittest.main()

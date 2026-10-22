@@ -84,6 +84,9 @@ def review_rows(queue_path: Path, drafts_path: Path) -> list[dict]:
 def render(rows: list[dict], queue_sha256: str, draft_sha256: str) -> str:
     payload = json.dumps(rows, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/")
     title = "Congressional long-form turn review"
+    # One stable store keyed by turn_id; each saved decision carries its own turn binding,
+    # so queue rebuilds and turns entering/leaving the queue never hide unchanged decisions.
+    content_key = "v2"
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{html.escape(title)}</title>
@@ -132,15 +135,16 @@ textarea{{width:100%;min-height:82px;resize:vertical}} #semantic{{min-height:220
 <script>
 const ROWS={payload};
 const QUEUE_SHA={json.dumps(queue_sha256)},DRAFT_SHA={json.dumps(draft_sha256)};
-const STORE='member-longform-review:'+QUEUE_SHA+':'+DRAFT_SHA;
+const STORE='member-longform-review:'+{json.dumps(content_key)};
 const POSITION_STORE=STORE+':position',REVIEWER_STORE=STORE+':reviewer';
 let saved=JSON.parse(localStorage.getItem(STORE)||'{{}}'),index=Math.max(0,Math.min(ROWS.length-1,Number(localStorage.getItem(POSITION_STORE)||0)));
 const $=id=>document.getElementById(id), fields=['reviewStatus','reviewerName','identity','identityNote','boundary','boundaryNote','semanticStatus','semantic','attest'];
 function esc(s){{return String(s??'').replace(/[&<>\"]/g,c=>({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}}[c]))}}
+function rec(r){{const s=saved[r.turn_id];return s&&s.binding===r.candidate_turn_binding_sha256?s:null}}
 function seed(r){{return {{reviewStatus:'PENDING',reviewerName:localStorage.getItem(REVIEWER_STORE)||'',identity:'PENDING',identityNote:r.draft_identity_note,boundary:'PENDING',boundaryNote:r.draft_boundary_note,semanticStatus:'PENDING',semantic:JSON.stringify(r.draft_semantic_findings,null,2),attest:false}}}}
 function currentDecision(){{let d={{}};for(const f of fields)d[f]=$(f).type==='checkbox'?$(f).checked:$(f).value;return d}}
-function updateProgress(){{const done=ROWS.filter(r=>['ACCEPT','REJECT'].includes((saved[r.turn_id]||{{}}).reviewStatus)).length;$('progress').textContent=`${{done}} decided · ${{ROWS.length-done}} pending`}}
-function show(i){{if(!ROWS.length){{$('card').hidden=true;$('empty').hidden=false;return}};index=(i+ROWS.length)%ROWS.length;localStorage.setItem(POSITION_STORE,String(index));const r=ROWS[index],d=saved[r.turn_id]||seed(r);if(!d.reviewerName)d.reviewerName=localStorage.getItem(REVIEWER_STORE)||'';
+function updateProgress(){{const done=ROWS.filter(r=>['ACCEPT','REJECT'].includes((rec(r)||{{}}).reviewStatus)).length;$('progress').textContent=`${{done}} decided · ${{ROWS.length-done}} pending`}}
+function show(i){{if(!ROWS.length){{$('card').hidden=true;$('empty').hidden=false;return}};index=(i+ROWS.length)%ROWS.length;localStorage.setItem(POSITION_STORE,String(index));const r=ROWS[index],d=rec(r)||seed(r);if(!d.reviewerName)d.reviewerName=localStorage.getItem(REVIEWER_STORE)||'';
  $('member').textContent=r.member;$('position').textContent=`${{index+1}} / ${{ROWS.length}}`;
  updateProgress();
  $('meta').innerHTML=`<span class=pill>${{esc(r.source_era)}}</span><span class=pill>${{Number(r.duration_seconds).toFixed(1)}} sec</span><span class=pill>${{esc(r.consecutive_acoustic_windows)}} continuity windows</span>`;
@@ -154,19 +158,19 @@ function validate(showMessage=true){{const r=ROWS[index],d=currentDecision(),pro
  if(!['ACCEPT','REJECT'].includes(d.reviewStatus))problems.push('overall decision');
  if(d.reviewStatus==='ACCEPT'){{for(const [k,label] of [['identity','identity'],['boundary','boundary'],['semanticStatus','semantic']])if(d[k]!=='ACCEPT')problems.push(label+' ACCEPT');if(!d.identityNote.trim())problems.push('identity note');if(!d.boundaryNote.trim())problems.push('boundary note');try{{problems.push(...semanticProblems(JSON.parse(d.semantic)))}}catch(e){{problems.push('valid semantic JSON')}}}}
  $('validation').className=problems.length?'status-bad':'status-ok';$('validation').textContent=showMessage?(problems.length?'Missing: '+[...new Set(problems)].join(', '):'Review is export-ready.') : '';return problems}}
-function stash(){{if(!ROWS.length)return;const r=ROWS[index],d=currentDecision();saved[r.turn_id]=d;localStorage.setItem(STORE,JSON.stringify(saved));localStorage.setItem(POSITION_STORE,String(index));if(d.reviewerName.trim())localStorage.setItem(REVIEWER_STORE,d.reviewerName.trim());updateProgress()}}
+function stash(){{if(!ROWS.length)return;const r=ROWS[index],d=currentDecision();saved[r.turn_id]={{...d,binding:r.candidate_turn_binding_sha256}};localStorage.setItem(STORE,JSON.stringify(saved));localStorage.setItem(POSITION_STORE,String(index));if(d.reviewerName.trim())localStorage.setItem(REVIEWER_STORE,d.reviewerName.trim());updateProgress()}}
 function save(showMessage=true){{stash();validate(showMessage)}}
-function nextPending(){{save(false);for(let step=1;step<=ROWS.length;step++){{const i=(index+step)%ROWS.length;if(!['ACCEPT','REJECT'].includes((saved[ROWS[i].turn_id]||{{}}).reviewStatus)){{show(i);return}}}}alert('Every review has a decision.')}}
+function nextPending(){{save(false);for(let step=1;step<=ROWS.length;step++){{const i=(index+step)%ROWS.length;if(!['ACCEPT','REJECT'].includes((rec(ROWS[i])||{{}}).reviewStatus)){{show(i);return}}}}alert('Every review has a decision.')}}
 function exportRows(requireComplete){{
  save(false);
- const undecided=ROWS.filter(r=>!['ACCEPT','REJECT'].includes((saved[r.turn_id]||{{}}).reviewStatus));
+ const undecided=ROWS.filter(r=>!['ACCEPT','REJECT'].includes((rec(r)||{{}}).reviewStatus));
  if(requireComplete&&undecided.length){{
   alert(`${{undecided.length}} reviews are still pending. Use 'Next pending' to finish them, or export a progress backup.`);
   show(ROWS.indexOf(undecided[0]));return
  }}
  const output=[],bad=[];
  for(const r of ROWS){{
-  const d=saved[r.turn_id];if(!d||!['ACCEPT','REJECT'].includes(d.reviewStatus))continue;
+  const d=rec(r);if(!d||!['ACCEPT','REJECT'].includes(d.reviewStatus))continue;
   const old=index;index=ROWS.indexOf(r);
   for(const f of fields){{if($(f).type==='checkbox')$(f).checked=!!d[f];else $(f).value=d[f]??''}}
   const problems=validate(false);index=old;

@@ -136,6 +136,7 @@ def main():
                     time.sleep(2)
                     evidence = window.evaluate_js('JSON.stringify({title:document.title,url:location.href,sidebar:!!document.getElementById("melange-nav"),peopleLink:!!document.querySelector("#melange-nav a[href*=staffer]"),views:document.querySelectorAll("[id^=app-]").length})')
                     evidence = json.loads(evidence) if isinstance(evidence, str) else evidence
+                    evidence = evidence or {}
                     if evidence and evidence.get('sidebar') and evidence.get('peopleLink'):
                         break
                 result = {'status': 'PASS' if evidence.get('sidebar') and evidence.get('peopleLink') else 'FAIL',
@@ -146,10 +147,16 @@ def main():
         except Exception as exc:
             logging.exception('Application startup failed')
             message = 'Moneyball could not open. ' + str(exc) + ' Logs: ' + str(state)
-            window.evaluate_js('document.getElementById("message").textContent=' + json.dumps(message))
+            try:
+                window.evaluate_js('var m=document.getElementById("message");if(m)m.textContent=' + json.dumps(message))
+            except Exception:
+                logging.exception('Could not show startup message')
             if args.smoke_test:
-                args.smoke_test.write_text(json.dumps({'status': 'FAIL', 'error': str(exc)}), encoding='utf-8')
-                window.destroy()
+                try:
+                    args.smoke_test.parent.mkdir(parents=True, exist_ok=True)
+                    args.smoke_test.write_text(json.dumps({'status': 'FAIL', 'error': str(exc)}), encoding='utf-8')
+                finally:
+                    window.destroy()
 
     menu = [Menu('Workspace', [MenuAction('Home', lambda: window.load_url(url)),
                               MenuAction('Reload', lambda: window.evaluate_js('location.reload()')),

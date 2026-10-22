@@ -247,6 +247,28 @@ class ArtifactGapTests(unittest.TestCase):
         self.assertIn("=== HASH MISMATCH (1) ===", output)
         self.assertEqual(code, 1, output)
 
+    def test_invalid_declaration_fields_are_flagged_not_fatal(self) -> None:
+        """A receipt declaring an unhashable/ill-typed bytes or sha256 must not
+        crash the audit; it is flagged and the other gaps are still reported."""
+
+        write_bytes(self.root / "body.bin", b"abc")
+        write_json(self.root / "bad1" / "receipt.json",
+                   {"path": str(self.root / "body.bin"), "bytes": []})
+        write_json(self.root / "bad2" / "receipt.json",
+                   {"path": str(self.root / "body.bin"), "sha256": ["x"]})
+        write_json(self.root / "bad3" / "receipt.json",
+                   {"path": str(self.root / "body.bin"), "bytes": True})
+        write_json(self.root / "good" / "receipt.json",
+                   {"path": str(self.root / "body.bin"), "bytes": 3})
+        write_json(self.root / "gone" / "receipt.json",
+                   {"path": str(self.root / "nowhere" / "lost.ndjson")})
+        code, output = run_audit(self.root, self.workspace)
+        self.assertIn("=== INVALID DECLARATION (3) ===", output)
+        self.assertEqual(missing_count(output), 1, output)
+        self.assertIn("present and size-verified: 1", output)
+        self.assertIn("=== CONFLICT (0) ===", output)
+        self.assertEqual(code, 1, output)
+
 
 if __name__ == "__main__":
     unittest.main()

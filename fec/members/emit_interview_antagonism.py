@@ -10,6 +10,7 @@ import csv, hashlib, json
 import numpy as np
 _s.stdout.reconfigure(encoding='utf-8', errors='replace')
 import moneyball_core as MC
+import roster
 from moneyball_core import dump_atomic
 
 B = MB_ROOT
@@ -57,7 +58,7 @@ def main():
                  'controls': {'role': 'residualization-only confound controls; never predictive A features',
                               'fields': ['party_R', 'female', 'log_interview_words']},
                  'scope': {'label': 'interview/media-covered stratum only',
-                           'covered_n': len(members), 'roster_n': 533,
+                           'covered_n': len(members), 'roster_n': roster.count(),
                            'percentile_reference': 'covered members only; not a full-roster percentile',
                            'imputation': 'forbidden'},
                  'selection_audit': {'prereg': 'big5_a_coverage_prereg.md',

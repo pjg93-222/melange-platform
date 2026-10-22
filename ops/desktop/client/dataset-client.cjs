@@ -1,12 +1,12 @@
 'use strict';
-// Main-process transport/journal. Production registry is empty until a compiled
-// domain adapter proves its export, import and transaction recovery contracts.
+// Main-process transport/journal. The production registry holds only compiled domain adapters that prove their
+// import and transaction recovery contracts (district-packs.cjs: terrier.district-data.v1).
 const fs=require('node:fs'),fsp=fs.promises,path=require('node:path'),crypto=require('node:crypto');
 const {binding}=require('./local-access.cjs');const {canonical}=require('./access-client.cjs');
 const {exact,uuid,hash,integer,scope,verifyRevision,proposal,uploadStatus,CHUNK}=require('./dataset-protocol.cjs');
 const {datasetRequest}=require('./dataset-transport.cjs');
 const STATUSES=new Set(['registering','downloading','validating','pending-idle','conflict','active','unsupported','failed']);
-const MAX_JOURNAL=7*1024*1024,MAX_REVISIONS=10000;
+const MAX_JOURNAL=7*1024*1024,MAX_REVISIONS=10000,MIN_CHUNK=1024**2;
 function stableIdentity(grant){const {role,districtIds,...identity}=binding(grant);return identity;}
 function keyFor(revision){return (revision.districtId||'local')+':'+revision.datasetId;}
 function canceled(signal){if(signal?.aborted)throw new Error('Dataset transfer canceled');}
@@ -18,13 +18,19 @@ async function digestFile(file,{signal,onProgress}={}){
  const after=await fsp.stat(file);if(before.size!==after.size||before.mtimeMs!==after.mtimeMs||before.ino!==after.ino||size!==before.size)throw new Error('Dataset object changed during verification');return {sha256:digest.digest('hex'),size};
 }
 class DatasetClient{
- constructor({access,store,profile,registry=Object.freeze({}),request=datasetRequest,acquireActivationLease=async()=>null,now=Date.now,minimumFreeBytes=512*1024*1024}){
+ constructor({access,store,profile,registry=Object.freeze({}),request=datasetRequest,acquireActivationLease=async()=>null,now=Date.now,minimumFreeBytes=512*1024*1024,chunkSize=CHUNK,saveEvery=64*1024*1024}){
   if(!access?.accepted||!store?.read||!store?.write||typeof profile!=='string')throw new Error('Verified access and protected dataset journal required');
-  this.access=access;this.store=store;this.profile=fs.realpathSync.native(profile);this.root=path.join(this.profile,'dataset-sync');this.registry=registry;this.request=request;this.acquireActivationLease=acquireActivationLease;this.now=now;this.minimumFreeBytes=minimumFreeBytes;this.busy=false;
+  if(!Number.isInteger(chunkSize)||chunkSize<1||chunkSize>CHUNK||!Number.isInteger(saveEvery)||saveEvery<1)throw new Error('Invalid dataset transfer sizes');
+  this.access=access;this.store=store;this.profile=fs.realpathSync.native(profile);this.root=path.join(this.profile,'dataset-sync');this.registry=registry;this.request=request;this.acquireActivationLease=acquireActivationLease;this.now=now;this.minimumFreeBytes=minimumFreeBytes;this.chunkSize=chunkSize;this.saveEvery=saveEvery;this.busy=false;
  }
- async operation(action){if(this.busy)throw new Error('A dataset operation is already running');this.busy=true;try{return await action();}finally{this.busy=false;}}
+ async operation(action){if(this.busy)throw new Error('A dataset operation is already running');this.busy=true;this.token=null;try{return await action();}finally{this.busy=false;this.token=null;}}
  async accepted(){const accepted=await this.access.accepted();if(!accepted||accepted.revoked||accepted.grant.offlineAllowed!==true)throw new Error('Active dataset approval required');return accepted;}
- async send(relative,options={}){const {grant}=await this.accepted(),token=(await this.access.secrets.read('access-token'))?.tokens?.[grant.grantId];return this.request(this.access.trust,relative,{...options,token});}
+ // Each approval/token read spawns a helper process, so they are read once per operation (not per range: that cost ~15x throughput) and again only after a 401/403.
+ async credential(fresh){if(fresh||!this.token){const {grant}=await this.accepted();this.token=(await this.access.secrets.read('access-token'))?.tokens?.[grant.grantId];}return this.token;}
+ async send(relative,options={}){
+  try{return await this.request(this.access.trust,relative,{...options,token:await this.credential()});}catch(error){if(![401,403].includes(error?.statusCode))throw error;}
+  return this.request(this.access.trust,relative,{...options,token:await this.credential(true)});
+ }
  async initialize(){
   for(const directory of [this.root,...['manifests','objects','exports'].map(name=>path.join(this.root,name))]){
    await fsp.mkdir(directory,{recursive:false}).catch(error=>{if(error.code!=='EEXIST')throw error;});
@@ -73,7 +79,20 @@ class DatasetClient{
   }
   this.conflicts(journal);journal.cursors[scopeKey]=result.nextCursor;await this.commit(journal);return {received:result.revisions.length,hasMore:result.hasMore,nextCursor:result.nextCursor};
  });}
- async status(districtId=null){const {grant}=await this.accepted();scope(grant,districtId);const journal=await this.readJournal(grant);return Object.entries(journal.revisions).filter(([,row])=>row.districtId===districtId).map(([revisionId,row])=>({revisionId,datasetId:row.datasetId,status:row.status,reason:row.reason||null,bytes:Object.values(row.objects).reduce((sum,item)=>sum+item.offset,0)}));}
+ async status(districtId=null){const {grant}=await this.accepted();scope(grant,districtId);const journal=await this.readJournal(grant);return Object.entries(journal.revisions).filter(([,row])=>row.districtId===districtId).map(([revisionId,row])=>({revisionId,catalogSequence:row.catalogSequence,datasetId:row.datasetId,status:row.status,reason:row.reason||null,bytes:Object.values(row.objects).reduce((sum,item)=>sum+item.offset,0)}));}
+ async revision(revisionId){const {grant}=await this.accepted();return (await this.manifest(revisionId,grant,await this.readJournal(grant))).revision;}
+ // After a timeout the caller halves the range size (never below 1 MiB) and retries.
+ shrinkChunk(){this.chunkSize=Math.max(Math.min(MIN_CHUNK,this.chunkSize),this.chunkSize>>1);return this.chunkSize;}
+ // Drops one district's journal rows, cursor and cached bytes (data missing, or district no longer approved), so it can be fetched fresh.
+ async forget(districtId=null){return this.operation(async()=>{
+  const {grant}=await this.accepted(),journal=await this.readJournal(grant),scopeKey=districtId||'local';
+  for(const [id,row]of Object.entries(journal.revisions)){if((row.districtId||'local')!==scopeKey)continue;
+   for(const item of Object.values(row.objects))for(const extension of ['bin','part'])await fsp.rm(await this.file('objects',item.sha256+'.'+extension),{force:true});
+   await fsp.rm(await this.file('manifests',id+'.json'),{force:true});delete journal.revisions[id];}
+  delete journal.cursors[scopeKey];
+  for(const [key,id]of Object.entries(journal.active))if(!Object.hasOwn(journal.revisions,id))delete journal.active[key];
+  await this.commit(journal);
+ });}
  async download(revisionId,{signal,onProgress}={}){return this.operation(async()=>{
   const {grant}=await this.accepted(),journal=await this.readJournal(grant),checked=await this.manifest(revisionId,grant,journal),revision=checked.revision,row=journal.revisions[revisionId];
   if(!checked.supported){row.status='unsupported';await this.commit(journal);return {status:'unsupported'};}
@@ -88,8 +107,10 @@ class DatasetClient{
     const handle=await fsp.open(part,fs.existsSync(part)?'r+':'wx');
     try{
      const stat=await handle.stat();if(stat.size<transfer.offset){transfer.offset=0;await handle.truncate(0);await handle.sync();await this.commit(journal);}else if(stat.size>transfer.offset){await handle.truncate(transfer.offset);await handle.sync();}
-     while(transfer.offset<object.size){canceled(signal);const length=Math.min(CHUNK,object.size-transfer.offset),bytes=await this.send('/v1/data/objects/'+object.sha256+'?offset='+transfer.offset+'&length='+length+'&revisionId='+revisionId,{signal});if(!Buffer.isBuffer(bytes)||bytes.length!==length)throw new Error('Invalid dataset range');
-      let written=0;while(written<bytes.length){const result=await handle.write(bytes,written,bytes.length-written,transfer.offset+written);if(result.bytesWritten<=0)throw new Error('Dataset staging write failed');written+=result.bytesWritten;}await handle.sync();transfer.offset+=bytes.length;await this.commit(journal);onProgress?.({revisionId,role:object.role,downloaded:transfer.offset,total:object.size});
+     // The journal is saved every saveEvery bytes, not per range: the .part file is synced first, so the saved offset never exceeds it.
+     let saved=transfer.offset;
+     while(transfer.offset<object.size){canceled(signal);const length=Math.min(this.chunkSize,object.size-transfer.offset),bytes=await this.send('/v1/data/objects/'+object.sha256+'?offset='+transfer.offset+'&length='+length+'&revisionId='+revisionId,{signal});if(!Buffer.isBuffer(bytes)||bytes.length!==length)throw new Error('Invalid dataset range');
+      let written=0;while(written<bytes.length){const result=await handle.write(bytes,written,bytes.length-written,transfer.offset+written);if(result.bytesWritten<=0)throw new Error('Dataset staging write failed');written+=result.bytesWritten;}await handle.sync();transfer.offset+=bytes.length;if(transfer.offset-saved>=this.saveEvery){await this.commit(journal);saved=transfer.offset;}onProgress?.({revisionId,role:object.role,downloaded:transfer.offset,total:object.size});
      }
     }finally{await handle.close();}
     const actual=await digestFile(part,{signal});if(actual.sha256!==object.sha256||actual.size!==object.size)throw new Error('Dataset object integrity failed');

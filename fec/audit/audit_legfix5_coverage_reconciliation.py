@@ -50,8 +50,14 @@ try:
     from lane_file_io import open_ndjson
     from legislation_measure_key import CANONICAL_KEY_RE
 except ImportError:  # pragma: no cover - package import path
-    from fec.lane_file_io import open_ndjson
-    from fec.legislation_measure_key import CANONICAL_KEY_RE
+    try:
+        from fec.lane_file_io import open_ndjson
+        from fec.legislation_measure_key import CANONICAL_KEY_RE
+    except ImportError:
+        # Script mode (fec/audit on sys.path, not the repo root): anchor on fec/.
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+        from lane_file_io import open_ndjson
+        from legislation_measure_key import CANONICAL_KEY_RE
 
 
 RECEIPT_SCHEMA = "acu-legfix5-coverage-reconciliation-receipt-v2"
@@ -213,6 +219,16 @@ def audit(args: argparse.Namespace) -> Mapping[str, Any]:
     govinfo_run = Path(args.govinfo_run).resolve()
     billstatus_root = Path(args.billstatus).resolve()
     full_text_root = Path(args.full_text_receipts).resolve()
+
+    # Evidence roots are control inputs: glob/rglob on a missing directory
+    # yields nothing, which would pass every coverage check vacuously.  The
+    # govinfo receipts/{accepted,failure} dirs are created lazily by the
+    # collector, so their absence is checked via the completed.json counters.
+    for evidence_root in (govinfo_run, billstatus_root, full_text_root):
+        if not evidence_root.is_dir():
+            raise ReconciliationError(
+                f"evidence root is not a directory: {evidence_root}"
+            )
 
     # --- discovery universe -------------------------------------------------
     candidates: set[str] = set()
@@ -379,6 +395,18 @@ def audit(args: argparse.Namespace) -> Mapping[str, Any]:
         f"dispatched={completed.get('dispatch_count')} "
         f"accepted={completed.get('accepted_count')} "
         f"quarantined={completed.get('failure_count')}",
+    )
+    finding(
+        "completed_counters_match_receipts_on_disk",
+        sum(planned.values()) == int(completed.get("dispatch_count") or 0)
+        and sum(accepted.values()) == int(completed.get("accepted_count") or 0)
+        and len(quarantined) == int(completed.get("failure_count") or 0),
+        f"planned_jobs={sum(planned.values())} "
+        f"accepted_receipts={sum(accepted.values())} "
+        f"failure_receipts={len(quarantined)} vs completed.json "
+        f"dispatch={completed.get('dispatch_count')} "
+        f"accepted={completed.get('accepted_count')} "
+        f"failure={completed.get('failure_count')}",
     )
     finding(
         "collector_performed_no_retries",

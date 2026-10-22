@@ -86,6 +86,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+import admission_budget
 import bounded_subprocess
 import compute_engine
 import refresh_failure as failure_module
@@ -319,6 +320,12 @@ def render_argv(argv, today=None):
             out.append(str(today))
         elif kind == 'days_ago':
             out.append(str(today - datetime.timedelta(days=int(item[1]))))
+        elif kind in table_module.ADMISSION_TOKENS:
+            # The daily runner's own bound, read at launch: one setting for both (80 keys, 48 paid calls unless
+            # MELANGE_SENTINEL_CALL_BUDGET says otherwise; the key limit rises with a budget above 80). A bad budget raises ValueError here, so only the
+            # admissions step fails, loudly, and it is never started with a guessed budget.
+            out.append(str(admission_budget.key_limit(os.environ) if kind == 'admission_limit'
+                           else admission_budget.call_budget(os.environ)))
         else:
             raise ValueError('unknown date token %r' % (item,))
     return out

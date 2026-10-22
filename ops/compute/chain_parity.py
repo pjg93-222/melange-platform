@@ -908,6 +908,18 @@ def cmd_command(a) -> int:
         return 124
 
 
+def roster_size(root: str) -> int:
+    """What --expect-members defaults to: the size of the roster in the A1 data root (roster lane 2026-10-20; it was the literal 533).
+    A root without a readable roster is a usage error, never a remembered count."""
+    if str(REPO_ROOT / "fec") not in sys.path:
+        sys.path.insert(0, str(REPO_ROOT / "fec"))
+    import roster
+    try:
+        return roster.count(root=root)
+    except (OSError, ValueError, KeyError) as e:
+        raise Usage(f"cannot read the roster size from {root} (data/engine/roster.json: {type(e).__name__}: {e}); pass --expect-members N") from e
+
+
 def cmd_compare(a) -> int:
     excl = a.exclude or []
     single = a.single_reference
@@ -923,6 +935,7 @@ def cmd_compare(a) -> int:
         if not os.path.isdir(r):
             raise Usage(f"{lbl} root {r!r} is not a directory")
     roots = {lbl: os.path.abspath(r) for lbl, r in roots.items()}
+    expect_members = a.expect_members if a.expect_members is not None else roster_size(roots["A1"])
     if single:   # before the slow part: the list must fit the code that ran, and that code must be a commit
         check_citations(volatile["entries"], roots["A1"])
         volatile["repo_head"], volatile["repo_dirty"] = repo_state()
@@ -936,7 +949,7 @@ def cmd_compare(a) -> int:
         for lbl, snap in ctx["snaps"].items():
             write_json(Path(a.store) / f"{lbl}.manifest.json", snap)
     ctx["changed"] = {lbl: changed_paths(frozen, s) for lbl, s in ctx["snaps"].items()}
-    gates = [gate0(ctx), gate1(ctx), gate2(ctx), gate3(ctx, a.expect_members), gate4(ctx)]
+    gates = [gate0(ctx), gate1(ctx), gate2(ctx), gate3(ctx, expect_members), gate4(ctx)]
     if single:   # appended last: the report reads gates[2..4] by position. Not "PASS": nothing was measured
         gates.append({"name": "NF", "title": "noise floor: A1 vs A2 variance", "status": "NOT_APPLICABLE", "data": {}, "detail": [
             "single reference: A2 is A1, so no variance was measured; JSON value paths are masked from the fixed list "
@@ -972,7 +985,7 @@ def cmd_compare(a) -> int:
                                                         "head_blob": volatile["head_blob"],
                                                         "entries": len(volatile["entries"])}} if single else {}),
             "inputs": {"frozen": os.path.abspath(a.frozen), "roots": roots, "maps": ctx["maps"],
-                       "expect_members": a.expect_members, "exclude": excl},
+                       "expect_members": expect_members, "exclude": excl},
             "gates": gates,
             "classes": {lbl: {rel: {"class": c, "detail": d} for rel, (c, d) in t.items()} for lbl, t in ctx["classes"].items()},
             "needs_acceptance": {"pending": unaccepted, "accepted": sorted(set(needs) & accept), "by_path": needs,
@@ -1049,7 +1062,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--b", required=True, metavar="DIR")
     s.add_argument("--c", metavar="DIR", help="optional second container run")
     s.add_argument("--map", action="extend", nargs="+", metavar="WIN=CONTAINER", help="root prefix pair for PATH_ONLY, e.g. C:\\melange-data=/melange-data")
-    s.add_argument("--expect-members", type=int, default=533, metavar="N")
+    s.add_argument("--expect-members", type=int, default=None, metavar="N", help="members each ranks_python.json must hold (default: the size of the roster in the A1 root)")
     s.add_argument("--report", metavar="OUT.json")
     s.add_argument("--store", metavar="DIR", help="also write each root's snapshot to DIR/<A1|A2|B|C>.manifest.json")
     s.add_argument("--accept", action="extend", nargs="+", metavar="PATH", help="relative paths Paul accepted (EOL_ONLY, PATH_ONLY, ZIP_CONTENT)")

@@ -13,8 +13,9 @@ from unittest.mock import patch
 
 import pytest
 
+import desktop_admin
 from desktop_admin import BoundedServer, Refused, Store, handler_for, https_origin
-from access_http import HTTPRefused
+from access_http import HTTPRefused, RateLimit
 from access_store import AccessStore
 
 
@@ -84,6 +85,41 @@ def test_public_peer_and_host_checks_are_explicit_and_ignore_forwarded_headers(t
         accepted.assert_called_once()
 
 
+def test_access_preflight_never_rate_limits_by_peer(tmp_path):
+    store = Store(tmp_path, public_origin='https://updates.example.com')
+    request = object.__new__(handler_for(store))
+    request.path = '/v1/access/status'
+    calls = []
+    with patch.object(RateLimit, 'check', lambda _self, address: calls.append(address)), \
+            patch.object(Path, 'is_file', return_value=True):
+        for peer, public_origin, host in (('127.0.0.1', store.public_origin, 'updates.example.com'),
+                                          ('203.0.113.10', store.public_origin, 'updates.example.com'),
+                                          ('127.0.0.1', None, '127.0.0.1:38443')):
+            request.client_address = (peer, 1)
+            request.server = SimpleNamespace(public_origin=public_origin, server_address=('127.0.0.1', 38443))
+            request.headers = Message()
+            request.headers['Host'] = host
+            request.access_preflight()
+    assert calls == []  # relay, direct public and LAN peers alike: no per-address or network-keyed bucket
+
+
+def test_public_origin_serve_accepts_loopback_bind_and_refuses_wildcard(tmp_path, monkeypatch):
+    bound = []
+    class Listener:
+        def __init__(self, address, _handler, _tls, *, public_origin=None):
+            self.server_address, self.public_origin = address, public_origin
+            bound.append((address, public_origin))
+        def serve_forever(self): pass
+        def server_close(self): pass
+    monkeypatch.setattr(desktop_admin, 'BoundedServer', Listener)
+    monkeypatch.setattr(Store, 'tls_context', lambda _self: None)
+    origin = ['--state', str(tmp_path), '--public-origin', 'https://host.tailnet.ts.net']
+    assert desktop_admin.main(origin + ['serve', '--listen', '127.0.0.1', '--port', '38443']) == 0
+    assert bound == [(('127.0.0.1', 38443), 'https://host.tailnet.ts.net')]
+    assert desktop_admin.main(origin + ['serve', '--listen', '0.0.0.0', '--port', '38443']) == 2
+    assert len(bound) == 1
+
+
 def test_explicit_public_origin_over_real_tls_keeps_auth_and_enrollment_trust(tmp_path):
     origin = 'https://updates.example.com'
     publisher = Store(tmp_path / 'state', public_origin=origin)
@@ -91,6 +127,9 @@ def test_explicit_public_origin_over_real_tls_keeps_auth_and_enrollment_trust(tm
     access = AccessStore(publisher)
     access.initialize()
     assert access.descriptor(origin)['url'] == origin
+    # Re-exporting trust for a new origin changes only the URL; keys and server identity are untouched.
+    lan = 'https://192.168.45.83:38443'
+    assert AccessStore(Store(tmp_path / 'state')).descriptor(lan) == {**access.descriptor(origin), 'url': lan}
     with pytest.raises(Refused):
         publisher.pairing('melange', 'https://other.example.com')
     pair = publisher.pairing('melange', origin)
@@ -128,6 +167,11 @@ def test_explicit_public_origin_over_real_tls_keeps_auth_and_enrollment_trust(tm
         assert call('/v1/apps/melange/trust', token=enrolled['deviceToken'])[0] == 200
         assert call('/v1/apps/melange/trust', token=enrolled['deviceToken'], host='evil.example.com')[0] == 403
         assert call('/admin', token=enrolled['deviceToken'])[0] == 404
+        # Loopback-relay peer (Funnel): no 10/hour/source or 60/min/peer cap; 65 access calls from 127.0.0.1.
+        for _ in range(11):
+            relayed = {**value, 'requestId': str(uuid.uuid4()), 'deviceId': str(uuid.uuid4()), 'requestSecret': secrets.token_urlsafe(32)}
+            assert call('/v1/access/requests', body=relayed)[0] == 201
+        assert [call('/v1/access/status')[0] for _ in range(50)] == [403] * 50
         # A deliberate, independently distributed origin change preserves credentials on retry.
         publisher.public_origin = 'https://new-updates.example.com'
         retry = access.update_enrollment(activated['accessToken'], {'currentVersion': '1.0.0'}, publisher.public_origin)

@@ -101,11 +101,16 @@ ENRICHMENT = 'enrichment'
 TIERS = (CORE, ENRICHMENT)
 
 # The admissions producer's cost bound, lifted from fec/legislation/refresh_congress_pipeline.py
-# (ADMISSION_KEY_LIMIT, ADMISSION_CALL_BUDGET; owner ruling 2026-10-15, cap interactive + $150 a
+# (now fec/admission_budget.py: KEY_LIMIT, CALL_BUDGET_DEFAULT; owner ruling 2026-10-15, cap interactive + $150 a
 # month).  --limit bounds the keys looked at, --max-classifier-calls the PAID model calls among
 # them; a budget stop is a normal PASS and the unattempted keys wait for the next day.  A tick that
 # ran admissions without these would be an unbounded spend on an hourly schedule.
-ADMISSION_TICK_ARGV = ('--limit', '80', '--max-classifier-calls', '48')
+# The two numbers are not written here: this module stays pure data (no import, no environment). They are
+# tokens the runner renders at launch (refresh_tick.render_argv) from fec/admission_budget.py, which the daily
+# runner reads too and which honours MELANGE_SENTINEL_CALL_BUDGET -- one setting for both, 80 and 48 unless it
+# is set (the key limit follows a budget above 80), and an invalid value fails the admissions step instead of guessing.
+ADMISSION_TOKENS = ('admission_limit', 'admission_budget')
+ADMISSION_TICK_ARGV = ('--limit', ('admission_limit',), '--max-classifier-calls', ('admission_budget',))
 
 # argv element: a literal string, or a date token the runner renders at launch.
 Token = Tuple[Union[str, int], ...]
@@ -375,8 +380,9 @@ def validate(table=TABLE):
                             % (step.name, tier))
         if step.kind in COMPUTE_KINDS and tier is not None:
             problems.append('%s: only collect rows carry a tier, got %r' % (step.name, tier))
-        if tick_argv and not all(isinstance(item, str) for item in tick_argv):
-            problems.append('%s: tick_argv must be literal strings' % step.name)
+        if tick_argv and not all(isinstance(item, str) or (isinstance(item, tuple) and len(item) == 1 and item[0] in ADMISSION_TOKENS)
+                                 for item in tick_argv):
+            problems.append('%s: tick_argv must be literal strings or admission tokens' % step.name)
         if any((not isinstance(code, int)) or code == 0 for code in step.partial_codes):
             problems.append('%s: partial_codes must be non-zero ints, got %r'
                             % (step.name, step.partial_codes))

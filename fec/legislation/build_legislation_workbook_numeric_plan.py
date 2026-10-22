@@ -29,6 +29,8 @@ import re
 import tempfile
 from typing import Any, Iterable, Mapping, Sequence
 
+import roster  # fec/ is on sys.path (bootstrap above); the one source of the roster size and member rows
+
 try:
     from legislation_measure_key import (
         CANONICAL_KEY_RE,
@@ -121,29 +123,31 @@ CATEGORY_ALIASES.update(
     }
 )
 
+_RAW_LAST_ROW = roster.last_row("Legislative Score - Raw")
+_SUBLAYER_LAST_ROW = roster.last_row("Sub Layer - Raw")
 BLOCK_RANGES = {
     category: value
     for category, value in zip(
         CATEGORIES,
         (
-            "C3:J535",
-            "K3:R535",
-            "S3:Z535",
-            "AA3:AH535",
-            "AI3:AP535",
-            "AQ3:AX535",
-            "AY3:BF535",
-            "BG3:BN535",
-            "BO3:BV535",
-            "BW3:CD535",
-            "CE3:CL535",
-            "CM3:CT535",
-            "CU3:DB535",
-            "DC3:DJ535",
-            "DK3:DR535",
-            "DS3:DZ535",
-            "EA3:EH535",
-            "EW3:FD535",
+            f"C3:J{_RAW_LAST_ROW}",
+            f"K3:R{_RAW_LAST_ROW}",
+            f"S3:Z{_RAW_LAST_ROW}",
+            f"AA3:AH{_RAW_LAST_ROW}",
+            f"AI3:AP{_RAW_LAST_ROW}",
+            f"AQ3:AX{_RAW_LAST_ROW}",
+            f"AY3:BF{_RAW_LAST_ROW}",
+            f"BG3:BN{_RAW_LAST_ROW}",
+            f"BO3:BV{_RAW_LAST_ROW}",
+            f"BW3:CD{_RAW_LAST_ROW}",
+            f"CE3:CL{_RAW_LAST_ROW}",
+            f"CM3:CT{_RAW_LAST_ROW}",
+            f"CU3:DB{_RAW_LAST_ROW}",
+            f"DC3:DJ{_RAW_LAST_ROW}",
+            f"DK3:DR{_RAW_LAST_ROW}",
+            f"DS3:DZ{_RAW_LAST_ROW}",
+            f"EA3:EH{_RAW_LAST_ROW}",
+            f"EW3:FD{_RAW_LAST_ROW}",
         ),
     )
 }
@@ -172,8 +176,8 @@ EFFICIENCY_COLUMNS = tuple(
     for index in range(32, 49)
 )
 CU_TAX_CATEGORY = "CU Tax Status"
-CU_TAX_RAW_GENERIC_RANGE = "FB3:FB535"
-CU_TAX_NORMALIZED_GENERIC_RANGE = "FB3:FB535"
+CU_TAX_RAW_GENERIC_RANGE = f"FB3:FB{_RAW_LAST_ROW}"
+CU_TAX_NORMALIZED_GENERIC_RANGE = f"FB3:FB{_RAW_LAST_ROW}"
 CU_TAX_PRESERVE_OMISSION = "preserve_legacy_efficiency_omission"
 CU_TAX_MERGE_NAMED_SLOT = "merge_into_named_legacy_slot"
 # The expression above deliberately yields AG:AW without spreadsheet packages.
@@ -271,8 +275,8 @@ def required_nonbill_numeric_policy(
     return {
         "cfpb_sign_on_letters": {
             "raw_ranges": [
-                "Legislative Score - Raw!CU3:CU535",
-                "Legislative Score - Raw!CW3:CW535",
+                f"Legislative Score - Raw!CU3:CU{_RAW_LAST_ROW}",
+                f"Legislative Score - Raw!CW3:CW{_RAW_LAST_ROW}",
             ],
             "action": "recompute_from_hash_bound_manual_bill_evidence",
             "manual_bill_evidence_sha256": sha,
@@ -284,15 +288,15 @@ def required_nonbill_numeric_policy(
         },
         "cfpb_dead_zero_siblings": {
             "raw_ranges": [
-                "Legislative Score - Raw!CV3:CV535",
-                "Legislative Score - Raw!CX3:CX535",
+                f"Legislative Score - Raw!CV3:CV{_RAW_LAST_ROW}",
+                f"Legislative Score - Raw!CX3:CX{_RAW_LAST_ROW}",
             ],
             "action": "materialize_explicit_zero",
         },
         "bill_derived_generic_success_percentages": {
             "raw_ranges": [
-                "Legislative Score - Raw!AV3:AV535",
-                "Legislative Score - Raw!DX3:DX535",
+                f"Legislative Score - Raw!AV3:AV{_RAW_LAST_ROW}",
+                f"Legislative Score - Raw!DX3:DX{_RAW_LAST_ROW}",
             ],
             "action": "recompute_from_current_accepted_bill_relationships",
             "stored_precision": "one_decimal_percentage_points",
@@ -588,8 +592,10 @@ def validate_baseline(path: Path, workbook_sha256: str) -> dict[str, Any]:
 
 def validate_members(layout: Mapping[str, Any]) -> tuple[list[dict[str, Any]], dict[str, int]]:
     rows = layout.get("members")
-    if not isinstance(rows, list) or len(rows) != 533:
-        raise NumericPlanError("audited layout must contain exactly 533 members")
+    if not isinstance(rows, list) or len(rows) != roster.count():
+        raise NumericPlanError(
+            f"audited layout must contain exactly {roster.count()} members"
+        )
     members: list[dict[str, Any]] = []
     by_bioguide: dict[str, int] = {}
     names: set[str] = set()
@@ -658,7 +664,7 @@ def validate_layout(
     for cat in CATEGORIES:
         values = nonleg.get(cat)
         role_weights = weights.get(cat)
-        if not isinstance(values, list) or len(values) != 533:
+        if not isinstance(values, list) or len(values) != roster.count():
             raise NumericPlanError(f"sublayer nonlegislative vector invalid: {cat}")
         if not isinstance(role_weights, list) or len(role_weights) != 5:
             raise NumericPlanError(f"sublayer legislative weights invalid: {cat}")
@@ -1459,7 +1465,7 @@ def writes_from_matrices(
             writes.append(
                 {
                     "sheet": sheet,
-                    "range": f"{column}4:{column}536",
+                    "range": f"{column}4:{column}{_SUBLAYER_LAST_ROW}",
                     "values": matrices[key][cat],
                     "category": cat,
                 }
@@ -1467,7 +1473,7 @@ def writes_from_matrices(
         writes.append(
             {
                 "sheet": sheet,
-                "range": "AG4:AW536",
+                "range": f"AG4:AW{_SUBLAYER_LAST_ROW}",
                 "values": matrices[
                     "efficiency_raw"
                     if sheet == "Sub Layer - Raw"
@@ -1495,7 +1501,7 @@ def explicit_efficiency_layout(
                 )
             category_mappings[cat] = {
                 "sheet": "Sub Layer - Raw",
-                "range": f"{column}4:{column}536",
+                "range": f"{column}4:{column}{_SUBLAYER_LAST_ROW}",
                 "column": column,
                 "aggregation": slot["aggregation"],
                 "aggregate_with": [
@@ -1523,8 +1529,8 @@ def explicit_efficiency_layout(
             "machine-readable efficiency layout is not complete"
         )
     return {
-        "raw_range": "Sub Layer - Raw!AG4:AW536",
-        "normalized_range": "Sub Layer - Normalized!AG4:AW536",
+        "raw_range": f"Sub Layer - Raw!AG4:AW{_SUBLAYER_LAST_ROW}",
+        "normalized_range": f"Sub Layer - Normalized!AG4:AW{_SUBLAYER_LAST_ROW}",
         "physical_column_count": 17,
         "category_count": 18,
         "legacy_materialized_category_count": sum(
@@ -1635,10 +1641,10 @@ def build_plan(
         "frozen_workbook_binding": layout["baseline"],
         "member_layout": {
             "member_count": len(layout["members"]),
-            "first_raw_row": 3,
-            "last_raw_row": 535,
-            "first_sublayer_row": 4,
-            "last_sublayer_row": 536,
+            "first_raw_row": roster.first_row("Legislative Score - Raw"),
+            "last_raw_row": _RAW_LAST_ROW,
+            "first_sublayer_row": roster.first_row("Sub Layer - Raw"),
+            "last_sublayer_row": _SUBLAYER_LAST_ROW,
             "layout_sha256": layout["receipt"]["sha256"],
         },
         "audit": {

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from fec import roster as live_roster   # the `roster` name below is the test's own expected-name set
 from fec.members.regenerate_descriptive_profiles import build_rows, compose
 from fec.members.validate_descriptive_profiles import (
     CONTRACT, MAX_WORDS, MIN_WORDS,
@@ -47,8 +48,8 @@ def publication(generated):
         "contract_version": CONTRACT,
         "basis_sha256": "basis-current",
         "evidence_sha256": "evidence-current",
-        "count": 533,
-        "ok_count": 533,
+        "count": len(generated),
+        "ok_count": len(generated),
         "members": copy.deepcopy(generated),
     }
     receipt = {
@@ -59,9 +60,9 @@ def publication(generated):
         "evidence_sha256": "evidence-current",
         "active_artifact_sha256": artifact_hash(document),
         "counts": {
-            "profiles": 533,
-            "word_count_pass": 533,
-            "grounded_template_pass": 533,
+            "profiles": len(generated),
+            "word_count_pass": len(generated),
+            "grounded_template_pass": len(generated),
         },
     }
     return document, receipt, set(generated)
@@ -86,7 +87,7 @@ def rebind_artifact(publication):
 
 
 def test_actual_roster_has_reproducible_three_paragraph_profiles(evidence, generated):
-    assert len(evidence["members"]) == len(generated) == 533
+    assert len(evidence["members"]) == len(generated) == live_roster.count()
     assert set(generated) == set(evidence["members"])
     assert generated == build_rows(copy.deepcopy(evidence))
     for name, row in generated.items():
@@ -204,14 +205,14 @@ def test_validator_rejects_replacement_name_even_when_count_stays_533(publicatio
     name = next(iter(document["members"]))
     document["members"]["Not In The Roster"] = document["members"].pop(name)
     rebind_artifact(publication)
-    assert len(document["members"]) == 533
+    assert len(document["members"]) == live_roster.count()
     assert "profile roster mismatch" in validate(publication)
 
 
 def test_validator_rejects_incomplete_expected_roster(publication):
     _, _, roster = publication
     roster.remove(next(iter(roster)))
-    assert "expected roster must contain 533 unique members" in validate(publication)
+    assert "expected roster must contain %d unique members" % live_roster.count() in validate(publication)
 
 
 @pytest.mark.parametrize("tamper", ["declared_count", "too_short", "too_long"])
@@ -436,4 +437,4 @@ def test_no_member_holding_a_verified_voiceprint_is_told_they_have_no_audio(
     assert (counts["both_audio_layers"] + counts["voiceprint_only_audio_profiles"]
             == counts["verified_voiceprint_profiles"])
     assert (counts["descriptive_audio_profiles"] + counts["voiceprint_only_audio_profiles"]
-            + counts["no_audio_layer"] == 533)
+            + counts["no_audio_layer"] == live_roster.count())

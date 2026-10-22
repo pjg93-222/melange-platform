@@ -68,6 +68,7 @@ if FEC_BOOTSTRAP not in sys.path:
     sys.path.insert(0, FEC_BOOTSTRAP)
 
 from paths import ROOT as MB_ROOT
+import roster as roster_module  # (several functions here bind a local named roster)
 from moneyball_core import IMP, dump_atomic
 from engine.primacy_method import DIAGNOSTIC, METHOD, BENEFICIARY_W
 from engine import primacy_press
@@ -95,10 +96,9 @@ WINDOW_LO = date(2021, 1, 3)          # 117th Congress start
 ACCEPTED_DISPOSITIONS = ('selected', 'neutral-registry', 'neutral-official-evidence')
 NORMALIZATION = 'within_chamber'
 
-# congress-legislators snapshot pinned by the legislative-effectiveness lane.
-REFERENCE_DIR = os.path.join(
-    'data', 'staffer_network', 'reference', 'congress-legislators',
-    '750c0608efb6ef1fc3257ba72c99af3771d35088')
+# congress-legislators snapshot: the installed commit-pinned one (roster.snapshot_dir), as a repo-relative path.  A new
+# snapshot from the roster refresh changes this input (and so can change per-area grades).
+REFERENCE_DIR = os.path.relpath(roster_module.snapshot_dir(), MB_ROOT)
 
 INPUT_FILES = (
     'data/engine/congestion.json',

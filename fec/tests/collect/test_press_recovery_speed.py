@@ -56,7 +56,7 @@ def run_worker(monkeypatch,tmp_path,get,rows=1,returncode=0,hours='1',r_writes_r
     return out
 
 def response(status):
-    return types.SimpleNamespace(status_code=status,url=URL,headers={},content=b'')
+    return types.SimpleNamespace(status_code=status,url=URL,headers={},content=b'',close=lambda:None)
 
 def ledger(out): return [json.loads(l) for l in (out/'article_results.jsonl').read_text(encoding='utf-8').splitlines()]
 
@@ -95,6 +95,15 @@ def test_oversized_body_stops_downloading_at_the_cap(monkeypatch,tmp_path):
     out=run_worker(monkeypatch,tmp_path,get)
     assert ledger(out)[0]['attempts'][0]['rejection']=='response_size'
     assert sum(reads)<=8_000_000+65536  # the body is never buffered past the cap
+
+def test_streamed_responses_are_closed_on_retry_and_read_error(monkeypatch,tmp_path):
+    closed,statuses=[],[503,200]
+    def broken(size): raise requests.ConnectionError('reset mid-body');yield b''
+    def get(url,clock):
+        status=statuses.pop(0)
+        return types.SimpleNamespace(status_code=status,url=URL,headers={},iter_content=broken,close=lambda:closed.append(status))
+    run_worker(monkeypatch,tmp_path,get)
+    assert closed==[503,200]  # the 503 retry (continue) and the failed body read (exception) both release the connection
 
 @pytest.mark.parametrize('content',['','not-a-pid','   \n'])
 def test_unparsable_lock_is_stale(monkeypatch,tmp_path,content):

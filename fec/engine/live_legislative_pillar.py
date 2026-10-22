@@ -12,6 +12,7 @@ import json
 import math
 import re
 
+import roster
 from legislation.congress_bill_repository import parse_bill_identity
 
 ADVANCED={'Passed House','Passed Senate','Agreed to in Senate','Resolving Differences',
@@ -119,7 +120,7 @@ def nonlegislative_inputs(workbook,members):
     committee={row[0]:float(row[1] or 0) for row in workbook['Committee Data'].iter_rows(min_row=2,values_only=True) if row[0]}
     weights=[float(workbook['Sub Layer - Normalized'].cell(3,col).value) for col in range(22,33)]
     demographics={row[1]:sum(float(row[col-1] or 0)*weights[col-22] for col in range(22,33))
-                  for row in workbook['Sub Layer - Raw'].iter_rows(min_row=4,max_row=536,values_only=True) if row[1]}
+                  for row in workbook['Sub Layer - Raw'].iter_rows(min_row=roster.first_row('Sub Layer - Raw'),max_row=roster.last_row('Sub Layer - Raw'),values_only=True) if row[1]}
     if set(demographics)!=set(members):raise ValueError('Demographic inputs do not cover current rank roster')
     return {name:committee.get(name,0.0) for name in members},demographics
 

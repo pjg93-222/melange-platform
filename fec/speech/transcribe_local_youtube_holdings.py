@@ -59,6 +59,10 @@ def pcm16_audio(path: Path):
 
 
 def main() -> int:
+    return main_with(None)
+
+
+def main_with(argv: list[str] | None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--census", type=Path, default=DEFAULT_CENSUS)
@@ -71,7 +75,7 @@ def main() -> int:
     parser.add_argument("--channel", action="append", default=[])
     parser.add_argument("--limit", type=int, default=0)
     parser.add_argument("--cpu-threads", type=int, default=4)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # Match the host-policy shim used by source_media_recovery.run_align.
     if "av" not in sys.modules:
@@ -106,8 +110,9 @@ def main() -> int:
         if str(row.get("member") or "") in wanted
         and (not explicit_members or str(row.get("member") or "") in explicit_members)
         and (not explicit_channels or str(row.get("channel") or "").casefold() in explicit_channels)
-        and Path(str(row.get("wav") or "")).is_file()
     ]
+    missing_wav = sum(not Path(str(row.get("wav") or "")).is_file() for row in selected)
+    selected = [row for row in selected if Path(str(row.get("wav") or "")).is_file()]
     selected.sort(key=lambda row: (
         str(row.get("channel") or "") != "C-SPAN",
         str(row.get("member") or ""),
@@ -120,7 +125,22 @@ def main() -> int:
         str(row["video_id"]): row
         for row in (SMR.read_jsonl(args.output) if args.output.exists() else [])
     }
-    pending = [row for row in selected if str(row["video_id"]) not in existing]
+    def reusable(row: dict[str, Any]) -> bool:
+        old = existing.get(str(row["video_id"]))
+        if old is None:
+            return False
+        try:
+            wav = Path(str(row["wav"])).resolve()
+            if Path(str(old["source_wav"])).resolve() != wav:
+                return False
+            if SMR.sha256_file(wav) != old["source_audio_sha256"]:
+                return False
+            transcript = Path(str(old["transcript"]))
+            return transcript.is_file() and SMR.sha256_file(transcript) == old["transcript_sha256"]
+        except (KeyError, OSError):
+            return False
+
+    pending = [row for row in selected if not reusable(row)]
     model = WhisperModel(
         str(args.model), device="cpu", compute_type="int8", local_files_only=True,
         cpu_threads=max(1, args.cpu_threads), num_workers=1,
@@ -174,9 +194,10 @@ def main() -> int:
     if not pending:
         SMR.write_jsonl_atomic(args.output, sorted(existing.values(), key=lambda value: value["video_id"]))
     output_rows = list(existing.values())
+    selected_ids = {str(item.get("video_id")) for item in selected}
     receipt = {
         "schema": "local-youtube-holdings-asr-receipt-v1",
-        "status": "PASS_LOCALIZATION_ONLY",
+        "status": "INCOMPLETE_MISSING_SOURCE_WAV" if missing_wav else "PASS_LOCALIZATION_ONLY",
         "generated_at": utc_now(),
         "target_kind": args.target,
         "contract": {
@@ -192,14 +213,15 @@ def main() -> int:
         },
         "coverage": {
             "selected": len(selected),
-            "ready": sum(str(row.get("video_id")) in {str(item.get("video_id")) for item in selected} for row in output_rows),
-            "members": len({row["member"] for row in output_rows if str(row.get("video_id")) in {str(item.get("video_id")) for item in selected}}),
+            "missing_wav": missing_wav,
+            "ready": sum(str(row.get("video_id")) in selected_ids for row in output_rows),
+            "members": len({row["member"] for row in output_rows if str(row.get("video_id")) in selected_ids}),
         },
         "output": {"path": str(args.output.resolve()), "sha256": SMR.sha256_file(args.output)},
     }
     SMR.write_json_atomic(args.receipt, receipt)
     print(json.dumps(receipt["coverage"], sort_keys=True))
-    return 0
+    return 1 if missing_wav else 0
 
 
 if __name__ == "__main__":

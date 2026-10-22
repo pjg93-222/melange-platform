@@ -5,16 +5,17 @@ M=os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx')
 wb=openpyxl.load_workbook(M,data_only=True)
 ra=wb['Rank & Allocation']
 import moneyball_core as MC
+import roster
 import stance.stance_rules as SR
 from engine.pillar_policy import LABEL_EVIDENCE_WEIGHTS
-_normM,_w535,_=MC.press_matrix()   # PHASE-2: Python-owned press normalization (raw values + row-535 dial literals; no recalc dependency)
+_normM,_w535,_=MC.press_matrix()   # PHASE-2: Python-owned press normalization (raw values + press footer-row dial literals; no recalc dependency)
 # S2-04 (audit run-2, user-ratified): col G is NOT read here anymore. It was the previous run's
 # sync_stance_g output, which made stance_N+1=F(stance_N) — a cross-run recurrence that orbited a
 # period-2 limit cycle (~39 persuadable-middle cells flipping per run). The overall-tier feedback
 # is now resolved IN-RUN from a canonical start (see the gen iteration below); col G stays a view.
 def nfc(value):
     return unicodedata.normalize('NFC',str(value)) if value is not None else value
-members=[nfc(ra.cell(r,1).value) for r in range(3,536) if ra.cell(r,1).value]
+members=[nfc(ra.cell(r,1).value) for r in roster.rows('Rank & Allocation') if ra.cell(r,1).value]
 with open(os.path.join(MB_ROOT, 'archive_leg.json'),encoding='utf-8') as _handle:
     LEG={nfc(member):values for member,values in json.load(_handle).items()}
 with open(os.path.join(MB_ROOT, 'legislation_routing_audit.json'),encoding='utf-8') as _handle:

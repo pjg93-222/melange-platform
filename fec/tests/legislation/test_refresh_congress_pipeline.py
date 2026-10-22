@@ -17,6 +17,8 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import admission_budget
+import chain_transaction
 from legislation import refresh_congress_pipeline as pipeline
 from audit_failure_gate import KNOWN_GATED_FAILURES
 from pipeline_lock import LOCK_OWNER_PID_ENV, LOCK_TOKEN_ENV, pipeline_run_lock
@@ -41,10 +43,13 @@ PUBLICATIONS = (
 def clean_inherited_lease(monkeypatch):
     monkeypatch.delenv(LOCK_TOKEN_ENV, raising=False)
     monkeypatch.delenv(LOCK_OWNER_PID_ENV, raising=False)
+    monkeypatch.delenv(BUDGET_ENV, raising=False)    # the shell's own budget must never change a pinned argv
+    monkeypatch.delenv("CONGRESS_REDERIVE", raising=False)
     monkeypatch.setattr(pipeline, "_emit", lambda *args, **kwargs: None)
     monkeypatch.setitem(sys.modules, "run_pipeline", SimpleNamespace(preflight_dependencies=lambda: None))
     monkeypatch.setitem(sys.modules, "legislation.sync_sentinel_bill_ledger",
                         SimpleNamespace(runtime=lambda: ("fixture", "node", "modules")))
+    monkeypatch.setattr(chain_transaction, "preflight", lambda root: None)    # the 30 GB floor is the host disk, not the fixture
 
 
 def write_json(root, relative, value):
@@ -331,6 +336,19 @@ def test_missing_runtime_stops_before_collecting_any_sources(tmp_path, monkeypat
     assert not (tmp_path / ".pipeline_run.lock").exists()
 
 
+def test_chain_disk_floor_refusal_stops_the_run_before_any_step(tmp_path, monkeypatch):
+    def refuse(root):
+        raise RuntimeError("chain transaction refused to start: floor")
+
+    monkeypatch.setattr(chain_transaction, "preflight", refuse)
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda *a, **k: pytest.fail("must not run a collector"))
+    assert pipeline.run(tmp_path) == 1
+    state = pipeline.read(tmp_path / pipeline.STATUS)
+    assert state["status"] == "FAILED" and state["steps"] == []
+    assert "refused to start" in state["error"]
+    assert not (tmp_path / ".pipeline_run.lock").exists()
+
+
 @pytest.mark.parametrize("interruption", [False, True])
 def test_timeout_and_interruption_terminate_child_and_release_lease(tmp_path, monkeypatch, interruption):
     class PendingProcess(CompletedProcess):
@@ -386,23 +404,105 @@ def media_receipt(root, status="PASS", schema="daily-media-refresh-receipt-v1", 
 
 
 def test_daily_admission_defaults_follow_the_2026_10_15_owner_ruling(monkeypatch):
-    assert (pipeline.ADMISSION_KEY_LIMIT, pipeline.ADMISSION_CALL_BUDGET) == (80, 48)
-    assert inspect.signature(pipeline.run).parameters["admission_limit"].default == 80
+    assert (admission_budget.KEY_LIMIT, admission_budget.CALL_BUDGET_DEFAULT) == (80, 48)
+    # No limit is fixed at import: None means "resolve when the run starts", so a bad budget fails the run, not the import.
+    assert inspect.signature(pipeline.run).parameters["admission_limit"].default is None
     calls = []
     monkeypatch.setattr(pipeline, "run", lambda **kwargs: calls.append(kwargs) or 0)
     assert pipeline.main([]) == 0
-    assert calls[0]["admission_limit"] == 80
+    assert calls[0]["admission_limit"] is None
     admissions = dict((name, args) for name, _, args, _ in pipeline.steps(calls[0]["admission_limit"]))["admissions"]
     assert admissions == ["--limit", "80", "--max-classifier-calls", "48"]
+    assert pipeline.main(["--admission-limit", "19"]) == 0 and calls[1]["admission_limit"] == 19   # an explicit limit stands
+
+
+# MELANGE_SENTINEL_CALL_BUDGET raises the paid-call budget for a flood run; unset keeps the D-211 default of 48.
+# A bad value must stop the job, never quietly fall back to 48 and under-run a flood the operator asked for.
+BUDGET_ENV = "MELANGE_SENTINEL_CALL_BUDGET"
+
+# Media mode re-runs these after billstatus: daily_media_refresh.REPOSITORY_BOUND_DERIVED, named rederive_<derived step>.
+REDERIVED = ["rederive_behavior_panel", "rederive_behavioral_dispositions", "rederive_big5_lexcal", "rederive_big5_hybrid"]
+
+
+def test_call_budget_env_unset_keeps_the_d211_default_and_a_positive_integer_overrides_it():
+    assert admission_budget.call_budget({}) == 48
+    assert admission_budget.call_budget({BUDGET_ENV: "120"}) == 120
+    assert admission_budget.call_budget({BUDGET_ENV: " 7 "}) == 7
+
+
+@pytest.mark.parametrize("bad", ["0", "-3", "abc", "", "4.5", "+5", "1_000", "\u0663", "\uff13", " ", "9" * 5000])
+def test_call_budget_env_invalid_or_non_positive_fails_loudly(bad):
+    # int() would accept "1_000", "+5" and non-ASCII digits (Arabic-Indic, fullwidth); only plain ASCII digits count.
+    with pytest.raises(ValueError, match=BUDGET_ENV):
+        admission_budget.call_budget({BUDGET_ENV: bad})
+
+
+def test_a_digit_string_past_the_interpreter_limit_chains_its_cause():
+    with pytest.raises(ValueError, match=BUDGET_ENV) as caught:
+        admission_budget.call_budget({BUDGET_ENV: "9" * 5000})
+    assert isinstance(caught.value.__cause__, ValueError)         # int()'s own refusal, kept as the cause
+
+
+def test_the_key_limit_follows_the_budget_so_one_setting_floods():
+    # selected keys are capped at the limit, so a budget above 80 did nothing: the limit rises with it, never below 80.
+    assert admission_budget.key_limit({}) == 80
+    assert admission_budget.key_limit({BUDGET_ENV: "48"}) == 80
+    assert admission_budget.key_limit({BUDGET_ENV: "80"}) == 80
+    assert admission_budget.key_limit({BUDGET_ENV: "120"}) == 120
+    with pytest.raises(ValueError, match=BUDGET_ENV):
+        admission_budget.key_limit({BUDGET_ENV: "nope"})
+
+
+def test_a_budget_of_120_gives_the_daily_runner_limit_120_and_budget_120(monkeypatch):
+    monkeypatch.setenv(BUDGET_ENV, "120")
+    admissions = dict((name, args) for name, _, args, _ in pipeline.steps())["admissions"]
+    assert admissions == ["--limit", "120", "--max-classifier-calls", "120"]
+    # an explicit --admission-limit is the operator's word and stands, whatever the budget
+    explicit = dict((name, args) for name, _, args, _ in pipeline.steps(30))["admissions"]
+    assert explicit == ["--limit", "30", "--max-classifier-calls", "120"]
+
+
+def test_the_env_budget_feeds_the_admissions_step_flag_when_the_steps_are_built(monkeypatch):
+    monkeypatch.setenv(BUDGET_ENV, "120")
+    admissions = dict((name, args) for name, _, args, _ in pipeline.steps(80))["admissions"]
+    assert admissions == ["--limit", "80", "--max-classifier-calls", "120"]
+
+
+@pytest.mark.parametrize("bad", ["0", "junk"])
+def test_importing_the_module_with_a_bad_budget_succeeds_and_the_weekly_rollback_symbols_import(bad):
+    # weekly_refresh.py imports ROLLBACK_SOURCES / rollback_unbound_repository from this module inside a broad except; an
+    # import that raised on a typo would silently disarm the weekly repository rollback (DE-043). Importing is side-effect free.
+    fec = Path(__file__).resolve().parents[2]
+    probe = ("import sys; sys.path.insert(0, sys.argv[1]); "
+             "from legislation.refresh_congress_pipeline import ROLLBACK_SOURCES, rollback_unbound_repository; "
+             "print(len(ROLLBACK_SOURCES), callable(rollback_unbound_repository))")
+    run = subprocess.run([sys.executable, "-c", probe, str(fec)], capture_output=True, text=True, timeout=120,
+                         env={**os.environ, BUDGET_ENV: bad})
+    assert run.returncode == 0, run.stderr
+    assert run.stdout.strip() == "2 True"
+
+
+@pytest.mark.parametrize("bad", ["0", "abc"])
+def test_a_bad_budget_fails_the_run_with_a_failed_status_and_receipt_not_the_import(tmp_path, monkeypatch, bad):
+    write_json(tmp_path, "ranks_python.json", {"rank": {"Member A": 1}})
+    monkeypatch.setenv(BUDGET_ENV, bad)
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda *a, **k: pytest.fail("no step may start on a bad budget"))
+    assert pipeline.run(tmp_path) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["status"] == "FAILED" and BUDGET_ENV in status["error"] and "ValueError" in status["error"]
+    receipt = pipeline.read(Path(status["run_dir"]) / "receipt.json")
+    assert receipt["status"] == "FAILED" and BUDGET_ENV in receipt["error"]
 
 
 def test_expanded_chain_collects_all_bills_then_media_then_entire_canonical_chain():
     selected = pipeline.steps(19, include_media=True)
     names = [name for name, _, _, _ in selected]
-    assert names == ["calibration", "discovery", "admissions", "votes", "repository", "billstatus", "media", "pipeline"]
-    assert selected[-2][1] == "collect/daily_media_refresh.py"
+    # DE-043/W1: media (hours, killable) precedes the repository fetch, so nothing long sits before the chain's rebind.
+    # 2026-10-20: the repository-bound behavioural derivations re-run after billstatus (the media step's own copy read the old repository).
+    assert names == ["calibration", "roster", "discovery", "admissions", "votes", "media", "repository", "billstatus", *REDERIVED, "pipeline"]
+    assert selected[names.index("media")][1] == "collect/daily_media_refresh.py"
     assert selected[-1][1:3] == ("run_pipeline.py", [])
-    assert selected[2][2] == ["--limit", "19", "--max-classifier-calls", "48"]
+    assert selected[names.index("admissions")][2] == ["--limit", "19", "--max-classifier-calls", "48"]
     # Starting from the first canonical step includes collection intake and all
     # media consumers, instead of skipping to the bill-only roster verifier.
     tree = ast.parse((pipeline.CODE / "run_pipeline.py").read_text(encoding="utf-8"))
@@ -503,7 +603,9 @@ def test_expanded_run_echoes_owned_attempt_and_seals_immutable_media_snapshot(tm
     assert receipt["daily_attempt_id"] == "owned-daily-attempt-123"
     assert receipt["include_media"] is True
     assert receipt["status"] == "PASS"
-    assert seen[-2:] == ["daily_media_refresh.py", "run_pipeline.py"]
+    # 2026-10-20: the repository-bound behavioural derivations re-run between billstatus and the chain.
+    assert seen[-8:] == ["daily_media_refresh.py", "update_bill_repository.py", "refresh_billstatus_bulk.py",
+                         "behavior_panel.py", "behavioral_dispositions.py", "big5_lexcal_v2.py", "big5_hybrid.py", "run_pipeline.py"]
     immutable = Path(receipt["run_dir"]) / "daily_media_refresh_receipt.json"
     bound_hash = receipt["artifacts"][MEDIA_RECEIPT.as_posix()]["sha256"]
     assert immutable.read_bytes() == (tmp_path / MEDIA_RECEIPT).read_bytes()
@@ -634,8 +736,8 @@ def test_cli_include_media_passes_expanded_mode_to_runner(monkeypatch):
 def test_smoke_skips_discovery_spends_no_model_call_and_keeps_the_full_chain():
     selected = pipeline.steps(32, smoke=True)
     names = [name for name, _, _, _ in selected]
-    assert names == ["calibration", "discovery", "admissions", "votes", "repository",
-                     "billstatus", "media", "pipeline"]
+    assert names == ["calibration", "roster", "discovery", "admissions", "votes", "media",
+                     "repository", "billstatus", *REDERIVED, "pipeline"]
     by_name = {name: (script, args) for name, script, args, _ in selected}
     # Discovery is recorded in order but has no script, so it is never launched.
     assert by_name["discovery"][0] is None
@@ -662,7 +764,7 @@ def test_cli_smoke_passes_smoke_mode_to_runner(monkeypatch):
     calls = []
     monkeypatch.setattr(pipeline, "run", lambda **kwargs: calls.append(kwargs) or 0)
     assert pipeline.main(["--smoke"]) == 0
-    assert calls == [{"admission_limit": 80, "include_media": False, "smoke": True}]
+    assert calls == [{"admission_limit": None, "include_media": False, "smoke": True}]   # None: resolved when the steps are built
 
 
 def test_smoke_run_records_its_mode_and_never_writes_the_production_receipt(tmp_path, monkeypatch):
@@ -962,7 +1064,9 @@ def test_partial_media_receipt_is_a_non_fatal_success_recorded_on_the_run(tmp_pa
     monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
     assert pipeline.run(tmp_path, include_media=True) == 0
     # The canonical chain ran behind the PARTIAL media step: it is not fatal.
-    assert seen[-2:] == ["daily_media_refresh.py", "run_pipeline.py"]
+    # 2026-10-20: the repository-bound behavioural derivations re-run between billstatus and the chain.
+    assert seen[-8:] == ["daily_media_refresh.py", "update_bill_repository.py", "refresh_billstatus_bulk.py",
+                         "behavior_panel.py", "behavioral_dispositions.py", "big5_lexcal_v2.py", "big5_hybrid.py", "run_pipeline.py"]
     receipt = pipeline.read(tmp_path / pipeline.RECEIPT)
     # The congress run itself stays PASS; the media gap is named beside it.
     assert receipt["status"] == "PASS"
@@ -1027,6 +1131,288 @@ def test_w1_failure_before_rebind_restores_repository_and_receipt_byte_exact(tmp
     receipt = pipeline.read(tmp_path / pipeline.STATUS)
     assert receipt["rollback"] == "restored"
     assert receipt["rollback_membership_load"] == "PASS"
+
+
+def test_w1_media_precedes_repository_fetch():
+    # DE-043: the repository fetch and the chain's verify_collector_roster_updates.py (which rebinds the
+    # membership sidecar to the new repository sha) are one unit, so media must not sit between them.
+    for mode in ({"include_media": True}, {"smoke": True}):
+        names = [name for name, _, _, _ in pipeline.steps(19, **mode)]
+        assert names.index("media") < names.index("repository") < names.index("billstatus") < names.index("pipeline")
+        assert names[-1] == "pipeline"
+        assert names[names.index("billstatus") + 1:-1] == REDERIVED   # nothing else between billstatus and the chain
+    # Without media the order is unchanged.
+    assert [name for name, _, _, _ in pipeline.steps(19)] == [
+        "calibration", "roster", "discovery", "admissions", "votes", "repository", "billstatus", "pipeline"]
+
+
+REDERIVE_ENV = "CONGRESS_REDERIVE"
+
+
+@pytest.mark.parametrize("value", [None, "", "1"])
+def test_congress_rederive_is_on_by_default(monkeypatch, value):
+    if value is not None:
+        monkeypatch.setenv(REDERIVE_ENV, value)
+    for mode in ({"include_media": True}, {"smoke": True}):
+        names = [name for name, _, _, _ in pipeline.steps(19, **mode)]
+        assert names[names.index("billstatus") + 1:-1] == REDERIVED
+
+
+def test_congress_rederive_zero_is_the_revert_switch_and_skips_exactly_the_four_steps(monkeypatch):
+    monkeypatch.setenv(REDERIVE_ENV, "0")
+    for mode in ({"include_media": True}, {"smoke": True}):
+        names = [name for name, _, _, _ in pipeline.steps(19, **mode)]
+        assert names == ["calibration", "roster", "discovery", "admissions", "votes", "media", "repository", "billstatus", "pipeline"]
+    # Without media there was never a re-derivation, so the dial changes nothing (and a bad value there is not its business).
+    assert [n for n, _, _, _ in pipeline.steps(19)] == [
+        "calibration", "roster", "discovery", "admissions", "votes", "repository", "billstatus", "pipeline"]
+    monkeypatch.setenv(REDERIVE_ENV, "off")
+    assert [n for n, _, _, _ in pipeline.steps(19)][-1] == "pipeline"
+
+
+@pytest.mark.parametrize("bad", ["off", "2", "true", "no"])
+def test_congress_rederive_rejects_any_other_value_and_the_run_fails_with_a_receipt(tmp_path, monkeypatch, bad):
+    monkeypatch.setenv(REDERIVE_ENV, bad)
+    with pytest.raises(ValueError, match=REDERIVE_ENV):
+        pipeline.steps(19, include_media=True)
+    write_json(tmp_path, "ranks_python.json", {"rank": {"Member A": 1}})
+    monkeypatch.setattr(pipeline.subprocess, "Popen", lambda *a, **k: pytest.fail("no step may start on a bad dial"))
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["status"] == "FAILED" and REDERIVE_ENV in status["error"]
+
+
+def _derived_by_name():
+    from datetime import date
+    from collect import daily_media_refresh as media
+    return media, {step.name: step for step in media.derived_steps(pipeline.ROOT, date(2026, 10, 20))}
+
+
+def test_rederived_steps_are_the_media_steps_own_definitions_not_a_second_list():
+    media, derived = _derived_by_name()
+    for mode in ({"include_media": True}, {"smoke": True}):
+        selected = {name: (script, args, timeout) for name, script, args, timeout in pipeline.steps(19, **mode)}
+        assert [name.removeprefix("rederive_") for name in REDERIVED] == [
+            step.name for step in derived.values() if step.name in media.REPOSITORY_BOUND_DERIVED]   # same order as derived_steps()
+        for name in REDERIVED:
+            step = derived[name.removeprefix("rederive_")]
+            assert selected[name] == (step.script, list(step.args), step.timeout)
+
+
+def test_repository_bound_derived_set_covers_every_reader_of_the_repository_and_their_consumers():
+    # behavior_panel and behavioral_dispositions read bill_repository_live.json (member_identity.load_billstatus); big5_lexcal and
+    # big5_hybrid read behavioral_dispositions.json. A derived producer added later that does either must join the set, or the
+    # one-run rank lag returns for it.
+    media, derived = _derived_by_name()
+    bound = set(media.REPOSITORY_BOUND_DERIVED)
+    assert bound <= set(derived)
+    for name, step in derived.items():
+        text = (media.CODE / step.script).read_text(encoding="utf-8", errors="replace")
+        reads_repository = "load_billstatus(" in text or "bill_repository_live" in text
+        reads_bound_output = any(Path(output).name in text for output in pipeline.REDERIVE_OUTPUTS)   # incl. big5_v2 / big5_v3_hybrid
+        if reads_repository or reads_bound_output:
+            assert name in bound, name
+
+
+def test_media_mode_runs_the_rederived_steps_between_billstatus_and_the_chain(tmp_path, monkeypatch):
+    write_json(tmp_path, "ranks_python.json", {"rank": {"Member A": 1}})
+    freeze_clocks(monkeypatch)
+    launched = []
+
+    def launch(command, **kwargs):
+        script = Path(command[1]).name
+        launched.append(script)
+        if script == "daily_media_refresh.py":
+            media_receipt(tmp_path)
+        elif script == "run_pipeline.py":
+            install_generation(tmp_path)
+        return CompletedProcess()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    assert pipeline.run(tmp_path, include_media=True) == 0
+    assert launched[launched.index("update_bill_repository.py"):] == [
+        "update_bill_repository.py", "refresh_billstatus_bulk.py", "behavior_panel.py", "behavioral_dispositions.py",
+        "big5_lexcal_v2.py", "big5_hybrid.py", "run_pipeline.py"]
+    rows = [row["step"] for row in pipeline.read(tmp_path / pipeline.RECEIPT)["steps"]]
+    assert rows[rows.index("billstatus") + 1:] == [*REDERIVED, "pipeline"]
+
+
+REDERIVE_SCRIPT_OUTPUT = {"behavior_panel.py": "behavior_panel.json",
+                          "behavioral_dispositions.py": "behavioral_dispositions.json",
+                          "big5_lexcal_v2.py": "data/members/big5_v2.json",
+                          "big5_hybrid.py": "data/members/big5_v3_hybrid.json"}
+
+
+def test_the_rederive_outputs_are_what_the_four_scripts_write():
+    # Renaming an output in a script without this constant would leave a failed run restoring the wrong files.
+    media, derived = _derived_by_name()
+    assert set(pipeline.REDERIVE_OUTPUTS) == set(REDERIVE_SCRIPT_OUTPUT.values())
+    by_script = {Path(step.script).name: step.script for step in derived.values()}
+    for script, output in REDERIVE_SCRIPT_OUTPUT.items():
+        assert Path(output).name in (media.CODE / by_script[script]).read_text(encoding="utf-8"), (script, output)
+
+
+def _rederive_world(tmp_path, monkeypatch, fail_script=None, rebind_in=None):
+    """A bound before-image repository, derived outputs the media step 'made', and a fake Popen that rewrites every output
+    a rederive script owns. Returns (before_repo_receipt_bytes, media_derived_bytes, launched)."""
+    from datetime import datetime, timezone
+    (tmp_path / "bill_repository_live.json").write_bytes(b'{"bills": {}, "generation": "before"}\n')
+    write_json(tmp_path, REPOSITORY_RECEIPT, {"schema": "congress-bill-refresh-receipt-v1", "gen": "before"})
+    write_json(tmp_path, pipeline.MEMBERSHIP_SIDECAR, {
+        "schema": "official-membership-movements-v1", "status": "PASS",
+        "checked_at": datetime.now(timezone.utc).isoformat(), "facts": [], "additions": [],
+        "repository_sha256": pipeline.digest(tmp_path / "bill_repository_live.json")})
+    original = {rel: (tmp_path / rel).read_bytes() for rel in pipeline.ROLLBACK_SOURCES}
+    freeze_clocks(monkeypatch)
+    media_made = {}
+    launched = []
+
+    def launch(command, **kwargs):
+        script = Path(command[1]).name
+        launched.append(script)
+        if script == "daily_media_refresh.py":
+            media_receipt(tmp_path)
+            for output in pipeline.REDERIVE_OUTPUTS:        # what the media step's own derived run left behind
+                target = tmp_path / output
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"media-derived " + output.encode())
+                media_made[output] = target.read_bytes()
+        elif script == "update_bill_repository.py":
+            (tmp_path / "bill_repository_live.json").write_bytes(b'{"bills": {}, "generation": "fetched"}\n')
+            write_json(tmp_path, REPOSITORY_RECEIPT, {"gen": "fetched"})
+        elif script in REDERIVE_SCRIPT_OUTPUT:
+            (tmp_path / REDERIVE_SCRIPT_OUTPUT[script]).write_bytes(b"rederived by " + script.encode())
+            if script == fail_script:
+                return CompletedProcess(1)
+        elif script == "run_pipeline.py" and rebind_in:
+            # the chain's verify_collector_roster_updates rebinds the sidecar to the fetched repository, then a later step fails
+            bind_membership(tmp_path, pipeline.digest(tmp_path / "bill_repository_live.json"))
+            return CompletedProcess(1)
+        return CompletedProcess()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    return original, media_made, launched
+
+
+def test_a_failed_rederive_step_fails_the_run_and_restores_the_repository_and_the_derived_outputs(tmp_path, monkeypatch):
+    original, media_made, launched = _rederive_world(tmp_path, monkeypatch, fail_script="big5_hybrid.py")
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["status"] == "FAILED" and "rederive_big5_hybrid failed with exit 1" in status["error"]
+    assert "run_pipeline.py" not in launched                       # stop on first failure
+    assert status["rollback"] == "restored"
+    for rel, data in original.items():
+        assert (tmp_path / rel).read_bytes() == data, rel          # the repository and its receipt, byte for byte
+    for rel, data in media_made.items():                           # three scripts had already rewritten theirs
+        assert (tmp_path / rel).read_bytes() == data, rel
+    assert sorted(status["rollback_rederived"]) == sorted(pipeline.REDERIVE_OUTPUTS)
+
+
+def test_the_derived_before_image_is_taken_only_when_the_rederive_steps_start(tmp_path, monkeypatch):
+    original, media_made, launched = _rederive_world(tmp_path, monkeypatch)
+    # fail the repository step itself: the rederive steps never start, so nothing of theirs is imaged or restored
+    real = pipeline.subprocess.Popen
+
+    def launch(command, **kwargs):
+        if Path(command[1]).name == "update_bill_repository.py":
+            return CompletedProcess(1)
+        return real(command, **kwargs)
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert media_made and "repository failed with exit 1" in status["error"]      # it failed before any rederive step started
+    assert not (Path(status["run_dir"]) / "before" / "behavior_panel.json").exists()
+    assert "rollback_rederived" not in status
+    for rel, data in media_made.items():
+        assert (tmp_path / rel).read_bytes() == data, rel
+
+
+def test_a_failure_after_the_rederive_steps_also_restores_the_derived_outputs_with_the_repository(tmp_path, monkeypatch):
+    original, media_made, launched = _rederive_world(tmp_path, monkeypatch)
+    real = pipeline.subprocess.Popen
+
+    def launch(command, **kwargs):
+        if Path(command[1]).name == "run_pipeline.py":
+            return CompletedProcess(1)                              # the chain dies before it rebinds the sidecar
+        return real(command, **kwargs)
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["rollback"] == "restored"
+    for rel, data in original.items():
+        assert (tmp_path / rel).read_bytes() == data, rel
+    for rel, data in media_made.items():                           # all four had been rederived from the fetched repository
+        assert (tmp_path / rel).read_bytes() == data, rel
+
+
+def test_when_the_repository_is_not_rolled_back_the_derived_outputs_are_left_alone(tmp_path, monkeypatch):
+    # The chain rebound the sidecar to the fetched repository and then failed: the repository stays, so do the derivations
+    # built from it. Restoring them alone would pair old derivations with the new repository.
+    original, media_made, launched = _rederive_world(tmp_path, monkeypatch, rebind_in=True)
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    status = pipeline.read(tmp_path / pipeline.STATUS)
+    assert status["rollback"] == "verified" and "rollback_rederived" not in status
+    for script, output in REDERIVE_SCRIPT_OUTPUT.items():
+        assert (tmp_path / output).read_bytes() == b"rederived by " + script.encode()
+
+
+def bind_membership(root, bound_sha):
+    from datetime import datetime, timezone
+    write_json(root, pipeline.MEMBERSHIP_SIDECAR, {
+        "schema": "official-membership-movements-v1", "status": "PASS",
+        "checked_at": datetime.now(timezone.utc).isoformat(), "facts": [], "additions": [],
+        "repository_sha256": bound_sha})
+
+
+def test_w1_a_restore_that_raises_part_way_is_restore_failed_not_verified(tmp_path, monkeypatch):
+    # Opus pre-merge review: a OneDrive or antivirus lock on replace left the label "verified" over a half-restored pair.
+    before = b'{"bills": {}, "generation": "before"}\n'
+    (tmp_path / "bill_repository_live.json").write_bytes(b'{"bills": {}, "generation": "fetched"}\n')
+    bind_membership(tmp_path, __import__("hashlib").sha256(before).hexdigest())
+    run_dir = tmp_path / "run"
+    (run_dir / "before").mkdir(parents=True)
+    (run_dir / "before" / "bill_repository_live.json").write_bytes(before)
+
+    def locked(*args, **kwargs):
+        raise PermissionError("locked by another process")
+
+    monkeypatch.setattr(pipeline, "replace_atomic", locked)
+    result = pipeline.rollback_unbound_repository(tmp_path, run_dir)
+    assert result["rollback"] == "restore_failed"
+    assert result["rollback_membership_load"].startswith("PermissionError")
+
+
+def test_w1_media_nonzero_exit_leaves_the_repository_untouched(tmp_path, monkeypatch):
+    # 2026-10-16 hard death and 2026-10-19 sign-out kill (exit 0x40010004) both landed in media after the
+    # repository had been fetched. A media child that exits nonzero must now stop the run before the
+    # repository step launches. Death of the wrapper process itself is out of scope here (no Python runs).
+    (tmp_path / "bill_repository_live.json").write_bytes(b'{"bills": {}, "generation": "before"}\n')
+    write_json(tmp_path, REPOSITORY_RECEIPT, {"schema": "congress-bill-refresh-receipt-v1", "gen": "before"})
+    bind_membership(tmp_path, pipeline.digest(tmp_path / "bill_repository_live.json"))
+    original = {rel: (tmp_path / rel).read_bytes() for rel in pipeline.ROLLBACK_SOURCES}
+    seen = []
+
+    def launch(command, **kwargs):
+        script = Path(command[1]).name
+        seen.append(script)
+        if script == "daily_media_refresh.py":
+            return CompletedProcess(1073807364)
+        if script == "update_bill_repository.py":
+            (tmp_path / "bill_repository_live.json").write_bytes(b'{"bills": {}, "generation": "fetched"}\n')
+        return CompletedProcess()
+
+    monkeypatch.setattr(pipeline.subprocess, "Popen", launch)
+    assert pipeline.run(tmp_path, include_media=True) == 1
+    assert seen[-1] == "daily_media_refresh.py"
+    assert not {"update_bill_repository.py", "refresh_billstatus_bulk.py", "run_pipeline.py"} & set(seen)
+    for rel, data in original.items():
+        assert (tmp_path / rel).read_bytes() == data, rel
+    receipt = pipeline.read(tmp_path / pipeline.STATUS)
+    assert receipt["status"] == "FAILED" and "exit 1073807364" in receipt["error"]
+    # pipeline-health labels: the sidecar is bound to the untouched live repository, so nothing is restored.
+    assert receipt["rollback"] == "verified" and receipt["rollback_membership_load"] == "PASS"
 
 
 # --- Status writes are telemetry: a denied rename must not cost a run ---------

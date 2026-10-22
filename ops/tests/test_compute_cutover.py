@@ -18,10 +18,12 @@ sys.path.insert(0, str(REPO / "ops" / "compute"))
 sys.path.insert(0, str(REPO / "fec"))
 import cutover  # noqa: E402
 import compute_engine as CE  # noqa: E402
+import roster  # noqa: E402
 import xl_equivalence as X  # noqa: E402
 from ops.tests import test_chain_parity as tcp  # noqa: E402
 
 WINDOWS = {"chain": "windows", "collect": "windows", "office": "windows"}
+MEMBERS = 5                                    # the synthetic tree's roster size
 
 
 @pytest.fixture
@@ -32,6 +34,9 @@ def repo(tmp_path, monkeypatch):
     (root / "ops" / "compute").mkdir(parents=True)
     (root / "ops" / "compute" / "engines.json").write_bytes((json.dumps(WINDOWS, indent=2, sort_keys=True) + "\n").encode("utf-8"))
     (root / "fec" / "surfaces").mkdir(parents=True)
+    (root / "data" / "engine").mkdir(parents=True)
+    (root / "data" / "engine" / "roster.json").write_text(json.dumps(          # the rank check asks the tree's roster how many members
+        {"schema": roster.SCHEMA, "members": [{"member": f"M{i}", "bioguide": f"B{i}"} for i in range(MEMBERS)]}), encoding="utf-8")
     shutil.copyfile(REPO / "fec" / "surfaces" / "glassbox_emit.py", root / "fec" / "surfaces" / "glassbox_emit.py")
     monkeypatch.setattr(cutover, "REPO", root)
     monkeypatch.delenv(cutover.PARITY_DIR_ENV, raising=False)
@@ -75,7 +80,7 @@ def real_equivalence_report(tmp_path, equivalent=True) -> Path:
     return write(tmp_path / ("eq-good.json" if equivalent else "eq-bad.json"), json.dumps(report, sort_keys=True))
 
 
-RANKS = {"result": "PASS", "members": 533, "rank_exact": 533}
+RANKS = {"result": "PASS", "members": MEMBERS, "rank_exact": MEMBERS}
 REPLAY = {"result": "PASS"}
 
 
@@ -120,7 +125,7 @@ def test_a_collectors_replay_report_must_say_pass(repo, tmp_path, doc):
     assert config(repo) == WINDOWS
 
 
-def test_office_needs_both_the_equivalence_report_and_the_533_rank_check(repo, tmp_path):
+def test_office_needs_both_the_equivalence_report_and_the_roster_rank_check(repo, tmp_path):
     good_eq, good_rank = real_equivalence_report(tmp_path), write(tmp_path / "ranks.json", RANKS)
     with pytest.raises(cutover.Refused, match="rank_check .*does not exist"):
         cutover.set_engine("office", "container", evidence={"equivalence": str(good_eq), "rank_check": str(tmp_path / "none.json")}, emit=Events())
@@ -132,12 +137,20 @@ def test_office_needs_both_the_equivalence_report_and_the_533_rank_check(repo, t
     assert config(repo) == WINDOWS
 
 
-@pytest.mark.parametrize("doc", [{**RANKS, "rank_exact": 532}, {**RANKS, "members": 532, "rank_exact": 532}, {**RANKS, "result": "FAIL"},
+@pytest.mark.parametrize("doc", [{**RANKS, "rank_exact": MEMBERS - 1}, {**RANKS, "members": MEMBERS - 1, "rank_exact": MEMBERS - 1}, {**RANKS, "result": "FAIL"},
                                  {"result": "PASS"}])
-def test_the_rank_check_must_be_pass_with_all_533_exact(repo, tmp_path, doc):
-    with pytest.raises(cutover.Refused, match="need PASS with 533/533"):
+def test_the_rank_check_must_be_pass_with_all_roster_members_exact(repo, tmp_path, doc):
+    with pytest.raises(cutover.Refused, match=f"need PASS with {MEMBERS}/{MEMBERS}"):
         cutover.set_engine("office", "container", emit=Events(),
                            evidence={"equivalence": str(real_equivalence_report(tmp_path)), "rank_check": str(write(tmp_path / "ranks.json", doc))})
+
+
+def test_a_missing_roster_refuses_the_rank_check_instead_of_guessing_a_size(repo, tmp_path):
+    (repo / "data" / "engine" / "roster.json").unlink()
+    with pytest.raises(cutover.Refused, match="cannot read the roster size"):
+        cutover.set_engine("office", "container", emit=Events(),
+                           evidence={"equivalence": str(real_equivalence_report(tmp_path)), "rank_check": str(write(tmp_path / "ranks.json", RANKS))})
+    assert config(repo) == WINDOWS
 
 
 def test_an_equivalence_that_compared_nothing_is_refused(repo, tmp_path):

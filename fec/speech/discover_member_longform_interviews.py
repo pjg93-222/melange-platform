@@ -210,11 +210,19 @@ def main() -> int:
             if number % 50 == 0 or number == len(members):
                 print(f"searched {number}/{len(members)}", flush=True)
 
-    refreshed_members = set(members)
+    # A failed retry must not erase a member's prior good search; record the failure beside it.
+    failed_retries = {
+        name for name in members
+        if discovered[name][2] and (prior_coverage.get(name) or {}).get("search_status") == "SEARCHED"
+    }
+    refreshed_members = set(members) - failed_retries
     rows = [row for row in prior_rows if row.get("member") not in refreshed_members]
     coverage_members = dict(prior_coverage)
     for member in members:
         query, results, error = discovered[member]
+        if member in failed_retries:
+            coverage_members[member] = {**prior_coverage[member], "last_refresh_error": error}
+            continue
         candidates = []
         seen_urls = set()
         for result in results:

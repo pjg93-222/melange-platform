@@ -38,6 +38,14 @@ A timeout is a FAILURE WITH ITS OWN NAME, never a skip.  The result carries retu
 also appended to stderr, so every consumer that already prints a stderr tail says TIMED OUT
 without being changed, and no timeout can pass for a refusal some caller expects.
 
+A caller that passes ``log_path`` keeps the child's output.  The streams are otherwise gone
+once the verdict is read, and the unattended callers print only a 300-character stderr tail:
+on 2026-10-18 a step killed at its 3,600 s bound and a step whose R child exited 1 were both
+undiagnosable because nothing but that tail survived.  The log is written on every exit --
+success, failure, the timeout kill, an interrupt -- from the same temp files the verdict is read
+from.  A child's own stdout buffer dies with it, so a killed child shows only what it had
+flushed; the weekly refresh sets PYTHONUNBUFFERED for its children for exactly that reason.
+
 Import-safe (no I/O, no subprocess, no environment read at import) and stdlib-only, so the
 chain runner can import it before anything else exists.  No environment dial: the repo
 catalogues every ``os.environ`` dial and this module adds none -- both bounds are module
@@ -64,6 +72,8 @@ KILL_WAIT_SECONDS = 30
 # The note quotes the arguments, not the interpreter path, and stays short enough to sit in
 # a printed step line and a Glass Box summary.
 NOTE_ARGV_CHARS = 300
+# Per stream, per persisted log.  The TAIL is kept: a failing or hung child explains itself last.
+LOG_KEEP_BYTES = 2 * 1024 * 1024
 
 
 class BoundedResult(object):
@@ -72,9 +82,12 @@ class BoundedResult(object):
     ``stdout``/``stderr`` are str, exactly what
     ``capture_output=True, text=True, encoding='utf-8', errors='replace'`` produced.
     ``timeout_note`` is '' unless the child was killed for overrunning ``timeout``.
+    ``log_path`` is the persisted log (see run_bounded), or None when none was asked for or it
+    could not be written.
     """
 
-    def __init__(self, returncode, stdout, stderr, timed_out, pid, seconds, timeout_note):
+    def __init__(self, returncode, stdout, stderr, timed_out, pid, seconds, timeout_note,
+                 log_path=None):
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
@@ -82,6 +95,7 @@ class BoundedResult(object):
         self.pid = pid
         self.seconds = seconds
         self.timeout_note = timeout_note
+        self.log_path = log_path
 
     def __repr__(self):
         return ('BoundedResult(returncode=%r, timed_out=%r, pid=%r, seconds=%.3f)'
@@ -93,6 +107,31 @@ def _universal_text(raw):
     newlines.  A producer that prints an undecodable byte must not raise here -- it did not
     raise before, and a decoding error in the reporting path would hide the real failure."""
     return raw.decode('utf-8', 'replace').replace('\r\n', '\n').replace('\r', '\n')
+
+
+def _persist_log(path, argv, status, out_file, err_file):
+    """Copy both streams, tail-capped at LOG_KEEP_BYTES each, into ``path``; return ``path``.
+
+    Best effort, returns None on ANY exception: a full disk or a locked folder must never turn the
+    child's verdict into an exception (on the interrupt path it would also replace the
+    KeyboardInterrupt in flight), and the caller must not name a file that is not there.
+    Raw bytes, not decoded text -- the log is the evidence, so it carries what the child wrote.
+    """
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        with open(path, 'wb') as log:
+            log.write(('# argv: %s\n# status: %s\n' % (' '.join(str(part) for part in argv), status))
+                      .encode('utf-8', 'replace'))
+            for name, stream in (('stdout', out_file), ('stderr', err_file)):
+                size = stream.seek(0, os.SEEK_END)
+                kept = min(size, LOG_KEEP_BYTES)
+                stream.seek(size - kept)
+                log.write(('\n===== %s (%s of %d bytes) =====\n'
+                           % (name, 'all' if kept == size else 'last %d' % kept, size)).encode('ascii'))
+                log.write(stream.read())
+    except Exception:
+        return None
+    return path
 
 
 def kill_tree(process, own_group=False):
@@ -141,7 +180,7 @@ def kill_tree(process, own_group=False):
 
 
 def run_bounded(argv, timeout, env=None, cwd=None, creationflags=0, start_new_session=False,
-                on_start=None):
+                on_start=None, log_path=None):
     """Run ``argv`` to completion, or kill its process tree after ``timeout`` seconds.
 
     Returns a BoundedResult.  ``stdin`` is deliberately not passed, so the child inherits it
@@ -168,6 +207,12 @@ def run_bounded(argv, timeout, env=None, cwd=None, creationflags=0, start_new_se
     guard.  Adopting it any later would leave a window in which an abort finds no tree to kill.
     Because it is inside the guard, an on_start that raises takes the interrupt path: the tree
     dies first, then the exception propagates.
+
+    ``log_path``, when given, receives a log of the child's argv, its outcome and both streams
+    (tail-capped, see _persist_log) on EVERY way out of the wait: normal exit, the timeout kill
+    and the interrupt kill.  It changes nothing else: the result, the stderr text and the
+    exceptions are the same with or without it, and a log that cannot be written leaves
+    ``BoundedResult.log_path`` None instead of raising.
     """
     if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
             or not 0 < timeout < float('inf')):
@@ -211,16 +256,22 @@ def run_bounded(argv, timeout, env=None, cwd=None, creationflags=0, start_new_se
                 process.wait(timeout=KILL_WAIT_SECONDS)
             except (OSError, subprocess.TimeoutExpired):
                 pass
+            if log_path:
+                _persist_log(log_path, argv, 'INTERRUPTED; process tree killed (pid %d)' % process.pid,
+                             out_file, err_file)
             raise
+        timeout_note = ''
+        if timed_out:
+            timeout_note = ('TIMED OUT after %s s; process tree killed (pid %d): %s'
+                            % (timeout, process.pid,
+                               ' '.join(str(part) for part in argv[1:])[:NOTE_ARGV_CHARS]))
+        saved = (_persist_log(log_path, argv, timeout_note or 'exit %d' % returncode, out_file, err_file)
+                 if log_path else None)
         out_file.seek(0)
         err_file.seek(0)
         stdout = _universal_text(out_file.read())
         stderr = _universal_text(err_file.read())
-    timeout_note = ''
     if timed_out:
-        timeout_note = ('TIMED OUT after %s s; process tree killed (pid %d): %s'
-                        % (timeout, process.pid,
-                           ' '.join(str(part) for part in argv[1:])[:NOTE_ARGV_CHARS]))
         stderr += '\n' + timeout_note
     return BoundedResult(returncode, stdout, stderr, timed_out, process.pid,
-                         time.monotonic() - started, timeout_note)
+                         time.monotonic() - started, timeout_note, saved)

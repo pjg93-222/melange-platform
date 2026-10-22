@@ -48,7 +48,7 @@ function showStatus(message) { $('error').classList.remove('error'); $('error').
    route. In memory only: nothing here reaches storage, and nothing reaches the
    URL, which goes on carrying the scope and nothing else. */
 const TAB_NAMES = {loading:'Loading', collection:'Collection', graph:'Graph',
-  'chart-studio':'Chart Studio', insights:'Insights', 'cross-reference':'Cross-reference', evidence:'PAC evidence'};
+  'chart-studio':'Chart Studio', insights:'Insights', 'cross-reference':'Cross-reference', evidence:'PAC evidence', 'public-data':'Public data'};
 const MentatReturn = (() => {
   let from = '', to = '';
   function render(view) {
@@ -75,9 +75,9 @@ function showView(view, focus = false) {
   if (view === 'charts') view = 'graph';
   // A completed action belongs to its tab; it must not label an unrelated view.
   if (view !== currentView && !$('error').classList.contains('error')) $('error').hidden = true;
-  currentView = ['loading', 'collection', 'cross-reference', 'evidence', 'graph', 'chart-studio', 'insights'].includes(view) ? view : 'loading';
+  currentView = ['loading', 'collection', 'cross-reference', 'evidence', 'graph', 'chart-studio', 'insights', 'public-data'].includes(view) ? view : 'loading';
   document.body.dataset.view = currentView;
-  for (const name of ['loading', 'collection', 'cross-reference', 'evidence', 'graph', 'chart-studio', 'insights']) {
+  for (const name of ['loading', 'collection', 'cross-reference', 'evidence', 'graph', 'chart-studio', 'insights', 'public-data']) {
     const active = name === currentView;
     const pane = $('view-' + name), paired = splitView && ['graph','evidence'].includes(currentView) && ['graph','evidence'].includes(name);
     pane.hidden = !(active || paired);
@@ -85,7 +85,7 @@ function showView(view, focus = false) {
     $('tab-' + name).setAttribute('aria-selected', String(active));
     $('tab-' + name).tabIndex = active ? 0 : -1;
   }
-  $('workspace-title').textContent = {loading:'Load a sector',collection:'Collection','cross-reference':'Cross-reference',evidence:'PAC evidence',graph:'Graph','chart-studio':'Chart Studio',insights:'Insights'}[currentView];
+  $('workspace-title').textContent = {loading:'Load a sector',collection:'Collection','cross-reference':'Cross-reference',evidence:'PAC evidence',graph:'Graph','chart-studio':'Chart Studio',insights:'Insights','public-data':'Public data'}[currentView];
   // The tab is named in the window title too, so a second console window is
   // identifiable from the taskbar rather than being a second "Mentat".
   document.title = 'MENTAT \u00b7 ' + (TAB_NAMES[currentView] || 'Console');

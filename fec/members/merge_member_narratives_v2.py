@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from fec import roster
 from fec.members.revise_member_narratives_v2 import (
     ARTIFACT_PATH,
     AUDIT_PATH,
@@ -73,11 +74,11 @@ def main() -> int:
     revisions = revisions_doc.get("members") or {}
     evidence = evidence_doc.get("members") or {}
 
-    if len(artifact) != 533 or set(artifact) != set(evidence) or set(artifact) != set(audit):
-        raise SystemExit("artifact, evidence, and semantic-audit member keys must match all 533 members")
+    if len(artifact) != roster.count() or set(artifact) != set(evidence) or set(artifact) != set(audit):
+        raise SystemExit("artifact, evidence, and semantic-audit member keys must match all %d members" % roster.count())
     if artifact_doc.get("basis_sha256") != evidence_doc.get("basis_sha256"):
         raise SystemExit("artifact/evidence basis hash mismatch")
-    if audit_doc.get("count") != 533:
+    if audit_doc.get("count") != roster.count():
         raise SystemExit("full-corpus semantic audit is incomplete")
 
     # The 268 figure describes the pre-repair artifact that the 2026-09-01 semantic repair
@@ -94,7 +95,7 @@ def main() -> int:
     missing = sorted(name for name in required if not (revisions.get(name) or {}).get("ok"))
     extras = sorted(set(revisions) - required)
     if missing or extras:
-        if revisions_doc.get("count") == 533:
+        if revisions_doc.get("count") == roster.count():
             raise SystemExit(
                 "revisions.json has already been sanitized to the full corpus; merge must run "
                 "before sanitize (revise -> merge -> sanitize -> condense)")
@@ -152,7 +153,7 @@ def main() -> int:
         "semantic_repair": {
             "completed_utc": now,
             "audit_model": audit_doc.get("model"),
-            "full_corpus_audited": 533,
+            "full_corpus_audited": roster.count(),
             "original_pass_count": audit_doc.get("pass_count"),
             "original_fail_count": audit_doc.get("fail_count"),
             "known_cross_party_rewrite_count": len(known_targets),
@@ -170,7 +171,7 @@ def main() -> int:
                 "as proof of emotion, motive, gender, dishonesty, or a causal trigger"
             ),
         },
-        "validation": "All 533 briefs have a per-member semantic pass receipt. Rewritten briefs also passed deterministic structure, missing-measure, scope, and banned-inference gates.",
+        "validation": "All %d briefs have a per-member semantic pass receipt. Rewritten briefs also passed deterministic structure, missing-measure, scope, and banned-inference gates." % roster.count(),
         "known_limitations": [
             "Briefs summarize measured public/professional evidence and do not establish private motives, diagnoses, or behavior outside the stated source scopes.",
             "An API semantic reviewer reduces but cannot mathematically eliminate interpretation error; deterministic source-binding and missing-measure gates remain authoritative.",
@@ -180,8 +181,8 @@ def main() -> int:
         "schema": "member-narratives-v2-api",
         "status": "ACTIVE_API_GENERATED_USER_RATIFIED",
         "basis_sha256": evidence_doc["basis_sha256"],
-        "count": 533,
-        "ok_count": 533,
+        "count": roster.count(),
+        "ok_count": roster.count(),
         "provenance": provenance,
         "members": merged,
     }
@@ -194,9 +195,9 @@ def main() -> int:
         "basis_sha256": evidence_doc["basis_sha256"],
         "evidence_sha256": evidence_sha,
         "candidate_sha256": candidate_sha,
-        "counts": {"members": 533, "known_cross_party_rewritten": len(known_targets),
+        "counts": {"members": roster.count(), "known_cross_party_rewritten": len(known_targets),
                    "additional_semantic_rewritten": len(required - known_targets),
-                   "total_rewritten": len(required), "semantic_pass": 533},
+                   "total_rewritten": len(required), "semantic_pass": roster.count()},
         "members": receipt_members,
     }
     dump_atomic(receipt, args.receipt)

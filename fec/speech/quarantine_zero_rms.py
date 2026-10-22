@@ -31,6 +31,8 @@ def main(argv=None) -> int:
     args = parse_args(argv)
     rows = []
     for number, line in enumerate(args.manifest.read_text(encoding="utf-8").splitlines(), 1):
+        if not line.strip():
+            continue
         try:
             rows.append(json.loads(line))
         except ValueError as exc:
@@ -81,14 +83,27 @@ def main(argv=None) -> int:
         raise RuntimeError("refusing to replace existing backup: %s" % backup)
     shutil.copy2(args.manifest, backup)
 
-    for source, target in moves:
-        os.replace(source, target)
-
     temp = args.manifest.with_name(args.manifest.name + ".part")
-    with temp.open("w", encoding="utf-8", newline="\n") as handle:
-        for row in kept:
-            handle.write(json.dumps(row, ensure_ascii=True, sort_keys=True) + "\n")
-    os.replace(temp, args.manifest)
+    completed = []
+    try:
+        for source, target in moves:
+            os.replace(source, target)
+            completed.append((source, target))
+        with temp.open("w", encoding="utf-8", newline="\n") as handle:
+            for row in kept:
+                handle.write(json.dumps(row, ensure_ascii=True, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, args.manifest)
+    except Exception:
+        for source, target in reversed(completed):
+            if target.exists() and not source.exists():
+                os.replace(target, source)
+        shutil.copy2(backup, args.manifest)
+        if temp.exists():
+            temp.unlink()
+        backup.unlink()  # identical to the restored manifest; lets a re-run proceed
+        raise
     print(
         "QUARANTINED zero_rms=%d kept=%d backup=%s quarantine=%s"
         % (len(rejected), len(kept), backup, args.quarantine)

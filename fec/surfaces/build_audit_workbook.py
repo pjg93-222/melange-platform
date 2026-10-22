@@ -39,10 +39,11 @@ import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import roster  # noqa: E402
 from paths import ROOT, WORKBOOK as SOURCE_WORKBOOK  # noqa: E402  (SOURCE, not the audit output)
 
 HANDOFF_SCHEMA = "moneyball-workbook-audit-inputs-v1"
-LEGISLATIVE_ROWS = 535
+LEGISLATIVE_ROWS = roster.last_row("Legislative Score - Raw")  # 2 header rows + one row per roster member
 LEGISLATIVE_COLUMNS = 160
 EMDASH = "—"  # U+2014, matches the stance-matrix no-position glyph exactly
 OUT_DIR = os.path.join(ROOT, "outputs", "workbook_repair")
@@ -99,6 +100,8 @@ def build(handoff, category, ranks, out_path):
     title_fill = PatternFill("solid", fgColor="1F4E78")
     header_fill = PatternFill("solid", fgColor="D9EAF7")
     italic = Font(italic=True)
+    roster_n = roster.count()
+    note_row = roster_n + 4   # Category Stance / Legislative Agenda: members on rows 3.., one blank row, then the note
 
     def style_title(sheet, cell_range):
         for row in sheet[cell_range]:
@@ -192,7 +195,7 @@ def build(handoff, category, ranks, out_path):
         ra.cell(r, 14, ranks["formal_role_influence_office"].get(name))
         ra.cell(r, 15, ranks["formal_role_influence_eligibility"].get(name))
     ra.freeze_panes = "A5"
-    ra.auto_filter.ref = "A4:O537"
+    ra.auto_filter.ref = "A4:O%d" % (4 + roster_n)
     ra.column_dimensions["A"].width = 28
     for column in range(2, 14):
         ra.column_dimensions[openpyxl.utils.get_column_letter(column)].width = 16
@@ -218,12 +221,12 @@ def build(handoff, category, ranks, out_path):
         member = matrix.get(name) or {}
         for j, cat in enumerate(cats):
             cs.cell(r, 3 + j, member.get(cat, EMDASH))
-    cs.cell(537, 1, "Positive means aligned with the credit-union advocacy position. Defensive issue "
+    cs.cell(note_row, 1, "Positive means aligned with the credit-union advocacy position. Defensive issue "
                     "signs are normalized upstream; this sheet is generated, never hand-pasted.")
-    cs["A537"].font = italic
-    cs.merge_cells("A537:T537")
+    cs["A%d" % note_row].font = italic
+    cs.merge_cells("A%d:T%d" % ((note_row,) * 2))
     cs.freeze_panes = "C3"
-    cs.auto_filter.ref = "A2:T535"
+    cs.auto_filter.ref = "A2:T%d" % (2 + roster_n)
     cs.column_dimensions["A"].width = 28
     for column in range(2, 21):
         cs.column_dimensions[openpyxl.utils.get_column_letter(column)].width = 22
@@ -242,11 +245,11 @@ def build(handoff, category, ranks, out_path):
         la.cell(r, 1, row[0])
         la.cell(r, 2, row[1])
         la.cell(r, 3, row[2])
-    la.cell(537, 1, "Source workbook SHA-256: " + str(handoff["source_workbook_sha256"]))
-    la["A537"].font = italic
-    la.merge_cells("A537:C537")
+    la.cell(note_row, 1, "Source workbook SHA-256: " + str(handoff["source_workbook_sha256"]))
+    la["A%d" % note_row].font = italic
+    la.merge_cells("A%d:C%d" % ((note_row,) * 2))
     la.freeze_panes = "A3"
-    la.auto_filter.ref = "A2:C535"
+    la.auto_filter.ref = "A2:C%d" % (2 + roster_n)
     la.column_dimensions["A"].width = 28
     la.column_dimensions["B"].width = 24
     la.column_dimensions["C"].width = 24

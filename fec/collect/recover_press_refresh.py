@@ -236,6 +236,7 @@ def main():
                             'rejection':'unsupported_endpoint_confirmed_by_probe'})
                         continue
                     for attempt in range(2):
+                        response=None
                         try:
                             telemetry.event('fetching',row,route=route,request_url=target,attempt=attempt+1)
                             response=session.get(target,timeout=(7,18),stream=True)
@@ -273,6 +274,8 @@ def main():
                             item['attempts'].append({'route':route,'error':error})
                             telemetry.event('request_failed',row,route=route,error=error)
                             if not isinstance(e,requests.RequestException): break  # a parse/logic error will not heal on retry
+                        finally:
+                            if response is not None: response.close()  # stream=True: every exit (retry, reject, error) frees the connection
                     if item['status']=='recovered': break
                     time.sleep(.3)
                 # Out of time before the routes finished: resume must retry, not treat it as final.

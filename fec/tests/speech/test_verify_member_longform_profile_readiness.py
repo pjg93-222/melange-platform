@@ -124,3 +124,15 @@ def test_readiness_rejects_changed_receipt_input(tmp_path, monkeypatch):
     with pytest.raises(SystemExit, match="profile-readiness gate failed"):
         mod.main()
     assert "input hash mismatch" in " ".join(json.loads(out.read_text())["errors"])
+
+
+def test_automated_missing_transcript_is_row_error_not_crash(monkeypatch):
+    def boom(*args):
+        raise mod.SMR.RecoveryError("missing transcript")
+    monkeypatch.setattr(mod.auto, "check_metadata", lambda review: None)
+    monkeypatch.setattr(mod.materializer, "matching_turn", lambda candidate, row: (0, {}))
+    monkeypatch.setattr(mod.auto, "verify_boundaries", boom)
+    inputs = {"reviews": {"t1": {"reviewer_type": "AUTOMATED", "reviewer_name": "x", "reviewed_at": "z"}},
+              "candidates": {}, "continuity": {}, "selection": {}}
+    errors = mod.exact_review_errors({"turn_id": "t1", "member": "m", "source_id": "s"}, inputs)
+    assert "whole_turn_acoustic_coverage" in errors

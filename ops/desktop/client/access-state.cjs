@@ -2,7 +2,7 @@
 // Main process only. A renderer never supplies profile, kind or resource paths.
 const {spawn}=require('node:child_process');
 const {backendCommand,backendEnvironment}=require('./backend-command.cjs');
-const KINDS=new Set(['identity','trust','state','owner','activity','dataset-journal']);
+const KINDS=new Set(['identity','trust','state','owner','activity','dataset-journal','github-district-state']);
 const LIMIT=12*1024*1024;
 function protectedAccess({resources,appId,profile,action,kind,value}){
  if(!['read','write','describe'].includes(action)||action!=='describe'&&!KINDS.has(kind)||typeof profile!=='string')return Promise.reject(new Error('Invalid protected access operation'));

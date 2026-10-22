@@ -12,9 +12,12 @@ import unittest
 FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 
+import roster  # noqa: E402
 from legislation import build_accepted_legislation_workbook as AW  # noqa: E402
 from legislation import build_legislation_workbook_numeric_plan as NP  # noqa: E402
 from legislation import recompute_legislative_workbook as RW  # noqa: E402
+
+RAW_LAST = roster.last_row("Legislative Score - Raw")
 
 
 def write_json(path: Path, value: object) -> Path:
@@ -91,7 +94,7 @@ class Fixture:
                 "raw_row": index + 3,
                 "sublayer_row": index + 4,
             }
-            for index in range(533)
+            for index in range(roster.count())
         ]
         accepted = [
             accepted_row(
@@ -217,7 +220,7 @@ class Fixture:
                 "sublayer_category_columns": NP.CATEGORY_SUBLAYER_COLUMNS,
                 "members": members,
                 "sublayer_nonlegislative_values": {
-                    category: [0.0] * 533 for category in NP.CATEGORIES
+                    category: [0.0] * roster.count() for category in NP.CATEGORIES
                 },
                 "sublayer_legislative_weights": {
                     category: [
@@ -331,9 +334,9 @@ class Fixture:
                     "resolved_category_count": 18,
                     "source_metric": "generic_success_rate",
                     "raw_source_range":
-                        "Legislative Score - Raw!FB3:FB535",
+                        f"Legislative Score - Raw!FB3:FB{RAW_LAST}",
                     "normalized_source_range":
-                        "Legislative Score - Normalized!FB3:FB535",
+                        f"Legislative Score - Normalized!FB3:FB{RAW_LAST}",
                     "merge_target_category": None,
                     "merge_target_column": None,
                     "rank_effect_acknowledged": True,
@@ -466,7 +469,7 @@ class NumericPlanTests(unittest.TestCase):
                 RW.required_write_keys(),
             )
             cfpb = write_for(
-                plan, "Legislative Score - Raw", "CU3:DB535"
+                plan, "Legislative Score - Raw", f"CU3:DB{RAW_LAST}"
             )["values"]
             self.assertEqual(cfpb[0][:4], [0.33, 0.0, 0.0, 0.0])
             self.assertEqual(cfpb[1][:4], [0.0, 0.0, 0.66, 0.0])
@@ -486,10 +489,10 @@ class NumericPlanTests(unittest.TestCase):
             )
 
             tech = write_for(
-                plan, "Legislative Score - Raw", "AQ3:AX535"
+                plan, "Legislative Score - Raw", f"AQ3:AX{RAW_LAST}"
             )["values"]
             mbl = write_for(
-                plan, "Legislative Score - Raw", "DS3:DZ535"
+                plan, "Legislative Score - Raw", f"DS3:DZ{RAW_LAST}"
             )["values"]
             self.assertEqual(tech[2][5], 100.0)  # AV
             self.assertEqual(mbl[3][5], 100.0)  # DX

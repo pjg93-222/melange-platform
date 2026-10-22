@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 import uuid
@@ -14,6 +15,7 @@ import uuid
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from desktop_admin import Store, Refused
+import access_store
 from access_store import AccessStore
 
 
@@ -27,11 +29,11 @@ class AccessStoreTests(unittest.TestCase):
         self.store = AccessStore(self.publisher, clock=lambda: self.now)
         self.store.initialize()
 
-    def request(self, app='melange', device=None):
+    def request(self, app='melange', device=None, source='192.168.2.3'):
         value = dict(requestId=str(uuid.uuid4()), deviceId=device or str(uuid.uuid4()),
                      appId=app, platform='win32', arch='x64', displayName='Synthetic recipient',
                      requestSecret=secrets.token_urlsafe(32))
-        self.store.request(value, '192.168.2.3')
+        self.store.request(value, source)
         return value
 
     def approval(self, app='melange', device=None):
@@ -92,8 +94,122 @@ class AccessStoreTests(unittest.TestCase):
             self.store.request({**request, 'requestId': str(uuid.uuid4())}, '192.168.2.3')
         with self.assertRaises(Refused):
             self.store.request({**request, 'requestId': str(uuid.uuid4()), 'platform': 'darwin'}, '192.168.2.3')
-        for _ in range(9): self.request()
-        with self.assertRaises(Refused): self.request()
+
+    def test_no_per_source_quota_only_the_global_waiting_and_hourly_bounds(self):
+        for _ in range(100): self.request(source='192.168.2.3')  # Formerly 10/hour per source.
+        with self.assertRaises(Refused) as caught: self.request(source='10.0.0.9')
+        self.assertIn('capacity', str(caught.exception))  # 100 new requests/hour from everyone together.
+        self.now += 3601
+        with self.assertRaises(Refused): self.request()  # 100 still waiting for a decision.
+        with self.store.connect() as db:
+            waiting = [r[0] for r in db.execute("SELECT request_id FROM requests WHERE state='pending'")]
+        for request_id in waiting:
+            self.store.approve(request_id, 'local_user', [])
+        for _ in range(99): self.request()  # Approved people never count against either bound.
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM requests').fetchone()[0], 199)
+
+    def test_full_activity_table_prunes_the_oldest_rows_instead_of_refusing(self):
+        _request, response = self.activated()
+        def event(n):
+            return {'eventId': str(uuid.uuid4()), 'type': 'notes_updated', 'occurredAt': self.now, 'districtId': None,
+                    'status': 'succeeded', 'counts': {'items': n}}
+        sent = [event(n) for n in range(5)]
+        with patch('access_store.MAX_ACTIVITY_PER_DEVICE', 3):
+            self.store.events(response['accessToken'], {'events': sent[:2]})
+            self.store.events(response['accessToken'], {'events': sent[2:]})
+        with self.store.connect() as db:
+            kept = [r[0] for r in db.execute('SELECT event_id FROM activity ORDER BY rowid')]
+        self.assertEqual(kept, [e['eventId'] for e in sent[2:]])
+
+    def event(self, n=0):
+        return {'eventId': str(uuid.uuid4()), 'type': 'notes_updated', 'occurredAt': self.now, 'districtId': None,
+                'status': 'succeeded', 'counts': {'items': n}}
+
+    def test_one_device_filling_its_history_never_prunes_another_devices_rows(self):
+        _quiet, quiet = self.activated()
+        _busy, busy = self.activated()
+        kept = [self.event(), self.event()]
+        self.store.events(quiet['accessToken'], {'events': kept})
+        spam = [self.event(n) for n in range(10)]
+        with patch('access_store.MAX_ACTIVITY_PER_DEVICE', 3):
+            for start in range(0, 10, 2):
+                self.store.events(busy['accessToken'], {'events': spam[start:start+2]})
+        with self.store.connect() as db:
+            rows = [(r[0], r[1]) for r in db.execute('SELECT principal_id,event_id FROM activity ORDER BY rowid')]
+        quiet_principal, busy_principal = (self.payload(r['grant'])['principalId'] for r in (quiet, busy))
+        self.assertEqual([e for p, e in rows if p == quiet_principal], [e['eventId'] for e in kept])
+        self.assertEqual([e for p, e in rows if p == busy_principal], [e['eventId'] for e in spam[-3:]])
+
+    def seed_requests(self, db, rows):
+        db.executemany('INSERT INTO requests(request_id,app,device_id,platform,arch,display_name,secret_hash,source_hash,state,created,expires,receipt,receipt_expires) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                       [(str(uuid.uuid4()), 'melange', str(uuid.uuid4()), 'win32', 'x64', 'Seeded', 'x', 'x', state, created, created+86400, receipt, receipt_expires)
+                        for state, created, receipt, receipt_expires in rows])
+
+    def test_a_new_request_stays_fast_with_100k_rows_and_prunes_only_old_expired_rows(self):
+        granted, response = self.activated()
+        grant_request = self.payload(response['grant'])['requestId']
+        old, recent = self.now - 40*86400, self.now - 3600
+        with contextlib.closing(sqlite3.connect(self.store.db)) as db, db:
+            # A database deployed before these indexes existed: the first connect below must add them.
+            for index in ('requests_state_expires', 'requests_created', 'requests_receipt', 'notification_outbox_request'):
+                db.execute('DROP INDEX ' + index)
+            self.store = AccessStore(self.publisher, clock=lambda: self.now)
+            self.seed_requests(db, [('expired', old - n, None, None) for n in range(1000)]
+                                   + [('used', old - n, None, old) for n in range(89000)]
+                                   + [('used', old, b'stale receipt', old) for _ in range(500)]
+                                   + [('denied', old - n, None, None) for n in range(9000)]
+                                   + [('pending', recent, None, None) for _ in range(50)])
+            # An expired row that somehow backs a grant, and one whose notification is mid-delivery, are never deleted.
+            db.execute("UPDATE requests SET state='expired',created=?,expires=? WHERE request_id=?", (old, old+86400, grant_request))
+            in_flight = db.execute("SELECT request_id FROM requests WHERE state='expired' AND request_id!=? ORDER BY rowid LIMIT 1", (grant_request,)).fetchone()[0]
+            db.execute('INSERT INTO notification_outbox(id,request_id,kind,state,created) VALUES (?,?,?,?,?)', (str(uuid.uuid4()), in_flight, 'access_requested', 'sending', old))
+            db.execute("INSERT INTO notification_outbox(id,request_id,kind,state,created) SELECT request_id||'-n',request_id,'access_requested','not_required',created FROM requests WHERE state='expired' AND request_id NOT IN (?,?)", (in_flight, grant_request))
+        def count(where):
+            with self.store.connect() as db:
+                return db.execute('SELECT COUNT(*) FROM requests WHERE ' + where).fetchone()[0]
+        before = count("state='expired'")  # this first connect also adds the indexes to the existing table
+        with self.store.connect() as db:
+            self.assertEqual(len(db.execute("SELECT name FROM sqlite_master WHERE type='index' AND name IN ('requests_state_expires','requests_created','requests_receipt','notification_outbox_request')").fetchall()), 4)
+        started = time.perf_counter()
+        self.request()
+        elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 0.5)
+        self.assertEqual(count("state='expired'"), before - access_store.PRUNE_BATCH)
+        self.assertEqual(count('receipt IS NOT NULL'), 1)  # only the live grant's unexpired retry receipt
+        with patch('access_store.PRUNE_BATCH', 2000):
+            self.request()
+        self.assertEqual(count("state='expired'"), 2)  # the grant-backed and the mid-delivery rows
+        self.assertEqual(count("state='used'"), 89500)
+        self.assertEqual(count("state='denied'"), 9000)
+        self.assertEqual(count("state='pending'"), 52)
+        with self.store.connect() as db:
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM notification_outbox o WHERE NOT EXISTS (SELECT 1 FROM requests r WHERE r.request_id=o.request_id)').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM grants JOIN requests USING(request_id)').fetchone()[0], 1)
+        self.assertEqual(self.store.poll(granted['requestId'], granted['requestSecret'])['status'], 'expired')
+
+    def test_dashboard_lists_every_open_request_and_active_grant_however_many(self):
+        old = self.now - 3600
+        with contextlib.closing(sqlite3.connect(self.store.db)) as db, db:
+            self.seed_requests(db, [('pending', old, None, None) for _ in range(150)] + [('expired', self.now - n, None, None) for n in range(150)])
+            for n in range(1200):
+                request_id, device, principal = str(uuid.uuid4()), str(uuid.uuid4()), str(uuid.uuid4())
+                db.execute('INSERT INTO requests(request_id,app,device_id,platform,arch,display_name,secret_hash,source_hash,state,created,expires) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                           (request_id, 'melange', device, 'win32', 'x64', 'Seeded', 'x', 'x', 'used', n, n+86400))
+                db.execute('INSERT INTO principals VALUES (?,?,?,?,?)', ('melange', device, principal, 'recipient_' + uuid.UUID(principal).hex, 1))
+                # The 600 active grants are the oldest, so a newest-first cap alone would hide every one of them.
+                db.execute('INSERT INTO grants VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                           (str(uuid.uuid4()), request_id, principal, 'melange', device, 'win32', 'x64', 'recipient_' + uuid.UUID(principal).hex,
+                            'local_user', '[]', 1, 1, n, int(n >= 600), secrets.token_hex(32), '{}'))
+        snapshot = self.store.dashboard()
+        states = [r['state'] for r in snapshot['requests']]
+        self.assertEqual(states.count('pending'), 150)
+        self.assertEqual(len(states), 250)
+        active = [g for g in snapshot['grants'] if not g['revoked']]
+        self.assertEqual((len(active), len(snapshot['grants'])), (600, 1100))
+        oldest = min(active, key=lambda g: g['issued'])
+        self.store.revoke(oldest['grant_id'])  # what the dashboard's Revoke button sends
+        self.assertEqual(len([g for g in self.store.dashboard()['grants'] if not g['revoked']]), 599)
 
     def test_signed_revocation_sticky_status_and_token_privilege_separation(self):
         request, response = self.activated()

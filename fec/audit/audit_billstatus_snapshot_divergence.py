@@ -10,6 +10,12 @@ import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
+import sys
+
+FEC_BOOTSTRAP = Path(__file__).resolve().parents[1]
+if str(FEC_BOOTSTRAP) not in sys.path:
+    sys.path.insert(0, str(FEC_BOOTSTRAP))
+
 from legislation import stage_billstatus_bulk_enrichment as BILLSTATUS
 try:
     from lane_file_io import atomic_write_bytes, iter_ndjson_raw_lines

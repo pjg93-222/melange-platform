@@ -33,6 +33,7 @@ import subprocess
 import sys
 import types
 import unittest
+from unittest import mock
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 FEC = os.path.dirname(os.path.dirname(_HERE))
@@ -202,7 +203,7 @@ class DegradeTest(unittest.TestCase):
     # =========================================================================================
     def test_admissions_quota_is_a_failed_step_labelled_stale_and_never_respent(self):
         admissions = self.step(ADMISSIONS)
-        self.assertEqual(('--limit', '80', '--max-classifier-calls', '48'), admissions.tick_argv)
+        self.assertEqual(['--limit', '80', '--max-classifier-calls', '48'], R.render_argv(admissions.tick_argv))
         root = self.root({base.stub_key(admissions): {
             'always_fail': True, 'write_then_fail': True,     # it checkpointed before it stopped
             'stdout': 'CLASSIFIER_QUOTA_EXHAUSTED: spend limit reached\n'
@@ -1175,9 +1176,16 @@ class DegradeTest(unittest.TestCase):
                     and isinstance(node.targets[0], ast.Name)
                     and isinstance(node.value, ast.Constant)):
                 constants[node.targets[0].id] = node.value.value
-        self.assertEqual(('--limit', str(constants['ADMISSION_KEY_LIMIT']),
-                          '--max-classifier-calls', str(constants['ADMISSION_CALL_BUDGET'])),
-                         T.ADMISSION_TICK_ARGV)
+        budget_path = os.path.join(FEC, 'admission_budget.py')       # the one place the ruled 80 / 48 are written
+        with open(budget_path, encoding='utf-8') as handle:
+            ruled = {node.targets[0].id: node.value.value for node in ast.parse(handle.read()).body
+                     if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant)}
+        self.assertEqual((80, 48), (ruled['KEY_LIMIT'], ruled['CALL_BUDGET_DEFAULT']))
+        with mock.patch.dict(os.environ):
+            os.environ.pop('MELANGE_SENTINEL_CALL_BUDGET', None)
+            self.assertEqual(['--limit', str(ruled['KEY_LIMIT']),
+                              '--max-classifier-calls', str(ruled['CALL_BUDGET_DEFAULT'])],
+                             R.render_argv(T.ADMISSION_TICK_ARGV))   # the ruled default, rendered at launch from the daily runner
         # steps(): every (name, script, args, timeout) tuple, with the discovery IfExp unwrapped
         steps_def = next(node for node in ast.walk(tree)
                          if isinstance(node, ast.FunctionDef) and node.name == 'steps')
@@ -1250,6 +1258,13 @@ class DegradeTest(unittest.TestCase):
         broken = T.Step('y', ('y.py',), 10, T.DERIVE, tier='core')
         self.assertIn('only collect rows carry a tier', '; '.join(T.validate((broken,))))
 
+    def test_validate_accepts_only_single_element_admission_tokens_in_tick_argv(self):
+        good = T.Step('g', ('g.py',), 10, T.SOURCE, tier='core', tick_argv=T.ADMISSION_TICK_ARGV)
+        self.assertEqual([], T.validate((good,)))
+        for bad_argv in ((('admission_limit', 'extra'),), (('admission_limit', 5),), ((),), (('bogus',),), (['admission_limit'],), (5,)):
+            broken = T.Step('b', ('b.py',), 10, T.SOURCE, tier='core', tick_argv=bad_argv)
+            self.assertIn('tick_argv must be literal strings or admission tokens', '; '.join(T.validate((broken,))), bad_argv)
+
     def test_compute_is_always_the_full_chain_never_a_slice(self):
         """DE-016/043/051/055: the daily runner's ``run_pipeline.py --from ...`` slice is NOT lifted."""
         chain = self.step(R.CHAIN_STEP)
@@ -1278,6 +1293,55 @@ class DegradeTest(unittest.TestCase):
             R.bounded_subprocess.run_bounded = real
         self.assertEqual(['--limit', '80', '--max-classifier-calls', '48'], seen['argv'][2:])
         self.assertTrue(seen['argv'][1].endswith('refresh_sentinel_admissions.py'))
+
+    def test_the_tick_takes_its_admission_bound_from_the_daily_runner(self):
+        import admission_budget
+        from legislation import refresh_congress_pipeline as daily
+        self.assertEqual([], T.validate())                       # the tokens are legal in tick_argv
+        with mock.patch.dict(os.environ):
+            os.environ.pop('MELANGE_SENTINEL_CALL_BUDGET', None)
+            rendered = R.render_argv(T.ADMISSION_TICK_ARGV)
+            daily_argv = dict((name, args) for name, _, args, _ in daily.steps())['admissions']
+        self.assertEqual(['--limit', str(admission_budget.KEY_LIMIT), '--max-classifier-calls',
+                          str(admission_budget.CALL_BUDGET_DEFAULT)], rendered)
+        self.assertEqual(daily_argv, rendered)                   # the same two numbers, from the same module
+        self.assertEqual(['--limit', '80', '--max-classifier-calls', '48'], rendered)   # D-211 unchanged
+
+    def _launched_admissions_argv(self):
+        tick = self.tick_for(self.root())
+        seen = {}
+
+        def fake_run(argv, **kwargs):
+            seen['argv'] = list(argv)
+            return types.SimpleNamespace(timed_out=False, returncode=0, stdout='', stderr='')
+
+        real = R.bounded_subprocess.run_bounded
+        R.bounded_subprocess.run_bounded = fake_run
+        try:
+            tick.index_producers()
+            tick._launch(self.step(ADMISSIONS), 60)
+        finally:
+            R.bounded_subprocess.run_bounded = real
+        return seen.get('argv')
+
+    def test_melange_sentinel_call_budget_is_one_setting_for_the_tick_and_the_daily_runner(self):
+        from legislation import refresh_congress_pipeline as daily
+        # One setting floods: the key limit rises with the budget (selected keys are capped at the limit), in both runners.
+        with mock.patch.dict(os.environ, {'MELANGE_SENTINEL_CALL_BUDGET': '120'}):
+            self.assertEqual(['--limit', '120', '--max-classifier-calls', '120'], R.render_argv(T.ADMISSION_TICK_ARGV))
+            daily_argv = dict((name, args) for name, _, args, _ in daily.steps())['admissions']
+            self.assertEqual(['--limit', '120', '--max-classifier-calls', '120'], daily_argv)   # the daily runner reads the same variable
+            self.assertEqual(['--limit', '120', '--max-classifier-calls', '120'], self._launched_admissions_argv()[2:])
+        with mock.patch.dict(os.environ, {'MELANGE_SENTINEL_CALL_BUDGET': '60'}):    # below the ruled limit: the limit stays 80
+            self.assertEqual(['--limit', '80', '--max-classifier-calls', '60'], R.render_argv(T.ADMISSION_TICK_ARGV))
+
+    def test_an_invalid_call_budget_fails_the_tick_admissions_step_loudly_and_launches_nothing(self):
+        for bad in ('0', '-3', 'abc', '', '4.5'):
+            with mock.patch.dict(os.environ, {'MELANGE_SENTINEL_CALL_BUDGET': bad}):
+                with self.assertRaisesRegex(ValueError, 'MELANGE_SENTINEL_CALL_BUDGET'):
+                    R.render_argv(T.ADMISSION_TICK_ARGV)
+                with self.assertRaisesRegex(ValueError, 'MELANGE_SENTINEL_CALL_BUDGET'):
+                    self._launched_admissions_argv()                 # the producer is never started with a guessed budget
 
     # =========================================================================================
     # 11  the classifier and its helpers

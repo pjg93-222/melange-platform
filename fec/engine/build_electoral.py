@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 from moneyball_core import dump_atomic   # S2-03: crash-safe artifact write
+import roster
 import openpyxl,json,sys,glob,os,collections
 from members.member_identity import Resolver
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
@@ -31,7 +32,7 @@ for m in members:
         elec[m]={'elavg':None,'security':0.5,'leverage':round(1+LELEV*0.5,3)}   # unmatched -> neutral
 dump_atomic(elec,os.path.join(B, 'data', 'money', 'electoral.json'))
 matched=sum(1 for m in members if elec[m]['elavg'] is not None)
-print('electoral.json: %d/533 matched, LELEV=%.2f'%(matched,LELEV))
+print('electoral.json: %d/%d matched, LELEV=%.2f'%(matched,roster.count(),LELEV))
 hi=sorted([m for m in members if elec[m]['elavg'] is not None],key=lambda m:-elec[m]['leverage'])[:6]
 lo=sorted([m for m in members if elec[m]['elavg'] is not None],key=lambda m:elec[m]['leverage'])[:6]
 print('MOST leverage (competitive):',[(m.split()[-1],elec[m]['elavg'],'x%.2f'%elec[m]['leverage']) for m in hi])

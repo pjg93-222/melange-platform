@@ -10,6 +10,7 @@ import subprocess
 
 import pytest
 
+from fec import roster
 from fec.members.validate_descriptive_profiles import validate_descriptive_profiles
 
 
@@ -25,7 +26,8 @@ def _assigned_name(node):
 
 
 def _gate_namespace(tmp_path, mutate=None):
-    names = ["Member %d" % index for index in range(533)]
+    n = roster.count()   # the gate under test demands exactly the live roster size
+    names = ["Member %d" % index for index in range(n)]
     row = {"ok": True, "format": "descriptive-v3", "words": 201,
            "recurring_audio_pattern_claimed": False,
            **{key: " ".join([key] * 67) for key in ("p1", "p2", "p3")}}
@@ -34,14 +36,14 @@ def _gate_namespace(tmp_path, mutate=None):
         "status": "ACTIVE_GROUNDED_DESCRIPTIVE",
         "contract_version": "descriptive-public-record-v1",
         "basis_sha256": "basis", "evidence_sha256": "evidence",
-        "count": 533, "ok_count": 533,
+        "count": n, "ok_count": n,
         "members": {name: copy.deepcopy(row) for name in names},
     }
     receipt = {
         "schema": "member-narratives-v3-descriptive-receipt-v1", "status": "PASS",
         "contract_version": "descriptive-public-record-v1",
         "basis_sha256": "basis", "evidence_sha256": "evidence",
-        "counts": {key: 533 for key in ("profiles", "word_count_pass", "grounded_template_pass")},
+        "counts": {key: n for key in ("profiles", "word_count_pass", "grounded_template_pass")},
     }
     if mutate:
         mutate(document, receipt)
@@ -49,7 +51,7 @@ def _gate_namespace(tmp_path, mutate=None):
     artifact.write_text(json.dumps(document), encoding="utf-8")
     receipt["active_artifact_sha256"] = hashlib.sha256(artifact.read_bytes()).hexdigest()
     namespace = {
-        "os": os, "hashlib": hashlib,
+        "os": os, "hashlib": hashlib, "roster": roster,
         "validate_descriptive_profiles": validate_descriptive_profiles,
         "_NARR_DOC": document, "_NARR_PATH": str(artifact),
         "_NARR_DESCRIPTIVE_RECEIPT": receipt, "_NARR_RECEIPT": {},
@@ -68,7 +70,7 @@ def _gate_namespace(tmp_path, mutate=None):
 def test_descriptive_profile_gate_accepts_the_complete_hash_bound_corpus(tmp_path):
     namespace = _gate_namespace(tmp_path)
     assert namespace["_NARR_ACTIVE"] is True
-    assert len(namespace["NARR"]) == 533
+    assert len(namespace["NARR"]) == roster.count()
 
 
 @pytest.mark.parametrize("mutate", [

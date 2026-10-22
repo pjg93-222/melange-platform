@@ -7,8 +7,8 @@ reachable. It passed continuously while the shipped Resolver returned `Johnson` 
 Johnson, `Michael Barr` -> Andy Barr, and `Clyburn, James` -> John James against the live
 533. A guard tested only on data that cannot express its failure is not a guard.
 
-So this suite builds the Resolver on the ACTUAL roster (data/engine/congestion.json, 533
-members) and asserts the three properties that matter. Every assertion below fails against
+So this suite builds the Resolver on the ACTUAL roster (data/engine/congestion.json, every
+member) and asserts the three properties that matter. Every assertion below fails against
 the pre-2026-08-18 implementation -- that is the point, and the round-trip property (every
 roster member resolves to itself from four different input forms) is the one that catches
 regressions nobody predicted."""
@@ -53,9 +53,9 @@ for label, fn in forms.items():
     ok('%-14s never resolves to a DIFFERENT member (0 of %d)' % (label, len(NAMES)),
        not wrong, '%d wrong, e.g. %s -> %s' % (len(wrong), fn(wrong[0]), R.resolve(fn(wrong[0]))) if wrong else '')
 exact_ok = sum(1 for n in NAMES if R.resolve(n) == n)
-ok('exact form resolves for all 533', exact_ok == len(NAMES), exact_ok)
+ok('exact form resolves for all %d' % len(NAMES), exact_ok == len(NAMES), exact_ok)
 lastfirst_ok = sum(1 for n in NAMES if R.resolve(forms['Last, First'](n)) == n)
-ok('"Last, First" resolves for all 533 (was 23 wrong before the fix)',
+ok('"Last, First" resolves for all %d (was 23 wrong before the fix)' % len(NAMES),
    lastfirst_ok == len(NAMES), lastfirst_ok)
 
 print('[non-roster people are REFUSED, never absorbed into a roster member]')

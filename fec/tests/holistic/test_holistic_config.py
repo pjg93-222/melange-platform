@@ -27,6 +27,7 @@ FEC = os.path.join(WT, 'fec')
 sys.path.insert(0, FEC)
 os.environ.pop('NET_CONFIG', None)          # clean shell (ENV-2)
 import moneyball_core as MC
+import roster
 
 P = F = S = 0
 def ok(name, cond, detail=''):
@@ -311,7 +312,7 @@ else:
     ok('holistic directed graph = the holistic BASE (direction preserved)',
        MC._c.get('dnetfile@holistic') == HOL_BASE, MC._c.get('dnetfile@holistic'))
     ok('HON-2 banner printed on holistic load', '[NET_CONFIG=holistic]' in buf.getvalue(), buf.getvalue()[:70])
-    ok('distinct adjacency objects per config', adj_h is not adj_cu and len(adj_h) == len(adj_cu) == 533)
+    ok('distinct adjacency objects per config', adj_h is not adj_cu and len(adj_h) == len(adj_cu) == roster.count())
     ok('distinct DIRECTED objects per config', dadj_h is not dadj_cu)
 
     os.environ.pop('NET_CONFIG', None)

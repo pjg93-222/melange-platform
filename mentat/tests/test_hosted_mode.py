@@ -888,15 +888,18 @@ class HostedMode(unittest.TestCase):
         literals = set(re.findall(r"""['"](/[a-z0-9/_-]*)['"]""", inspect.getsource(app.Handler.do_GET)))
         prefixes = {item for item in literals if item.endswith('/') and item != '/'}
         routes = literals - prefixes - set(gate.HEALTH_ROUTES)   # /healthz and /version are answered before the gate
-        self.assertEqual(prefixes, {'/geo/v2/', '/basemap/'}, 'the two file trees are the only prefixes')
+        self.assertEqual(prefixes, {'/geo/v2/', '/basemap/', '/api/public-data/'},
+                         'the two file trees and the refused public-data API are the only prefixes')
         self.assertEqual(app.HOSTED_GET_ROUTES - routes, set(), 'an allowlisted route do_GET no longer has')
         refused = sorted(routes - app.HOSTED_GET_ROUTES)
         for needed in ('/api/report', '/api/run', '/api/evidence', '/api/evidence-csv', '/api/evidence-job',
                        '/api/evidence-stats', '/api/evidence-geo', '/api/evidence-geocode', '/api/evidence-network',
                        '/api/publish/pocket', '/api/prime-status', '/api/studio/briefing', '/api/studio/briefing/item',
-                       '/api/studio/views'):
+                       '/api/studio/views', '/api/public-data/catalogue', '/api/public-data/rows',
+                       '/api/public-data/download', '/api/public-data/provenance'):
             self.assertIn(needed, refused)
-        for route in (*refused, '/api/not-a-route', '/api/evidence-csv?job=x', '/api/studio/views?id=a'):
+        for route in (*refused, '/api/not-a-route', '/api/evidence-csv?job=x', '/api/studio/views?id=a',
+                      '/api/public-data/rows?table=x&page=0', '/api/public-data/not-a-route'):
             with self.subTest(route=route):
                 status, _, body = self.get(route)
                 self.assertEqual((status, body), (403, {'error': app.HOSTED_REFUSED}))

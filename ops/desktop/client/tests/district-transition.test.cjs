@@ -1,13 +1,14 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict');
-const {DistrictTransition}=require('../district-transition.cjs');
+const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {DistrictTransition,districtFingerprint}=require('../district-transition.cjs');
 const {bindingCache}=require('../access-bootstrap.cjs');
 const {attachLaunchHeader}=require('../runtime.cjs');
 const {authorizeAvailable}=require('../access-gate.cjs');
 function fixture(){
  let configuration={district:'co-05',dataDirectory:'data'},url='http://127.0.0.1:1001/walk?old=1',id=1000;const created=[],events=[];
  const grant={serverId:'server',deviceId:'device',principalId:'user',accountIdentity:'admin',role:'owner',districtIds:['co-05','or-05','ct-01']};
- const make=()=>{const runtime={origin:'http://127.0.0.1:'+(++id),child:{},launchPath:'/',requestsAllowed:true,starts:0,stops:0,activity:async()=>false,authorization:{accepted:{grant},owner:true},async start(selected){this.starts++;this.child={};this.authorization={accepted:{grant},owner:true,principal:{districtId:selected.district}};return this.origin;},async stop(){this.stops++;this.child=null;}};created.push(runtime);return runtime;};
+ const make=()=>{const runtime={origin:'http://127.0.0.1:'+(++id),child:{},launchPath:'/',requestsAllowed:true,starts:0,stops:0,activity:async()=>false,authorization:{accepted:{grant},owner:true},async start(selected){this.starts++;this.child={};this.configuration=structuredClone(selected);this.authorization={accepted:{grant},owner:true,principal:{districtId:selected.district}};return this.origin;},async stop(){this.stops++;this.child=null;this.configuration=null;}};created.push(runtime);return runtime;};
  let current=make();const initial=current;
  const controller=new DistrictTransition({read:()=>configuration,write:value=>{configuration=value;},scope:()=>grant.districtIds,verify:async()=>true,createRuntime:make,current:()=>current,activate:value=>{current=value;},navigate:async value=>{url=value;},location:()=>url,canReveal:async()=>true,freeMemory:()=>8*1024**3,log:value=>events.push(value)});
  controller.remember(configuration,current);
@@ -40,6 +41,14 @@ test('suspend stops warm and starting backends and cancels pending activation',a
 test('changed dataset fingerprint stops stale retained runtime before fresh launch',async()=>{
  const f=fixture();let version=1;f.controller.fingerprint=configuration=>configuration.district+version;f.controller.remember(f.configuration,f.current);await f.controller.switch('or-05');version++;await f.controller.switch('co-05');assert.notEqual(f.current,f.initial);assert.equal(f.initial.stops,1);assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,false);
 });
+test('a changed density file invalidates a retained district runtime using the real file fingerprint',async t=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'desktop-density-fingerprint-'));t.after(()=>fs.rmSync(root,{recursive:true,force:true}));
+ const data=path.join(root,'data'),profile=path.join(root,'profile'),density=path.join(data,'districts','co-05','density.json');
+ fs.mkdirSync(path.dirname(density),{recursive:true});fs.writeFileSync(density,'synthetic density before');
+ const f=fixture();f.controller.fingerprint=configuration=>districtFingerprint(profile,{...configuration,dataDirectory:data});f.controller.remember(f.configuration,f.current);
+ await f.controller.switch('or-05');fs.writeFileSync(density,'a changed synthetic density dataset');await f.controller.switch('co-05');
+ assert.notEqual(f.current,f.initial);assert.equal(f.initial.stops,1);assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,false);
+});
 test('writes made while a district is active do not defeat warm reuse after switching away and back',async()=>{
  const f=fixture(),writes={};f.controller.fingerprint=configuration=>configuration.district+(writes[configuration.district]||0);f.controller.remember(f.configuration,f.current);
  writes['co-05']=1;await f.controller.switch('or-05');await f.controller.switch('co-05');
@@ -48,6 +57,48 @@ test('writes made while a district is active do not defeat warm reuse after swit
 test('dataset replacement during warm authorization is rejected and cannot refresh stale fingerprint',async()=>{
  const f=fixture();let version=1;f.controller.fingerprint=configuration=>configuration.district+version;f.controller.remember(f.configuration,f.current);await f.controller.switch('or-05');
  f.initial.start=async()=>{version++;};await assert.rejects(f.controller.switch('co-05'),/data changed/);assert.equal(f.configuration.district,'or-05');assert.equal(f.initial.stops,1);assert.equal(f.controller.pool.has('co-05'),false);
+});
+
+function cached(configuration,catalogueSha256='a'.repeat(64)){return {...configuration,ownerGitHubData:{schemaVersion:1,district:configuration.district,cacheRoot:'private-fixture-cache',catalogueSha256}};}
+const cachedFingerprint=configuration=>JSON.stringify([configuration.dataDirectory,configuration.district,configuration.ownerGitHubData?.catalogueSha256]);
+test('verified cache selection drives the runtime and pool while persisted owner settings keep their original state root',async()=>{
+ const f=fixture(),verified=[];f.controller.fingerprint=cachedFingerprint;f.controller.verify=async selected=>{verified.push(structuredClone(selected));return cached(selected);};
+ await f.controller.switch('or-05');
+ assert.deepEqual(verified,[{district:'or-05',dataDirectory:'data'}]);
+ assert.deepEqual(f.configuration,{district:'or-05',dataDirectory:'data'});
+ assert.deepEqual(f.current.configuration,cached(f.configuration));
+ assert.equal(f.controller.pool.get('or-05').fingerprint,cachedFingerprint(f.current.configuration));
+ assert.equal(Object.hasOwn(f.configuration,'ownerGitHubData'),false,'the ephemeral cache mapping is never saved in owner settings');
+});
+test('the outgoing cached runtime is fingerprinted using its effective roots and reused after a return',async()=>{
+ const f=fixture();f.controller.fingerprint=cachedFingerprint;f.initial.configuration=cached(f.configuration);f.controller.remember(f.initial.configuration,f.initial);
+ f.controller.verify=async selected=>cached(selected);
+ await f.controller.switch('or-05');await f.controller.switch('co-05');
+ assert.equal(f.current,f.initial);assert.equal(f.initial.stops,0);assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,true);
+ assert.deepEqual(f.configuration,{district:'co-05',dataDirectory:'data'});
+});
+test('a newer immutable GitHub dataset invalidates only the stale warm runtime and preserves approved state settings',async()=>{
+ const f=fixture(),revisions={'co-05':'a'.repeat(64),'or-05':'a'.repeat(64)};f.controller.fingerprint=cachedFingerprint;
+ f.initial.configuration=cached(f.configuration,revisions['co-05']);f.controller.remember(f.initial.configuration,f.initial);
+ f.controller.verify=async selected=>cached(selected,revisions[selected.district]);
+ await f.controller.switch('or-05');const oregon=f.current;revisions['co-05']='b'.repeat(64);await f.controller.switch('co-05');
+ assert.notEqual(f.current,f.initial);assert.equal(f.initial.stops,1);assert.equal(oregon.stops,0);
+ assert.equal(f.current.configuration.ownerGitHubData.catalogueSha256,revisions['co-05']);
+ assert.equal(f.events.findLast(e=>e.phase==='backend-ready').cacheHit,false);assert.deepEqual(f.configuration,{district:'co-05',dataDirectory:'data'});
+});
+test('failed cached-data navigation restores original settings, URL and old effective runtime without touching its account roots',async()=>{
+ const f=fixture(),previous=structuredClone(f.configuration),oldEffective=cached(previous);f.initial.configuration=structuredClone(oldEffective);
+ f.controller.fingerprint=cachedFingerprint;f.controller.remember(oldEffective,f.initial);f.controller.verify=async selected=>cached(selected,'b'.repeat(64));
+ let calls=0;f.controller.navigate=async url=>{f.setUrl(url);if(++calls===1)throw new Error('ERR_FAILED');};
+ await assert.rejects(f.controller.switch('or-05'),/ERR_FAILED/);
+ assert.deepEqual(f.configuration,previous);assert.equal(f.current,f.initial);assert.deepEqual(f.initial.configuration,oldEffective);
+ assert.equal(f.initial.stops,0);assert.equal(f.url,'http://127.0.0.1:1001/walk?old=1');
+ assert.equal(f.created[1].stops,1);assert.equal(f.created[1].configuration,null);assert.equal(f.controller.pool.has('or-05'),false);
+ assert.equal(f.controller.pool.get('co-05').fingerprint,cachedFingerprint(oldEffective));
+});
+test('effective verification for a different district is refused before starting or changing settings',async()=>{
+ const f=fixture();f.controller.verify=async selected=>cached({...selected,district:'ct-01'});
+ await assert.rejects(f.controller.switch('or-05'),/different district/);assert.equal(f.created.length,1);assert.equal(f.current,f.initial);assert.deepEqual(f.configuration,{district:'co-05',dataDirectory:'data'});
 });
 test('low memory evicts only inactive runtimes and quit stops all',async()=>{const f=fixture();f.controller.freeMemory=()=>1024;await f.controller.switch('or-05');assert.equal(f.initial.stops,1);assert.equal(f.current.stops,0);await f.controller.stopAll();assert.equal(f.current.stops,1);});
 test('prospective authorization failure leaves current district usable',async()=>{const f=fixture();f.controller.createRuntime=()=>({...f.initial,async start(){throw new Error('revoked');},async stop(){}});await assert.rejects(f.controller.switch('or-05'),/revoked/);assert.equal(f.current,f.initial);assert.equal(f.initial.stops,0);assert.equal(f.configuration.district,'co-05');});

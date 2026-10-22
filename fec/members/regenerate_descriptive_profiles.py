@@ -21,6 +21,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from fec import roster
 from fec.members.descriptive_profile_overrides import OVERRIDES
 from fec.members.descriptive_public_accounts import PUBLIC_ACCOUNTS
 from fec.members.validate_descriptive_profiles import (
@@ -258,7 +259,7 @@ def main():
             or set(evidence["members"]) != set(basis["members"])):
         raise SystemExit("Evidence or roster contract mismatch")
     members = build_rows(evidence)
-    if len(members) != 533 or members != build_rows(evidence):
+    if len(members) != roster.count() or members != build_rows(evidence):
         raise SystemExit("Corpus coverage or reproducibility failure")
     doc = {
         "schema": SCHEMA, "status": STATUS, "contract_version": CONTRACT,
@@ -280,7 +281,7 @@ def main():
         "schema": "member-narratives-v3-descriptive-receipt-v1", "status": "PASS",
         "contract_version": CONTRACT, "basis_sha256": digest(BASIS),
         "evidence_sha256": digest(EVIDENCE), "active_artifact_sha256": digest(candidate),
-        "counts": {"profiles": 533, "word_count_pass": 533, "grounded_template_pass": 533,
+        "counts": {"profiles": len(members), "word_count_pass": len(members), "grounded_template_pass": len(members),
                    "editorial_overrides": len(OVERRIDES), "new_audio_reviews": 0},
         "validation_scope": doc["provenance"]["validation_scope"],
         "semantic_model_review": False, "independent_human_audio_review": False,
@@ -292,7 +293,7 @@ def main():
     if errors:
         raise SystemExit("\n".join(errors))
     write_json(OUT / "validation_receipt.json", receipt)
-    markdown = ["# Member profiles — plain-language edition", "", "533 profiles, %d–%d words each (observed range, not a target). Public-record descriptions; no private-meeting predictions. Existing evidence only; no new audio was reviewed in this regeneration." % (receipt["minimum_words"], receipt["maximum_words"]), ""]
+    markdown = ["# Member profiles — plain-language edition", "", "%d profiles, %d–%d words each (observed range, not a target). Public-record descriptions; no private-meeting predictions. Existing evidence only; no new audio was reviewed in this regeneration." % (len(members), receipt["minimum_words"], receipt["maximum_words"]), ""]
     for name, row in members.items():
         markdown.extend(["## " + name, "", "### Public record", "", row["p1"], "", "### Public communication", "", row["p2"], "", "### Context and evidence", "", row["p3"], "", f"*{row['words']} words · {row['generation']}*", ""])
         markdown.extend([f"Evidence: [member evidence ledger](<{EVIDENCE.as_posix()}>), entry **{name}**.", ""])

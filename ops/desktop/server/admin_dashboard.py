@@ -16,7 +16,10 @@ STATIC = Path(__file__).with_name('admin_ui_v2')
 CLIENT = Path(__file__).resolve().parent.parent / 'client'
 
 
-APPS_ROUTES = {'/apps', '/apps/detail', '/apps/logs', '/apps/action', '/apps/invite'}
+APPS_ROUTES = {'/apps', '/apps/detail', '/apps/logs', '/apps/action', '/apps/invite', '/apps/docker-start'}
+# How long the dashboard process serves after its newest open: one session (8 h) plus the 60 s its bootstrap link may wait to be
+# exchanged, so no session outlives it. Every reopen starts the time again (an old window reopened late in the day gets a whole session).
+LIFETIME = 8*3600+60
 
 
 class SessionCapacityReached(Refused):
@@ -75,13 +78,16 @@ class AdminSessions:
                 raise SessionCapacityReached('four protected dashboard sessions are already open')
             session = AdminSession(self.clock)
             self.sessions.append(session)
+            self.end = self.clock()+LIFETIME   # when the server stops, as far as sessions are concerned (the server's timer starts later)
             return session.bootstrap
 
     def exchange(self, value):
         with self.lock:
             for session in self.sessions:
-                try: return session.exchange(value)
-                except Refused: pass
+                try: result = session.exchange(value)
+                except Refused: continue
+                session.expires = min(session.expires, self.end)   # never a session that outlives the server
+                return result
         raise Refused('bootstrap unavailable')
 
     def authenticate(self, authorization, csrf):
@@ -192,7 +198,7 @@ def create_server(access, port=0, apps=None):
                 self.guard(mutation=True)
                 if self.path == '/session':
                     return self.reply(200, session.exchange(self.body()))
-                if self.path not in {'/dashboard', '/approve', '/replace-key', '/deny', '/revoke', '/session-close'} | APPS_ROUTES:
+                if self.path not in {'/dashboard', '/approve', '/replace-key', '/deny', '/revoke', '/session-close', '/invite-issue', '/invite-revoke'} | APPS_ROUTES:
                     return self.reply(404, {'error':'not_found'})
                 session.authenticate(self.headers.get('Authorization'), self.headers.get('X-Admin-CSRF'))
                 value = self.body()
@@ -214,6 +220,12 @@ def create_server(access, port=0, apps=None):
                     access.deny(value['requestId']); result = {'ok':True}
                 elif self.path in APPS_ROUTES:
                     result = apps.handle(self.path, value)
+                elif self.path == '/invite-issue':
+                    fields(value, {'label', 'uses', 'days'})
+                    result = access.issue_invite(value['label'], value['uses'], value['days'])
+                elif self.path == '/invite-revoke':
+                    fields(value, {'inviteId'})
+                    access.revoke_invite(value['inviteId']); result = {'ok':True}
                 else:
                     fields(value, {'grantId'})
                     access.revoke(value['grantId']); result = {'ok':True}
@@ -241,9 +253,31 @@ def create_server(access, port=0, apps=None):
         daemon_threads = True
         request_queue_size = 4
 
+        make_timer = threading.Timer   # tests swap in a recording timer
+
         def __init__(self):
             self.slots = threading.BoundedSemaphore(4)
+            self.lifetime, self.lifetime_lock, self.closed = None, threading.Lock(), False   # closed: the shutdown timer fired or the server closed
             super().__init__(('127.0.0.1', port), Handler)
+
+        def arm(self):
+            """Stop serving LIFETIME from now, replacing any earlier time: when serving starts and on every reopen, so a window
+            that is reopened late in the day is not cut off by the timer of the first open. Expired sessions must not leave a
+            permanent listener. Refused once it has ended, so a reopen racing the shutdown is answered BUSY rather than given a closed port."""
+            with self.lifetime_lock:
+                if self.closed: raise SessionCapacityReached('the dashboard has ended')
+                if self.lifetime: self.lifetime.cancel()
+                self.lifetime = self.make_timer(LIFETIME, self.expire)
+                self.lifetime.daemon = True
+                self.lifetime.start()
+
+        def expire(self):
+            with self.lifetime_lock: self.closed = True
+            self.shutdown()
+
+        def serve_forever(self, *args, **kwargs):
+            self.arm()
+            super().serve_forever(*args, **kwargs)
 
         def process_request(self, request, address):
             if address[0] != '127.0.0.1' or not self.slots.acquire(blocking=False):
@@ -258,8 +292,17 @@ def create_server(access, port=0, apps=None):
 
         def server_close(self):
             try: apps.shutdown()   # actions still running are written to the activity log as interrupted
-            finally: super().server_close()
+            finally:
+                with self.lifetime_lock:
+                    self.closed = True
+                    if self.lifetime: self.lifetime.cancel()
+                super().server_close()
 
     server = LocalServer()
-    server.fresh_bootstrap_url = lambda: f'http://127.0.0.1:{server.server_port}/#bootstrap={session.new_bootstrap()}'
+
+    def fresh_bootstrap_url():
+        bootstrap = session.new_bootstrap()   # refuses at four open sessions, before anything is re-armed
+        server.arm()
+        return f'http://127.0.0.1:{server.server_port}/#bootstrap={bootstrap}'
+    server.fresh_bootstrap_url = fresh_bootstrap_url
     return server, f'http://127.0.0.1:{server.server_port}/#bootstrap={session.bootstrap}'

@@ -1,7 +1,7 @@
 # Creates Desktop and Start-menu "Melange Admin" shortcuts. Each runs pythonw.exe (no console window) ->
 # desktop_admin.py access-dashboard, which opens the loopback dashboard in an Edge/Chrome app window on a one-time
 # link; a second click while it runs asks the running dashboard for a fresh link. The shortcut holds no secret.
-# -Uninstall removes both shortcuts.
+# Install from the main checkout; a copy under .claude\worktrees\ is refused. -Uninstall removes both shortcuts from anywhere.
 [CmdletBinding()]
 param(
     [string]$PythonExecutable,
@@ -17,6 +17,11 @@ if ($Uninstall) {
         if (Test-Path -LiteralPath $link) { Remove-Item -LiteralPath $link; Write-Host "Removed $link" }
     }
     return
+}
+# The shortcuts bake in $PSScriptRoot, so an install from a Claude worktree keeps opening its code after it is pruned.
+if ($PSScriptRoot -match '[\\/]\.claude[\\/]worktrees[\\/]') {
+    $main = Join-Path ($PSScriptRoot -replace '[\\/]\.claude[\\/]worktrees[\\/][^\\/]+', '') 'Install-AdminLauncher.ps1'
+    throw "Run the installer from the main checkout, not a Claude worktree: the shortcuts would keep opening this worktree's code after it is removed. Run $main instead."
 }
 if ($links.Count -ne 2) { throw 'The Desktop or Start-menu folder is unavailable for this user.' }
 

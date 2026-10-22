@@ -8,7 +8,7 @@
   "mentat_ref": "codex/mentat-crypto",
   "terrier_repo": "pjg93-222/Geo",
   "terrier_checkout": "C:/Users/pgoff/Documents/Terrier/outputs/cu-geography-v3",
-  "terrier_ref": "claude/walk-list",
+  "terrier_ref": "main",
   "terrier_remote_url": "https://github.com/pjg93-222/Geo.git",
   "terrier_images_ref": "deploy/terrier-hosted",
   "images": {

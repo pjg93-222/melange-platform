@@ -11,7 +11,7 @@ Member-level score = share of self-referential sentences carrying each cue (stro
 Modes:
   python fec/members/agency_communion_llm.py --selftest     # their 18-functional-test-unit pattern (must pass first)
   python fec/members/agency_communion_llm.py                # PILOT: RKH-overlap members only (ground truth exists)
-  python fec/members/agency_communion_llm.py --all          # full 533 roster
+  python fec/members/agency_communion_llm.py --all          # full roster
 Sentence cache (sidecar jsonl) makes reruns resume-safe/free. Output: data/members/agency_communion.json (atomic).
 Requires ANTHROPIC_API_KEY. Model: CLAUDE_AC_MODEL env (default claude-sonnet-5)."""
 import csv, hashlib, io, json, os, random, re, sqlite3, sys, threading, collections

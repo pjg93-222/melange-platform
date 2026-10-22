@@ -22,6 +22,20 @@ function binding(value){
   return {...result,appId:value.appId,accountIdentity:value.accountIdentity,role:value.role,districtIds:[...value.districtIds].sort()};
 }
 function stableIdentity(value){const {role,districtIds,...stable}=binding(value);return stable;}
+// One-time device verification. After the first successful sign-in a record bound to this approval (not to the
+// password) is kept in protected storage; later launches open without a prompt until the computer is forgotten,
+// the administrator replaces the approval (new grantId), or the record is missing, damaged or unreadable.
+function trustBinding(value){
+  const {role,districtIds,...stable}=binding(value);
+  if(typeof value.grantId!=='string'||!UUID.test(value.grantId))throw new Error('Invalid local account binding');
+  return {...stable,grantId:value.grantId};
+}
+function checkedTrust(record,expected){
+  if(!record||typeof record!=='object'||Object.keys(record).sort().join('|')!=='binding|schemaVersion|verifiedAt'||record.schemaVersion!==1||!Number.isSafeInteger(record.verifiedAt)||record.verifiedAt<0)throw new Error('Invalid protected device record');
+  const want=trustBinding(expected),have=record.binding;
+  if(!have||typeof have!=='object'||Object.keys(have).length!==Object.keys(want).length||Object.keys(want).some(key=>have[key]!==want[key]))throw new Error('This computer was verified for a different approval');
+  return record;
+}
 function passwordBytes(value){
   if(typeof value!=='string'||Array.from(value).length<12||Buffer.byteLength(value,'utf8')>1024||value.includes('\0'))throw new Error('Use a password of at least 12 characters and at most 1024 UTF-8 bytes.');
   return Buffer.from(value,'utf8');
@@ -48,7 +62,8 @@ async function derive(password,salt){
 }
 class LocalAccess{
   // store is a dedicated Credential Manager namespace, never an update-token store.
-  constructor({store,now=Date.now}){if(!store?.read||!store?.write)throw new Error('Protected account store required');this.store=store;this.now=now;this.session=null;this.busy=false;}
+  // devices is optional: without it every launch asks for the password, as before.
+  constructor({store,devices=null,now=Date.now}){if(!store?.read||!store?.write)throw new Error('Protected account store required');if(devices&&!(devices.read&&devices.write&&devices.delete))throw new Error('Protected device store required');this.store=store;this.devices=devices;this.now=now;this.session=null;this.busy=false;this.verifiedKey=null;this.epoch=0;this.forgetting=0;}
   async create(approved,password){
     const identity=binding(approved);
     if(identity.appId==='terrier')throw new Error('Terrier passwords are managed by its existing sign-in system');
@@ -87,10 +102,41 @@ class LocalAccess{
       }finally{key?.fill(0);expected.fill(0);salt.fill(0);}
       await this.store.write(identity,{...record,failures:0,blockedUntil:0,lastAttempt:now});
       this.session=Object.freeze({...identity,sessionId:crypto.randomUUID(),authenticatedAt:now,method:'local-password'});
+      await this.remember(approved);
       return this.session;
     }finally{this.busy=false;}
   }
+  // Best effort: if the record cannot be kept (for example an older helper without this namespace), the sign-in still
+  // succeeds and the next launch simply asks for the password again.
+  async remember(approved){
+    if(!this.devices)return false;
+    try{const identity=trustBinding(approved);if(identity.appId==='terrier')return false;await this.devices.write(identity,{schemaVersion:1,binding:identity,verifiedAt:this.now()});this.verifiedKey=JSON.stringify(identity);return true;}catch{return false;}
+  }
+  // The current session, or one re-established from this computer's device record. Null means the password is needed.
+  async resume(approved){
+    const current=this.current(approved);if(current)return current;
+    if(!this.devices||this.forgetting)return null;   // a forget in progress: the record may still exist until its delete settles
+    const epoch=this.epoch;
+    try{
+      const identity=trustBinding(approved);if(identity.appId==='terrier')return null;
+      const key=JSON.stringify(identity);
+      if(this.verifiedKey!==key){checkedTrust(await this.devices.read(identity),approved);if(epoch!==this.epoch)return null;this.verifiedKey=key;}
+    }catch{return null;}
+    if(epoch!==this.epoch)return null;
+    this.session=Object.freeze({...binding(approved),sessionId:crypto.randomUUID(),authenticatedAt:this.now(),method:'device-trust'});
+    return this.session;
+  }
+  // Ends the session and deletes this computer's device record; a delete failure is reported, never hidden.
+  async forget(approved){
+    this.epoch++;this.session=null;this.verifiedKey=null;
+    if(!this.devices||!approved)return;
+    this.forgetting++;   // epoch covers reads already in flight; this covers any resume that starts before the delete settles
+    try{const identity=binding(approved);if(identity.appId!=='terrier')await this.devices.delete(identity);}
+    finally{this.forgetting--;}
+  }
   current(approved){if(!this.session||JSON.stringify(binding(this.session))!==JSON.stringify(binding(approved)))return null;return this.session;}
-  lock(){this.session=null;}
+  // Ends the session and invalidates any resume still reading the device record, so a lock learned mid-read (revocation,
+  // activation, suspend) cannot be undone by that read. The record itself is kept: only forget() deletes it.
+  lock(){this.epoch++;this.session=null;}
 }
 module.exports={LocalAccess,binding,checkedRecord,OPTIONS};

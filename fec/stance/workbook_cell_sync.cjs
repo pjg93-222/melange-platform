@@ -71,11 +71,11 @@ async function main(){
   // the same pure input evaluator used by the live rank authority. They are never
   // copied into the production workbook; its original input formulas stay intact.
   const ra=wb.worksheets.getItem('Rank & Allocation');
-  ra.getRange('C3:C535').values=plan.context.map(c=>[c.press]);
-  ra.getRange('E3:F535').values=plan.context.map(c=>[c.influence,c.demographic]);
+  ra.getRange('C'+plan.first_row+':C'+plan.last_row).values=plan.context.map(c=>[c.press]);
+  ra.getRange('E'+plan.first_row+':F'+plan.last_row).values=plan.context.map(c=>[c.influence,c.demographic]);
   wb.recalculate();
-  const rows=wb.worksheets.getItem('Blended Model').getRange('A3:T535').values;
-  if(rows.length!==533)throw new Error('Incomplete workbook scoring verification: '+rows.length);
+  const rows=wb.worksheets.getItem('Blended Model').getRange('A'+plan.first_row+':T'+plan.last_row).values;
+  if(rows.length!==plan.roster_count)throw new Error('Incomplete workbook scoring verification: '+rows.length);
   const mismatches=rows.filter(r=>typeof r[18]!=='number'||Math.abs(r[18]-plan.scores[r[0]])>1e-8||r[19]!==plan.ranks[r[0]]);
   if(mismatches.length)throw new Error('Workbook score/rank mismatch: '+JSON.stringify(mismatches.slice(0,2).map(r=>({member:r[0],score:r[18],rank:r[19],want:plan.scores[r[0]]}))));
   const preview=await wb.render({sheetName:'Category Stance',range:'A1:F8',scale:1,format:'png'});

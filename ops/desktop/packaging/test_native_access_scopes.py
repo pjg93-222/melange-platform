@@ -26,6 +26,16 @@ class AccessScopeTests(unittest.TestCase):
             self.assertIsNone(credentials.read('melange',device,'access-token'))
             self.assertIsNone(credentials.read('mentat',str(uuid.uuid4()),'access-token'))
 
+    def test_device_verification_record_is_its_own_namespace(self):
+        device=str(uuid.uuid4());vault=MemoryVault()
+        with patch.object(credentials,'_backend',return_value=vault):
+            credentials.write('melange',device,'password-record','access-password')
+            credentials.write('melange',device,'device-record','access-device')
+            credentials.delete('melange',device,'access-device')   # forgetting this computer
+            self.assertIsNone(credentials.read('melange',device,'access-device'))
+            self.assertEqual(credentials.read('melange',device,'access-password'),'password-record')
+            self.assertIsNone(credentials.read('mentat',device,'access-device'))
+
     def test_unknown_scope_or_oversize_secret_refused(self):
         device=str(uuid.uuid4())
         with self.assertRaises(credentials.CredentialError):credentials._identity('mentat',device,'arbitrary')

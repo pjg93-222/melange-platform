@@ -61,7 +61,7 @@ class Scenario:
             self.streams[label][kind].append(row)
         return values
 
-    def run(self):
+    def run(self, missing=()):
         args = ["prog", "--roster", str(self.roster), "--roles", str(self.roles),
                 "--leader-sources", str(self.sources), "--primary-queue", str(self.queue),
                 "--rejected-sources", str(self.rejected), "--quality-holds", str(self.quality),
@@ -74,6 +74,8 @@ class Scenario:
                 path = self.paths[label][kind]
                 dump_jsonl(path, self.streams[label][kind])
                 args.extend([f"--{label}-{kind}", str(path)])
+        for name in missing:
+            (self.queue if name == "queue" else self.paths[name[0]][name[1]]).unlink()
         self.monkeypatch.setattr("sys.argv", args)
         assert mod.main() == 0
         return {r["member"]: r for r in mod.optional_rows(self.out)}
@@ -293,3 +295,13 @@ def test_quality_hold_with_missing_binding_is_not_silently_ignored(tmp_path, mon
     s.quality_rows = [{"member": "Member", "source_id": "current"}]
     with pytest.raises(SystemExit, match="quality hold lacks exact"):
         s.run()
+
+
+@pytest.mark.parametrize("missing", [("primary", "cues"), ("primary", "transcripts"),
+                                     ("primary", "acquisition"), ("leader", "cues"), "queue"])
+def test_missing_required_input_refuses_before_writing_selection(tmp_path, monkeypatch, missing):
+    s = Scenario(tmp_path, monkeypatch, ("Member",))
+    s.add("primary", "Member", "one")
+    with pytest.raises(SystemExit):
+        s.run(missing=[missing])
+    assert not s.out.exists() and not s.receipt.exists()

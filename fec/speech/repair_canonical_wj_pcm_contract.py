@@ -55,13 +55,31 @@ def write_wav_atomic(path: Path, payload: bytes, rate: int) -> None:
     os.replace(temporary, path)
 
 
+_WAVE_HEADER_BYTES = 44  # header written by write_wav_atomic (stdlib wave)
+_SOURCE_HEADER_SLACK = 64  # legacy ffmpeg headers carry a LIST chunk (78 bytes observed)
+
+
+def _is_prior_trim(row: dict, path: Path, facts: tuple, expected: int) -> bool:
+    """True only when a hash mismatch is explained by this script's own earlier trim."""
+    if facts != (1, 16000, 2):
+        return False
+    current = path.stat().st_size
+    if current != _WAVE_HEADER_BYTES + 2 * expected:
+        return False  # not the exact output shape of write_wav_atomic
+    stored = row.get("bytes")
+    if isinstance(stored, bool) or not isinstance(stored, int):
+        return False
+    shrink = stored - current
+    return 0 < shrink <= 2 * 16000 + _SOURCE_HEADER_SLACK  # at most one second of PCM16 removed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
 
-    rows = [json.loads(line) for line in args.manifest.read_text(encoding="utf-8-sig").splitlines() if line]
+    rows = [json.loads(line) for line in args.manifest.read_text(encoding="utf-8-sig").splitlines() if line.strip()]
     manifest_before = sha256(args.manifest)
     repairs = []
     planned = []
@@ -86,6 +104,12 @@ def main() -> int:
             facts = (source.getnchannels(), source.getframerate(), source.getsampwidth())
             actual = source.getnframes()
             if actual == expected:
+                # a prior partial run may have trimmed the WAV without rebinding the manifest;
+                # rebind only that case, never corrupted, replaced or edited audio
+                if row.get("sha256") and sha256(path) != row["sha256"]:
+                    if not _is_prior_trim(row, path, facts, expected):
+                        raise RuntimeError(f"WJ WAV hash mismatch is not a prior trim: {path}")
+                    planned.append((row, path, expected, actual, start))
                 continue
             if facts != (1, 16000, 2):
                 raise RuntimeError(f"WJ WAV contract mismatch: {path}")
@@ -101,7 +125,8 @@ def main() -> int:
                 raise RuntimeError(f"WJ WAV contract changed after preflight: {path}")
             payload = source.readframes(expected)
         before_hash = sha256(path)
-        write_wav_atomic(path, payload, 16000)
+        if actual != expected:
+            write_wav_atomic(path, payload, 16000)
         samples = np.frombuffer(payload, dtype="<i2").astype(np.float64) / 32768.0
         digest = sha256(path)
         row["bytes"] = path.stat().st_size
@@ -135,7 +160,9 @@ def main() -> int:
         "repairs": repairs,
     }
     args.receipt.parent.mkdir(parents=True, exist_ok=True)
-    args.receipt.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    temporary = args.receipt.with_name(args.receipt.name + ".part")
+    temporary.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    os.replace(temporary, args.receipt)
     print(json.dumps({"repaired_rows": len(repairs), "status": "PASS"}))
     return 0
 

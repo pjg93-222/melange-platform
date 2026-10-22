@@ -21,7 +21,9 @@ from types import SimpleNamespace
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "compute"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "fec"))
 import chain_parity as cp  # noqa: E402
+import roster  # noqa: E402
 
 REAL_GIT = cp._git
 REAL_CITATIONS = cp.check_citations
@@ -43,6 +45,12 @@ def ranks_bytes(n: int = 533, swap=None, scores: dict | None = None) -> bytes:
     return json.dumps({"score": score, "rank": rank}, separators=(",", ":")).encode("ascii")
 
 
+def roster_bytes(n: int = 533) -> bytes:
+    """A synthetic roster (the same n as ranks_bytes): compare reads the expected member count from the A1 root's data/engine/roster.json."""
+    names = [f"Member {i:03d}" for i in range(n)]
+    return json.dumps({"schema": roster.SCHEMA, "members": [{"member": m, "bioguide": f"B{i:06d}"} for i, m in enumerate(names)]}).encode("utf-8")
+
+
 def base_outputs() -> dict:
     return {"ranks_python.json": ranks_bytes(), "dashboard_data.json": b'{"members":533,"built":"fixed"}',
             "bipartisan.json": b'{"pairs":[1,2,3]}', "out/log.txt": b"run finished\n"}
@@ -59,7 +67,7 @@ def make_case(tmp_path: Path, a1=None, a2=None, b=None, c=None, frozen_extra=Non
     """Frozen tree -> manifest -> three (optionally four) identical copies, each then 'run' by writing the
     base outputs plus its overrides (a None value leaves that file out of the root)."""
     frozen = tmp_path / "frozen"
-    write_tree(frozen, {"inputs/seed.txt": b"seed\n", "inputs/cfg.json": b'{"k":1}', **(frozen_extra or {})})
+    write_tree(frozen, {"inputs/seed.txt": b"seed\n", "inputs/cfg.json": b'{"k":1}', "data/engine/roster.json": roster_bytes(), **(frozen_extra or {})})
     manifest = tmp_path / "frozen.manifest.json"
     assert cp.main(["snapshot", "--root", str(frozen), "--out", str(manifest)]) == 0
     roots = {}
@@ -165,6 +173,20 @@ def test_member_count_532_fails_even_when_every_root_agrees(tmp_path):
     assert "A1: 532 members, expected 533" in detail(rep, "G3")
     rc, _ = compare(make_case(tmp_path / "ok", a1=short, a2=short, b=short), "--expect-members", "532")
     assert rc == 0
+
+
+def test_expected_member_count_defaults_to_the_roster_of_the_a1_root(tmp_path):
+    short = {"ranks_python.json": ranks_bytes(n=532)}
+    case = make_case(tmp_path, a1=short, a2=short, b=short, frozen_extra={"data/engine/roster.json": roster_bytes(532)})
+    rc, rep = compare(case)                                                    # no --expect-members: the 532-member roster decides
+    assert rc == 0 and rep["inputs"]["expect_members"] == 532 and failed(rep) == []
+
+
+def test_no_readable_roster_and_no_expect_members_is_a_usage_error_not_a_remembered_count(tmp_path, capsys):
+    case = make_case(tmp_path, frozen_extra={"data/engine/roster.json": None})
+    args = ["compare", "--frozen", str(case.manifest), "--a1", str(case.roots["A1"]), "--a2", str(case.roots["A2"]), "--b", str(case.roots["B"])]
+    assert cp.main(args) == 2 and "cannot read the roster size" in capsys.readouterr().err
+    assert cp.main([*args, "--expect-members", "533"]) == 0                    # naming the count is the way out
 
 
 def test_dropped_member_in_b_is_listed(tmp_path):

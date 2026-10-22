@@ -20,6 +20,7 @@ sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import pandas as pd, openpyxl
 import stance.media_rules as MR
 import config_overlay as CO
+import roster
 from moneyball_core import save_workbook_atomic
 from members.member_identity import Resolver
 M=MB_ROOT
@@ -289,8 +290,9 @@ shutil.copy2(WBP,bak); print('backup:','backups/'+os.path.basename(bak))
 wb=openpyxl.load_workbook(WBP)             # formulas preserved
 rw=wb['Press Release - Raw']
 hdr={rw.cell(1,c).value:c for c in range(1,30) if rw.cell(1,c).value}
-members=[rw.cell(r,1).value for r in range(2,536) if rw.cell(r,1).value]
-mrow={rw.cell(r,1).value:r for r in range(2,536) if rw.cell(r,1).value}
+PRESS_ROWS=roster.rows('Press Release - Raw')   # member rows only; the 'Weights' footer below them was never a member (its p80 inputs are 0)
+members=[rw.cell(r,1).value for r in PRESS_ROWS if rw.cell(r,1).value]
+mrow={rw.cell(r,1).value:r for r in PRESS_ROWS if rw.cell(r,1).value}
 # IDEMPOTENCE: press components never come from the live sheet (it holds the blend after run 1).
 # 2026-07-04 INTEGRITY FIX (user-ratified "fix it"): the frozen 07-02 archive meant NO press article
 # collected after 2026-07-02 could ever reach the workbook (197 members, frozen forever). The press

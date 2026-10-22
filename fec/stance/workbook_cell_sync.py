@@ -98,6 +98,8 @@ def publish_cells(workbook,changes,root):
     root=Path(root);workbook=Path(workbook)
     # MELANGE_XLSX_WRITER=openpyxl authors the changed cells in process (D-178); the default runs the Node helper.
     from xlsx_openpyxl_authors import AUTHOR_MODULE,author_cell_sync,xlsx_writer
+    import roster
+    first,last,roster_n=roster.first_row('Rank & Allocation'),roster.last_row('Rank & Allocation',root=root),roster.count(root=root)
     writer=xlsx_writer()
     config=json.loads((root/'data/engine/artifact_tool_runtime.json').read_text(encoding='utf-8')) if writer=='artifact' else None
     digest=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
@@ -109,7 +111,7 @@ def publish_cells(workbook,changes,root):
         import openpyxl
         from engine.live_legislative_pillar import nonlegislative_inputs
         source=openpyxl.load_workbook(workbook,data_only=False)
-        members=[row[0] for row in source['Rank & Allocation'].iter_rows(min_row=3,max_row=535,values_only=True)]
+        members=[row[0] for row in source['Rank & Allocation'].iter_rows(min_row=first,max_row=last,values_only=True)]
         influence,demographic=nonlegislative_inputs(source,members)
         views=[];formats={}
         for title in ('Rank & Allocation','Blended Model','Category Stance','Coalition Profiles'):
@@ -129,9 +131,10 @@ def publish_cells(workbook,changes,root):
                     if c.alignment.horizontal in ('left','center','right'):fmt['horizontalAlignment']=c.alignment.horizontal
                     formats[c.style_id]=fmt
         source.close()
-        context=[{'row':i+3,'press':ranks['press_pillar'][n],'influence':influence[n],'demographic':demographic[n]} for i,n in enumerate(members)]
+        context=[{'row':i+first,'press':ranks['press_pillar'][n],'influence':influence[n],'demographic':demographic[n]} for i,n in enumerate(members)]
         plan.write_text(json.dumps({'input':str(workbook),'root':str(root),'output':str(authored),'changes':changes,
-                                   'views':views,'formats':formats,'context':context,'scores':ranks['score'],'ranks':ranks['rank']}),encoding='utf-8')
+                                   'views':views,'formats':formats,'context':context,'scores':ranks['score'],'ranks':ranks['rank'],
+                                   'first_row':first,'last_row':last,'roster_count':roster_n}),encoding='utf-8')
         env={**os.environ,'ARTIFACT_TOOL_NODE_MODULES':config['node_modules']} if config else None
         helper=root/'fec/stance/workbook_cell_sync.cjs' if writer=='artifact' else AUTHOR_MODULE
         proof_path=Path(str(authored)+'.report.json')
@@ -140,7 +143,7 @@ def publish_cells(workbook,changes,root):
             try:proof=json.loads(proof_path.read_text(encoding='utf-8'))
             except (ValueError,OSError):return False
             return (proof.get('schema')=='workbook-cell-author-v1' and proof.get('status')=='PASS'
-                    and (proof.get('scores_and_ranks_verified')==533 if writer=='artifact' else proof.get('engine')=='openpyxl')
+                    and (proof.get('scores_and_ranks_verified')==roster_n if writer=='artifact' else proof.get('engine')=='openpyxl')
                     and proof.get('plan_sha256')==digest(plan) and proof.get('helper_sha256')==digest(helper)
                     and proof.get('output_sha256')==digest(authored))
         if valid_proof():exit_code=None
@@ -152,7 +155,7 @@ def publish_cells(workbook,changes,root):
         else:
             author_cell_sync(plan);exit_code=None
         # The bundled Windows runtime can fail during teardown after a successful
-        # export. Only a fresh, fully hash-bound 533-member PASS permits promotion.
+        # export. Only a fresh, fully hash-bound full-roster PASS permits promotion.
         if not valid_proof():raise RuntimeError('Artifact workbook sync lacks a verified PASS export')
         parts=merge_cells(workbook,authored,changes,merged)
         if digest(workbook)!=before:raise RuntimeError('Workbook changed during synchronization')

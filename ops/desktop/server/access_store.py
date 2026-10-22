@@ -33,8 +33,25 @@ REQUEST_LIFETIME = 86400
 KEY_LIFETIME = 600
 RETRY_LIFETIME = 600
 PRESENCE_LIFETIME = 180
-MAX_PENDING = 100
-MAX_ACTIVITY = 1000000
+MAX_PENDING = 100        # requests still waiting for a decision; approved recipients are not counted
+MAX_NEW_PER_HOUR = 100   # new requests per hour from all callers together, never per address
+MAX_ACTIVITY_PER_DEVICE = 10000  # newest activity rows kept per principal (one app on one device); older ones are pruned, never refused
+PRUNE_AFTER = 30 * 86400  # expired requests this long past their expiry are deleted, a few per new request
+PRUNE_BATCH = 20          # each new request adds at most one future expired row, so this keeps up; random-UUID index deletes cost ~2-5 ms a row here
+MAX_USABLE_INVITES = 50
+INVITE_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'  # Crockford base32: no I, L, O or U.
+# Additive and idempotent, so deployed databases created before invites gain the table on first use.
+INVITES = '''CREATE TABLE IF NOT EXISTS invites (
+                invite_id TEXT PRIMARY KEY, label TEXT NOT NULL, code_hash TEXT NOT NULL UNIQUE,
+                created INTEGER NOT NULL, expires INTEGER NOT NULL, max_uses INTEGER NOT NULL,
+                uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)'''
+USABLE_INVITES = 'revoked=0 AND expires>? AND uses<max_uses'
+# Same additive style: indexes that keep each anonymous request's housekeeping off full-table scans.
+MIGRATIONS = (INVITES,
+              'CREATE INDEX IF NOT EXISTS requests_state_expires ON requests(state,expires)',
+              'CREATE INDEX IF NOT EXISTS requests_created ON requests(created)',
+              'CREATE INDEX IF NOT EXISTS requests_receipt ON requests(receipt_expires) WHERE receipt IS NOT NULL',
+              'CREATE INDEX IF NOT EXISTS notification_outbox_request ON notification_outbox(request_id)')
 
 
 def fields(value, required, optional=()):
@@ -55,6 +72,19 @@ def secret_hash(value):
     if not isinstance(value, str) or not SECRET.fullmatch(value):
         raise Refused('invalid access secret')
     return digest(value.encode('ascii'))
+
+
+def printable(value):
+    return isinstance(value, str) and 1 <= len(value) <= 80 and not any(ord(c) < 32 or ord(c) == 127 for c in value)
+
+
+def invite_hash(value):
+    if not isinstance(value, str) or len(value) > 64:
+        raise Refused('invite code not accepted')
+    code = value.strip().upper().replace('-', '').replace(' ', '').translate(str.maketrans('OIL', '011'))
+    if len(code) != 16 or any(c not in INVITE_ALPHABET for c in code):
+        raise Refused('invite code not accepted')
+    return digest(b'invite:' + code.encode('ascii'))
 
 
 def scope(app, role, districts):
@@ -84,13 +114,16 @@ def data_identifier(value):
 
 
 class AccessStore:
-    def __init__(self, publisher, clock=time.time):
+    def __init__(self, publisher, clock=time.time, require_invite=False):
         self.publisher = publisher
+        # Off by default so clients without an invite field (1.0.9 and earlier) keep working; `serve --require-invite` turns it on.
+        self.require_invite = require_invite
         self.root = Path(publisher.root)
         self.db = self.root / 'access.sqlite3'
         self.key_path = self.root / 'keys' / 'application-access.key'
         self.config_path = self.root / 'access-trust.json'
         self.clock = clock
+        self.migrated = False
 
     def now(self):
         return int(self.clock())
@@ -103,6 +136,10 @@ class AccessStore:
         connection.row_factory = sqlite3.Row
         connection.execute('PRAGMA foreign_keys=ON')
         try:
+            if not self.migrated:
+                for statement in MIGRATIONS:
+                    connection.execute(statement)
+                self.migrated = True
             with connection:
                 yield connection
         finally:
@@ -193,7 +230,8 @@ class AccessStore:
         expected = {'requests','principals','grants','presence','activity','notification_outbox','notification_deliveries','update_exchanges','access_audit','owner_provisioning'}
         with contextlib.closing(sqlite3.connect(path)) as connection:
             tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-            if tables != expected or connection.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
+            # Databases created before invites lack that table until their first use (see INVITES).
+            if tables not in (expected, expected | {'invites'}) or connection.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
                 raise Refused('incomplete or unexpected access database schema; preserved for recovery')
 
     @staticmethod
@@ -248,6 +286,7 @@ class AccessStore:
               CREATE TABLE access_audit (
                 id INTEGER PRIMARY KEY, at INTEGER NOT NULL, action TEXT NOT NULL,
                 request_id TEXT, grant_id TEXT);
+              ''' + ';\n'.join(MIGRATIONS) + ''';
               COMMIT;
             ''')
 
@@ -305,16 +344,18 @@ class AccessStore:
         return result
 
     def request(self, value, source_address):
-        fields(value, {'requestId', 'deviceId', 'appId', 'platform', 'arch', 'displayName', 'requestSecret'})
+        fields(value, {'requestId', 'deviceId', 'appId', 'platform', 'arch', 'displayName', 'requestSecret'}, {'inviteCode'})
         request_id, device_id = identifier(value['requestId']), identifier(value['deviceId'])
         app, platform, arch = value['appId'], value['platform'], value['arch']
         if app not in APPS or (platform, arch) not in TARGETS:
             raise Refused('invalid access target')
         display = value['displayName']
-        if not isinstance(display, str) or not 1 <= len(display) <= 80 or any(ord(c) < 32 or ord(c) == 127 for c in display):
+        if not printable(display):
             raise Refused('invalid requester name')
         hashed, now = secret_hash(value['requestSecret']), self.now()
-        # Hash the source for quota accounting; no browsing or workstation data is recorded.
+        if 'inviteCode' in value and not self.require_invite and not isinstance(value['inviteCode'], str):
+            raise TypeError('inviteCode must be a string')  # Ignored while invites are off, but junk is still a bad request.
+        # Stored for audit only (schema column); no quota is keyed on the network address.
         source_hash = digest((self.config()['serverId'] + ':' + source_address).encode())
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -323,18 +364,38 @@ class AccessStore:
                 if (existing['app'], existing['device_id'], existing['platform'], existing['arch'], existing['display_name'], existing['secret_hash']) != (app, device_id, platform, arch, display, hashed):
                     raise Refused('request identity conflict')
                 return self._request_status(existing)
-            db.execute("UPDATE requests SET state='expired' WHERE (expires<=? OR (state='approved' AND key_expires<=?)) AND state IN ('pending','approved')", (now, now))
-            db.execute('UPDATE requests SET receipt=NULL WHERE receipt_expires<=?', (now,))
-            if (db.execute("SELECT COUNT(*) FROM requests WHERE state IN ('pending','approved')").fetchone()[0] >= MAX_PENDING
-                    or db.execute('SELECT COUNT(*) FROM requests WHERE source_hash=? AND created>?', (source_hash, now-3600)).fetchone()[0] >= 10
-                    or db.execute('SELECT COUNT(*) FROM requests WHERE created>?', (now-3600,)).fetchone()[0] >= 100
-                    or db.execute('SELECT COUNT(*) FROM requests').fetchone()[0] >= 10000
-                    or db.execute("SELECT 1 FROM requests WHERE app=? AND device_id=? AND state IN ('pending','approved')", (app, device_id)).fetchone()):
+            # Anonymous callers are refused here, before anything counts against the shared caps below.
+            matched = None
+            if self.require_invite:
+                code_hash = invite_hash(value.get('inviteCode'))  # Format is judged only for a new request; a re-POST above never reaches it.
+                for invite in db.execute(f'SELECT invite_id,code_hash FROM invites WHERE {USABLE_INVITES}', (now,)).fetchall():
+                    if hmac.compare_digest(invite['code_hash'], code_hash):
+                        matched = invite['invite_id']
+                if not matched:
+                    raise Refused('invite code not accepted')
+            # Each statement here is index-driven (MIGRATIONS), so this work does not grow with the table.
+            db.execute("UPDATE requests SET state='expired' WHERE state IN ('pending','approved') AND (expires<=? OR (state='approved' AND key_expires<=?))", (now, now))
+            db.execute('UPDATE requests SET receipt=NULL WHERE receipt IS NOT NULL AND receipt_expires<=?', (now,))
+            # Expired requests have no grant (only 'used' ones do). Denied ones are kept: a stale client polling a deleted
+            # id gets 403 and re-sends it as new, which would put a denied requester back in the queue.
+            stale = [r[0] for r in db.execute("SELECT request_id FROM requests r WHERE state='expired' AND expires<=? AND NOT EXISTS (SELECT 1 FROM grants g WHERE g.request_id=r.request_id) AND NOT EXISTS (SELECT 1 FROM notification_outbox o WHERE o.request_id=r.request_id AND o.state IN ('sending','local_claimed')) LIMIT ?",
+                                              (now-PRUNE_AFTER, PRUNE_BATCH))]
+            if stale:
+                marks = ','.join('?' * len(stale))
+                db.execute(f'DELETE FROM notification_outbox WHERE request_id IN ({marks})', stale)
+                db.execute(f'DELETE FROM requests WHERE request_id IN ({marks})', stale)
+            if db.execute("SELECT 1 FROM requests WHERE app=? AND device_id=? AND state IN ('pending','approved')", (app, device_id)).fetchone():
+                raise Refused('access request conflict: this device already has an open request')
+            # Anti-flood bounds on the waiting queue only; how many people are approved is unlimited.
+            if (db.execute("SELECT COUNT(*) FROM requests WHERE state='pending'").fetchone()[0] >= MAX_PENDING
+                    or db.execute('SELECT COUNT(*) FROM requests WHERE created>?', (now-3600,)).fetchone()[0] >= MAX_NEW_PER_HOUR):
                 raise Refused('access request capacity reached')
             db.execute('INSERT INTO requests(request_id,app,device_id,platform,arch,display_name,secret_hash,source_hash,state,created,expires) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
                        (request_id, app, device_id, platform, arch, display, hashed, source_hash, 'pending', now, now+REQUEST_LIFETIME))
             db.execute('INSERT INTO notification_outbox(id,request_id,kind,state,created) VALUES (?,?,?,?,?)',
                        (str(uuid.uuid4()), request_id, 'access_requested', 'pending_local', now))
+            if matched:
+                db.execute('UPDATE invites SET uses=uses+1 WHERE invite_id=?', (matched,))
             self.audit(db, 'access-requested', request_id)
         return {'requestId': request_id, 'status': 'pending', 'expiresAt': now+REQUEST_LIFETIME}
 
@@ -393,6 +454,29 @@ class AccessStore:
                        (secret_hash(key), self.now()+KEY_LIFETIME, request_id))
             self.audit(db, 'access-key-replaced', request_id)
         return {'requestId':request_id, 'activationKey':key, 'expiresAt':min(row['expires'], self.now()+KEY_LIFETIME)}
+
+    def issue_invite(self, label, uses=1, days=7):
+        """The plaintext code is returned only here; only its domain-separated hash is stored."""
+        if not printable(label):
+            raise Refused('invalid invite label')
+        if type(uses) is not int or not 1 <= uses <= 100 or type(days) is not int or not 1 <= days <= 30:
+            raise Refused('invalid invite limits')
+        code, invite_id, now = ''.join(secrets.choice(INVITE_ALPHABET) for _ in range(16)), str(uuid.uuid4()), self.now()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute(f'SELECT COUNT(*) FROM invites WHERE {USABLE_INVITES}', (now,)).fetchone()[0] >= MAX_USABLE_INVITES:
+                raise Refused('too many usable invites; revoke one first')
+            db.execute('INSERT INTO invites(invite_id,label,code_hash,created,expires,max_uses) VALUES (?,?,?,?,?,?)',
+                       (invite_id, label, invite_hash(code), now, now+days*86400, uses))
+            self.audit(db, 'invite-issued')
+        return {'inviteId': invite_id, 'code': '-'.join(code[i:i+4] for i in range(0, 16, 4)), 'expiresAt': now+days*86400, 'maxUses': uses}
+
+    def revoke_invite(self, invite_id):
+        identifier(invite_id)
+        with self.connect() as db:
+            if db.execute('UPDATE invites SET revoked=1 WHERE invite_id=? AND revoked=0', (invite_id,)).rowcount != 1:
+                raise Refused('unknown or already revoked invite')
+            self.audit(db, 'invite-revoked')
 
     def activate(self, value, request_secret):
         fields(value, {'requestId', 'deviceId', 'appId', 'platform', 'arch', 'activationKey'})
@@ -529,8 +613,10 @@ class AccessStore:
                     raise Refused('event identity conflict')
                 if not previous:
                     new.append((event, hashed))
-            if db.execute('SELECT COUNT(*) FROM activity').fetchone()[0] + len(new) > MAX_ACTIVITY:
-                raise Refused('activity capacity reached; preserve the local outbox')
+            principal = grant['principal_id']
+            excess = db.execute('SELECT COUNT(*) FROM activity WHERE principal_id=?', (principal,)).fetchone()[0] + len(new) - MAX_ACTIVITY_PER_DEVICE
+            if excess > 0:  # Keep this device's newest rows; a full history never locks it out, and never costs anyone else theirs.
+                db.execute('DELETE FROM activity WHERE rowid IN (SELECT rowid FROM activity WHERE principal_id=? ORDER BY rowid LIMIT ?)', (principal, excess))
             for event, hashed in new:
                 refs = {key: event[key] for key in ('datasetId', 'revisionId', 'entityId') if key in event}
                 db.execute('INSERT INTO activity VALUES (?,?,?,?,?,?,?,?,?,?)', (grant['grant_id'], event['eventId'], grant['principal_id'], event['occurredAt'], self.now(), event['type'], canonical(event['counts']).decode(), hashed, event['districtId'], canonical(refs).decode()))
@@ -538,9 +624,15 @@ class AccessStore:
 
     def dashboard(self):
         with self.connect() as db:
-            requests = [dict(r) for r in db.execute('SELECT request_id,app,device_id,platform,arch,display_name,state,created,expires,key_expires,receipt_expires,role,district_ids FROM requests ORDER BY created DESC LIMIT 100')]
-            grants = [dict(r) for r in db.execute('SELECT g.grant_id,g.app,g.device_id,g.principal_id,g.account_identity,g.role,g.district_ids,g.revoked,p.state,p.version,p.last_seen,p.district_id,r.display_name FROM grants g JOIN requests r ON g.request_id=r.request_id LEFT JOIN presence p ON p.grant_id=g.grant_id ORDER BY g.issued DESC LIMIT 500')]
+            # Everything the administrator can still act on is listed in full; only finished history is capped.
+            columns = 'request_id,app,device_id,platform,arch,display_name,state,created,expires,key_expires,receipt_expires,role,district_ids FROM requests'
+            requests = [dict(r) for r in db.execute(f"SELECT * FROM (SELECT {columns} WHERE state IN ('pending','approved')) UNION ALL SELECT * FROM (SELECT {columns} WHERE state NOT IN ('pending','approved') ORDER BY created DESC LIMIT 100) ORDER BY created DESC")]
+            columns = 'g.grant_id,g.app,g.device_id,g.principal_id,g.account_identity,g.role,g.district_ids,g.revoked,p.state,p.version,p.last_seen,p.district_id,r.display_name,g.issued FROM grants g JOIN requests r ON g.request_id=r.request_id LEFT JOIN presence p ON p.grant_id=g.grant_id'
+            grants = [dict(r) for r in db.execute(f'SELECT * FROM (SELECT {columns} WHERE g.revoked=0) UNION ALL SELECT * FROM (SELECT {columns} WHERE g.revoked!=0 ORDER BY g.issued DESC LIMIT 500) ORDER BY issued DESC')]
             events = [dict(r) for r in db.execute('SELECT a.event_id,a.kind,a.occurred,a.received,a.counts,a.district_id,a.references_json,g.app,g.device_id,g.principal_id,r.display_name FROM activity a JOIN grants g ON g.grant_id=a.grant_id JOIN requests r ON g.request_id=r.request_id ORDER BY received DESC LIMIT 100')]
+            invites = [{'inviteId': r['invite_id'], 'label': r['label'], 'created': r['created'], 'expires': r['expires'], 'maxUses': r['max_uses'], 'uses': r['uses'],
+                        'state': 'revoked' if r['revoked'] else 'used' if r['uses'] >= r['max_uses'] else 'expired' if r['expires'] <= self.now() else 'active'}
+                       for r in db.execute(f'SELECT * FROM invites ORDER BY ({USABLE_INVITES}) DESC,created DESC,rowid DESC LIMIT 100', (self.now(),))]
             pending = db.execute("SELECT COUNT(*) FROM requests WHERE state='pending' AND expires>?", (self.now(),)).fetchone()[0]
             handed = db.execute("SELECT COUNT(*) FROM notification_deliveries WHERE state='local_handed_to_windows'").fetchone()[0]
             unknown = db.execute("SELECT COUNT(*) FROM notification_deliveries WHERE state='local_unknown'").fetchone()[0]
@@ -549,7 +641,7 @@ class AccessStore:
         for request in requests:
             request['can_replace_key'] = request['state'] == 'approved' and request['expires'] > self.now()
             request['state'] = self._request_status(request)['status']
-        return {'requests': requests, 'grants': grants, 'activity': events, 'appActions': self.app_actions(100),
+        return {'requests': requests, 'grants': grants, 'activity': events, 'appActions': self.app_actions(100), 'invites': invites,
                 'notifications': {'channel': 'windows-desktop', 'pendingRequests': pending, 'handedToWindows': handed, 'unknown': unknown}, 'serverTime': self.now()}
 
     def update_enrollment(self, bearer, value, service_url):

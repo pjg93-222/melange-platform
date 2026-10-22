@@ -21,7 +21,27 @@ const REQUIRED_SHEETS = [
   "Sub Layer - Normalized",
   "Blended Model",
 ];
-const EXPECTED_PILLAR_MEMBER_COUNT = 533;
+// First and last column of each category's block on the raw and normalized sheets.
+const BLOCK_COLUMNS = [
+  ["C", "J"],
+  ["K", "R"],
+  ["S", "Z"],
+  ["AA", "AH"],
+  ["AI", "AP"],
+  ["AQ", "AX"],
+  ["AY", "BF"],
+  ["BG", "BN"],
+  ["BO", "BV"],
+  ["BW", "CD"],
+  ["CE", "CL"],
+  ["CM", "CT"],
+  ["CU", "DB"],
+  ["DC", "DJ"],
+  ["DK", "DR"],
+  ["DS", "DZ"],
+  ["EA", "EH"],
+  ["EW", "FD"],
+];
 
 const sha256Bytes = (bytes) =>
   crypto.createHash("sha256").update(bytes).digest("hex");
@@ -116,6 +136,43 @@ function tableCounts(records, range) {
   };
 }
 
+/*
+ * The roster size and the member rows of each sheet come from the Python
+ * caller (fec/roster.py) in the plan's "geometry" object:
+ *   {"member_count": N, "sheets": {"<sheet>": {"first_row": F, "last_row": L}}}
+ * There is no built-in member count.  Missing or inconsistent geometry is
+ * refused, never defaulted.
+ */
+function loadGeometry(geometry) {
+  const count = geometry && geometry.member_count;
+  if (
+    typeof geometry !== "object" ||
+    !Number.isInteger(count) ||
+    count < 1
+  ) {
+    throw new Error(
+      "roster geometry is missing or has no positive integer member_count",
+    );
+  }
+  const sheets = {};
+  for (const name of REQUIRED_SHEETS) {
+    const rows = geometry.sheets && geometry.sheets[name];
+    if (
+      !rows ||
+      !Number.isInteger(rows.first_row) ||
+      rows.first_row < 1 ||
+      rows.last_row !== rows.first_row + count - 1
+    ) {
+      throw new Error(
+        `roster geometry for "${name}" needs first_row and ` +
+          `last_row = first_row + member_count - 1`,
+      );
+    }
+    sheets[name] = { first: rows.first_row, last: rows.last_row };
+  }
+  return { count, sheets };
+}
+
 async function main() {
   const [
     inputArg,
@@ -144,6 +201,12 @@ async function main() {
   ) {
     throw new Error("numeric workbook write plan is not PASS/complete");
   }
+  const { count, sheets } = loadGeometry(plan.geometry);
+  const rawRows = sheets["Legislative Score - Raw"];
+  const normalizedRows = sheets["Legislative Score - Normalized"];
+  const subRawRows = sheets["Sub Layer - Raw"];
+  const subNormalizedRows = sheets["Sub Layer - Normalized"];
+  const blendedRows = sheets["Blended Model"];
 
   const inputBytes = await fs.readFile(inputPath);
   const inputSha256 = sha256Bytes(inputBytes);
@@ -186,26 +249,10 @@ async function main() {
   const errorRecords = parseNdjson(errors.ndjson);
   const errorMatches = realErrorRecords(errorRecords);
 
-  const categoryBlocks = [
-    "C3:J535",
-    "K3:R535",
-    "S3:Z535",
-    "AA3:AH535",
-    "AI3:AP535",
-    "AQ3:AX535",
-    "AY3:BF535",
-    "BG3:BN535",
-    "BO3:BV535",
-    "BW3:CD535",
-    "CE3:CL535",
-    "CM3:CT535",
-    "CU3:DB535",
-    "DC3:DJ535",
-    "DK3:DR535",
-    "DS3:DZ535",
-    "EA3:EH535",
-    "EW3:FD535",
-  ];
+  const blockRanges = (rows) =>
+    BLOCK_COLUMNS.map(
+      ([first, last]) => `${first}${rows.first}:${last}${rows.last}`,
+    );
   const subLayerCategoryColumns = [
     "C",
     "D",
@@ -227,24 +274,27 @@ async function main() {
     "U",
   ];
   const numericChecks = [
-    ...categoryBlocks.map((range) => [
+    ...blockRanges(rawRows).map((range) => [
       "Legislative Score - Raw",
       range,
     ]),
-    ...categoryBlocks.map((range) => [
+    ...blockRanges(normalizedRows).map((range) => [
       "Legislative Score - Normalized",
       range,
     ]),
     ...subLayerCategoryColumns.map((column) => [
       "Sub Layer - Raw",
-      `${column}4:${column}536`,
+      `${column}${subRawRows.first}:${column}${subRawRows.last}`,
     ]),
-    ["Sub Layer - Raw", "AG4:AW536"],
+    ["Sub Layer - Raw", `AG${subRawRows.first}:AW${subRawRows.last}`],
     ...subLayerCategoryColumns.map((column) => [
       "Sub Layer - Normalized",
-      `${column}4:${column}536`,
+      `${column}${subNormalizedRows.first}:${column}${subNormalizedRows.last}`,
     ]),
-    ["Sub Layer - Normalized", "AG4:AW536"],
+    [
+      "Sub Layer - Normalized",
+      `AG${subNormalizedRows.first}:AW${subNormalizedRows.last}`,
+    ],
   ];
   const inspections = [];
   const criticalInspectionMismatches = [];
@@ -256,7 +306,7 @@ async function main() {
       range,
       include: "values,formulas",
       maxChars: 1200000,
-      tableMaxRows: 600,
+      tableMaxRows: Math.max(600, rangeShape(range).rows),
       tableMaxCols: 170,
       tableMaxCellChars: 80,
     });
@@ -289,18 +339,19 @@ async function main() {
     if (!counts.count_match) criticalInspectionMismatches.push(inspection);
   }
 
+  const blendedRange = `A${blendedRows.first}:O${blendedRows.last}`;
   const blended = await workbook.inspect({
     kind: "table",
     sheetId: "Blended Model",
-    range: "A3:O535",
+    range: blendedRange,
     include: "values,formulas",
     maxChars: 1400000,
-    tableMaxRows: 540,
+    tableMaxRows: Math.max(540, count),
     tableMaxCols: 15,
     tableMaxCellChars: 100,
   });
   const blendedRecords = parseNdjson(blended.ndjson);
-  const blendedCounts = tableCounts(blendedRecords, "A3:O535");
+  const blendedCounts = tableCounts(blendedRecords, blendedRange);
   const blendedValues = blendedCounts.values;
   const snapshot = { O: {}, E: {}, F: {} };
   let snapshotInvalid = 0;
@@ -336,9 +387,9 @@ async function main() {
     F: Object.keys(snapshot.F).length,
   };
   const pillarSnapshotMemberCountMatch =
-    pillarSnapshotMembers === EXPECTED_PILLAR_MEMBER_COUNT &&
+    pillarSnapshotMembers === count &&
     Object.values(pillarSnapshotFieldCounts).every(
-      (count) => count === EXPECTED_PILLAR_MEMBER_COUNT,
+      (fieldCount) => fieldCount === count,
     ) &&
     unnamedSnapshotRows === 0 &&
     duplicateSnapshotNames.length === 0;
@@ -430,7 +481,7 @@ async function main() {
     ),
     non_numeric_cells: nonNumeric,
     blended_inspection: {
-      range: "A3:O535",
+      range: blendedRange,
       table_record_count: blendedCounts.table_record_count,
       expected_rows: blendedCounts.expected_rows,
       expected_cols: blendedCounts.expected_cols,
@@ -441,7 +492,7 @@ async function main() {
       count_match: blendedCounts.count_match,
     },
     pillar_snapshot_invalid_cells: snapshotInvalid,
-    pillar_snapshot_expected_members: EXPECTED_PILLAR_MEMBER_COUNT,
+    pillar_snapshot_expected_members: count,
     pillar_snapshot_members: pillarSnapshotMembers,
     pillar_snapshot_member_count_match: pillarSnapshotMemberCountMatch,
     pillar_snapshot_field_counts: pillarSnapshotFieldCounts,

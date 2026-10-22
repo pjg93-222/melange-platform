@@ -172,6 +172,11 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
+    for key in ("roster", "roles", "leader_sources", "primary_transcripts", "primary_acquisition",
+                "primary_cues", "primary_queue", "leader_transcripts", "leader_acquisition",
+                "leader_cues"):
+        if not getattr(args, key).is_file():
+            raise SystemExit(f"required input missing: --{key.replace('_', '-')}")
     input_hashes = {
         path: SMR.sha256_file(path) if path.is_file() else None
         for key, path in vars(args).items()
@@ -445,45 +450,8 @@ def main() -> int:
             "quality_holds_are_exclusions_not_review_authority": True,
         },
         "inputs": {
-            "primary_queue_sha256": SMR.sha256_file(args.primary_queue) if args.primary_queue.is_file() else None,
-            "rejected_sources_sha256": SMR.sha256_file(args.rejected_sources) if args.rejected_sources else None,
-            "quality_holds_sha256": SMR.sha256_file(args.quality_holds) if args.quality_holds else None,
-            "roster_sha256": SMR.sha256_file(args.roster),
-            "roles_sha256": SMR.sha256_file(args.roles),
-            "leader_sources_sha256": SMR.sha256_file(args.leader_sources),
-            "primary_transcripts_sha256": SMR.sha256_file(args.primary_transcripts),
-            "primary_acquisition_sha256": SMR.sha256_file(args.primary_acquisition),
-            "primary_cues_sha256": SMR.sha256_file(args.primary_cues),
-            "retry_transcripts_sha256": (
-                SMR.sha256_file(args.retry_transcripts) if args.retry_transcripts.is_file() else None
-            ),
-            "retry_acquisition_sha256": (
-                SMR.sha256_file(args.retry_acquisition) if args.retry_acquisition.is_file() else None
-            ),
-            "retry_cues_sha256": (
-                SMR.sha256_file(args.retry_cues) if args.retry_cues.is_file() else None
-            ),
-            "retry2_transcripts_sha256": (
-                SMR.sha256_file(args.retry2_transcripts) if args.retry2_transcripts.is_file() else None
-            ),
-            "retry2_acquisition_sha256": (
-                SMR.sha256_file(args.retry2_acquisition) if args.retry2_acquisition.is_file() else None
-            ),
-            "retry2_cues_sha256": (
-                SMR.sha256_file(args.retry2_cues) if args.retry2_cues.is_file() else None
-            ),
-            "retry3_transcripts_sha256": (
-                SMR.sha256_file(args.retry3_transcripts) if args.retry3_transcripts.is_file() else None
-            ),
-            "retry3_acquisition_sha256": (
-                SMR.sha256_file(args.retry3_acquisition) if args.retry3_acquisition.is_file() else None
-            ),
-            "retry3_cues_sha256": (
-                SMR.sha256_file(args.retry3_cues) if args.retry3_cues.is_file() else None
-            ),
-            "leader_transcripts_sha256": SMR.sha256_file(args.leader_transcripts),
-            "leader_acquisition_sha256": SMR.sha256_file(args.leader_acquisition),
-            "leader_cues_sha256": SMR.sha256_file(args.leader_cues),
+            f"{key}_sha256": input_hashes.get(path)
+            for key, path in vars(args).items() if key not in {"out", "receipt"}
         },
         "output": {"path": str(args.out.resolve()), "sha256": SMR.sha256_file(args.out)},
     }

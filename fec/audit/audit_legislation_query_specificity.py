@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -345,10 +347,19 @@ def main() -> int:
     out = args.out.resolve()
     out.relative_to(ROOT)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(
-        json.dumps(result, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{out.name}.", suffix=".tmp", dir=out.parent
     )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as stream:
+            stream.write(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, out)
+    finally:
+        if temporary.exists():
+            temporary.unlink()
     print(
         json.dumps(
             {

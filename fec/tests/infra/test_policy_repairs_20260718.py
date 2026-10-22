@@ -17,6 +17,7 @@ FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 import bill_rules as BR  # noqa: E402
 import moneyball_core as MC  # noqa: E402
+import roster  # noqa: E402
 
 
 def data_root():
@@ -83,15 +84,16 @@ class LiveArtifactContracts(unittest.TestCase):
         )
         self.assertEqual(headers, tuple(norm.cell(1, column).value for column in range(139, 144)))
         self.assertEqual(headers, tuple(display.cell(2, column).value for column in range(50, 55)))
+        member_rows = roster.rows("Legislative Score - Raw", root=data_root())
         for source_column, display_column in zip(range(139, 144), range(50, 55)):
-            values = [float(raw.cell(row, source_column).value) for row in range(3, 536)]
+            values = [float(raw.cell(row, source_column).value) for row in member_rows]
             low, high = min(values), max(values)
-            for offset, row in enumerate(range(3, 536)):
+            for offset, row in enumerate(member_rows):
                 expected = 0.0 if high == low else (values[offset] - low) / (high - low)
                 self.assertAlmostEqual(expected, float(norm.cell(row, source_column).value))
                 self.assertAlmostEqual(expected, float(display.cell(row + 1, display_column).value))
         self.assertEqual("Institutional Influence - Reserved", norm.cell(1, 144).value)
-        self.assertTrue(all(norm.cell(row, 144).value is None for row in range(3, 536)))
+        self.assertTrue(all(norm.cell(row, 144).value is None for row in member_rows))
         book.close()
 
 

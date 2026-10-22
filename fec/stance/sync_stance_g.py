@@ -9,6 +9,7 @@ Run after compute_pillars and primacy generation (run_pipeline owns this order).
 import json,sys,collections
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 import openpyxl
+import roster
 from moneyball_core import overall_display_tier
 from stance.honors_views import load_honors
 from stance.workbook_cell_sync import publish_cells
@@ -17,6 +18,8 @@ from stance.workbook_stance_views import (
     stance_view_contract, sync_category_stance_sheet, sync_coalition_profiles_sheet,
 )
 B=MB_ROOT
+RA_ROWS=roster.rows('Rank & Allocation')
+CS_FIRST,CS_LAST=roster.first_row('Category Stance'),roster.last_row('Category Stance')
 WB=_o.path.join(B,'Moneyball Main Version - Blended.xlsx')
 CS=json.load(open(_o.path.join(B,'category_stance.json'),encoding='utf-8'))
 M=CS['matrix']; OVERALL_CAPS=(CS.get('gate') or {}).get('overall_capped') or {}
@@ -36,7 +39,7 @@ def agg(n): return overall_display_tier(M.get(n,{}),_tier.get(n,0),n,OVERALL_CAP
 wb=openpyxl.load_workbook(WB)                       # formulas preserved
 before={(ws.title,c.coordinate):c.value for ws in wb for row in ws for c in row if c.value is not None}
 style_counts=collections.defaultdict(collections.Counter);style_refs={}
-for row in wb['Category Stance'].iter_rows(min_row=2,max_row=534,min_col=3,max_col=20):
+for row in wb['Category Stance'].iter_rows(min_row=CS_FIRST,max_row=CS_LAST,min_col=3,max_col=20):
     for c in row:
         style_counts[c.value][c.style_id]+=1
         style_refs[(c.value,c.style_id)]=c.coordinate
@@ -45,10 +48,10 @@ for label,base in {'Persuadable':'Highly Persuadable','Lean Persuadable':'Highly
     styles.setdefault(label,styles[base])
 if '—' not in styles:styles['—']=styles[max(style_counts,key=lambda label:sum(style_counts[label].values()))]
 ws=wb['Rank & Allocation']; cnt=collections.Counter(); n=0
-members=[ws.cell(r,1).value for r in range(3,536) if ws.cell(r,1).value]
+members=[ws.cell(r,1).value for r in RA_ROWS if ws.cell(r,1).value]
 overall={name:agg(name) for name in members}
 stance_view_contract(CS,members,overall,_tier)
-for r in range(3,536):
+for r in RA_ROWS:
     nm=ws.cell(r,1).value
     if not nm: continue
     s=agg(nm); ws.cell(r,7).value=s; cnt[s]+=1; n+=1
@@ -67,7 +70,7 @@ changes=[]
 for sheet in wb:
     for row in sheet:
         for cell in row:
-            style=styles.get(cell.value) if sheet.title=='Category Stance' and 2<=cell.row<=534 and 3<=cell.column<=20 else None
+            style=styles.get(cell.value) if sheet.title=='Category Stance' and CS_FIRST<=cell.row<=CS_LAST and 3<=cell.column<=20 else None
             if before.get((sheet.title,cell.coordinate))!=cell.value or (style and cell.style_id!=style[0]):
                 change={'sheet':sheet.title,'cell':cell.coordinate,'value':cell.value}
                 if style:change.update({'style_id':style[0],'style_reference':style[1]})

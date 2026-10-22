@@ -2,7 +2,7 @@
 """Excel-vs-LibreOffice equivalence of computed workbook values (D-174 gate, D-177 tolerance).
 
     xl_equivalence.py compare ref.xlsx cand.xlsx [--exact-range 'Sheet!S3:T535'] [--ulp 4] [--expect-formulas N] [--no-cell-allowance]
-                              [--rank-range 'Sheet!T3:T535' ... --rank-members 533 --continuous-ulp 1024] [--report R.json] [--rank-check-report K.json]
+                              [--rank-range 'Sheet!T3:T535' ... --rank-members N --continuous-ulp 1024] [--report R.json] [--rank-check-report K.json]
     xl_equivalence.py excel-reference --in book.xlsx --out ref.xlsx [--policy melange] [--allow-function NAME]
     xl_equivalence.py negative-control --in book.xlsx --cell 'Sheet!A1' --cand-engine excel|libreoffice
     xl_equivalence.py probe-make probe.xlsx [--extended]   # SUM, LET, XLOOKUP, PERCENTRANK, ... with known values
@@ -18,7 +18,7 @@ ops/compute/office_recalc.py wrote) and tests them cell by cell:
     --exact-range. Tier 1 is what is left: continuous cells that touch no discrete cell;
   * anti-vacuity: both sides must hold the same, non-zero set of formula cells, every one with a cached value.
 Rank-gated tolerance (D-177 as amended by Paul, 2026-10-13: "Tiny rounding differences are allowed in number cells only when every
-rank, percentile and threshold matches exactly in the same run; checked every time."). Given --rank-range (the first range is the 533
+rank, percentile and threshold matches exactly in the same run; checked every time."). Given --rank-range (the first range is the
 member ranks), the same run (1) checks every rank cell exactly, (2) checks every DISCRETE cell exactly: non-numeric values, formulas
 holding RANK/PERCENTRANK/TRUNC/ROUND, comparisons and IF/IFS/IFERROR/IFNA whose results are categorical, and every column that holds a
 RANK/PERCENTRANK formula, plus --exact-range, and only if both hold (3) lets CONTINUOUS numeric cells (all the others) differ by at most
@@ -49,6 +49,8 @@ from xml.sax.saxutils import escape
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import office_recalc as OR  # noqa: E402
 
+REPO = Path(__file__).resolve().parents[2]
+
 ULP_DEFAULT = 4
 SHOW = 25
 # D-177 allows a few ULP on a continuous cell that feeds nothing discrete. The one such cell the 2026-10-12 probes found:
@@ -60,10 +62,9 @@ SHOW = 25
 # explicit entry. Every other cell keeps the tier rules.
 CELL_ULP = {("Coalition Profiles", "C29"): 16}
 # D-177 amended 2026-10-13 (Paul): continuous numeric cells may differ by this many ULP when the same run verifies every discrete cell and
-# the 533 member ranks exactly. C29 (8 ULP observed) is a continuous cell, so the amended rule covers it and its CELL_ULP entry is redundant
+# the member ranks exactly. C29 (8 ULP observed) is a continuous cell, so the amended rule covers it and its CELL_ULP entry is redundant
 # there; the entry stays for the unamended run.
 CONTINUOUS_ULP = 1024
-RANK_MEMBERS = 533
 RANK_FUNCS = {"RANK", "RANK.EQ", "RANK.AVG", "PERCENTRANK", "PERCENTRANK.INC", "PERCENTRANK.EXC"}
 BOOLEAN_FUNCS = {"AND", "OR", "NOT", "XOR", "ISNUMBER", "ISERROR", "ISERR", "ISBLANK", "ISTEXT", "ISNA", "ISLOGICAL"}
 
@@ -333,7 +334,16 @@ def in_ranges(ranges, sheet, addr) -> bool:
     return any(s == sheet and c0 <= c <= c1 and r0 <= r <= r1 for s, c0, c1, r0, r1 in ranges)
 
 
-def rank_check(ref: dict, cand: dict, ranges, members: int = RANK_MEMBERS) -> dict:
+def rank_members(root=None) -> int:
+    """How many member-rank cells each --rank-range must hold: the roster's size (roster lane 2026-10-20; it was the literal 533). Read
+    when needed, so importing this module needs no data tree; a missing roster raises rather than falling back to a remembered count."""
+    if str(REPO / "fec") not in sys.path:
+        sys.path.insert(0, str(REPO / "fec"))
+    import roster
+    return roster.count(root=root or REPO)
+
+
+def rank_check(ref: dict, cand: dict, ranges, members=None) -> dict:
     """D-174's member-rank check, run on the two sides of one comparison. `ranges` are 'Sheet!T3:T535' specs of rank cells; the first is the
     member ranks. PASS needs every range to hold `members` formula cells, each numeric and exactly equal on both sides. The first range
     fills members/rank_exact (the fields cutover.py reads); the others are listed under second_rank_column / other_ranges."""
@@ -351,6 +361,7 @@ def rank_check(ref: dict, cand: dict, ranges, members: int = RANK_MEMBERS) -> di
             else:
                 differing.append(a)
         rows.append({"cells": spec, "members": len(addrs), "exact": exact, "differing": differing[:SHOW], "missing": missing[:SHOW]})
+    members = rank_members() if members is None else members
     ok = bool(rows) and all(r["members"] == members and r["exact"] == members for r in rows)
     first = rows[0] if rows else {"cells": None, "members": 0, "exact": 0, "differing": [], "missing": []}
     out = {"schema": "office-rank-check-v1", "result": "PASS" if ok else "FAIL", "members": first["members"], "members_expected": members,
@@ -369,7 +380,7 @@ def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None,
     """ref/cand: office_recalc.read_cached_formula_values output. Returns the report dict (report['equivalent']).
     cell_ulp: {(sheet, addr): max ULP} per-cell allowances (default CELL_ULP; {} for none). An allowance replaces the tier
     rule for that cell's numbers only, and only while no formula on either side reads the cell.
-    ranks: {'ranges': ['Sheet!T3:T535', ...], 'members': 533} switches on the rank-gated rule (D-177 amended, module docstring): the
+    ranks: {'ranges': ['Sheet!T3:T535', ...], 'members': N} (N omitted = the roster's size) switches on the rank-gated rule (D-177 amended, module docstring): the
     rank check and every discrete cell are verified exactly in this call, and only if both hold may a continuous numeric cell differ
     by up to continuous_ulp. Otherwise the tolerance is refused and tier0 / ulp / cell_ulp judge the cells, as without `ranks`.
     exact_ranges: 'Sheet!A1:B9' specs that are discrete too (the rank-gated rule's counterpart of make_tier0's)."""
@@ -379,7 +390,7 @@ def compare(ref: dict, cand: dict, tier0, ulp=ULP_DEFAULT, expect_formulas=None,
     if ranks is not None:
         merged, pinned = merge_formulas(ref, cand), parse_ranges(exact_ranges)
         rcols = rank_columns(merged)
-        rc = rank_check(ref, cand, ranks["ranges"], ranks.get("members", RANK_MEMBERS))
+        rc = rank_check(ref, cand, ranks["ranges"], ranks.get("members"))
 
         def discrete(sheet, addr):
             a, b = ref.get(sheet, {}).get(addr), cand.get(sheet, {}).get(addr)
@@ -733,7 +744,7 @@ def main(argv=None) -> int:
     c.add_argument("--no-cell-allowance", action="store_true", help="ignore CELL_ULP: Excel against Excel must be identical")
     c.add_argument("--rank-range", action="append", default=[], metavar="'Sheet!T3:T535'",
                    help="rank cells to check exactly in this run (the first range is the member ranks); turns the rank-gated tolerance on")
-    c.add_argument("--rank-members", type=int, default=RANK_MEMBERS, help="cells each --rank-range must hold (default %(default)s)")
+    c.add_argument("--rank-members", type=int, default=None, help="cells each --rank-range must hold (default: the roster's size)")
     c.add_argument("--continuous-ulp", type=int, default=CONTINUOUS_ULP, help="rank-gated limit for continuous cells (default %(default)s)")
     c.add_argument("--report", type=Path)
     c.add_argument("--rank-check-report", type=Path, help="write the rank check alone (what cutover.py reads as office_rank_check.json)")

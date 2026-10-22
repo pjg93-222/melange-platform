@@ -24,6 +24,7 @@ import shutil
 import tempfile
 from typing import Any, Mapping, Sequence
 
+import roster
 from legislation import build_legislation_workbook_numeric_plan as NP
 
 try:
@@ -601,7 +602,7 @@ def validate_layout(path: Path) -> dict[str, Any]:
     for category in NP.CATEGORIES:
         values = nonleg.get(category)
         category_weights = weights.get(category)
-        if not isinstance(values, list) or len(values) != 533:
+        if not isinstance(values, list) or len(values) != roster.count():
             raise AssemblyError(
                 f"audited nonlegislative vector invalid: {category}"
             )
@@ -711,10 +712,10 @@ def required_write_keys() -> set[tuple[str, str]]:
         result.update((sheet, value) for value in NP.BLOCK_RANGES.values())
     for sheet in ("Sub Layer - Raw", "Sub Layer - Normalized"):
         result.update(
-            (sheet, f"{column}4:{column}536")
+            (sheet, f"{column}4:{column}{roster.last_row('Sub Layer - Raw')}")
             for column in NP.CATEGORY_SUBLAYER_COLUMNS.values()
         )
-        result.add((sheet, "AG4:AW536"))
+        result.add((sheet, f"AG4:AW{roster.last_row('Sub Layer - Raw')}"))
     return result
 
 
@@ -764,9 +765,10 @@ def validate_efficiency_layout(
         and layout.get("slots") == list(slots)
         and layout.get("cu_tax_efficiency_treatment")
         == dict(cu_tax_treatment)
-        and layout.get("raw_range") == "Sub Layer - Raw!AG4:AW536"
+        and layout.get("raw_range")
+        == f"Sub Layer - Raw!AG4:AW{roster.last_row('Sub Layer - Raw')}"
         and layout.get("normalized_range")
-        == "Sub Layer - Normalized!AG4:AW536"
+        == f"Sub Layer - Normalized!AG4:AW{roster.last_row('Sub Layer - Raw')}"
     ):
         raise AssemblyError(
             "numeric plan lacks the approved machine-readable 17/18 layout"
@@ -817,7 +819,7 @@ def validate_efficiency_layout(
             isinstance(item, dict)
             and item.get("column") == slot["column"]
             and item.get("range")
-            == f"{slot['column']}4:{slot['column']}536"
+            == f"{slot['column']}4:{slot['column']}{roster.last_row('Sub Layer - Raw')}"
             and item.get("aggregation") == slot["aggregation"]
             and item.get("aggregate_with") == peers
         ):

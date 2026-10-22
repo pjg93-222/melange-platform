@@ -5,6 +5,8 @@ subprocess.run, the API transport a fake urlopen, and the evidence fetch a stub,
 """
 from __future__ import annotations
 
+import http.client
+import io
 import json
 from pathlib import Path
 import sys
@@ -173,9 +175,13 @@ def test_an_ordinary_classifier_failure_does_not_stop_the_loop(world, monkeypatc
     calls = fake_cli(monkeypatch, [cli(1, '', 'boom')])
     code, generation, checkpoint, installed = run_main(world)
     assert sorted(calls) == sorted(KEYS)                    # every key still got its call
+    # R1 (Paul 2026-10-19): a non-quota failure on never-admitted keys is a deferral, not a FAIL on its own. Every call here
+    # failed with rc 1, though (an expired login looks exactly like this), so the systemic-outage guard fails the run: two
+    # non-timeout deferrals and no success is a dead classifier (test_sentinel_classifier_deferral has the timeout cases).
     assert (code, generation['status'], installed) == (1, 'FAIL', False)
-    assert sorted(checkpoint['errors']) == sorted(KEYS)
-    assert all(reason.startswith('RuntimeError: tool-free classifier failed (rc 1)') for reason in checkpoint['errors'].values())
+    assert generation['classifier_systemic_failure'] is True and list(generation['errors']) == ['CLASSIFIER_SYSTEMIC_FAILURE']
+    assert checkpoint['errors'] == {} and sorted(generation['source_unavailable_deferred_keys']) == sorted(KEYS)
+    assert all(reason.startswith('RuntimeError: tool-free classifier failed (rc 1)') for reason in generation['classifier_deferred'].values())
     assert (generation['aborted_reason'], generation['not_attempted']) == (None, 0)
 
 
@@ -185,8 +191,12 @@ BILL_URL = 'https://www.govinfo.gov/content/pkg/BILLS-119hr7ih/xml/BILLS-119hr7i
 BILL = b'Section 2 amends 12 U.S.C. 1757 so federal credit unions may offer member payment accounts.'
 
 
-@pytest.mark.parametrize('code, expected', [(429, R.SourceUnavailable), (500, R.SourceUnavailable), (404, urllib.error.HTTPError)])
-def test_statute_fetch_429_is_an_outage_like_a_5xx_and_other_4xx_still_raise(tmp_path, monkeypatch, code, expected):
+TEMPORARY_FORMAT_BODY = b'<html><body>The uscode.house.gov website is currently operating in a temporary format.</body></html>'
+
+
+def stub_statute_fetch(monkeypatch, error):
+    """Stub everything collect() reads for a bill citing 12 USC 1757 and make its House Code fetch raise `error` on every
+    attempt. Returns the urlopen mock, so a test can count the attempts."""
     monkeypatch.setattr(R.time, 'sleep', Mock())
     monkeypatch.setattr(R.GF, 'network_fetcher', lambda timeout: lambda url, cap: BILL if url == BILL_URL else b'<billstatus/>')
     monkeypatch.setattr(R.BS, 'parse_billstatus_xml', lambda *a, **k: {'canonical_key': '119:hr:7'})
@@ -194,10 +204,53 @@ def test_statute_fetch_429_is_an_outage_like_a_5xx_and_other_4xx_still_raise(tmp
     monkeypatch.setattr(R.GF, '_parse_bill_text', lambda raw, **k: raw.decode())
     monkeypatch.setattr(R.GF, '_select_title', lambda parsed: 'Fixture')
     monkeypatch.setattr(R, '_govinfo_snapshot', lambda *a, **k: snapshot('119:hr:7'))
-    error = urllib.error.HTTPError('https://uscode.house.gov/view.xhtml', code, 'status', {}, None)
-    monkeypatch.setattr(R.urllib.request, 'urlopen', Mock(side_effect=error))
+    opened = Mock(side_effect=error)
+    monkeypatch.setattr(R.urllib.request, 'urlopen', opened)
+    return opened
+
+
+def collect_bill(tmp_path):
+    return R.collect('119:hr:7', tmp_path / 'evidence', '2026-10-14T00:00:00+00:00')
+
+
+def status_error(code, body=b''):
+    return urllib.error.HTTPError('https://uscode.house.gov/view.xhtml', code, 'status', {}, io.BytesIO(body))
+
+
+@pytest.mark.parametrize('error, expected', [
+    (status_error(429), R.SourceUnavailable), (status_error(500), R.SourceUnavailable),
+    (status_error(403), R.SourceUnavailable), (status_error(408), R.SourceUnavailable),   # WAF block / request timeout
+    (status_error(404, TEMPORARY_FORMAT_BODY), R.SourceUnavailable),                      # D-186: the temporary-format site
+    (status_error(410, TEMPORARY_FORMAT_BODY), R.SourceUnavailable),
+    (status_error(404), urllib.error.HTTPError), (status_error(400), urllib.error.HTTPError),
+    (status_error(401), urllib.error.HTTPError), (status_error(405), urllib.error.HTTPError),
+])
+def test_statute_fetch_429_is_an_outage_like_a_5xx_and_other_4xx_still_raise(tmp_path, monkeypatch, error, expected):
+    stub_statute_fetch(monkeypatch, error)
     with pytest.raises(expected) as raised:
-        R.collect('119:hr:7', tmp_path / 'evidence', '2026-10-14T00:00:00+00:00')
+        collect_bill(tmp_path)
     assert type(raised.value) is expected
     if expected is R.SourceUnavailable:
         assert raised.value.snapshot['key'] == '119:hr:7' and BILL_URL in raised.value.texts
+        assert 'official statute service unavailable for 12 USC 1757' in str(raised.value)
+
+
+@pytest.mark.parametrize('error, tries', [
+    (TimeoutError('timed out'), 3),                                  # transient: three tries, then the outage
+    (http.client.RemoteDisconnected('Remote end closed connection'), 3),
+    (urllib.error.URLError(ConnectionRefusedError('refused')), 1),   # a refused connection is not retried
+])
+def test_statute_timeout_urlerror_and_disconnect_are_source_unavailable(tmp_path, monkeypatch, error, tries):
+    opened = stub_statute_fetch(monkeypatch, error)
+    with pytest.raises(R.SourceUnavailable, match='official statute service unavailable for 12 USC 1757') as raised:
+        collect_bill(tmp_path)
+    assert opened.call_count == tries
+    assert raised.value.snapshot['key'] == '119:hr:7' and BILL_URL in raised.value.texts
+
+
+@pytest.mark.parametrize('error', [ValueError('statutory evidence exceeds size limit'), UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'bad')])
+def test_statute_size_and_decode_faults_stay_fail_closed(tmp_path, monkeypatch, error):
+    stub_statute_fetch(monkeypatch, error)
+    with pytest.raises(ValueError) as raised:
+        collect_bill(tmp_path)
+    assert not isinstance(raised.value, R.SourceUnavailable)

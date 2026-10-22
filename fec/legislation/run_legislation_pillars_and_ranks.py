@@ -33,6 +33,7 @@ from typing import Any, Iterable, Sequence
 import openpyxl
 
 from paths import ROOT as MB_ROOT
+import roster
 
 try:
     from lane_file_io import atomic_write_bytes
@@ -263,7 +264,7 @@ def workbook_cache(
         blended = workbook["Blended Model"]
         members = [
             str(rank_sheet.cell(row, 1).value)
-            for row in range(3, 536)
+            for row in roster.rows('Rank & Allocation')
             if rank_sheet.cell(row, 1).value
         ]
         if not members or len(set(members)) != len(members):
@@ -277,7 +278,7 @@ def workbook_cache(
         ):
             raise PillarError("Rank & Allocation roster has blank row gaps")
         rows: dict[str, int] = {}
-        for row in range(3, 536):
+        for row in roster.rows('Blended Model'):
             if blended.cell(row, 1).value:
                 name = str(blended.cell(row, 1).value)
                 if name in rows:

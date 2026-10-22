@@ -77,6 +77,23 @@ class VerificationRefusal(RuntimeError):
     pass
 
 
+IDENTITY_METHOD_STRENGTH = (  # strongest first
+    "in-band-name-plus-zero-false-accept-vault-consensus",
+    "in-band-name-plus-three-accepted-event-continuity",
+    "in-band-name-plus-cold-seed-rejection-only",
+)
+
+
+def refuse_duplicate_ids(rows: list[dict], key: str) -> None:
+    if len({str(row[key]) for row in rows}) != len(rows):
+        raise VerificationRefusal("duplicate_source_id")
+
+
+def source_identity_method(windows: list[dict]) -> str:
+    """Weakest identity method among the accepted windows."""
+    return max((w["identity_method"] for w in windows), key=IDENTITY_METHOD_STRENGTH.index)
+
+
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
@@ -182,11 +199,14 @@ def main() -> int:
     parser.add_argument("--canonical", type=Path, default=DEFAULT_CANONICAL)
     args = parser.parse_args()
 
-    sources = {str(row["video_id"]): row for row in SMR.read_jsonl(args.sources, required=True)}
-    asr = {str(row["video_id"]): row for row in SMR.read_jsonl(args.asr, required=True)}
+    source_rows = SMR.read_jsonl(args.sources, required=True)
+    asr_rows = SMR.read_jsonl(args.asr, required=True)
     spans = SMR.read_jsonl(args.spans, required=True)
-    if len(sources) != len(set(sources)) or len(asr) != len(set(asr)):
-        raise VerificationRefusal("duplicate_source_id")
+    refuse_duplicate_ids(source_rows, "video_id")
+    refuse_duplicate_ids(asr_rows, "video_id")
+    refuse_duplicate_ids(spans, "source_id")
+    sources = {str(row["video_id"]): row for row in source_rows}
+    asr = {str(row["video_id"]): row for row in asr_rows}
 
     anchor_receipt = json.loads(args.anchor_receipt.read_text(encoding="utf-8-sig"))
     vectors_path = Path(str(anchor_receipt["combined_vectors"]))
@@ -372,6 +392,7 @@ def main() -> int:
                 "target_margin": None if margin is None else round(margin, 9),
                 "seed_coherence_score": None if seed_score is None else round(float(seed_score), 9),
                 "pcm_sha256": sha256_bytes(payload),
+                "identity_method": identity_method,
                 "_payload": payload,
             })
 
@@ -448,7 +469,7 @@ def main() -> int:
             "reviewed_target_span": [review["target_start_sec"], review["target_end_sec"]],
             "reviewed_window_starts": reviewed_starts,
             "review_basis": review["review_basis"],
-            "identity_method": identity_method,
+            "identity_method": source_identity_method(accepted_run),
             "acceptance_geometry": acceptance_geometry,
             "supplemental_identity_references": supplemental_sources.get(str(review["member"]), []),
             "accepted_windows": len(persisted),

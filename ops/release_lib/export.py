@@ -27,11 +27,22 @@ MELANGE_RESEARCH_TESTS = (
     "fec/tests/research/test_research_io_regression.py",
     "fec/tests/research/test_research_assertion_boundaries.py",
     "fec/tests/research/test_institutions_reference_report.py",
+    # 2026-10-20 (PR #14 round 3): new research-sweep tests that import or read fec/research/.
+    "fec/tests/research/test_exchange_context_audit_checks.py",
+    "fec/tests/research/test_fetch_demographics_guards.py",
+    "fec/tests/research/test_fetch_hearing_pilot_provenance.py",
+    "fec/tests/research/test_mine_anchors_matcher.py",
+    "fec/tests/research/test_refinement_common_write_json.py",
+    "fec/tests/research/test_refinement_report_guards.py",
 )
 # 2026-10-19: tests that read gitignored local build products (root lobby-*.html / cu-member-desk.html pages and
 # fec/surfaces/staffer_live/approved/), never in git, so an exported copy could never run either.
+# 2026-10-20: the cspan chromote retry fixture (.R) and its wrapper run against cspan/cspan_scrape.R, which sits outside the
+# export roots, so an exported copy could never pass; the source machine has R and runs them.
 MELANGE_LOCAL_ARTIFACT_TESTS = (
     "fec/tests/surfaces/test_original_workspace.py",
+    "fec/tests/collect/test_cspan_chromote_retry.py",
+    "fec/tests/collect/test_cspan_chromote_retry.R",
 )
 MELANGE_EXCLUDE = re.compile(r"^fec/(_quarantine_[^/]*/|attic/|research/|docs/|pas224\.zip$)"
                              r"|^(?:" + "|".join(re.escape(p) for p in MELANGE_RESEARCH_TESTS + MELANGE_LOCAL_ARTIFACT_TESTS)

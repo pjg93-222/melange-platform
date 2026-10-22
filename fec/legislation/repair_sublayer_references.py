@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import openpyxl
 from openpyxl.utils import column_index_from_string, get_column_letter
 from paths import ROOT as B
+import roster
 
 WB = B + r'\Moneyball Main Version - Blended.xlsx'
 PLAN = B + r'\data\engine\repair_sublayer_plan.json'
@@ -47,7 +48,7 @@ def build_maps(sr, ln):
     # numerator mode, is the trustworthy anchor). The canonical NUMERATOR column is then the
     # LegNorm column whose row-1 header exactly matches that basis name.
     slot_t1 = collections.defaultdict(collections.Counter)
-    for r in range(4, 537):
+    for r in roster.rows('Sub Layer - Raw'):
         for c in range(33, 50):
             t = T1.search(str(sr.cell(r, c).value or ''))
             if t: slot_t1[c][t.group(1)] += 1
@@ -66,7 +67,7 @@ def build_maps(sr, ln):
 
 def audit(sr, ln, ln_row, canon_col, canon_t1):
     devs = []
-    for r in range(4, 537):
+    for r in roster.rows('Sub Layer - Raw'):
         nm = sr.cell(r, 2).value
         if not nm: continue
         own = ln_row.get(str(nm).strip())
@@ -96,7 +97,7 @@ def main():
     print('canonical numerator columns:', {get_column_letter(c): v for c, v in sorted(canon_col.items())})
     devs = audit(sr, ln, ln_row, canon_col, canon_t1)
     kinds = collections.Counter(d['kind'].split(';')[0] for d in devs)
-    print('deviating cells: %d of %d | by first-kind: %s' % (len(devs), 533 * 17, dict(kinds)))
+    print('deviating cells: %d of %d | by first-kind: %s' % (len(devs), roster.count() * 17, dict(kinds)))
     if '--plan' in sys.argv or '--apply' not in sys.argv:
         json.dump({'generated': datetime.datetime.now().isoformat(timespec='seconds'),
                    'canonical_cols': {get_column_letter(c): v for c, v in canon_col.items()},

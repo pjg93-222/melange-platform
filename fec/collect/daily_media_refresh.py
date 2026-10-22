@@ -70,6 +70,13 @@ SMOKE_SOURCES = ('crec', 'chrg', 'bluesky')
 # --press-delta-root it discovers a run instead and skips a refused one, so the
 # canonical chain still audits the last complete press generation.
 PRESS_GATED_DERIVED = ('all_intake',)
+# Derived producers that read bill_repository_live.json (behavior_panel and behavioral_dispositions, through
+# member_identity.load_billstatus) or consume their output (big5_lexcal and big5_hybrid read behavioral_dispositions.json).
+# The congress pipeline runs this whole helper BEFORE its repository fetch, so these four saw the previous repository and
+# ranks lagged one run behind; refresh_congress_pipeline.steps() re-runs exactly these after billstatus (rederive_<name>).
+# The other derived steps (big5_traits, interaction_features, ...) never read the repository, so they are not repeated.
+# Standalone runs of this helper are unchanged.
+REPOSITORY_BOUND_DERIVED = ('behavior_panel', 'behavioral_dispositions', 'big5_lexcal', 'big5_hybrid')
 # Collector log statuses that are explicit outcomes rather than unresolved items:
 # empty or member-free days and source-attested terminal losses. Compared lowercased.
 TERMINAL_LOG_STATUSES = {'ok', 'nosession', 'noep', 'empty', 'nopage', 'gone', 'noqa'}

@@ -19,6 +19,7 @@ from pathlib import Path
 import tempfile
 from typing import Any, Iterable
 import re
+import zlib
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -191,7 +192,7 @@ def accepted_receipts(
                 "attempt_ordinal": row.get("attempt_ordinal"),
                 "archive": archive,
             }
-        except (OSError, ValueError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, EOFError, zlib.error, json.JSONDecodeError) as exc:
             invalid.append({"path": str(path), "reason": str(exc)})
     return accepted, invalid
 
@@ -593,6 +594,9 @@ def main() -> int:
             for row in unaccounted_dispatches
         ),
         "malformed_batches": malformed_batches,
+        "invalid_accepted": sorted(
+            (str(row.get("path")), str(row.get("reason"))) for row in invalid_accepted
+        ),
     }
     snapshot_id = sha256_bytes(canonical_bytes(identity))
     snapshot = out_root / "snapshots" / snapshot_id

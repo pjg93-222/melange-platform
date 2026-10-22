@@ -2,6 +2,7 @@ import json, sys, openpyxl, hashlib
 from pathlib import Path; sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from paths import WORKBOOK, p, to_host   # S2-02 audit run-2: honor MONEYBALL_ROOT — never audit a hardcoded tree
 from moneyball_core import BLOCKCAT, blocks
+import roster   # single source for the member count and the workbook member rows (roster lane 2026-10-20)
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 
 
@@ -17,6 +18,14 @@ def money_totals_match_source(rows, receipt_path):
         if receipt['status']!='PASS' or hashlib.sha256(output.read_bytes()).hexdigest()!=receipt['output']['sha256']:
             return False
         source=json.loads(output.read_text(encoding='utf-8'))
+        # Roster drift the money application recorded (engine/apply_fec_money_refresh.py): withheld arrivals carry no
+        # money from this generation; dropped departures are no longer on the roster. Anything else still fails.
+        application=receipt_path.parent/'fec_money_application.json'
+        drift=(json.loads(application.read_text(encoding='utf-8')).get('roster_drift') or {}) if application.exists() else {}
+        withheld,dropped=set(drift.get('withheld',())),set(drift.get('dropped',()))
+        if any(r[k] for r in rows if r['member'] in withheld for k in ('cu','banks','finserv')): return False
+        rows=[r for r in rows if r['member'] not in withheld]
+        source=[r for r in source if r['member'] not in dropped]
         return ({r['bioguide'] for r in rows}=={r['bioguide'] for r in source}
                 and all(abs(sum(r[k] for r in rows)-sum(r[k] for r in source))<1e-6
                         for k in ('cu','banks','finserv')))
@@ -51,19 +60,20 @@ def main():
     # on user Excel opens (fullCalcOnLoad). Rank truth = ranks_python.json (the authority). View-dependent
     # checks (allocation col 21) run only while the view cache is alive.
     AUTH=json.load(open(p('ranks_python.json')))
-    VIEW_ALIVE=sum(1 for r in range(3,536) if bm.cell(r,1).value) >= 500
+    VIEW_ALIVE=sum(1 for r in roster.rows('Blended Model') if bm.cell(r,1).value) >= 500
+    RA_ROWS=range(roster.first_row('Rank & Allocation'),ra.max_row+1)   # every row under the header: a name past the roster window must show up in the count, not hide
     # A integrity
     errs=sum(1 for ws in wb.worksheets for row in ws.iter_rows() for c in row if isinstance(c.value,str) and c.value in {'#REF!','#DIV/0!','#VALUE!','#N/A','#NAME?','#NUM!'})
-    nmem=sum(1 for r in range(3,536) if ra.cell(r,1).value)   # R&A names are TYPED (cache-immune)
+    nmem=sum(1 for r in RA_ROWS if ra.cell(r,1).value)   # R&A names are TYPED (cache-immune)
     ok(errs==0,'A1 formula errors = %d'%errs)
     if VIEW_ALIVE:
-        alloc=sum((bm.cell(r,21).value or 0) for r in range(3,536)); funded=sum(1 for r in range(3,536) if (bm.cell(r,21).value or 0)>0)
+        alloc=sum((bm.cell(r,21).value or 0) for r in roster.rows('Blended Model')); funded=sum(1 for r in roster.rows('Blended Model') if (bm.cell(r,21).value or 0)>0)
         ok(abs(alloc-2_000_000)<1,f'A2 allocation = ${alloc:,.0f}')
         ok(funded==int(bm.cell(7,28).value or 133),'A3 funded = %d (= Fund top N)'%funded)
     else:
         ok(True,'A2 allocation: SKIP (view cache stale; self-heals on Excel open)')
         ok(True,'A3 funded: SKIP (view cache stale)')
-    ok(nmem==533,'A4 members = %d'%nmem)
+    ok(nmem==roster.count(),'A4 members = %d (roster %d)'%(nmem,roster.count()))
     # B influence = committee-only
     ab12=bm.cell(12,28).value; ab13=bm.cell(13,28).value
     ok(ab12==1.0 and ab13==0.0,'B1 influence weights committee=%s centrality=%s (expect 1.0/0.0)'%(ab12,ab13))
@@ -77,7 +87,7 @@ def main():
     ok(rk.get('Tim Scott',999)<=15,'C1 Tim Scott rank = %s (expect <=15, champion)'%rk.get('Tim Scott'))
     ok(rk.get('Richard Durbin',0)>=380,'C2 Durbin rank = %s (expect >=380, opponent)'%rk.get('Richard Durbin'))
     nrm=wb['Legislative Score - Normalized']; _lraw=wb['Legislative Score - Raw']
-    _ex=[(nrm.cell(r,3).value,_lraw.cell(r,3).value) for r in range(3,536)]
+    _ex=[(nrm.cell(r,3).value,_lraw.cell(r,3).value) for r in roster.rows('Legislative Score - Normalized')]
     _mxr=max((rr for nn,rr in _ex if isinstance(rr,(int,float)) and rr>0), default=0)
     _topn=[nn for nn,rr in _ex if rr==_mxr]
     ok(_mxr>0 and bool(_topn) and isinstance(_topn[0],(int,float)) and abs(_topn[0]-1.0)<1e-6,
@@ -86,7 +96,7 @@ def main():
     # domains. Their display labels use a sign-preserving empirical curve while raw
     # and adjusted evidence scores remain unchanged. Overall stance is still fixed.
     from collections import Counter
-    sd=Counter(ra.cell(r,7).value for r in range(3,536) if ra.cell(r,1).value)
+    sd=Counter(ra.cell(r,7).value for r in RA_ROWS if ra.cell(r,1).value)
     oppside=sd.get('Opponent',0)+sd.get('Highly Skeptical',0)+sd.get('Skeptic',0)
     champside=sd.get('Champion',0)+sd.get('Ally',0)
     _stance=json.load(open(p('category_stance.json')))
@@ -115,8 +125,8 @@ def main():
     # E congestion sheet
     ok('Congestion' in wb.sheetnames,'E1 Congestion sheet present')
     cg=wb['Congestion']; ncg=sum(1 for r in range(3,cg.max_row+1) if cg.cell(r,1).value)
-    ok(ncg==533,'E2 Congestion rows = %d'%ncg)
-    CJ=json.load(open(p('data/engine/congestion.json')))
+    ok(ncg==roster.count(),'E2 Congestion rows = %d (roster %d)'%(ncg,roster.count()))
+    CJ=json.load(open(p('data/engine/congestion.json'),encoding='utf-8'))
     TCU=sum(m['cu'] for m in CJ); TBK=sum(m['banks'] for m in CJ); TFS=sum(m['finserv'] for m in CJ)
     ok(money_totals_match_source(CJ,p('data/money/fec_refresh_current.json')),f'E3 source-bound industry totals CU ${TCU:,} Banks ${TBK:,} FinSvc ${TFS:,}')
     # 3-way raw shares sum to 100; capacity-adj sum to 100
@@ -130,7 +140,7 @@ def main():
     ec={m['member']:m for m in CJ}
     ok(all(n in ec for n in ['Debbie Wasserman Schultz','Matt Van Epps','Pablo Hernández Rivera']),'E6 three edge-case members present')
     # F FEC mapping coverage + no false-match committees in totals
-    ok(len([m for m in CJ if m['bioguide']])==533,'F1 all 533 members have bioguide')
+    ok(len([m for m in CJ if m['bioguide']])==roster.count(),'F1 all %d members have bioguide'%roster.count())
     neg=[m['member'] for m in CJ if (m['cu'] or 0)<0 or (m['banks'] or 0)<0 or (m['finserv'] or 0)<0]
     ok(len(neg)==0,'F2 no negative $ buckets (refunds floored): %s'%neg[:3])
     # G IM allocation -- M4: im_allocation.json is now the LIVE per-topic model (member-level row-sums of
@@ -154,7 +164,7 @@ def main():
     ptbad=[t for t,a in PT.items() if abs(sum(a.values())-2_000_000)>5000]
     ok(len(ptbad)==0,'G4 each sub-category sums to $2M (bad: %s)'%ptbad)
     # H cross-consistency: congestion.json members == model members
-    modn=set(ra.cell(r,1).value for r in range(3,536) if ra.cell(r,1).value)   # cache-immune
+    modn=set(ra.cell(r,1).value for r in RA_ROWS if ra.cell(r,1).value)   # cache-immune
     cjn=set(m['member'] for m in CJ)
     ok(modn==cjn,'H1 congestion.json members match model exactly (diff %d)'%len(modn^cjn))
     # ===== report =====

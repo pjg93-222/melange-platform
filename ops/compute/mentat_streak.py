@@ -121,6 +121,10 @@ class Refused(Exception):
     """A gate or an argument said no before anything ran; main() prints the message and returns 2."""
 
 
+class Unreadable(Refused):
+    """A run's own output is not readable JSON: cmd_compare records a failed snapshot; any other caller still refuses."""
+
+
 # --------------------------------------------------------------------------------------------------------- small helpers
 
 def sha256_file(path) -> str:
@@ -572,7 +576,7 @@ def explained_records(spec: dict, job: str, a_root, b_root, run_id: str) -> list
             try:
                 docs.append(json.loads(path.read_text(encoding="utf-8-sig")) if path.is_file() else None)
             except (OSError, ValueError):
-                raise Refused("%s is not readable JSON, so its explained fields cannot be located" % path) from None
+                raise Unreadable("%s is not readable JSON, so its explained fields cannot be located" % path) from None
         pointers = set()
         for doc in docs:
             if doc is not None:
@@ -613,7 +617,7 @@ def build_mask(spec: dict, job: str, a_root, run_id: str, digest: str, explained
             try:
                 present = flatten_pointers(json.loads((a_root / rel).read_text(encoding="utf-8-sig")))
             except (OSError, ValueError):
-                raise Refused("%s is not readable JSON, so its volatile fields cannot be located" % rel) from None
+                raise Unreadable("%s is not readable JSON, so its volatile fields cannot be located" % rel) from None
             for pointer in entry["locations"]:
                 if pointer in present:
                     files.setdefault(rel, set()).add(pointer)
@@ -1526,32 +1530,36 @@ def cmd_compare(args, host, tool=None) -> int:
         venv = Path(host.local_appdata()) / "Mentat" / "venv" / "Scripts" / "python.exe"
         tool = tool or MentatCompare(host, args.mentat_root, python=args.python or (str(venv) if venv.is_file() else sys.executable))
         digest = tool.tree_digest(a_cmp, ignore)
-        records = explained_records(spec, job, a_cmp, b_cmp, rid)
-        mask, notes = build_mask(spec, job, a_cmp, rid, digest, records)
-        out["explained"] = [{"class": "EXPLAINED", **{k: r[k] for k in ("file", "location", "a", "b", "cite", "ruling", "normalized") if k in r}}
-                            for r in records if r["differs"] and r["explains"]]
-        out["explained_rejected"] = [{k: r[k] for k in ("file", "location", "a", "b")} | {"why": "not byte-identical once the R version text is replaced by one placeholder"}
-                                     for r in records if r["differs"] and not r["explains"]]
-        write_json(layout.mask, mask)
-        proc = tool.compare(a_cmp, b_cmp, layout.mask, plan["maps"], ignore, report_path)
-        report = read_json(report_path) if report_path.is_file() else None
-        out.update({"mask": mask, "mask_notes": notes, "ignore": ignore, "compare_exit": proc.returncode, "compare_stderr": tail(proc.stderr, 1500)})
-        if report is None:
-            reasons.append("compute_parity.py produced no report (exit %s): %s" % (proc.returncode, tail(proc.stderr, 400).strip()))
+        try:
+            records = explained_records(spec, job, a_cmp, b_cmp, rid)
+            mask, notes = build_mask(spec, job, a_cmp, rid, digest, records)
+        except Unreadable as error:   # the run wrote output that is not JSON: a failed snapshot, recorded like any other
+            reasons.append(str(error))
         else:
-            counts = report.get("counts", {})
-            files = report.get("files", {})
-            out["compare"] = {"ok": report.get("ok"), "counts": counts, "only_in_a": report.get("only_in_a"), "only_in_b": report.get("only_in_b"),
-                              "different": {r: v["where"] for r, v in files.items() if v["class"] == "DIFFERENT"},
-                              "needs_acceptance": {r: {"class": v["class"], "where": v["where"]} for r, v in files.items() if v["class"] in ("PATH_ONLY", "EOL_ONLY", "ZIP_CONTENT", "MASKED")}}
-            if proc.returncode != 0 or not report.get("ok"):
-                reasons.append("compute_parity.py compare failed: %d DIFFERENT, %d only in A, %d only in B" % (
-                    counts.get("DIFFERENT", 0), len(report.get("only_in_a", [])), len(report.get("only_in_b", []))))
-            out["compare"]["explained"] = len(out["explained"])
-            if not files:
-                reasons.append("nothing was compared (an empty tree proves nothing)")
-        if job == "anchors":
-            out["coverage"] = anchors_coverage(a_cmp)
+            out["explained"] = [{"class": "EXPLAINED", **{k: r[k] for k in ("file", "location", "a", "b", "cite", "ruling", "normalized") if k in r}}
+                                for r in records if r["differs"] and r["explains"]]
+            out["explained_rejected"] = [{k: r[k] for k in ("file", "location", "a", "b")} | {"why": "not byte-identical once the R version text is replaced by one placeholder"}
+                                         for r in records if r["differs"] and not r["explains"]]
+            write_json(layout.mask, mask)
+            proc = tool.compare(a_cmp, b_cmp, layout.mask, plan["maps"], ignore, report_path)
+            report = read_json(report_path) if report_path.is_file() else None
+            out.update({"mask": mask, "mask_notes": notes, "ignore": ignore, "compare_exit": proc.returncode, "compare_stderr": tail(proc.stderr, 1500)})
+            if report is None:
+                reasons.append("compute_parity.py produced no report (exit %s): %s" % (proc.returncode, tail(proc.stderr, 400).strip()))
+            else:
+                counts = report.get("counts", {})
+                files = report.get("files", {})
+                out["compare"] = {"ok": report.get("ok"), "counts": counts, "only_in_a": report.get("only_in_a"), "only_in_b": report.get("only_in_b"),
+                                  "different": {r: v["where"] for r, v in files.items() if v["class"] == "DIFFERENT"},
+                                  "needs_acceptance": {r: {"class": v["class"], "where": v["where"]} for r, v in files.items() if v["class"] in ("PATH_ONLY", "EOL_ONLY", "ZIP_CONTENT", "MASKED")}}
+                if proc.returncode != 0 or not report.get("ok"):
+                    reasons.append("compute_parity.py compare failed: %d DIFFERENT, %d only in A, %d only in B" % (
+                        counts.get("DIFFERENT", 0), len(report.get("only_in_a", [])), len(report.get("only_in_b", []))))
+                out["compare"]["explained"] = len(out["explained"])
+                if not files:
+                    reasons.append("nothing was compared (an empty tree proves nothing)")
+            if job == "anchors":
+                out["coverage"] = anchors_coverage(a_cmp)
     else:
         reasons.append("an output tree is missing (A: %s, B: %s)" % (a_cmp.is_dir(), b_cmp.is_dir()))
     out["status"] = "pass" if not reasons else "fail"

@@ -242,7 +242,7 @@ OFFICE_NAME_POLICY = (
 # above is named here, in the producer. The MOVE tables (top_sources /
 # top_destinations) are named in the BROWSER: the page's own containerLabel()
 # strips container:office:<chamber>: off the id and looks the remainder up in the
-# 533-member roster it already carries, and printed the raw key whenever that
+# member roster it already carries, and printed the raw key whenever that
 # missed. Every miss is a member office off the CURRENT roster -- exactly the
 # population the House personnel ledger exists to name -- so the same rule that
 # fixed the office column fixes these, and the page stops inventing a naming rule
@@ -681,7 +681,7 @@ def load_roster(root):
     moneyball_core.congestion() is the loader every dashboard producer already
     goes through (fec/surfaces/make_member_desk.py:153,
     fec/surfaces/build_dashboard_bundle.py:2). It reads data/engine/congestion.json,
-    the same 533-row roster the generation receipt itself records having used.
+    the same roster the generation receipt itself records having used.
     Party comes from the same kernel's Voteview map; state comes from
     fec/legislators.csv joined on bioguide, which is exactly how the member desk
     enriches (make_member_desk.py:924-935).
@@ -1235,7 +1235,7 @@ def container_display_name(container_id, office_key, roster, ledger_names=None,
     label, is print a container id at a reader. The previous version ended in
     `return raw`, which is how HON:H001060 reached the page for 1,247 of 7,720
     published rows: every one of those is a member office whose bioguide is off
-    the current 533-member roster, so the roster lookup failed and the raw key
+    the current member roster, so the roster lookup failed and the raw key
     was printed as if it were a name. Those are now named from the House
     personnel ledger, and the handful the ledger cannot name say so.
 

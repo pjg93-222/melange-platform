@@ -382,6 +382,7 @@ def step_world(result=None, producer="producer.py", handoff=True):
     ns = {"bounded_subprocess": SimpleNamespace(run_bounded=run_bounded), "compute_engine": CE, "subprocess": subprocess,
           "sys": sys, "os": os, "time": __import__("time"), "datetime": datetime, "FE": str(FEC), "_LIVE_CHILD": [None], "_tolerated": [], "_soft_failures": [],
           "_producer_path": lambda name: producer if os.path.isabs(producer) else os.path.join(str(FEC), *producer.split("/")),
+          "_step_log": lambda name: "log/" + name,
           "_chain_tail_is_audit_full": lambda: True, "log": logs.append, "_write_status": lambda **kw: None,
           "_emit": lambda *a, **k: None, "_hard_abort": hard_abort,
           "_lease_handoff_out": lambda: events.append("out"), "_lease_handoff_in": lambda: events.append("in")}
@@ -395,8 +396,11 @@ def test_step_on_the_default_engines_makes_the_same_call_it_always_made():
     assert world.ns["step"]("CREC floor speeches", ["collect/fetch_congressional_record.py", "crec"], timeout=3000) is True
     (argv, kwargs), = world.calls
     assert argv == [sys.executable, os.path.join(str(FEC), "collect", "fetch_congressional_record.py"), "crec"]
-    assert kwargs == {"timeout": 3000, "env": None, "cwd": str(FEC), "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
-                      "start_new_session": os.name != "nt", "on_start": world.ns["_adopt_live_child"]}
+    # host path: the inherited environment plus PYTHONUNBUFFERED=1 (a killed child must not take its unflushed output with it), and the step log
+    assert kwargs == {"timeout": 3000, "env": dict(os.environ, PYTHONUNBUFFERED="1"), "cwd": str(FEC),
+                      "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
+                      "start_new_session": os.name != "nt", "on_start": world.ns["_adopt_live_child"],
+                      "log_path": "log/CREC floor speeches"}
     assert world.events == ["run"] and world.aborts == [] and world.ns["_LIVE_CHILD"] == [None]
 
 
@@ -425,6 +429,8 @@ def test_a_chain_container_hands_the_lease_over_and_takes_it_back_and_reaps(monk
     assert world.events == ["out", "run", "in"]                                    # released before the container, re-taken after it
     assert argv[:2] == ["docker", "compose"] and argv[-3:] == ["chain", "python", "/melange/fec/run_pipeline.py"]
     assert kwargs["env"]["IMAGE_COMPUTE_MELANGE"] == CHAIN_IMG and kwargs["cwd"] == str(FEC)
+    assert "PYTHONUNBUFFERED" not in kwargs["env"]                    # a container child gets spec.env exactly as launched
+    assert kwargs["log_path"] == "log/FULL PIPELINE + dashboards"     # but its output is still kept
     name = argv[argv.index("--name") + 1]
     assert reaped == [["docker", "stop", "-t", "30", name], ["docker", "rm", "-f", name]]     # SIGTERM + 30 s to unwind, then the force-remove
     assert world.logs[0] == "   FULL PIPELINE + dashboards runs in container " + argv[argv.index("--name") + 1]

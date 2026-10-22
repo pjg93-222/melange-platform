@@ -46,7 +46,7 @@ edit a value without a ruling behind it.
    - no string anywhere in the output matches a local filesystem path (`[A-Za-z]:\`, `\Users\`, `AppData\`,
      `melange-data`). This generic check catches a new leak that no listed path covers (row X-09);
    - the attribution footer is present;
-   - rank delta is 0/533. The profile is display-only and must not move a rank.
+   - rank delta is 0 over every member. The profile is display-only and must not move a rank.
    - The desk renderers must tolerate a dropped key; check each one in a browser render of the invited
      page.
 

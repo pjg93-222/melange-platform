@@ -2,16 +2,18 @@
 from pathlib import Path
 
 
-def legacy_secret_path(data_root, state_root, owner):
+def legacy_secret_path(data_root, state_root, owner, *, separate_data=False):
     """Require the explicit existing district store; never create a new secret."""
     data, state = Path(data_root).resolve(), Path(state_root).resolve()
-    if owner != 'admin' or data != state or not data.is_dir():
+    if owner != 'admin' or type(separate_data) is not bool or (data != state and not separate_data) or not data.is_dir() or not state.is_dir():
         raise ValueError('Approved legacy Terrier data and state must use the same district directory')
+    if separate_data and (data == state or data.is_relative_to(state) or state.is_relative_to(data)):
+        raise ValueError('GitHub district data must be separate from existing owner state')
     for name in ('accounts.sqlite3', '.secret'):
-        file = data / name
-        if file.is_symlink() or not file.is_file() or file.resolve().parent != data:
+        file = state / name
+        if file.is_symlink() or not file.is_file() or file.resolve().parent != state:
             raise ValueError('Existing Terrier accounts and secret must remain in the selected district directory')
-    return data / '.secret'
+    return state / '.secret'
 
 
 def legacy_owner_invitation(state_root, owner):

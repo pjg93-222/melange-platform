@@ -2,7 +2,7 @@
 from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
-import json,hashlib
+import json,hashlib,traceback
 from datetime import datetime,timezone
 from paths import ROOT
 from legislation import sentinel_admissions as SA
@@ -145,7 +145,7 @@ def verify(root,check_alias=True):
                 'money_freshness':{'status':freshness,'checked_at':money['checked_at'],'window_days':FEC_WINDOW_DAYS}}
     except Exception as exc:
         return {'schema':'source-to-dashboard-receipt-v1','status':'FAIL',
-                'checked_at':datetime.now(timezone.utc).isoformat(),'errors':[str(exc)],'bill_effects':effects}
+                'checked_at':datetime.now(timezone.utc).isoformat(),'errors':[f'{type(exc).__name__}: {exc}'],'traceback':traceback.format_exc(),'bill_effects':effects}
 
 
 if __name__=='__main__':

@@ -184,3 +184,21 @@ def test_the_builder_rebinds_only_around_its_own_run(tmp_path, monkeypatch):
     (tmp_path / 'Moneyball_Redesign.html').write_bytes(b'<!doctype html>\n<!-- melange-clean-workspace-v2 -->\nrebuilt')
     rebind()
     assert alias.clean_workspace_current(tmp_path)
+
+
+def test_remove_tree_clears_a_read_only_folder(tmp_path):
+    """Attempt 8: OneDrive marks folders read-only; Windows refuses rmdir on them (WinError 5 at people-days)."""
+    import os, stat
+    d = tmp_path / 'people-days'
+    d.mkdir()
+    (d / 'shard-00.json').write_text('{}')
+    os.chmod(d, stat.S_IREAD)
+    builder().remove_tree(d)
+    assert not d.exists()
+
+
+def test_remove_tree_still_raises_non_permission_errors(tmp_path):
+    """Only PermissionError is retried; any other failure (here a parent that is a file) propagates."""
+    (tmp_path / 'afile').write_text('x')
+    with pytest.raises(OSError):
+        builder().remove_tree(tmp_path / 'afile' / 'child')

@@ -96,7 +96,7 @@ def compet_on():
     if v not in ('0','1'): raise ValueError("COMPET_MULT must be '0' or '1' (got %r)"%v)
     return v=='1'
 def compet_roster_hash(cong=None):
-    """sha256 over the sorted 'member|bioguide' lines of the 533-member roster (congestion.json)."""
+    """sha256 over the sorted 'member|bioguide' lines of the roster (congestion.json)."""
     import hashlib
     rows=list(cong.values()) if isinstance(cong,dict) else (cong if cong is not None else list(congestion().values()))
     return hashlib.sha256('\n'.join(sorted('%s|%s'%(m['member'],m.get('bioguide') or '') for m in rows)).encode('utf-8')).hexdigest()
@@ -215,7 +215,7 @@ def rc(m,k,d=1.0):
 def press_matrix():
     """PHASE-2 (system-of-record inversion, user sign-off 2026-07-02): Python-owned press
     normalization. Reads 'Press Release - Raw' VALUES (always fresh — the blend writes literals)
-    and the row-535 tiered weights (user-edited literals on the Normalized sheet), applies signed
+    and the tiered weights on the Normalized sheet's 'Weights' footer row (user-edited literals), applies signed
     positive/negative-extrema normalization within each domain. The upstream p80 transform only
     makes press and social components commensurable; this distinct step makes domains comparable.
     No dependency on the sheet's cached formula results,
@@ -223,16 +223,17 @@ def press_matrix():
     Returns (norm {col:{member:val}}, w535 {col:weight}, headers {col:name})."""
     if 'pressM' not in _c:
         import openpyxl
+        import roster as _roster   # lazy: the member rows and the footer row come from the roster, never a literal window
         wb=openpyxl.load_workbook(WORKBOOK,data_only=True)   # NOT read_only: streamed sheets make random .cell() O(sheet) per call (640s pathology) and misread openpyxl-saved files
         rw=wb['Press Release - Raw']; pn=wb['Press Release - Normalized']
-        rrow={rw.cell(r,1).value:r for r in range(2,535) if rw.cell(r,1).value}
+        rrow={rw.cell(r,1).value:r for r in _roster.rows('Press Release - Raw') if rw.cell(r,1).value}
         COLS=list(range(5,24))
         ALL_COLS=COLS+[24]   # X = General Credit Union; audited below, never invented into a domain
         headers={c:rw.cell(1,c).value for c in ALL_COLS}
         raw_all={c:{m:(rw.cell(rrow[m],c).value or 0.0) for m in rrow} for c in ALL_COLS}
         norm={c:MR.normalize_signed_extrema(raw_all[c]) for c in COLS}
         _c['press_general_exclusions']=MR.general_exclusion_ledger(raw_all[24])
-        _c['pressM']=(norm,{c:(pn.cell(535,c).value or 0.0) for c in COLS},
+        _c['pressM']=(norm,{c:(pn.cell(_roster.footer_row('Press Release - Normalized'),c).value or 0.0) for c in COLS},
                       {c:rw.cell(1,c).value for c in COLS})
         wb.close()
     return _c['pressM']
@@ -606,6 +607,7 @@ def build_P(adj=None,physics=cpf_diffusion,edge_mult=True):
     return {u:{v:x/(x+6.0) for v,w in nb.items() for x in (w*physics(u,v)*em(v),)} for u,nb in adj.items()}
 # ---- calibrated constant tables (single copies; env dials preserved) ----
 PERS_NONE=float(os.environ.get('PERS_NONE','0.40'))   # USER-RATIFIED 2026-07-02: Ally parity — silence never outranks a declared Ally (Ally=0.40; the old 0.45 broke it; decision F-9 2026-10-11, PERS_NONE=0.45 reverts)
+# HP .65 ratified 2026-10-11 (Paul-delegated RE-2): monotone persuadable ladder
 PERS={'Champion':0.10,'Defender':0.12,'Ally':0.40,'Highly Persuadable':0.65,
       'Persuadable':0.60,'Lean Persuadable':0.55,'True Neutral':0.50,
       'Lean Skeptic':0.40,'Neutral':0.50,'Skeptic':0.25,'Highly Skeptical':0.15,

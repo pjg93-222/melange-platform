@@ -12,6 +12,7 @@ co-sponsorship — incoherent with every other layer (bill_rules 3/2/1 role weig
 4:2:1 row-2 weights, the say-do Champion gate's A-path). Revert switch: LEGSTANCE_ORIGCO=0 restores the
 sponsor+plain-cosponsor-only sum."""
 import openpyxl, json, io, sys, shutil, os, datetime, unicodedata
+import roster
 import win32com.client as win32
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 WB = MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
@@ -58,7 +59,7 @@ xl = win32.DispatchEx('Excel.Application'); xl.Visible = False; xl.DisplayAlerts
 try:
     wb2 = xl.Workbooks.Open(WB); ws = wb2.Worksheets('Blended Model')
     n = 0; miss = 0
-    for r in range(3, 536):
+    for r in roster.rows('Blended Model'):
         nm = ws.Cells(r, 1).Value
         if not nm: continue
         key = nfc(nm)

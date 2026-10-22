@@ -5,6 +5,7 @@ new modules: money-response, electoral plays, co-sponsor routes, LT-priming, sta
 import json,sys,os,subprocess,re,collections,importlib.util,csv,copy,hashlib
 from pathlib import Path
 import config_overlay as CO
+import roster
 import district.demographic_potential as _demographic_potential
 from legislation.congress_bill_repository import validate_live_repository
 from pipeline_lock import valid_inherited_lease
@@ -30,9 +31,23 @@ assert_no_foreign_pipeline_writer()
 P,F=[],[]
 def ck(name,cond,detail=''):
     (P if cond else F).append(name); print(('  OK   ' if cond else 'FAIL  ')+name+((' :: '+detail) if (detail and not cond) else ''))
+def ck_roster(name,covered,cond=True,detail=''):
+    # ck() for an artifact keyed by member name that the media-phase producers rebuild (run_pipeline CHAIN :52-90).  The non-media
+    # chain starts after that phase, so just after a roster refresh the artifact may still describe the old roster: it may lack
+    # roster ARRIVALS and carry DEPARTED members (named on a "!!" line; the media-inclusive run regenerates it).  Any other
+    # difference from the roster, or a failed companion condition, fails.
+    withheld,dropped,bad_missing,bad_extra=roster.drift(roster.names(),covered)
+    if withheld or dropped:
+        print('  !! %s: built before the last roster refresh; %d arrival(s) not covered (%s); %d departed member(s) still carried (%s)'%(
+            name,len(withheld),', '.join(sorted(withheld)),len(dropped),', '.join(sorted(dropped))))
+    ck(name,cond and not bad_missing and not bad_extra,
+       (detail+'; ' if detail else '')+'missing=%s extra=%s'%(sorted(bad_missing)[:5],sorted(bad_extra)[:5]))
 def run(script):
     result=subprocess.run([sys.executable,os.path.join(FE,*script.split('/'))],capture_output=True,text=True,encoding='utf-8',errors='replace')   # step names are slash-separated; join natively
     return result.stdout if result.returncode==0 else 'sub-audit execution failed (exit %s)'%result.returncode
+def _engine_out(script,env=None,*args):   # stdout only on exit 0: a crashed engine must never be graded (mirrors run())
+    result=subprocess.run([sys.executable,os.path.join(ENG,script),*args],capture_output=True,text=True,encoding='utf-8',errors='replace',env=env)
+    return result.stdout if result.returncode==0 else 'engine execution failed (exit %s)'%result.returncode
 def _file_sha256(path):
     _h=hashlib.sha256()
     with open(path,'rb') as _handle:
@@ -131,7 +146,7 @@ ck('champion rate disciplined (<2000 of ~9000 cells)', cnt['Champion']<2000, str
 print('\n[5] Co-sponsor route (Pareto + MC reinforcement + determinism)')
 def front(env):
     e=dict(os.environ,TOPIC='Mortgage',**env)
-    out=subprocess.run([sys.executable,os.path.join(ENG, 'cosponsor_route.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=e).stdout
+    out=_engine_out('cosponsor_route.py',e)
     d={}
     for ln in out.splitlines():
         m=re.search(r'([0-9,]+) +-> +\+([0-9.]+) +co-sponsors +risk +([0-9.]+)',ln)
@@ -152,8 +167,8 @@ _bad=[p['v'] for p in pr if not _lt_closes(p)]
 ck('every recipe closes the gap (pressure+recruit pull+money units >= theta)', not _bad, ('%d fail e.g. %s (artifact without units? re-run lt_priming)'%(len(_bad),_bad[:3])) if _bad else '')
 ck('no committed Opponents/Champions in primeable set', all(p['tier'] not in ('Champion','Defender','Opponent') for p in pr))
 print('\n[7] Scenario runner (end-to-end)')
-def scen():
-    return subprocess.run([sys.executable,os.path.join(ENG, 'scenario.py'),'--money','Jared Golden:comp:500000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+def scen(spec='Jared Golden:comp:500000'):
+    return _engine_out('scenario.py',None,'--money',spec)
 o1=scen(); o2=scen()
 net=re.search(r'([+-][0-9.]+) co-sponsors\)',o1)   # the coalition/mobilization NET line
 ck('scenario runs end-to-end (reports a net influence change)', bool(net), o1.strip().splitlines()[-1] if o1 else 'no output')
@@ -163,11 +178,11 @@ ck('competitor shock reduces CU influence (sign sane)', bool(net) and float(net.
 flnet=re.search(r'winnability [0-9.]+ -> [0-9.]+  \(([+-][0-9.]+) expected flips\)',o1)
 ck('competitor shock reduces winnability too (flip channel, consistent footing)', bool(flnet) and float(flnet.group(1))<=0, flnet.group(1) if flnet else '?')
 # scenario CU spend now registers via flip channel (regression on the bug we just fixed)
-cu_o=subprocess.run([sys.executable,os.path.join(ENG, 'scenario.py'),'--money','Tim Scott:cu:300000'],capture_output=True,text=True,encoding='utf-8',errors='replace').stdout
+cu_o=scen('Tim Scott:cu:300000')
 fl=re.search(r'([+-][0-9.]+) expected flips',cu_o)
 ck('CU spend registers gradual flip-value gain (not absorbed)', bool(fl) and float(fl.group(1))>0, fl.group(1) if fl else '?')
 print('\n[8] Joint budget optimizer (fixed-state lazy greedy / modeled replanning)')
-def opt(env): return subprocess.run([sys.executable,os.path.join(ENG, 'optimize.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,**env)).stdout
+def opt(env): return _engine_out('optimize.py',dict(os.environ,**env))
 # OPT_OUT -> scratch json so the test run doesn't clobber the production optimize_result.json
 # (mirrors FRONTIER_OUT below).  The scratch directory is data\system\audit_scratch, which NO store
 # in fec\audit\build_system_manifest.py's REGISTRY measures.  It used to be data\lobbying, which
@@ -179,13 +194,17 @@ _ASCRATCH=os.path.join(B, 'data', 'system', 'audit_scratch')
 os.makedirs(_ASCRATCH,exist_ok=True)
 # INC=5000 (divides PMAX=10000): optimize.py's cap check requires room for a FULL chunk, so INC>PMAX allocates nothing.
 _OE={'BUDGET':'300000','INC':'5000','OPT_OUT':os.path.join(_ASCRATCH, '_audit_tmp_optimize.json')}
+try: os.remove(os.path.join(_ASCRATCH, '_audit_tmp_optimize.json'))   # never grade a scratch file left by a previous run
+except FileNotFoundError: pass
 oo1=opt(_OE); oo2=opt(_OE)
 gn=re.search(r'\(([+-][0-9.]+) expected flips\)',oo1)
-ck('optimizer runs + reports a winnability frontier', bool(gn), oo1.strip().splitlines()[1] if oo1 else 'no output')
+ck('optimizer runs + reports a winnability frontier', bool(gn), (oo1.strip().splitlines() or ['no output'])[-1])
 ck('optimizer improves winnability (monotone, sign sane)', bool(gn) and float(gn.group(1))>0, gn.group(1) if gn else '?')
 ck('optimizer deterministic (same budget -> identical)', oo1==oo2)
 # H1 regression: winning a member (conversion) must be a GAIN -> the spend->winnability path is monotone non-decreasing
-_opt=json.load(open(os.path.join(_ASCRATCH, '_audit_tmp_optimize.json'))); _pp=[v for _,v in _opt['path']]
+_opt_p=os.path.join(_ASCRATCH, '_audit_tmp_optimize.json')
+ck('optimizer wrote its scratch result this run', os.path.exists(_opt_p), 'missing -- optimize.py crashed before OPT_OUT')
+_opt=json.load(open(_opt_p)) if os.path.exists(_opt_p) else {'path':[[0,0.0]]}; _pp=[v for _,v in _opt['path']]
 _drops=sum(1 for i in range(1,len(_pp)) if _pp[i]<_pp[i-1]-1e-9)
 ck('optimizer path monotone (conversion is a gain, not the old persuadability-loss)', _drops==0, '%d drops; base %.2f final %.2f'%(_drops,_pp[0],_pp[-1]))
 ck('optimizer reports mode, observation status, and guarantee scope honestly',
@@ -263,7 +282,7 @@ def _imputes(path):
 _imp_bad=[f for f in ('per_topic_coalition.py','budget_frontier.py') if not _imputes(os.path.join(ENG,f))]
 ck('coalition + frontier engines impute missing industry money like flip_model (industry_money_missing + median fill)',not _imp_bad,'missing in %s'%_imp_bad)
 # HIGH-1 regression: frontier cascade now uses edge-keyed CRN -> a single-topic run is deterministic across repeats
-def bf(): return subprocess.run([sys.executable,os.path.join(ENG, 'budget_frontier.py')],capture_output=True,text=True,encoding='utf-8',errors='replace',env=dict(os.environ,TOPIC='Interchange',FRONTIER_OUT=os.path.join(_ASCRATCH, '_audit_tmp_frontier.json'))).stdout   # scratch out (see _ASCRATCH above) -> don't clobber the all-topics production json, and don't land inside repo.data_money
+def bf(): return _engine_out('budget_frontier.py',dict(os.environ,TOPIC='Interchange',FRONTIER_OUT=os.path.join(_ASCRATCH, '_audit_tmp_frontier.json')))   # scratch out (see _ASCRATCH above) -> don't clobber the all-topics production json, and don't land inside repo.data_money
 bf1=bf(); bf2=bf()
 ck('budget_frontier deterministic w/ edge-keyed CRN (single topic)', bf1==bf2 and 'Interchange' in bf1)
 
@@ -378,7 +397,7 @@ print('\n========================================')
 # RECEPTIVITY LAYER (2026-07-02): coverage + documented caps.
 if os.path.exists(os.path.join(B, 'member_receptivity.json')):
     _rj=json.load(open(os.path.join(B, 'member_receptivity.json')))['members']
-    ck('receptivity layer covers all members', len(_rj)==533, str(len(_rj)))
+    ck_roster('receptivity layer covers all members', _rj, True, str(len(_rj)))
     ck('receptivity multipliers within documented caps',
        all(0.30<=v['seed_prob']<=0.90 and 0.50<=v['pressure_mult']<=1.60 and 0.80<=v['edge_mult']<=1.20 for v in _rj.values()))
     # R1 (Paul ruling 2026-10-07, D-107): with COMPET_MULT on the engines read pressure_mult_compet (F&H competitiveness term neutral).
@@ -410,8 +429,9 @@ if os.path.exists(os.path.join(B, 'member_receptivity.json')):
 # evaluated to 0 on the three TOP-tier categories — every weight must be a positive literal number.
 import openpyxl as _px
 _wb=_px.load_workbook(os.path.join(B, 'Moneyball Main Version - Blended.xlsx'),data_only=True)
-_w535=[_wb['Press Release - Normalized'].cell(535,c).value for c in range(5,24)]
-ck('press-pillar weight row 535: 19 numeric positive weights (no formula remnants)',
+_wfoot=roster.footer_row('Press Release - Normalized')
+_w535=[_wb['Press Release - Normalized'].cell(_wfoot,c).value for c in range(5,24)]
+ck('press-pillar weight row %d: 19 numeric positive weights (no formula remnants)'%_wfoot,
    all(isinstance(v,(int,float)) and v>0 for v in _w535),str(_w535))
 # 2026-07-04 integrity fix guard: the press component must be DYNAMIC (built from the current tone
 # csv), never the frozen 07-02 archive (which silently excluded every post-archive article: 197
@@ -578,6 +598,8 @@ if os.path.exists(_pm_p):
         else:
             ck('transcript-appendix passages stay a negligible share of pillar-feeding gold hearings',
                False,'hearings_cu/hearing_stance_final row counts differ')
+else:
+    ck('press component meta present (press_component_meta.json)', False, 'missing — build_media_blend did not run in DYNAMIC mode')
 _pra_p=os.path.join(B, 'data', 'stance', 'press_domain_routing_audit.json')
 if os.path.exists(_pra_p):
     _pra=json.load(open(_pra_p)); _prrows=_pra.get('rows') or []
@@ -640,7 +662,7 @@ if os.path.exists(_lra_p):
     # from the roster for TWO honest reasons -- this allowlist previously
     # encoded only the first, so the check failed on the second and reported a
     # data error that was not one. Each name is annotated; verified absent from
-    # the 533 roster under every spelling before being listed here.
+    # the roster under every spelling before being listed here.
     _lrdelegates={'Stacey Plaskett','James Moylan'}      # non-voting delegates
     _lrdeparted={
         'Ed Perlmutter',        # retired, end of the 117th
@@ -682,7 +704,7 @@ if os.path.exists(_lra_p):
         with open(_lrarch_p,encoding='utf-8') as _fh: _lrarch=json.load(_fh)
         ck('legislative evidence coverage holds its floor',
            len(_lrarch)>=516,
-           '%d members carry >=1 archive bill (floor 516 of 533)'%len(_lrarch))
+           '%d members carry >=1 archive bill (floor 516 of %d)'%(len(_lrarch),roster.count()))
     else:
         ck('legislative evidence coverage holds its floor',False,'archive_leg.json missing')
 else:
@@ -842,7 +864,7 @@ if os.path.exists(_rc_p):
         ck('cooperation and low-antagonism A remain separately sourced (zero substitutions)',
            _co_bad==0, '%d cooperation_v2 values substituted/mismatched'%_co_bad)
         _con={d['member']:d for d in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'),encoding='utf-8'))}
-        _g={d.get('full_name'):d.get('gender') for d in _csv.DictReader(open(os.path.join(DATA_FE, 'legislators.csv'),encoding='utf-8-sig'))}
+        _g={(d.get('full_name') or '').strip() or ('%s %s'%(d.get('first_name') or '',d.get('last_name') or '')).strip():d.get('gender') for d in _csv.DictReader(open(os.path.join(DATA_FE, 'legislators.csv'),encoding='utf-8-sig'))}   # a blank upstream full_name (e.g. arrival W000832) falls back to first + last name
         _rows=[]
         for _m in set(_cvm)&set(_avm)&set(_con):
             _x=(_cvm.get(_m) or {}).get('cooperation_v2_z')
@@ -865,13 +887,23 @@ if os.path.exists(_rc_p):
 else:
     # (2026-07-09 fix: this branch previously fired a MISLABELED press-component check name)
     ck('receptivity artifact present (member_receptivity.json)',False,'missing — chain step 1 (receptivity_layer.py) did not run')
-# S2-04 guard (audit 2026-07-02): every workbook reader hardcodes range(3,536) for the 533-member roster.
-# If a member row is ever added/removed, those readers silently truncate or NUL the tail. Assert on
+# S2-04 guard (audit 2026-07-02): every workbook reader walks roster.rows() (roster lane 2026-10-20: it was a hardcoded range(3,536)).
+# If the workbook and the roster ever disagree on the member list, those readers silently truncate or NUL the tail. Assert on
 # R&A col A — TYPED names, immune to the phase-2 openpyxl-save cache death (Blended col A is
 # formula-backed and legitimately reads empty between Excel opens).
-_roster=len(json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'))))
-_ra_ws=_wb['Rank & Allocation']; _wbrows=sum(1 for r in range(3,536) if _ra_ws.cell(r,1).value)
-ck('workbook member rows == roster size (no silent row drift)', _wbrows==_roster, 'workbook %d vs roster %d'%(_wbrows,_roster))
+_roster=roster.count()
+_cong_names=[d['member'] for d in json.load(open(os.path.join(B, 'data', 'engine', 'congestion.json'),encoding='utf-8'))]
+ck('roster.json agrees with congestion.json (same names, same count)',
+   len(_cong_names)==_roster and len(set(_cong_names))==len(_cong_names) and set(_cong_names)==set(roster.names()),
+   'congestion.json %d vs roster.json %d; only in congestion=%s only in roster=%s'%(len(_cong_names),_roster,
+   sorted(set(_cong_names)-set(roster.names()))[:5],sorted(set(roster.names())-set(_cong_names))[:5]))
+_ra_ws=_wb['Rank & Allocation']
+_ra_names=[_ra_ws.cell(r,1).value for r in range(roster.first_row('Rank & Allocation'),_ra_ws.max_row+1) if _ra_ws.cell(r,1).value]   # every typed name under the header, not just the roster window
+_wbrows=len(_ra_names)
+ck('workbook member rows == roster size (no silent row drift)',
+   _wbrows==_roster and len(set(_ra_names))==_wbrows and set(_ra_names)==set(roster.names()),
+   'workbook %d vs roster %d; only in workbook=%s only in roster=%s'%(_wbrows,_roster,
+   sorted(set(_ra_names)-set(roster.names()))[:5],sorted(set(roster.names())-set(_ra_names))[:5]))
 # Roadmap-#9 phase 1 (2026-07-02): the whole raw->normalized->pillar->score->rank chain is reproduced
 # in Python (compute_pillars.py) and must match the sheet EXACTLY — catches any silent formula edit.
 os.environ['PILLAR_SNAPSHOT_FREEZE']='1'   # the audit must NEVER advance the pillar snapshot vintage (2026-07-17 guard)
@@ -879,7 +911,7 @@ try:
     _pp=run('engine/compute_pillars.py')
 finally:
     os.environ.pop('PILLAR_SNAPSHOT_FREEZE',None)
-ck('python pillar shadow-compute parity (rank math reproducible, 533/533)','PARITY: CLEAN' in _pp,
+ck('python pillar shadow-compute parity (rank math reproducible, %d/%d)'%(roster.count(),roster.count()),'PARITY: CLEAN' in _pp,
    _pp.strip().splitlines()[-1] if _pp else 'no output')
 # rank-integrity guards: validate the basis selected by compute_pillars. Live mode
 # binds current source hashes and shadow parity; legacy mode retains the 14-day
@@ -1473,8 +1505,8 @@ if os.path.exists(os.path.join(B, 'member_desk_bundle.json')) and os.path.exists
                                                  for _p in ('p1','p2','p3')): _ungrounded+=1
             if _nardescriptive and (_dn.get('format')!='descriptive-v3' or 'meeting_playbook' in _dn):
                 _ungrounded+=1
-        _safe=(not _nar_present and _withheld==533) or (
-              bool(_narsrc) and len(_nar_present)+_withheld==533 and _ungrounded==0)
+        _safe=(not _nar_present and _withheld==roster.count()) or (
+              bool(_narsrc) and len(_nar_present)+_withheld==roster.count() and _ungrounded==0)
         ck('current narratives cannot silently fall back to legacy E/audio prose', _safe,
            '%d desk narratives, %d explicitly withheld, %d paragraphs not source-identical '
            '(labelled=%s basis-bound=%s accepted=%s, %d briefs; descriptive errors=%s)'%
@@ -1546,8 +1578,8 @@ if all(os.path.exists(_p) for _p in _alp.values()):
         if isinstance(_v,dict) and _v.get('scale')!='within_source_z': _al_scale.append(_m+'/voiceprint')
         if isinstance(_g,dict) and isinstance(_v,dict) and _g.get('scale')==_v.get('scale'):
             _al_scale.append(_m+'/COLLIDING_SCALES')
-    ck('every member holding verified audio evidence publishes an audio layer (no silent blindness)',
-       len(_alrows)==533 and not _al_blind and not _al_missing_desc and not _al_missing_vp
+    ck_roster('every member holding verified audio evidence publishes an audio layer (no silent blindness)', _alrows,
+       not _al_blind and not _al_missing_desc and not _al_missing_vp
        and not _al_empty and not _al_clipmismatch,
        '%d members expected to hold audio; %d publish NEITHER layer, %d missing the clip layer, '
        '%d missing the voiceprint layer, %d empty-object layers, %d clip-count mismatches; %s'%
@@ -1867,7 +1899,7 @@ for _row in _bun.get('members',[]):
         _cbad += int(((_psy.get('behav_pct') or [None,None,None,None])[3]) != _act)
 _mike=_csrc.get('Mike Johnson') or {}; _mexp=_mike.get('public_exposure') or {}
 ck('observable communication facets and role-adjusted exposure propagate as separate context',
-   _comm.get('schema')=='communication-style-v1' and len(_csrc)==533 and _cbad==0 and _egbad==0 and _gbad==0 and
+   _comm.get('schema')=='communication-style-v1' and len(_csrc)==roster.count() and _cbad==0 and _egbad==0 and _gbad==0 and
    len(_egsrc)>=450 and
    _mexp.get('formal_role')=='Speaker of the House' and
    _mexp.get('role_adjusted_percentile',1)<_mexp.get('observed_visibility_percentile',0) and
@@ -1925,8 +1957,9 @@ if os.path.exists(os.path.join(B, 'data', 'members', 'behavioral_roles_v2_candid
                  'behavioral_roles_v2_study.py','interview_audio_e_validate.py',
                  'run_legislation_dashboard_member_desk.py',
                  'run_legislation_shadow_recompute.py'}
-    for _scan_dir in (FE,os.path.join(FE,'members'),os.path.join(FE,'legislation')):
-        for _fn in os.listdir(_scan_dir):
+    for _scan_dir,_dns,_fns in os.walk(FE):
+        _dns[:]=[d for d in _dns if d not in ('tests','attic','__pycache__') and not d.startswith('_quarantine_')]
+        for _fn in _fns:
             if not _fn.endswith('.py') or _fn in _r2_allowed: continue
             if 'behavioral_roles_v2_candidate.json' in open(os.path.join(_scan_dir,_fn),encoding='utf-8',errors='ignore').read(): _engine_refs.append(_fn)
     ck('qualified conversation roles v2 propagate exactly to the desk and remain engine-isolated',
@@ -2038,8 +2071,8 @@ if _g:
                for m in MAT),
        str(_mc.PRIMACY_ENGINE_LEVELS))
     _primacy=_lpf(B)
-    ck('primacy factors cover the full 533-member rank roster',
-       len(_primacy)==len(MAT)==533,
+    ck('primacy factors cover the full %d-member rank roster'%roster.count(),
+       len(_primacy)==len(MAT)==roster.count(),
        '%d factors vs %d stance members'%(len(_primacy),len(MAT)))
     from engine import primacy_factors as _pf
     _adjudicated=_pf.load_adjudicated_credits(
@@ -2411,7 +2444,7 @@ if _g:
        and all(bill in _desk_html
                for bill in ('H.R.975','H.R.4437','H.R.4544')),
        'cu-member-desk.html')
-    _wb_display={_ra_ws.cell(r,1).value:_ra_ws.cell(r,7).value for r in range(3,536) if _ra_ws.cell(r,1).value}
+    _wb_display={_ra_ws.cell(r,1).value:_ra_ws.cell(r,7).value for r in roster.rows('Rank & Allocation') if _ra_ws.cell(r,1).value}
     ck('workbook stance column exactly matches shared crown law',
        all(_wb_display.get(m)==v for m,v in _display_board.items()) and len(_wb_display)==len(_display_board),
        'workbook %d vs matrix %d rows'%(len(_wb_display),len(_display_board)))

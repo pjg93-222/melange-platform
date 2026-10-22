@@ -18,6 +18,7 @@ import sys
 from datetime import datetime, timezone
 
 from paths import ROOT as MB_ROOT
+import roster
 from engine import primacy_factors
 from moneyball_core import write_text_atomic
 import tier_util
@@ -537,10 +538,10 @@ def _validate_bundle(bundle, tags):
     records = bundle.get("members")
     if not isinstance(records, list):
         raise IndustryTiersError("member_desk_bundle.json members must be a list")
-    if len(records) != 533:
+    if len(records) != roster.count():
         raise IndustryTiersError(
-            "member_desk_bundle.json must contain 533 members; got %d"
-            % len(records)
+            "member_desk_bundle.json must contain %d members; got %d"
+            % (roster.count(), len(records))
         )
 
     names = []

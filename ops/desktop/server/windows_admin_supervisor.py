@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 
-from desktop_admin import Refused, atomic_write, canonical
+from desktop_admin import Refused, atomic_write, canonical, invite_env
 from windows_admin_notifier import assert_protected_state, windows_sid
 
 
@@ -241,10 +241,13 @@ class Supervisor:
         self.stop = threading.Event()
 
     def write_status(self, state):
+        # The publisher child inherits this process's environment, so this is the enforcement it will start with (null: unreadable value, publisher refuses).
+        try: invite_required = invite_env()
+        except Refused: invite_required = None
         atomic_write(self.config.state / 'listener-status.json', canonical({
             'schemaVersion': 1, 'status': state, 'checkedAt': int(time.time()), 'supervisorPid': os.getpid(),
             'publisherPid': self.publisher.pid if self.publisher else None,
-            'notifierPid': self.notifier.pid if self.notifier else None}), secret=True)
+            'notifierPid': self.notifier.pid if self.notifier else None, 'inviteRequired': invite_required}), secret=True)
 
     def _retire_exited(self):
         for field in ('publisher', 'notifier'):

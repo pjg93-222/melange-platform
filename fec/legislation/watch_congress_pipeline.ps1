@@ -119,6 +119,33 @@ function Write-Section {
     Write-Host ('-- ' + $Title + ' ' + ('-' * [Math]::Max(1, 68 - $Title.Length))) -ForegroundColor DarkGray
 }
 
+function Get-LiveStatus {
+    <#
+        A producer that is killed cannot mark its own receipt, so it reads RUNNING
+        for a dead pid forever. Believe RUNNING only while the recorded owner still
+        runs and began no later than started_at (a recycled pid began after it).
+        An unreadable start time stays RUNNING: cannot tell, so the owner is live.
+    #>
+    param($Document)
+    $status = Show-Value (Get-Field $Document 'status')
+    if ($status -ne 'RUNNING') { return $status }
+    $ownerPid = 0
+    if (-not [int]::TryParse([string](Get-Field $Document 'owner_pid'), [ref]$ownerPid) -or $ownerPid -le 0) {
+        return 'INTERRUPTED'
+    }
+    $process = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
+    if ($null -eq $process) { return 'INTERRUPTED' }
+    try {
+        $stamp = [datetime]::Parse([string](Get-Field $Document 'started_at'), [Globalization.CultureInfo]::InvariantCulture,
+                                   [Globalization.DateTimeStyles]::RoundtripKind)
+        # 2 s slack: the owner starts before it stamps started_at, so only a clearly later start is a recycled pid.
+        if ($process.StartTime.ToUniversalTime() -gt $stamp.ToUniversalTime().AddSeconds(2)) { return 'INTERRUPTED' }
+    } catch {
+        # Start time or stamp unreadable: cannot tell, so the owner is treated as live.
+    }
+    return $status
+}
+
 function Get-StatusColor {
     param([string]$Status)
     if ($Status -eq 'PASS') { return 'Green' }
@@ -144,7 +171,7 @@ while ($true) {
 
     # ---- congress pipeline ------------------------------------------------
     $status = Read-JsonSafe -Path $statusPath
-    $runStatus = Show-Value (Get-Field $status 'status')
+    $runStatus = Get-LiveStatus $status
     $mode = Show-Value (Get-Field $status 'mode')
     $activeStep = Show-Value (Get-Field $status 'active_step')
     $startedAt = Get-Field $status 'started_at'
@@ -249,7 +276,7 @@ while ($true) {
     if ($null -eq $media) {
         Write-Host '  (not yet)'
     } else {
-        $mediaStatus = Show-Value (Get-Field $media 'status')
+        $mediaStatus = Get-LiveStatus $media
         Write-Host ('  status     : ') -NoNewline
         Write-Host $mediaStatus -ForegroundColor (Get-StatusColor $mediaStatus)
         Write-Host ('  mode       : ' + (Show-Value (Get-Field $media 'mode')))

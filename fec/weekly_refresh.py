@@ -75,6 +75,7 @@ except RuntimeError as _lock_error:
     log('WEEKLY REFRESH BLOCKED — %s'%_lock_error)
     sys.exit(75)
 os.environ.update(child_lock_environment(_PIPELINE_LOCK_LEASE))
+_LEASE_HELD=[True]   # False while the chain container holds the writer lease; _hard_abort writes no repository file without it
 def _release_pipeline_lock():
     os.environ.pop(LOCK_TOKEN_ENV,None)
     os.environ.pop(LOCK_OWNER_PID_ENV,None)
@@ -91,12 +92,14 @@ def _lease_handoff_out():
     os.environ.pop(LOCK_TOKEN_ENV,None)
     os.environ.pop(LOCK_OWNER_PID_ENV,None)
     _PIPELINE_LOCK_CONTEXT.__exit__(None,None,None)
+    _LEASE_HELD[0]=False
     log('   chain container: writer lease released to the container; this process takes it back when the container exits')
 def _lease_handoff_in():
     global _PIPELINE_LOCK_CONTEXT,_PIPELINE_LOCK_LEASE
     try:
         _PIPELINE_LOCK_CONTEXT=pipeline_run_lock(owner_kind='weekly_refresh')
         _PIPELINE_LOCK_LEASE=_PIPELINE_LOCK_CONTEXT.__enter__()
+        _LEASE_HELD[0]=True
     except RuntimeError as _lock_error:
         _hard_abort('chain container lease',[],'writer lease not taken back after the container: %s'%_lock_error)
     os.environ.update(child_lock_environment(_PIPELINE_LOCK_LEASE))
@@ -223,6 +226,14 @@ _tolerated=[]
 _soft_failures=[]   # non-hard steps that failed/timed out: reported in status + Glass Box, never a gate (last_outcome/failures unchanged)
 log('===== WEEKLY REFRESH START =====')
 _started_at=datetime.datetime.now()
+# Full child output, one file per step: weekly_refresh.log keeps only the last 300 chars of a failed step's stderr
+# and, on a timeout, none of it, which left two soft failures undiagnosable on 2026-10-18. bounded_subprocess writes
+# the file on every exit incl. the timeout kill. Same layout as daily_media_refresh: audits/<runner>/<UTC stamp>/<step>.log
+# ponytail: no pruning; each log is capped at 2 MiB per stream (bounded_subprocess.LOG_KEEP_BYTES), delete old run folders by hand if it ever matters
+_RUN_LOG_DIR=os.path.join(MB_ROOT,'audits','weekly_refresh',datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%SZ'))
+def _step_log(name):
+    return os.path.join(_RUN_LOG_DIR,re.sub(r'[^A-Za-z0-9]+','_',name).strip('_')[:80]+'.log')
+_REPO_BEFORE_IMAGE=[False]   # True once the bill repository's before-image is in _RUN_LOG_DIR/before (see _snapshot_repository_before_image)
 _refresh_complete=False
 _rank_moves=None
 _write_status(last_start=_started_at.strftime('%Y-%m-%d %H:%M:%S'),last_outcome='RUNNING',failures=[],rank_moves=None,
@@ -311,6 +322,44 @@ def _hard_abort(name,failures,why):
           duration_ms=int((datetime.datetime.now()-_started_at).total_seconds()*1000),
           metadata={'step':name,'reason':why,'failures':list(failures),'tolerated':False})
     _write_status(last_outcome='HARD_FAILURE',failures=_reported)
+    # DE-043 (2026-10-18 weekly): an abort between the repository fetch and the chain's rebind of the membership sidecar leaves the
+    # sidecar bound to a repository that is gone. The helper restores the before-image only while the sidecar still names it, so after
+    # the rebind this is a no-op. Written after the status marker, and fenced, so it can neither hide nor change the abort.
+    # The rollback replaces the repository and its receipt, so it runs only under this process's writer lease: an abort while the
+    # chain container holds it (a timed-out chain skips the take-back) or after the take-back failed (another writer owns it) keeps
+    # the before-image in the run folder and says so.
+    if _REPO_BEFORE_IMAGE[0] and not _LEASE_HELD[0]:
+        log('   repository rollback SKIPPED: this process does not hold the writer lease; the before-image is kept in %s'
+            %os.path.join(_RUN_LOG_DIR,'before'))
+    elif _REPO_BEFORE_IMAGE[0]:
+        try:
+            from legislation.refresh_congress_pipeline import rollback_unbound_repository
+            _rb=rollback_unbound_repository(MB_ROOT,_RUN_LOG_DIR)
+            _rb=_rb if isinstance(_rb,dict) else {'rollback':None,'result':_rb}
+            _label,_load=_rb.get('rollback'),_rb.get('rollback_membership_load')
+            log('   repository rollback: %s'%(_rb,))
+            # Name every label rollback_unbound_repository returns, so the log line says what it means for the next run.
+            if _label=='unhealable_drift':
+                # The sidecar names neither repository (an earlier run died unhandled): nothing was restored, and the
+                # membership load will refuse until the binding is repaired. Loud, and telemetry only: the abort is unchanged.
+                log('   repository rollback UNHEALABLE DRIFT: nothing restored; the membership sidecar must be rebound before the '
+                    'next chain run (drift: %s)'%(_rb.get('rollback_drift'),))
+                _emit('refresh.step','failed','repository rollback: unhealable drift, nothing restored (abort unchanged)',
+                      stage='repository rollback',detail=str(_rb.get('rollback_drift'))[:2000],
+                      metadata={'rollback':_label,'rollback_drift':_rb.get('rollback_drift'),'hard':False})
+            elif _label=='restore_failed':
+                log('   repository rollback RESTORE FAILED part-way: the repository and its receipt may be half-restored; the '
+                    'before-image is kept in %s (%s)'%(os.path.join(_RUN_LOG_DIR,'before'),_load))
+            elif _label=='restored':
+                log('   repository rollback restored the before-image repository and receipt (membership load: %s)'%(_load,))
+            elif _label=='verified':
+                log('   repository rollback restored nothing: the sidecar was not bound to the before-image (membership load: %s)'%(_load,))
+            else:
+                log('   repository rollback returned an unrecognised label %r (membership load: %s)'%(_label,_load))
+            if _label!='unhealable_drift' and _load!='PASS':
+                log('   repository rollback: membership load did NOT pass (%s) -- the chain consumers will refuse until it is repaired'%(_load,))
+        except Exception as e:
+            log('   repository rollback FAILED (abort unchanged): %s: %s'%(type(e).__name__,str(e)[:200]))
     sys.exit(1)
 # WHY THE WAIT IS SHAPED THIS WAY. This is an UNATTENDED job holding the pipeline writer lease
 # for its whole run, so every wait in it must end. The old shape could not: on a timeout it ran an
@@ -327,6 +376,8 @@ def _soft_fail(name,why,t):
 def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
     t=time.time()
     _write_status(active_step=name,last_heartbeat=datetime.datetime.now().isoformat(),owner_pid=os.getpid())
+    try: log_path=_step_log(name)
+    except Exception: log_path=None   # the step log is a diagnostic: its helper can never change a step's result
     try:
         flags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name=='nt' else 0
         spec=compute_engine.launch(_producer_path(args[0]),args[1:],cwd=FE)   # engine 'windows' (the default): [sys.executable, producer, *args], env None
@@ -335,19 +386,25 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
         if spec.container: log('   %s runs in container %s'%(name,spec.container))
         if handoff: _lease_handoff_out()
         try:
+            # PYTHONUNBUFFERED: a stdout redirected to a file is block-buffered, so a child killed at its timeout
+            # takes its unflushed tail (measured: all of it, for a short run) with it, and that tail is the step log's point.
+            # A container child (spec.env set) is left exactly as launched, so it stays block-buffered.
             run=bounded_subprocess.run_bounded(spec.argv,
-                                               timeout=timeout,env=spec.env,cwd=FE,creationflags=flags,
+                                               timeout=timeout,env=spec.env if spec.env is not None else dict(os.environ,PYTHONUNBUFFERED='1'),
+                                               cwd=FE,creationflags=flags,
                                                start_new_session=os.name!='nt',
-                                               on_start=_adopt_live_child)
+                                               on_start=_adopt_live_child,log_path=log_path)
         finally:
             _LIVE_CHILD[0]=None   # released on EVERY path: success, timeout, launch failure
             compute_engine.reap(spec)   # a container whose client was killed keeps running; --rm removes one that ended
             # a timed-out chain skips the take-back so the abort below reports the real cause (timeout), not "lease not taken back"
             if handoff and not (run is not None and run.timed_out): _lease_handoff_in()
         stdout,stderr=run.stdout,run.stderr
+        saved=getattr(run,'log_path',None)   # None when the log could not be written: never name a file that is not there
         if run.timed_out:
             log('%-28s TIMEOUT after %ds%s'%(name,timeout,' — aborting' if hard else ' — continuing'))
             log('   '+run.timeout_note)
+            if saved: log('   full output: '+saved)
             if hard: _hard_abort(name,[],'timeout after %ds'%timeout)
             _soft_fail(name,'timeout after %ds'%timeout,t)
             return False   # gate is NOT consulted on a timeout: 124 is never a known dissent
@@ -355,7 +412,8 @@ def step(name,args,timeout=3600,hard=False,gate=None,partial=None):
         ok=run.returncode==0
         log('%-28s %s %5.0fs  %s'%(name,'OK' if ok else '!!',time.time()-t,tail[0][:110]))
         if not ok:
-            log('   stderr: '+(stderr or '')[-300:].replace('\n',' | '))
+            log('   stderr: '+(stderr or '')[-2000:].replace('\n',' | '))   # was [-300:]: only the end of a Python traceback, never the child's error message (2026-10-19 WJ)
+            if saved: log('   full output: '+saved)
             if hard and partial is not None and partial(run.returncode,t):
                 return True   # a PARTIAL its owner proves excusable; the hard step after it rules
             if hard:
@@ -446,6 +504,43 @@ if not step('FEC source money refresh',['collect/refresh_fec_money.py'],timeout=
     _deferred_collection_failures.append('FEC source money refresh')
 if not step('Congress rollcall source refresh',['legislation/refresh_vote_sources.py'],timeout=1800,hard=False):
     _deferred_collection_failures.append('Congress rollcall source refresh')
+def _snapshot_repository_before_image():
+    """DE-043: keep the bill repository and its fetch receipt, as they are now, in this run's audit folder (before/, the layout
+    refresh_congress_pipeline.rollback_unbound_repository reads) so _hard_abort can undo a fetch the chain never rebound. Arms the
+    rollback only if the repository copy is in before/ (ROLLBACK_SOURCES[0]); a failed copy is logged and leaves the refresh exactly
+    as it was before this existed. An absent receipt is logged: the rollback would restore the repository but leave the new receipt."""
+    try:
+        import shutil
+        from legislation.refresh_congress_pipeline import ROLLBACK_SOURCES
+        for relative in ROLLBACK_SOURCES:
+            source=os.path.join(MB_ROOT,relative)
+            if os.path.isfile(source):
+                target=os.path.join(_RUN_LOG_DIR,'before',relative)
+                os.makedirs(os.path.dirname(target),exist_ok=True)
+                shutil.copy2(source,target)
+            else:
+                log('   repository before-image: %s is absent now%s'%(relative,'' if relative==ROLLBACK_SOURCES[0]
+                    else ' -- a rollback would restore the repository but leave the receipt this fetch writes'))
+        if os.path.isfile(os.path.join(_RUN_LOG_DIR,'before',ROLLBACK_SOURCES[0])):
+            _REPO_BEFORE_IMAGE[0]=True
+            log('   repository before-image kept in %s'%os.path.join(_RUN_LOG_DIR,'before'))
+        else:
+            log('   repository before-image NOT taken (no repository to keep) -- a later hard abort will not roll the repository back')
+    except Exception as e:
+        log('   repository before-image NOT taken (%s: %s) -- a later hard abort will not roll the repository back'%(type(e).__name__,str(e)[:200]))
+def _discard_repository_before_image():
+    """DE-043: the weekly reached COMPLETE, so the before-image has nothing left to undo; free its disk. Every abort keeps it.
+    Called after the final status write and never raises, so it cannot touch the outcome."""
+    try:
+        import shutil
+        before=os.path.join(_RUN_LOG_DIR,'before')
+        if os.path.isdir(before): shutil.rmtree(before)
+    except Exception as e:
+        log('   repository before-image not removed (%s: %s)'%(type(e).__name__,str(e)[:200]))
+# The fetch and the chain's rebind of the membership sidecar are one unit and the interview/press legs sit between them, so the
+# before-image is taken here, ahead of the only step that writes the repository (moving the fetch later is not allowed: bill, then
+# interviews, then press is pinned by test_collection_stream_wiring).
+_snapshot_repository_before_image()
 # Start the bill update before the slower interview and press legs. Its result is a hard final-
 # publication prerequisite, but the failure is deferred until independent press acceptance has
 # finished. Omitting an explicit --receipt uses the producer's root-resolved default; the old
@@ -485,7 +580,7 @@ if not step('interviews: NPR (14d)',['fetch_interviews.py','npr','--since',str(t
     _deferred_collection_failures.append('interviews: NPR (14d)')
 if not step('interviews: Fox archive audit',['fetch_interviews.py','fox','--strict'],timeout=1800,hard=False):
     _deferred_collection_failures.append('interviews: Fox archive audit')
-if not step('interviews: MS NOW',['fetch_interviews.py','msnow','--strict'],timeout=3600,hard=False):   # full archive walk measured 25m and previously crossed 30m under contention; strict failure remains, but legitimate progress gets headroom
+if not step('interviews: MS NOW',['fetch_interviews.py','msnow','--strict'],timeout=3600,hard=False):   # walks newest-first and stops at the first fully-seen page; a budget-stopped walk resumes from its date cursor. 3600s is headroom for a resumed backfill (the old full-archive walk took 25-30m); strict failure remains
     _deferred_collection_failures.append('interviews: MS NOW')
 if not step('interviews: Washington Journal (21d)',[
     'refresh_cspan_wj.py','--since',str(today-datetime.timedelta(days=21)),
@@ -616,3 +711,4 @@ _emit('refresh.run','completed',
       duration_ms=int((datetime.datetime.now()-_started_at).total_seconds()*1000),
       metadata={'rank_moves':_rank_moves,'failures':list(_tolerated),
                 'tolerated':bool(_tolerated),'soft_failures':list(_soft_failures)})
+_discard_repository_before_image()   # DE-043: last, after the outcome is recorded; an abort never gets here and keeps the before-image

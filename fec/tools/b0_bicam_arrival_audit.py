@@ -19,7 +19,9 @@ import tempfile
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import parse_qsl, urlsplit
 import urllib.request
+import zlib
 
+from fec import roster as roster_source   # not `roster`: run_audits binds a local of that name
 from fec.bill_rules import bill_type_key
 from fec.paths import ROOT
 
@@ -66,7 +68,6 @@ HEADER_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]+$")
 AMENDMENT_ACT_PATTERN = re.compile(
     r"([HS])\.\s*(?:AMDT|AMENDMENT)\.?\s*(\d+)", re.IGNORECASE
 )
-EXPECTED_ROSTER = 533
 EXPECTED_ACTS = 648
 ACT_PASS_MINIMUM = 640
 PRE_119_ACT_HIT_RATE_MINIMUM = 0.987
@@ -280,7 +281,7 @@ def inspect_component(
                         f"component {path.name} lacks mapped headers: {', '.join(sorted(missing))}"
                     )
                 row_count = sum(1 for _ in reader)
-    except (OSError, UnicodeError, csv.Error, gzip.BadGzipFile) as exc:
+    except (OSError, EOFError, zlib.error, UnicodeError, csv.Error, gzip.BadGzipFile) as exc:
         if isinstance(exc, IntegrityError):
             raise
         raise IntegrityError(f"component cannot be read: {path.name}") from exc
@@ -367,7 +368,9 @@ def atomic_download(
                             break
                         stream.write(block)
             except Exception as exc:
-                raise IntegrityError("BICAM transport failed") from exc
+                raise IntegrityError(
+                    f"BICAM transport failed for {target.name}: {type(exc).__name__}: {exc}"
+                ) from exc
             stream.flush()
             os.fsync(stream.fileno())
         receipt = inspect_component(temporary_path, format_name, columns)
@@ -432,7 +435,7 @@ def load_component_rows(
                         for logical, physical in specification["columns"].items()
                     })
                 return rows
-    except (OSError, UnicodeError, csv.Error, gzip.BadGzipFile) as exc:
+    except (OSError, EOFError, zlib.error, UnicodeError, csv.Error, gzip.BadGzipFile) as exc:
         raise IntegrityError(f"cannot load component rows: {path.name}") from exc
 
 
@@ -547,7 +550,11 @@ def audit_roster(
     legislators_path: Path,
     voteview_path: Path,
     member_rows: Sequence[Mapping[str, str]],
+    expected_roster: int | None = None,
 ) -> dict[str, Any]:
+    # The bar is the roster's size (roster lane 2026-10-20; it was the literal 533): every member must join. The caller names the tree.
+    if expected_roster is None:
+        expected_roster = roster_source.count(root=ROOT)
     roster_values: list[str] = []
     blank_fields: list[str] = []
     _collect_bioguides(_load_json(roster_path), roster_values, blank_fields)
@@ -567,15 +574,15 @@ def audit_roster(
     )
     joined = len(roster_ids & legislators & voteview & bicam_ids)
     passed = (
-        len(roster_ids) == EXPECTED_ROSTER
+        len(roster_ids) == expected_roster
         and not blank_fields
         and not duplicates
         and not bicam_duplicates
-        and joined == EXPECTED_ROSTER
+        and joined == expected_roster
     )
     return {
         "pass": passed,
-        "expected": EXPECTED_ROSTER,
+        "expected": expected_roster,
         "roster_distinct": len(roster_ids),
         "joined": joined,
         "blank_bioguide_fields": len(blank_fields),
@@ -990,7 +997,7 @@ def load_legfix5_presence(
                 try:
                     with gzip.open(body, "rb") as stream:
                         body_cache[body] = bool(stream.read(1))
-                except (OSError, gzip.BadGzipFile):
+                except (OSError, EOFError, zlib.error, gzip.BadGzipFile):
                     body_cache[body] = False
             if not body_cache[body]:
                 valid = False
@@ -1354,7 +1361,8 @@ def run_audits(
         and len(amendments_texts_rows) >= 1
     )
     roster = audit_roster(
-        args.roster, args.legislators, args.voteview, component_rows["members"]
+        args.roster, args.legislators, args.voteview, component_rows["members"],
+        expected_roster=roster_source.count(root=args.repo_root),
     )
     tag_stats: dict[str, int] = {}
     tag_records = list(iter_json_records(args.tags, tag_stats))
@@ -1406,7 +1414,7 @@ def run_audits(
         skipped_nonrecord=billstatus_stats["skipped_nonrecord"],
     )
     bars = {
-        "roster_join": {"pass": roster["pass"], "bar": "533/533"},
+        "roster_join": {"pass": roster["pass"], "bar": f"{roster['expected']}/{roster['expected']}"},
         "act_universe_join": {
             "pass": acts["pass"],
             "bar": (
@@ -1577,7 +1585,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except UsageError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
-    except (IntegrityError, OSError, csv.Error, json.JSONDecodeError) as exc:
+    except (IntegrityError, OSError, EOFError, csv.Error, json.JSONDecodeError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 4
 

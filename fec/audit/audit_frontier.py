@@ -70,8 +70,8 @@ ck('electoral base discounts at-risk allies (<= coalition base + MC)',all(EL['to
 rp=collections.Counter(); dp=collections.Counter()
 for t,d in EL['topics'].items():
     for p in d['path'][1:]:
-        if p.get('type')=='contest': rp[EP[p['seed']]['party']]+=1
-        if p.get('type')=='defend':  dp[EP[p['seed']]['party']]+=1
+        if p.get('type')=='contest': rp[EP.get(p['seed'],{}).get('party','?')]+=1
+        if p.get('type')=='defend':  dp[EP.get(p['seed'],{}).get('party','?')]+=1
 # REDESIGNED 2026-07-02: the ENTRY-mix proportion is statistically meaningless at n~8 (one seed = 12.5pp)
 # and kept tripping on verified-clean runs (7R/2D then 7R/1D; pool balanced 3D/3R and gates party-blind,
 # mean-gate gap 0.002 both times). Non-partisanship is GUARANTEED by (a) the balanced pool (checked in

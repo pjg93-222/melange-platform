@@ -21,6 +21,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from paths import ROOT
+import admission_budget
 import compute_engine
 from lane_file_io import replace_atomic
 from pipeline_lock import pipeline_run_lock, child_lock_environment
@@ -49,8 +50,11 @@ HEARTBEAT_SECONDS = 60
 DISCOVERY_RETRY_DELAY_SECONDS = 300
 RETRYABLE_STEPS = ("discovery",)
 # 2026-10-15 owner ruling (cap: interactive + $150/month): 48 calls/day x ~$0.075 (caching off) x 30 days = ~$108/month.
-ADMISSION_KEY_LIMIT = 80
-ADMISSION_CALL_BUDGET = 48
+# MELANGE_SENTINEL_CALL_BUDGET raises the paid-call budget for a flood run (unset = the ruled 48, D-211). The numbers live in
+# admission_budget, which the refresh tick renders at launch too, so the daily runner and the tick share this one setting.
+# They are resolved when a run builds its steps, never at import: a bad value must end in a FAILED status and receipt, and
+# weekly_refresh.py imports this module for ROLLBACK_SOURCES / rollback_unbound_repository inside a broad except, where an
+# import-time raise would silently disarm the weekly repository rollback (DE-043).
 # The two combined dashboards are ~98 MB each. Copying them into the before-image
 # cost 287 MB and eleven silent minutes per run, and nothing ever reads the copy:
 # rank_changes reads before/ranks_python.json and nothing else opens before/*.html.
@@ -76,6 +80,11 @@ SOURCES = (
 # W1 (DE-043): the membership sidecar is hash-bound to the repository and only the chain's
 # verify_collector_roster_updates.py rebinds it, so these two are rolled back on a failed run.
 ROLLBACK_SOURCES = ("bill_repository_live.json", "data/engine/congress_bill_refresh_receipt.json")
+# What the four rederive_* scripts write, relative to the data root. They are imaged when the first rederive step starts and
+# restored together with ROLLBACK_SOURCES, so a rolled-back repository never keeps derivations built from the fetch that was
+# undone. (big5_lexcal_v2.py also writes fec/liwc/behavior_calibrated.json.candidate in the code tree; nothing reads it.)
+REDERIVE_OUTPUTS = ("behavior_panel.json", "behavioral_dispositions.json",
+                    "data/members/big5_v2.json", "data/members/big5_v3_hybrid.json")
 MEMBERSHIP_SIDECAR = "data/legislation/official_membership_movements.json"
 
 
@@ -135,8 +144,21 @@ def health(root=ROOT):
     return result
 
 
-def steps(admission_limit, include_media=False, smoke=False):
+def rederive_enabled():
+    """CONGRESS_REDERIVE: unset / '' / 1 = on, 0 = the revert switch (skip the rederive_* steps), anything else RAISES.
+    Read when the steps are built, so a bad value ends the run with a FAILED receipt, never at import."""
+    value = os.environ.get("CONGRESS_REDERIVE", "1")
+    if value not in ("0", "1", ""):
+        raise ValueError(f"CONGRESS_REDERIVE must be 0|1, got {value!r}")
+    return value != "0"
+
+
+def steps(admission_limit=None, include_media=False, smoke=False):
     """The ordered stages. A step whose script is None is recorded, never run.
+
+    admission_limit None means the ruled key limit, raised to the budget when MELANGE_SENTINEL_CALL_BUDGET is above it
+    (admission_budget.key_limit). The paid-call budget is read from that variable here, so an invalid value raises ValueError
+    inside run()'s try and becomes a FAILED receipt.
 
     Smoke mode exercises the whole shape of the job cheaply: discovery is
     skipped, admissions takes one new candidate and makes no model call, media
@@ -147,22 +169,47 @@ def steps(admission_limit, include_media=False, smoke=False):
     # idle disk, but was measured at 71.65s under load and timed out at 120s on
     # 2026-09-13 19:42Z with its own log already reading "OK (3 checked)". The
     # budget bounds a hang; it should not cost a whole daily attempt to I/O.
+    budget = admission_budget.call_budget(os.environ)   # always validated, so a smoke run rejects a bad value too
+    if admission_limit is None:
+        admission_limit = admission_budget.key_limit(os.environ)
     result = [("calibration", "calibration_guard.py", [], 900)]
+    # Roster first (Paul 2026-10-20: the roster "needs to always auto-update"): every later step joins on the member roster.
+    # collect/refresh_roster.py exits 0 when it applied, found nothing, or HELD because the official sources disagree;
+    # 2 when the workbook is open (retry later) and 1 on an error (every file restored from its backup).
+    result.append(("roster", "collect/refresh_roster.py", [] if smoke else ["--apply"], 1800))
     result.append(("discovery", None if smoke else "legislation/refresh_legislation_discovery.py", [], 21600))
     # Cost (2026-10-15): --limit bounds the keys looked at; --max-classifier-calls bounds the paid model calls among
     # them (a budget stop is a normal PASS; unattempted keys wait for the next run).
     admissions = (["--limit", "1", "--no-llm", "--no-install"] if smoke
-                  else ["--limit", str(admission_limit), "--max-classifier-calls", str(ADMISSION_CALL_BUDGET)])
+                  else ["--limit", str(admission_limit), "--max-classifier-calls", str(budget)])
     result.extend([
         ("admissions", "legislation/refresh_sentinel_admissions.py", admissions, 14400),
         ("votes", "legislation/refresh_vote_sources.py", [], 1800),
+    ])
+    # DE-043/W1: media (hours, killable) runs BEFORE the repository fetch. The fetch and the chain's
+    # verify_collector_roster_updates.py, which rebinds official_membership_movements.json to the new
+    # repository sha, are one unit: a kill in media after the fetch left the sidecar unbound and every
+    # chain consumer dying at load (2026-10-16, 2026-10-19). This shrinks the unbound window from media
+    # (hours) to billstatus plus, in media mode, the ~12 chain steps before verify_collector_roster_updates
+    # (calibration_guard .. receptivity_layer, run_pipeline.py CHAIN). A hard kill there still strands the
+    # binding; rollback_unbound_repository only undoes failures the wrapper survives to catch.
+    today = datetime.now().astimezone().date()
+    if include_media or smoke:
+        result.append(("media", "collect/daily_media_refresh.py",
+                       ["--local-date", today.isoformat()] + (["--smoke"] if smoke else []), 172800))
+    result.extend([
         ("repository", "legislation/update_bill_repository.py", [], 14400),
         ("billstatus", "legislation/refresh_billstatus_bulk.py", [], 3600),
     ])
-    if include_media or smoke:
-        local_date = datetime.now().astimezone().date().isoformat()
-        result.append(("media", "collect/daily_media_refresh.py",
-                       ["--local-date", local_date] + (["--smoke"] if smoke else []), 172800))
+    if (include_media or smoke) and rederive_enabled():
+        # The media step above derived behavior_panel / behavioral_dispositions / big5 from the PREVIOUS repository, so ranks lagged
+        # one run behind it. Re-run the repository-bound ones now (about 2.5 min measured, 2026-10-12 run), from the media helper's
+        # own definitions rather than a second list. A failure here fails the run; run() images REDERIVE_OUTPUTS when the first of
+        # these starts, and rollback_unbound_repository restores them together with the repository it undoes.
+        from collect import daily_media_refresh as media_helper
+        result.extend(("rederive_" + step.name, step.script, list(step.args), step.timeout)
+                      for step in media_helper.derived_steps(ROOT, today)
+                      if step.name in media_helper.REPOSITORY_BOUND_DERIVED)
     result.append(("pipeline", "run_pipeline.py",
                    [] if (include_media or smoke) else ["--from", "verify_collector_roster_updates.py"], 14400))
     return result
@@ -293,6 +340,16 @@ def validate_publication(root, started, include_media=False):
     return artifacts
 
 
+def snapshot_rederive_outputs(root, run_dir):
+    """Copy the REDERIVE_OUTPUTS as they stand (the media step's own derivations) into run_dir/before, byte for byte."""
+    for relative in REDERIVE_OUTPUTS:
+        path = Path(root) / relative
+        if path.is_file():
+            target = Path(run_dir) / "before" / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, target)
+
+
 def rollback_unbound_repository(root, run_dir):
     """W1: undo a repository fetch the chain never rebound.
 
@@ -303,26 +360,55 @@ def rollback_unbound_repository(root, run_dir):
     the before-image repository, restore the repository and its fetch receipt
     from this run's before-image, then prove the load. Never raises: the run
     has already failed and this only records what it did.
+
+    A sidecar bound to neither the before-image nor the live repository (a run
+    that died without its handler, 2026-10-16) cannot be healed here, and the
+    load would only raise: that is recorded as "unhealable_drift" with the
+    three hashes, never as "verified". The strict binding in
+    official_membership_movements.load is deliberately unchanged.
+
+    A restore that raises part-way is recorded as "restore_failed" (the
+    repository and its receipt may be half-restored), never as "verified".
+
+    The same restore also puts back the REDERIVE_OUTPUTS that have a before-image (media mode, once the rederive_* steps
+    started), listed under "rollback_rederived". Only then: if the repository stays, the derivations built from it stay too.
     """
     root, before = Path(root), Path(run_dir) / "before"
     action = "verified"
+    restored = []
     try:
         snapshot = before / ROLLBACK_SOURCES[0]
         sidecar = root / MEMBERSHIP_SIDECAR
         bound = read(sidecar).get("repository_sha256") if sidecar.is_file() else None
         if (snapshot.is_file() and bound == digest(snapshot)
                 and digest(root / ROLLBACK_SOURCES[0]) != bound):
-            for relative in ROLLBACK_SOURCES:
+            # A copy or replace that raises mid-loop (a OneDrive or antivirus lock) can leave a half-restored pair:
+            # never let that read as "verified".
+            action = "restore_failed"
+            for relative in ROLLBACK_SOURCES + REDERIVE_OUTPUTS:
                 if (before / relative).is_file():
                     temp = root / (relative + f".{os.getpid()}.rollback.tmp")
                     shutil.copy2(before / relative, temp)
                     replace_atomic(temp, root / relative)
+                    if relative in REDERIVE_OUTPUTS:
+                        restored.append(relative)
             action = "restored"
+        live = digest(root / ROLLBACK_SOURCES[0])
+        if bound is not None and bound != live:
+            drift = {"membership_sha256": bound, "live_repository_sha256": live,
+                     "before_snapshot_sha256": digest(snapshot) if snapshot.is_file() else None}
+            note = "membership sidecar %s matches neither the live repository %s nor the before-image %s" % (
+                bound, live, drift["before_snapshot_sha256"])
+            print("ROLLBACK unhealable_drift: " + note, file=sys.stderr, flush=True)
+            live_log(root, "rollback", "UNHEALABLE_DRIFT", None, note)
+            return {"rollback": "unhealable_drift", "rollback_drift": drift,
+                    "rollback_membership_load": "SKIPPED: unhealable_drift; the load refuses a mismatched repository"}
         from legislation import official_membership_movements as membership
         membership.load(root)
-        return {"rollback": action, "rollback_membership_load": "PASS"}
+        return {"rollback": action, "rollback_membership_load": "PASS", **({"rollback_rederived": restored} if restored else {})}
     except Exception as exc:
-        return {"rollback": action, "rollback_membership_load": f"{type(exc).__name__}: {exc}"}
+        return {"rollback": action, "rollback_membership_load": f"{type(exc).__name__}: {exc}",
+                **({"rollback_rederived": restored} if restored else {})}
 
 
 def terminate_tree(process):
@@ -333,7 +419,7 @@ def terminate_tree(process):
     process.wait()
 
 
-def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smoke=False):
+def run(root=ROOT, admission_limit=None, include_media=False, smoke=False):
     root = Path(root)
     # Smoke runs the media and canonical stages, so it takes the include_media
     # argument shape; "mode" is what keeps it out of the day's completion.
@@ -357,6 +443,7 @@ def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smo
         for override in ("DESK_OUT", "DASH_OUT"):
             environment.pop(override, None)
         acknowledged = []
+        rederive_imaged = False
         media_binding = None
         wake_held = False
 
@@ -408,6 +495,8 @@ def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smo
             from run_pipeline import preflight_dependencies
             from legislation.sync_sentinel_bill_ledger import runtime
             preflight_dependencies()
+            import chain_transaction
+            chain_transaction.preflight(root)   # the chain's 30 GB floor, checked at launch instead of after ~35 min of steps
             if runtime() is None:
                 raise RuntimeError("Excel artifact-tool runtime is unavailable")
             selected = steps(admission_limit, include_media, smoke)
@@ -459,6 +548,11 @@ def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smo
                       current=index, total=total)
                 live_log(root, name, "STARTED", None, "step %d of %d" % (index, total))
                 log_path = run_dir / f"{name}.log"
+                if name.startswith("rederive_") and not rederive_imaged:
+                    # Image the media step's derivations before the first rederive step can overwrite them; a failure to copy
+                    # fails the run (the except below), because going on would give up the byte-for-byte restore.
+                    snapshot_rederive_outputs(root, run_dir)
+                    rederive_imaged = True
                 step_start, code, seconds = launch(name, script, arguments, timeout,
                                                    log_path, index, total)
                 row = {"step": name, "returncode": code,
@@ -591,7 +685,9 @@ def run(root=ROOT, admission_limit=ADMISSION_KEY_LIMIT, include_media=False, smo
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--status", action="store_true")
-    parser.add_argument("--admission-limit", type=int, default=ADMISSION_KEY_LIMIT)
+    parser.add_argument("--admission-limit", type=int, default=None,
+                        help="Keys looked at per run. Default: the ruled limit, raised to MELANGE_SENTINEL_CALL_BUDGET "
+                             "when that is higher (admission_budget.key_limit).")
     parser.add_argument("--include-media", action="store_true", help="Collect media and run the complete canonical pipeline after bill collection")
     parser.add_argument("--smoke", action="store_true",
                         help="Cheap end-to-end shakeout: skip discovery, one no-model admission candidate, "
@@ -602,7 +698,7 @@ def main(argv=None):
         result = health()
         print(json.dumps(result, indent=2))
         return 0 if result.get("status") in {"PASS", "RUNNING"} else 1
-    if args.admission_limit < 1:
+    if args.admission_limit is not None and args.admission_limit < 1:
         parser.error("--admission-limit must be positive")
     if args.smoke and args.include_media:
         parser.error("--smoke already runs the media and canonical stages; do not combine it with --include-media")

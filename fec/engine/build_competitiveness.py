@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """COMPETITIVENESS MULTIPLIER c (COMPET_MULT) -- artifact builder (Paul rulings 2026-10-05 and 2026-10-07, brain D-107: Kiley oriented R; 2026 ballot-district
-overrides; Sanders/King oriented D). The PR delegate's c = 1, DC's D+44 state row and a district-number join onto another incumbent's Cook row with no
-override remain agent defaults (D-105/D-107), not Paul rulings.
+overrides; Sanders/King oriented D). The territory delegates' c = 1 (PR; GU/VI/AS/MP) and DC's D+44 state row are ruled 2026-10-11 (Paul-delegated, CM-3); a district-number join
+onto another incumbent's Cook row with no override remains an agent default (D-105/D-107), not a Paul ruling.
 
 c = 1 + AMPLITUDE * exp(-max(lean, 0) / SCALE), range (1, 2], rounded to 6 dp AT THE SOURCE (here).
 lean = Cook PVI signed points x (+1 if the member's ORIENTED party is R, -1 if D). Cook signs PVI R positive,
@@ -53,6 +53,9 @@ PVI_SHIFT_FLAG = 5                                   # |pvi2026 - pvi2025| >= 5 
 CAUCUS = {'S000033': 'D', 'K000383': 'D'}            # Sanders, King: independents who caucus with Democrats, oriented D (Paul ruling 2026-10-07, D-107 R5, ratified; flagged)
 # R2 (Paul ruling 2026-10-07, brain D-107): explicit orientation overrides keyed by bioguide; they win over the roster party.
 ORIENTATION_OVERRIDES = {'K000401': ('R', 'Paul ruling 2026-10-07 (D-107 R2)')}   # Kevin Kiley: oriented by his prior party (Voteview R, then I; Cook labels him I)
+# CM-3 (ruled 2026-10-11, Paul-delegated): provenance for the two delegate flags, written into the artifact header (no c value depends on it).
+DELEGATE_RULINGS = {'territory_delegate_c1': 'ruled 2026-10-11 (Paul-delegated, CM-3): every territory delegate (PR, GU, VI, AS, MP) has c = 1; PR Resident Commissioner: no Cook PVI and a four-year term, so no 2026 race; GU/VI/AS/MP keep the same c = 1 path (no Cook PVI)',
+                    'dc_delegate_state_row': "ruled 2026-10-11 (Paul-delegated, CM-3): DC keeps Paul's supplied D+44 state row"}
 FUZZY_MIN = 0.85                                     # surname similarity for Cook's misspellings (Petterson, Haridopolis)
 
 
@@ -287,7 +290,7 @@ def build_records(roster, cook_rows, states, overrides=None):
             if 'district_number_row_claimed_by_other_incumbent' in flags:
                 # Agent default (brain D-105, never ruled): a member who fell back to a district-number row Cook assigns to ANOTHER incumbent has no PVI of their own in
                 # this table: c = 1.0 exactly, flag kept, status says why; pvi fields stay recorded. Calvert and Doggett are NO LONGER in this case: Paul ruled 2026-10-07
-                # (D-107 R3/R4) and each has a row in ballot_district_overrides.csv. The PR delegate's c = 1 and DC's D+44 state row remain agent defaults.
+                # (D-107 R3/R4) and each has a row in ballot_district_overrides.csv. The territory delegates' c = 1 (PR; GU/VI/AS/MP) and DC's D+44 state row are ruled 2026-10-11 (Paul-delegated, CM-3).
                 status = 'MATCHED_DISTRICT_ROW_CLAIMED_C1'
             elif party_o is not None:
                 pvi_lean = pvi25 if (overrides.get(rec['bioguide']) or {}).get('pvi_basis') == 'current_seat_2025' else pvi26
@@ -343,6 +346,7 @@ def build_artifact():
               'caucus_orientation': {'members': dict(sorted(CAUCUS.items())), 'provenance': 'Paul ruling 2026-10-07 (D-107 R5; ratified)'},
               'ballot_overrides': {'csv': BALLOT_CSV, 'running_house': sorted(b for b, o in overrides.items() if o['status'] == 'RUNNING_HOUSE'),
                                    'not_running_house': sorted(b for b, o in overrides.items() if o['status'] == 'NOT_RUNNING_HOUSE')},
+              'delegate_rulings': dict(DELEGATE_RULINGS),
               'boundary_currency_status': 'VERIFIED (every House row; Paul 2026-10-06; supersedes the Cook package column UNVERIFIED-HERE)',
               'summary': summarize(members)}
     return {'header': header, 'members': members}

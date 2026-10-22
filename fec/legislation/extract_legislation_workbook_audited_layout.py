@@ -31,6 +31,8 @@ import xml.etree.ElementTree as ET
 import zipfile
 from decimal import Decimal, InvalidOperation
 
+import roster  # fec/ is on sys.path (bootstrap above); the one source of the roster size and member rows
+
 
 SCHEMA = "legislation-workbook-audited-member-layout-v1"
 HELPER_SCHEMA = "legislation-workbook-layout-artifact-extraction-v1"
@@ -69,29 +71,30 @@ CATEGORIES = (
     "CU Tax Status",
 )
 
+_RAW_LAST_ROW = roster.last_row("Legislative Score - Raw")
 BLOCK_RANGES = {
     category: cell_range
     for category, cell_range in zip(
         CATEGORIES,
         (
-            "C3:J535",
-            "K3:R535",
-            "S3:Z535",
-            "AA3:AH535",
-            "AI3:AP535",
-            "AQ3:AX535",
-            "AY3:BF535",
-            "BG3:BN535",
-            "BO3:BV535",
-            "BW3:CD535",
-            "CE3:CL535",
-            "CM3:CT535",
-            "CU3:DB535",
-            "DC3:DJ535",
-            "DK3:DR535",
-            "DS3:DZ535",
-            "EA3:EH535",
-            "EW3:FD535",
+            f"C3:J{_RAW_LAST_ROW}",
+            f"K3:R{_RAW_LAST_ROW}",
+            f"S3:Z{_RAW_LAST_ROW}",
+            f"AA3:AH{_RAW_LAST_ROW}",
+            f"AI3:AP{_RAW_LAST_ROW}",
+            f"AQ3:AX{_RAW_LAST_ROW}",
+            f"AY3:BF{_RAW_LAST_ROW}",
+            f"BG3:BN{_RAW_LAST_ROW}",
+            f"BO3:BV{_RAW_LAST_ROW}",
+            f"BW3:CD{_RAW_LAST_ROW}",
+            f"CE3:CL{_RAW_LAST_ROW}",
+            f"CM3:CT{_RAW_LAST_ROW}",
+            f"CU3:DB{_RAW_LAST_ROW}",
+            f"DC3:DJ{_RAW_LAST_ROW}",
+            f"DK3:DR{_RAW_LAST_ROW}",
+            f"DS3:DZ{_RAW_LAST_ROW}",
+            f"EA3:EH{_RAW_LAST_ROW}",
+            f"EW3:FD{_RAW_LAST_ROW}",
         ),
     )
 }
@@ -882,7 +885,8 @@ def _expected_sublayer_formula(
         f"{legislative_first}$2:{legislative_last}$2"
         ") + SUMPRODUCT("
         f"'Press Release - Normalized'!{press_column}{press_row},"
-        f"'Press Release - Normalized'!{press_column}$535)"
+        f"'Press Release - Normalized'!{press_column}"
+        f"${roster.footer_row('Press Release - Normalized')})"
     )
 
 
@@ -941,13 +945,20 @@ def helper_payload_from_full_artifact_inspection(
         baseline_workbook_path,
         calibration["workbook_path"],
     )
+    n_members = roster.count()
+    raw_last = roster.last_row("Legislative Score - Raw")
+    sublayer_last = roster.last_row("Sub Layer - Raw")
+    congestion_last = roster.last_row("Congestion")
+    press_footer = roster.footer_row("Press Release - Normalized")
+    press_normalized_last = press_footer + 2  # footer + the two rows under it
+    press_raw_last = roster.footer_row("Press Release - Raw")
     target_addresses = {
-        "Legislative Score - Raw": "A1:FD535",
-        "Legislative Score - Normalized": "A1:FD535",
-        "Sub Layer - Raw": "A1:BB536",
-        "Congestion": "A1:Q535",
-        "Press Release - Normalized": "A1:X537",
-        "Press Release - Raw": "A1:Z535",
+        "Legislative Score - Raw": f"A1:FD{raw_last}",
+        "Legislative Score - Normalized": f"A1:FD{raw_last}",
+        "Sub Layer - Raw": f"A1:BB{sublayer_last}",
+        "Congestion": f"A1:Q{congestion_last}",
+        "Press Release - Normalized": f"A1:X{press_normalized_last}",
+        "Press Release - Raw": f"A1:Z{press_raw_last}",
     }
     targets = set(target_addresses.items())
     tables: dict[tuple[str, str], dict[str, Any]] = {}
@@ -1011,45 +1022,45 @@ def helper_payload_from_full_artifact_inspection(
         )
 
     raw = _table_shape(
-        tables[("Legislative Score - Raw", "A1:FD535")],
+        tables[("Legislative Score - Raw", f"A1:FD{raw_last}")],
         sheet="Legislative Score - Raw",
-        address="A1:FD535",
-        rows=535,
+        address=f"A1:FD{raw_last}",
+        rows=raw_last,
         columns=160,
     )
     normalized = _table_shape(
-        tables[("Legislative Score - Normalized", "A1:FD535")],
+        tables[("Legislative Score - Normalized", f"A1:FD{raw_last}")],
         sheet="Legislative Score - Normalized",
-        address="A1:FD535",
-        rows=535,
+        address=f"A1:FD{raw_last}",
+        rows=raw_last,
         columns=160,
     )
     sublayer = _table_shape(
-        tables[("Sub Layer - Raw", "A1:BB536")],
+        tables[("Sub Layer - Raw", f"A1:BB{sublayer_last}")],
         sheet="Sub Layer - Raw",
-        address="A1:BB536",
-        rows=536,
+        address=f"A1:BB{sublayer_last}",
+        rows=sublayer_last,
         columns=54,
     )
     congestion = _table_shape(
-        tables[("Congestion", "A1:Q535")],
+        tables[("Congestion", f"A1:Q{congestion_last}")],
         sheet="Congestion",
-        address="A1:Q535",
-        rows=535,
+        address=f"A1:Q{congestion_last}",
+        rows=congestion_last,
         columns=17,
     )
     press_normalized = _table_shape(
-        tables[("Press Release - Normalized", "A1:X537")],
+        tables[("Press Release - Normalized", f"A1:X{press_normalized_last}")],
         sheet="Press Release - Normalized",
-        address="A1:X537",
-        rows=537,
+        address=f"A1:X{press_normalized_last}",
+        rows=press_normalized_last,
         columns=24,
     )
     press_raw = _table_shape(
-        tables[("Press Release - Raw", "A1:Z535")],
+        tables[("Press Release - Raw", f"A1:Z{press_raw_last}")],
         sheet="Press Release - Raw",
-        address="A1:Z535",
-        rows=535,
+        address=f"A1:Z{press_raw_last}",
+        rows=press_raw_last,
         columns=26,
     )
 
@@ -1066,14 +1077,14 @@ def helper_payload_from_full_artifact_inspection(
                 f"invalid/duplicate Congestion member at row {offset}"
             )
         congestion_by_name[name] = (bioguide, offset)
-    if len(congestion_by_name) != 533 or len(
+    if len(congestion_by_name) != n_members or len(
         {value[0] for value in congestion_by_name.values()}
-    ) != 533:
+    ) != n_members:
         raise LayoutExtractionError(
-            "Congestion must contain 533 unique members and Bioguides"
+            f"Congestion must contain {n_members} unique members and Bioguides"
         )
     members = []
-    for index in range(533):
+    for index in range(n_members):
         raw_name = " ".join(str(raw[index + 2][0] or "").split())
         sublayer_name = " ".join(str(sublayer[index + 3][1] or "").split())
         if not raw_name or raw_name != sublayer_name:
@@ -1112,7 +1123,7 @@ def helper_payload_from_full_artifact_inspection(
                 f"Press Raw/Normalized header mismatch at {column}"
             )
         expected = _expected_press_normalization_formula(header)
-        for row_number in range(2, 535):
+        for row_number in roster.rows("Press Release - Normalized"):
             formula = target_formulas.get(
                 ("Press Release - Normalized", f"{column}{row_number}"),
                 "",
@@ -1131,18 +1142,18 @@ def helper_payload_from_full_artifact_inspection(
         if sheet == "Press Release - Normalized"
         and (match := CELL_RE.fullmatch(address))
         and press_first <= _column_number(match.group(1)) <= press_last
-        and 2 <= int(match.group(2)) <= 534
+        and 2 <= int(match.group(2)) <= roster.last_row("Press Release - Normalized")
     }
     if (
-        len(press_formula_cells) != 533 * 20
+        len(press_formula_cells) != n_members * 20
         or press_formula_mismatches
     ):
         raise LayoutExtractionError(
-            "all 10,660 Press Normalized LET formulas were not exact"
+            f"all {n_members * 20:,} Press Normalized LET formulas were not exact"
         )
 
     press_order_mismatches: list[dict[str, Any]] = []
-    for index in range(533):
+    for index in range(n_members):
         legislative_name = members[index]["name"]
         press_name = " ".join(str(press_raw[index + 1][0] or "").split())
         normalized_name = " ".join(
@@ -1201,13 +1212,13 @@ def helper_payload_from_full_artifact_inspection(
                 press_raw[index + 1][press_index],
                 label=f"{category} Press Raw row {index + 2}",
             )
-            for index in range(533)
+            for index in range(n_members)
         ]
         positive_max = max(0.0, max(raw_press_values))
         negative_max = abs(min(0.0, min(raw_press_values)))
         press_weight = finite_number(
-            press_normalized[534][press_index],
-            label=f"{category} Press Normalized weight row 535",
+            press_normalized[press_footer - 1][press_index],
+            label=f"{category} Press Normalized weight row {press_footer}",
         )
         residuals = []
         for index, raw_press_value in enumerate(raw_press_values):
@@ -1248,7 +1259,7 @@ def helper_payload_from_full_artifact_inspection(
         nonlegislative[category] = residuals
     if formula_mismatches:
         raise LayoutExtractionError(
-            "all 9,594 category Sub Layer formulas were not exact"
+            f"all {n_members * 18:,} category Sub Layer formulas were not exact"
         )
 
     efficiency_slots = []
@@ -1266,7 +1277,7 @@ def helper_payload_from_full_artifact_inspection(
                 {"cell": f"{column}4", "formula": anchor}
             )
         slot_formulas = []
-        for row_number in range(4, 537):
+        for row_number in roster.rows("Sub Layer - Raw"):
             formula = target_formulas.get(
                 ("Sub Layer - Raw", f"{column}{row_number}"), ""
             )
@@ -1303,7 +1314,7 @@ def helper_payload_from_full_artifact_inspection(
         )
     if efficiency_mismatches:
         raise LayoutExtractionError(
-            "all 9,061 AG:AW efficiency formulas were not exact"
+            f"all {n_members * 17:,} AG:AW efficiency formulas were not exact"
         )
 
     diagnostic_errors = []
@@ -1330,13 +1341,13 @@ def helper_payload_from_full_artifact_inspection(
         "sublayer_legislative_weights": legislative_weights,
         "efficiency_slots": efficiency_slots,
         "sublayer_formula_audit": {
-            "checked_cells": 533 * 18,
+            "checked_cells": n_members * 18,
             "mismatch_count": 0,
             "mismatches": [],
             "strict_exact_formula_comparison": True,
         },
         "press_normalized_formula_audit": {
-            "checked_cells": 533 * 20,
+            "checked_cells": n_members * 20,
             "mismatch_count": 0,
             "mismatches": [],
             "strict_exact_let_formula_comparison": True,
@@ -1381,6 +1392,25 @@ def helper_payload_from_full_artifact_inspection(
     }
 
 
+def helper_geometry() -> dict[str, Any]:
+    """The member count and member rows the artifact helper derives every range from; it has no built-in roster size."""
+    return {
+        "member_count": roster.count(),
+        "sheets": {
+            sheet: {
+                "first_row": roster.first_row(sheet),
+                "last_row": roster.last_row(sheet),
+            }
+            for sheet in (
+                "Legislative Score - Raw",
+                "Legislative Score - Normalized",
+                "Sub Layer - Raw",
+                "Congestion",
+            )
+        },
+    }
+
+
 def artifact_runtime(environ: Mapping[str, str] | None = None) -> dict[str, Any]:
     values = dict(os.environ if environ is None else environ)
     node = Path(str(values.get("ARTIFACT_TOOL_NODE") or "")).resolve()
@@ -1413,8 +1443,11 @@ def finite_number(value: Any, *, label: str) -> float:
 
 
 def _validate_members(rows: Any) -> list[dict[str, Any]]:
-    if not isinstance(rows, list) or len(rows) != 533:
-        raise LayoutExtractionError("extraction must contain exactly 533 members")
+    n_members = roster.count()
+    if not isinstance(rows, list) or len(rows) != n_members:
+        raise LayoutExtractionError(
+            f"extraction must contain exactly {n_members} members"
+        )
     names: set[str] = set()
     bioguides: set[str] = set()
     result: list[dict[str, Any]] = []
@@ -1546,11 +1579,11 @@ def validate_helper_payload(
     formula_audit = payload.get("sublayer_formula_audit")
     if not (
         isinstance(formula_audit, dict)
-        and formula_audit.get("checked_cells") == 533 * 18
+        and formula_audit.get("checked_cells") == roster.count() * 18
         and formula_audit.get("mismatch_count") == 0
     ):
         raise LayoutExtractionError(
-            "all 9,594 category sublayer formulas were not verified"
+            f"all {roster.count() * 18:,} category sublayer formulas were not verified"
         )
     extraction_basis = payload.get("extraction_basis")
     if extraction_basis == "full_artifact_inspection_plus_ooxml":
@@ -1560,7 +1593,7 @@ def validate_helper_payload(
         semantic_equality = payload.get("semantic_equality")
         if not (
             isinstance(press_formula_audit, dict)
-            and press_formula_audit.get("checked_cells") == 533 * 20
+            and press_formula_audit.get("checked_cells") == roster.count() * 20
             and press_formula_audit.get("mismatch_count") == 0
             and press_formula_audit.get("strict_exact_let_formula_comparison")
             is True
@@ -1610,9 +1643,9 @@ def validate_helper_payload(
     for category in CATEGORIES:
         values = nonleg.get(category)
         role_weights = weights.get(category)
-        if not isinstance(values, list) or len(values) != 533:
+        if not isinstance(values, list) or len(values) != roster.count():
             raise LayoutExtractionError(
-                f"{category} nonlegislative vector is not 533 values"
+                f"{category} nonlegislative vector is not {roster.count()} values"
             )
         if not isinstance(role_weights, list) or len(role_weights) != 5:
             raise LayoutExtractionError(
@@ -1783,14 +1816,14 @@ def build_layout(
         "numeric_plan_blockers": blockers,
         "excluded_from_inference": [
             {
-                "range": "Sub Layer - Raw!P4:P536",
+                "range": f"Sub Layer - Raw!P4:P{roster.last_row('Sub Layer - Raw')}",
                 "reason": (
                     "CU-Bank Competitive Dynamics is non-legislative and is "
                     "not one of the 18 category sublayers."
                 ),
             },
             {
-                "range": "Sub Layer - Raw!AG4:AW536",
+                "range": f"Sub Layer - Raw!AG4:AW{roster.last_row('Sub Layer - Raw')}",
                 "reason": (
                     "The 17 physical slots identify 17 categories; CU Tax "
                     "Status is omitted and no merge/aggregation is inferred."
@@ -1928,6 +1961,7 @@ def run(
             str(extraction_workbook),
             str(raw_path),
             str(render_dir),
+            json.dumps(helper_geometry(), sort_keys=True),
         ]
         # Only a report written by this invocation may satisfy the existence
         # check below; clear anything a previous run left behind.

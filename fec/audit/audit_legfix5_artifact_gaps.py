@@ -10,6 +10,7 @@ reports three classes of gap:
   MISSING   declared path is absent
   SIZE      present but its byte count differs from the declaration
   HASH      present and right-sized but its sha256 differs (opt-in, --hash)
+  CONFLICT  receipts declare the same artifact with different sizes/digests
 
 Read-only. Nothing is written, moved, or repaired.
 
@@ -124,15 +125,22 @@ def gather_receipts(root: pathlib.Path) -> list[pathlib.Path]:
             if "accepted_html" not in r.parts and "quarantine" not in r.parts]
 
 
-def collect(receipts: list[pathlib.Path]) -> tuple[list[dict], int]:
+def collect(receipts: list[pathlib.Path]) -> tuple[list[dict], list]:
     declared: list[dict] = []
-    unreadable = 0
+    unreadable: list = []  # (path, exception type name)
     for r in receipts:
         try:
-            walk(json.loads(r.read_text("utf8")), r, declared)
-        except (json.JSONDecodeError, OSError):
-            unreadable += 1
+            walk(json.loads(r.read_text(encoding="utf-8-sig")), r, declared)
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
+            unreadable.append((r, type(exc).__name__))
     return declared, unreadable
+
+
+def invalid_declaration(d: dict) -> bool:
+    """bytes must be an int (not bool) and sha256 a str when present; anything
+    else cannot be checked and would crash the variant set (lists)."""
+    return ((d["bytes"] is not None and type(d["bytes"]) is not int)
+            or (d["sha256"] is not None and not isinstance(d["sha256"], str)))
 
 
 def index_declarations(declared: list[dict],
@@ -147,6 +155,8 @@ def index_declarations(declared: list[dict],
     """
     index: dict[pathlib.Path, dict] = {}
     for d in declared:
+        if invalid_declaration(d):
+            continue  # reported separately by main()
         p = resolve(d["path"], d["source"], workspace)
         if p is None:
             continue
@@ -159,10 +169,13 @@ def index_declarations(declared: list[dict],
                 "sha256": d["sha256"],
                 "key": d["key"],
                 "declarations": 0,
+                "variants": set(),
                 "sources": [],
             }
             index[p] = entry
         entry["declarations"] += 1
+        if d["bytes"] is not None or d["sha256"]:
+            entry["variants"].add((d["bytes"], d["sha256"] or None))
         if entry["bytes"] is None and d["bytes"] is not None:
             entry["bytes"] = d["bytes"]
         if not entry["sha256"] and d["sha256"]:
@@ -189,6 +202,7 @@ def audit_paths(index: dict, *, verify_hash: bool = False,
         "missing": [],
         "size": [],
         "hash": [],
+        "conflict": [],
         "size_verified": 0,
         "size_undeclared": 0,
         "hash_verified": 0,
@@ -198,6 +212,12 @@ def audit_paths(index: dict, *, verify_hash: bool = False,
         "distinct_paths": len(index),
     }
     for p, d in sorted(index.items(), key=lambda kv: str(kv[0])):
+        # Receipts that pin one artifact to different sizes/digests: the
+        # first-come value below cannot speak for all of them.
+        variants = d.get("variants", ())
+        if (len({v[0] for v in variants if v[0] is not None}) > 1
+                or len({v[1] for v in variants if v[1]}) > 1):
+            report["conflict"].append(d)
         if not p.exists():
             report["missing"].append(d)
             continue
@@ -239,8 +259,11 @@ def main() -> int:
 
     declared, unreadable = collect(receipts)
     if unreadable:
-        print("unreadable receipts: %d" % unreadable)
+        print("unreadable receipts: %d" % len(unreadable))
+        for r, kind in unreadable:
+            print("  %s (%s)" % (r, kind))
     print("artifact declarations found: %d" % len(declared))
+    invalid = [d for d in declared if invalid_declaration(d)]
 
     # WORKSPACE is read here rather than relied on as a default argument so a
     # caller (or a test) can retarget the root it falls back to.
@@ -261,6 +284,16 @@ def main() -> int:
     for d in missing:
         print("  %-96s  x%-3d [%s]" % (
             rel(d["resolved"]), d["declarations"], rel(d["sources"][0])))
+
+    print("\n=== INVALID DECLARATION (%d) ===" % len(invalid))
+    for d in invalid:
+        print("  %-84s bytes=%r sha256=%r [%s]" % (
+            d["path"], d["bytes"], d["sha256"], rel(d["source"])))
+
+    print("\n=== CONFLICT (%d) ===" % len(report["conflict"]))
+    for d in report["conflict"]:
+        print("  %-84s %d distinct declarations" % (
+            rel(d["resolved"]), len(d["variants"])))
 
     print("\n=== SIZE MISMATCH (%d) ===" % len(report["size"]))
     for d, actual in report["size"]:
@@ -283,7 +316,8 @@ def main() -> int:
     else:
         print("  sha256 not checked (pass --hash to verify digests)")
 
-    return 1 if (unreadable or missing or report["size"] or report["hash"]) else 0
+    return 1 if (unreadable or invalid or missing or report["size"]
+                  or report["hash"] or report["conflict"]) else 0
 
 
 if __name__ == "__main__":

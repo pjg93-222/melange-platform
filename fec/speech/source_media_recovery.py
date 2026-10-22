@@ -1252,12 +1252,21 @@ def discover_cbs(record: dict[str, Any]) -> dict[str, Any]:
             for url in re.findall(r"https://prod\.vodvideo\.cbsnews\.com/[^\"'<> ]+?master\.m3u8", page, re.I)
         )
     )
-    if expected not in title_probe or len(hls) != 1:
+    # The URL and title carry month/day only, so the year must come from the page.
+    published = [
+        dt.date.fromisoformat(value)
+        for value in re.findall(r'"(?:datePublished|uploadDate)"\s*:\s*"(\d{4}-\d{2}-\d{2})', page)
+    ]
+    year_ok = any(abs((value - parsed).days) <= 1 for value in published)
+    if expected not in title_probe or not year_ok or len(hls) != 1:
         return media_result(
-            "no_media" if not hls else "ambiguous",
+            "ambiguous" if len(hls) > 1 else "no_media",
             "cbs_date_video",
             "official date-derived page failed exact title/date/media checks",
-            evidence={"video_page": video_url, "hls_count": len(hls), "expected_title": expected},
+            evidence={
+                "video_page": video_url, "hls_count": len(hls), "expected_title": expected,
+                "observed_dates": sorted({value.isoformat() for value in published}),
+            },
         )
     asset = re.search(r"/(\d+)_hls/master\.m3u8", hls[0])
     return media_result(
@@ -1902,15 +1911,22 @@ def discover_tvnews_phrase(
             evidence={"archive_coverage_starts": "2009-07-02"},
         )
     channel = identifier_prefix.rstrip("_")
+    archive_error = ""
+    caption_backend = "archive-org"
     try:
         phrase, clips = archive_tv_clips(record, channel)
     except (
         RecoveryError, urllib.error.URLError, urllib.error.HTTPError, OSError, ValueError
-    ):
+    ) as exc:
         # Retain GDELT as a compatibility fallback; Archive.org's own current
         # TV search service is the primary resolver and avoids that endpoint's
         # recurrent connection resets.
+        archive_error = str(exc)[:500]
+        caption_backend = "gdelt"
         phrase, clips = gdelt_tv_clips(record, station)
+    backend_evidence = {"caption_backend": caption_backend}
+    if archive_error:
+        backend_evidence["archive_error"] = archive_error
     identifiers: dict[str, dict[str, Any]] = {}
     for clip in clips:
         identifier = str(clip.get("ia_show_id") or "")
@@ -1946,12 +1962,22 @@ def discover_tvnews_phrase(
                 ),
             }
         )
+    if archive_error and not resolved:
+        # The primary resolver failed and the fallback found nothing: that is
+        # not evidence of a true miss, so keep the row retryable.
+        return media_result(
+            "probe_error",
+            adapter,
+            "primary Archive.org TV search failed and the fallback resolved no broadcast",
+            evidence={**backend_evidence, "query_phrase": phrase, "station": station},
+        )
     if len(resolved) != 1:
         return media_result(
             "no_media" if not resolved else "ambiguous",
             adapter,
             "no unique channel/date TV broadcast candidate was resolved",
             evidence={
+                **backend_evidence,
                 "query_phrase": phrase,
                 "station": station,
                 "caption_hits": len(clips),
@@ -1967,6 +1993,7 @@ def discover_tvnews_phrase(
     except (TypeError, ValueError):
         asr_hint_start_sec = None
     common_evidence = {
+        **backend_evidence,
         "identifier": item["identifier"],
         "archive_page": item["archive_page"],
         "query_phrase": phrase,
@@ -2141,6 +2168,7 @@ def discover_one(
             KeyError,
             AttributeError,
             http.client.HTTPException,
+            sqlite3.Error,
         ) as exc:
             # Airtime/program parsing is one archive-discovery accelerator,
             # never an identity requirement.  When it is missing or stale,
@@ -2219,6 +2247,8 @@ def discover_one(
                 )
                 if archive["status"] in {"exact_timed_captions", "candidate_asr_required"}:
                     return archive
+                if archive["status"] == "probe_error":
+                    fallback_errors.append(str((archive.get("evidence") or {}).get("archive_error") or archive["reason"]))
             except RecoveryError:
                 # A deterministic miss (for example a transcript turn that is too
                 # short) is final for this row, so it must not become retryable.
@@ -2535,7 +2565,7 @@ def run_discover(args: argparse.Namespace) -> int:
             failed = str(result.get("status") or "") == "probe_error"
         except (
             RecoveryError, urllib.error.URLError, urllib.error.HTTPError, ET.ParseError, OSError,
-            ValueError, KeyError, AttributeError, http.client.HTTPException,
+            ValueError, KeyError, AttributeError, http.client.HTTPException, sqlite3.Error,
         ) as exc:
             result = media_result(
                 "probe_error", str((row.get("discovery") or {}).get("adapter") or row["source_family"]), str(exc)[:500]
@@ -3488,6 +3518,7 @@ def run_align(args: argparse.Namespace) -> int:
             ]
             checkpoint_current = (
                 alignment.get("status") == "candidate_clips_emitted"
+                and not alignment.get("item_errors")
                 and len(package_clips) == int(alignment.get("candidate_clips") or -1)
                 and bool(package_clips)
                 and all(
@@ -3583,15 +3614,15 @@ def run_align(args: argparse.Namespace) -> int:
                 "candidate_clips": len(candidate_clips),
             })
         clips = list(clips_by_id.values())
+        # A partial item failure is still a failure: it exits nonzero and the
+        # row is retried (checkpoint_current ignores rows with item_errors).
+        failed = bool(item_errors)
         if clips:
             status = "candidate_clips_emitted"
-            failed = False
         elif item_errors:
             status = "error"
-            failed = True
         else:
             status = "no_member_turn_matched"
-            failed = False
         alignment = {
             "status": status,
             "candidate_clips": len(clips),
@@ -3638,7 +3669,8 @@ def run_align(args: argparse.Namespace) -> int:
         for row, result in completed_alignments():
             try:
                 clips, alignment, failed = result
-                stale_clip_ids = [
+                # A failure that emitted nothing must not erase earlier valid clips.
+                stale_clip_ids = [] if failed and not clips else [
                     clip_id for clip_id, clip in existing.items()
                     if str(clip.get("package") or "") == str(row.get("package") or "")
                     and str(clip.get("source_family") or "") == str(row.get("source_family") or "")

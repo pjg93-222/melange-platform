@@ -8,6 +8,7 @@ and only replaces the C-SPAN slice of ``social_media.db`` when source bytes chan
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import datetime as dt
 import hashlib
 import json
@@ -16,6 +17,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from members.load_cspan import connect, cspan_stats, prepare, replace  # noqa: E402
@@ -38,17 +40,67 @@ def find_rscript() -> str:
     return str(candidates[-1])
 
 
+TAIL_LINES = 40
+# weekly_refresh logs the last 2000 characters of this process's stderr; the headline plus this
+# tail must fit inside that window so the cause is visible without opening the stage log.
+TAIL_CHARS = 1800
+
+
+def _tee(stream, sink, tail) -> None:
+    """Echo a child stream as it arrives (the stage log is unchanged) and remember its last lines."""
+    for line in stream:
+        tail.append(line.rstrip())
+        try:
+            try:
+                sink.write(line)
+            except UnicodeError:   # a cp1252 pipe under weekly_refresh: keep the line, mark what it cannot hold
+                enc = getattr(sink, "encoding", None) or "utf-8"
+                sink.write(line.encode(enc, "replace").decode(enc))
+            sink.flush()
+        except (OSError, ValueError):
+            pass  # an unwritable sink must never stop the drain: a full pipe would wedge the child
+
+
+def _failure_tail(stdout, stderr) -> str:
+    # stderr last: it holds the R error, and the weekly log keeps the END of the message
+    text = "\n".join(
+        "--- %s (last %d lines) ---\n%s" % (name, len(lines), "\n".join(lines))
+        for name, lines in (("stdout", stdout), ("stderr", stderr)) if lines
+    )
+    return ("\n" + text[-TAIL_CHARS:]) if text else ""
+
+
 def run_checked(command: list[str], *, cwd: Path, timeout: int = STAGE_TIMEOUT_SECONDS) -> None:
+    """Run one R stage; on failure or timeout raise with the tail of what the child printed.
+
+    2026-10-19: this used to discard the child's output when it raised, so the weekly log said only
+    "cspan_scrape.R failed with exit 1" (the R error was long gone from the 300 characters logged)."""
+    name = Path(command[1]).name
+    stdout, stderr = deque(maxlen=TAIL_LINES), deque(maxlen=TAIL_LINES)
+    process = subprocess.Popen(
+        command, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    readers = [
+        threading.Thread(target=_tee, args=(process.stdout, sys.stdout, stdout), daemon=True),
+        threading.Thread(target=_tee, args=(process.stderr, sys.stderr, stderr), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
     try:
-        completed = subprocess.run(command, cwd=cwd, timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        raise RuntimeError(
-            "%s timed out after %ds" % (Path(command[1]).name, timeout)
-        ) from error
-    if completed.returncode:
-        raise RuntimeError(
-            "%s failed with exit %d" % (Path(command[1]).name, completed.returncode)
-        )
+        returncode = process.wait(timeout=timeout)
+        problem = "%s failed with exit %d" % (name, returncode) if returncode else None
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        problem = "%s timed out after %ds" % (name, timeout)
+    except BaseException:
+        process.kill()
+        raise
+    for reader in readers:
+        reader.join(timeout=5)  # headless Chrome can inherit the pipes and outlive Rscript
+    if problem:
+        raise RuntimeError(problem + _failure_tail(stdout, stderr))
 
 
 def load_receipt(path: Path, schema: str, since: str, until: str) -> dict:

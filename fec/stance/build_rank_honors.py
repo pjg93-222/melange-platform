@@ -20,6 +20,7 @@ FEC = Path(__file__).resolve().parents[1]
 if str(FEC) not in sys.path:
     sys.path.insert(0, str(FEC))
 
+import roster as roster_module   # service_years() has a `roster` parameter of its own
 from paths import today
 from stance.rank_honors_policy import (LADDER_G, POLICY, SCHEMA, SCHEMA_LADDER_G,
                                        classify_field, ladder_of, literal, number)
@@ -36,10 +37,8 @@ def digest(value):
     return hashlib.sha256(serialized(value)).hexdigest()
 
 
-SERVICE_SPINE = ('data/staffer_network/reference/congress-legislators'
-                 '/750c0608efb6ef1fc3257ba72c99af3771d35088/legislators-current.yaml',
-                 'data/staffer_network/reference/congress-legislators'
-                 '/750c0608efb6ef1fc3257ba72c99af3771d35088/legislators-historical.yaml')
+# File names under the installed congress-legislators snapshot (roster.snapshot_dir(): the one CURRENT names).
+SERVICE_SPINE = ('legislators-current.yaml', 'legislators-historical.yaml')
 
 
 def service_years(snapshot, roster, as_of, policy):
@@ -54,8 +53,9 @@ def service_years(snapshot, roster, as_of, policy):
     floor_, cap = number(policy['years_min']), number(policy['years_cap'])
     days = defaultdict(int)
     wanted = {row['member_id'] for row in roster.values()}
-    for path in SERVICE_SPINE:
-        text = snapshot.read(path).decode('utf-8')
+    spine_dir = Path(roster_module.snapshot_dir(snapshot.root))
+    for name in SERVICE_SPINE:
+        text = snapshot.read(spine_dir / name).decode('utf-8')
         for block in re.split(r'(?m)^- id:\s*$', text)[1:]:
             found = re.search(r"(?m)^    bioguide: ['\"]?([A-Z]\d{6})", block)
             if not found or found[1] not in wanted:

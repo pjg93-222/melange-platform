@@ -23,6 +23,7 @@ behavioral_dispositions.py; it never enters rank directly.
 Data: fec/lep/*.dta (gitignored, like fec/liwc/rkh/); refresh via thelawmakers.org data page."""
 import json, sys, os
 import moneyball_core as MBC
+import roster
 from moneyball_core import dump_atomic
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 import pandas as pd
@@ -39,8 +40,8 @@ lep = pd.concat([h, s], ignore_index=True)
 lep = lep[lep['bioguide_id'].astype(str).str.len() > 0]
 lep['member'] = lep['bioguide_id'].map(bg2name)
 lep = lep[lep['member'].notna()]
-print('LEP rows matched to current roster: %d rows / %d members (of 533; 119th freshmen have no LEP history)'
-      % (len(lep), lep['member'].nunique()))
+print('LEP rows matched to current roster: %d rows / %d members (of %d; 119th freshmen have no LEP history)'
+      % (len(lep), lep['member'].nunique(), roster.count()))
 
 per = {}
 for m, g in lep.groupby('member'):

@@ -291,6 +291,17 @@ def test_free_space_gate_refuses_and_reports_the_number(tmp_path, monkeypatch):
     assert not [n for n in journals(root) if n.endswith('tight')]
 
 
+def test_preflight_refuses_like_begin_and_writes_nothing(tmp_path, monkeypatch):
+    root = live(tmp_path)
+    before = snapshot_of(root)
+    monkeypatch.setenv(CT.MIN_FREE_GB_ENV, '30')
+    usage = shutil.disk_usage(str(tmp_path))
+    monkeypatch.setattr(shutil, 'disk_usage', lambda _p: type(usage)(int(100e9), int(80e9), int(14.32e9)))
+    with pytest.raises(RuntimeError, match='refused to start'):
+        CT.preflight(root, log=lambda *_: None)
+    assert snapshot_of(root) == before
+
+
 def test_orchestrator_state_and_dead_letters_are_never_restored_or_deleted(tmp_path):
     root = live(tmp_path)
     txn = quiet(CT.begin, root, run_id='state')
@@ -318,6 +329,31 @@ def test_tracked_store_new_files_go_modified_and_missing_ones_are_reported_loudl
     assert report['unrestorable_modified'] == ['data/stance/rank_honors/gen1/a.json']
     assert report['removed'] == ['data/stance/rank_honors/gen1/new.json']
     assert not (root / 'data/stance/rank_honors/gen1/new.json').exists()
+
+
+def test_rank_honors_pointers_get_a_before_image_while_generation_dirs_stay_tracked(tmp_path):
+    """Run 20261021T040051Z ended ROLLBACK_FAILED: build_rank_honors rewrites active.json and honors_workbook rewrites
+    workbook_publications.json IN PLACE, so they cannot be hash-only like the immutable generation directories beside them."""
+    pointers = ['data/stance/rank_honors/active.json', 'data/stance/rank_honors/workbook_publications.json']
+    root = live(tmp_path)
+    put(root, pointers[0], '{"generation_id": "gen1"}', 1_700_000_006_000_000_000)
+    put(root, pointers[1], '{"wb": "pub1"}', 1_700_000_007_000_000_000)
+    before = snapshot_of(root)
+    txn = quiet(CT.begin, root, run_id='honors-pointers')
+    # the chain: publish a new generation, repoint, rebind the workbook (new bytes, new mtime); a later step then fails
+    put(root, 'data/stance/rank_honors/gen2/b.json', '{"h": 2}')
+    put(root, pointers[0], '{"generation_id": "gen2"}')
+    put(root, pointers[1], '{"wb": "pub2"}')
+    assert quiet(txn.rollback, 'a step after build_rank_honors failed') is True    # RollbackFailed before the fix
+    assert txn.state == CT.ROLLED_BACK
+    assert snapshot_of(root) == before                  # both pointers byte-exact with mtime; the new generation is gone
+    record = json.loads((Path(txn.dir) / 'journal.json').read_text())['rollback']
+    assert sorted(record['restored']) == pointers
+    assert record['removed'] == ['data/stance/rank_honors/gen2/b.json']
+    assert record['counts']['unrestorable_modified'] == 0 == record['counts']['errors']
+    assert set(pointers) <= set(txn.journal['files']) and not set(pointers) & set(txn.journal['tracked'])
+    assert 'data/stance/rank_honors/gen1/a.json' in txn.journal['tracked']          # generations stay hash-only
+    assert 'data/stance/rank_honors/gen1/a.json' not in txn.journal['files']
 
 
 def test_a_journal_from_another_root_is_left_alone(tmp_path, monkeypatch):

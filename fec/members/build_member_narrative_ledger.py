@@ -27,6 +27,7 @@ import os
 from pathlib import Path
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from fec import roster
 from fec.paths import to_host
 from fec.speech import longform_automated_authority as auto
 
@@ -694,6 +695,9 @@ def main() -> int:
 
     if set(basis) != set(desk) or set(basis) != set(congestion):
         raise SystemExit("basis, desk bundle, and congestion roster keys do not match exactly")
+    corrupted = sorted(key for key in basis if "�" in key)
+    if corrupted:  # a decoded-with-the-wrong-codec name must never become a ledger key
+        raise SystemExit("member key(s) contain U+FFFD: " + ", ".join(map(ascii, corrupted)))
 
     def facet_values(key):
         return [((row.get("personality_facets") or {}).get(key) or {}).get("z") for row in basis.values()]
@@ -1139,7 +1143,7 @@ def main() -> int:
     coop_covered = sum("cross_party_cooperation" in row["behavior"] for row in records.values())
     # 300 since 0b65a2cab (CU_IDENTITY_FIX, 2026-10-11): Rep. Robert Menendez (M001226) loses cooperation_v2
     # coverage once Sen. Menendez's Senate bills stop being credited to him by name. CU_IDENTITY_FIX=0 gives 301.
-    if len(records) != 533 or coop_covered != (300 if os.environ.get("CU_IDENTITY_FIX", "1") != "0" else 301):
+    if len(records) != roster.count() or coop_covered != (300 if os.environ.get("CU_IDENTITY_FIX", "1") != "0" else 301):
         raise SystemExit("coverage gate failed: members=%d cooperation=%d" % (len(records), coop_covered))
     if any((row.get("speech_profile") or {}).get("status") != "PASS" for row in records.values()):
         raise SystemExit("every member must receive a PASS speech profile")
@@ -1156,7 +1160,7 @@ def main() -> int:
             "rank_convention": "make_member_desk.py bisect_left/(n-1)",
             "constructs_independent": True,
             "cross_party_source": "coop_v2_candidate.json cooperation_v2_z only; no v1 fallback",
-            "speech_gate": "all 533 receive word/interaction baseline; all accepted audio settings combine into a general baseline; thin coverage limits strength, never pass/fail",
+            "speech_gate": "all %d receive word/interaction baseline; all accepted audio settings combine into a general baseline; thin coverage limits strength, never pass/fail" % roster.count(),
             "audio_layer_rule": (
                 "two complementary audio layers, never substitutes: general_audio_habits carries "
                 "clip-weighted raw means over accepted descriptive clips (scale=%s) and "

@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 from moneyball_core import build_party_map, dump_atomic   # S2-03: crash-safe artifact write
+import roster
 import json,sys,csv,os,collections,statistics,openpyxl
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 B=MB_ROOT
@@ -14,7 +15,7 @@ for c in cats:
         vals=[SCO[m][c] for m in members if prt[m]==p and m in SCO]
         avgP[(p,c)]=statistics.mean(vals) if vals else 0.0
 ra=openpyxl.load_workbook(os.path.join(MB_ROOT, 'Moneyball Main Version - Blended.xlsx'),data_only=True)['Rank & Allocation']
-OV={ra.cell(r,1).value:ra.cell(r,7).value for r in range(3,536) if ra.cell(r,1).value}
+OV={ra.cell(r,1).value:ra.cell(r,7).value for r in roster.rows('Rank & Allocation') if ra.cell(r,1).value}
 PROO={'Champion','Defender','Ally'}
 plays={}
 for m in members:
@@ -48,4 +49,4 @@ print('\nDEFEND (back a genuine ally in a contestable seat):')
 for x in show('defend','value'): print('   ',x)
 db=collections.Counter(plays[m]['party'] for m in dfd)
 print('  defend party balance: D %d / R %d'%(db['D'],db['R']))
-print('\nWarnock now:',plays['Raphael Warnock']['play'],'| %d contest / %d defend / %d none'%(len(rep),len(dfd),533-len(rep)-len(dfd)))
+print('\nWarnock now:',plays['Raphael Warnock']['play'],'| %d contest / %d defend / %d none'%(len(rep),len(dfd),len(members)-len(rep)-len(dfd)))

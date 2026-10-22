@@ -455,19 +455,25 @@ def main(argv=None) -> int:
                 accepted_existing += 1
                 accepted_existing_members.add(spec["member"])
                 continue
-            if existing_duration is not None:
-                # CONSTRAINTS (2026-08-25): the already-manifested capture for this logical
-                # turn is shorter than this candidate -- keep the longer capture, value-blind.
-                # Do not skip; fall through so the candidate is fully verified and, on
-                # success, imported alongside the existing shorter row at write time (never
-                # deleting or rewriting it -- see the write-time gate below).
-                shorter_existing_twins += 1
+            # CONSTRAINTS (2026-08-25): the already-manifested capture for this logical
+            # turn is shorter than this candidate -- keep the longer capture, value-blind.
+            # Do not skip; fall through so the candidate is fully verified and, on
+            # success, imported alongside the existing shorter row at write time (never
+            # deleting or rewriting it -- see the write-time gate below).
             src, member_start, file_start = source_path(
                 root, spec, float(binding["member_start"])
             )
             rate, payload, rms, physical_end = read_member_payload(
                 src, member_start, file_start, float(spec["end"])
             )
+            if existing_duration is not None:
+                # The write gate compares physical against physical; do the same here so
+                # dry-run does not count a twin that is longer only by transcript end.
+                if not is_longer_than_existing(existing_duration, physical_end - member_start):
+                    accepted_existing += 1
+                    accepted_existing_members.add(spec["member"])
+                    continue
+                shorter_existing_twins += 1
             accepted_specs.append((
                 spec, binding, src, member_start, file_start, rate, payload, rms, physical_end
             ))
@@ -560,7 +566,12 @@ def main(argv=None) -> int:
         row = make_row(spec, binding, src, out, rate, payload, rms, physical_end)
         output_key = os.path.normcase(str(out.resolve()))
         if output_key in existing_by_output:
-            existing_rows[existing_by_output[output_key]] = row
+            index = existing_by_output[output_key]
+            if index < len(existing_rows):
+                existing_rows[index] = row
+            else:
+                # Same output written earlier in this run: replace that new row.
+                new_rows[index - len(existing_rows)] = row
             repaired_rows += 1
             existing_duration_by_logical[logical] = max(
                 existing_duration_by_logical.get(logical, -1.0), candidate_duration

@@ -111,6 +111,7 @@ import access_gate
 # request time. The entry stays because index.html - the golden render those
 # templates produce - must keep its place in the asset hash below.
 STATIC_ASSETS = {"/": ("index.html", "text/html; charset=utf-8"), "/app.js": ("app.js", "text/javascript"),
+                 '/public_data.js': ('public_data.js', 'text/javascript'),
                  '/insights.js': ('insights.js', 'text/javascript'),
                  '/insights.css': ('insights.css', 'text/css'),
                  '/giving-forecast.js': ('giving-forecast.js', 'text/javascript'),
@@ -1552,7 +1553,12 @@ class RunNotFound(Exception):
 
 
 class Console:
-    def __init__(self, root, keys_file="", rscript="", read_only=False):
+    def __init__(self, root, keys_file="", rscript="", read_only=False, *, public_data=None):
+        if public_data is not None:
+            from public_data import Catalogue
+            if not isinstance(public_data, Catalogue):
+                raise ValueError('A prepared public data capability is required.')
+        self.public_data = public_data
         self.configured_root = os.path.abspath(root)
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
@@ -3318,6 +3324,68 @@ class Handler(access_gate.AccessMixin, BaseHTTPRequestHandler):
                 if not (parsed.path in HOSTED_GET_ROUTES or parsed.path in STATIC_ASSETS
                         or parsed.path.startswith(('/geo/v2/', '/basemap/'))):
                     return self.send({'error': HOSTED_REFUSED}, 403)
+            if parsed.path.startswith('/api/public-data/'):
+                routes = {'/api/public-data/catalogue', '/api/public-data/rows',
+                          '/api/public-data/download', '/api/public-data/provenance'}
+                if parsed.path not in routes:
+                    return self.send({'error': 'Not found.'}, 404)
+                params = parse_qs(parsed.query, keep_blank_values=True, strict_parsing=True)
+                expected = {'table', 'page'} if parsed.path.endswith('/rows') else set() if parsed.path.endswith('/catalogue') else {'table'}
+                if set(params) - expected or any(len(values) != 1 for values in params.values()):
+                    raise ValueError('Unsupported public data parameters.')
+                if not parsed.path.endswith('/catalogue') and 'table' not in params:
+                    raise ValueError('Choose a fixed public table.')
+                catalogue = getattr(app, 'public_data', None)
+                if catalogue is None:
+                    return self.send({'available': False, 'error': 'No verified public data source is installed.'}, 503)
+                if parsed.path.endswith('/catalogue'):
+                    return self.send(catalogue.catalogue())
+                role = params['table'][0]
+                if parsed.path.endswith('/rows'):
+                    page = params.get('page', ['0'])[0]
+                    if not re.fullmatch(r'0|[1-9][0-9]{0,7}', page):
+                        raise ValueError('Invalid public table page.')
+                    return self.send(catalogue.rows(role, int(page)))
+                if parsed.path.endswith('/provenance'):
+                    return self.send(catalogue.provenance(role))
+                # Finish the reader's full post-hash/identity checks before
+                # any success headers. Retain only bounded immutable chunks.
+                started = False
+                try:
+                    from public_data import MAX_FILE
+                    with catalogue.download(role) as (metadata, chunks):
+                        expected_bytes = metadata['bytes']
+                        if type(expected_bytes) is not int or not 0 <= expected_bytes <= MAX_FILE:
+                            raise ValueError('Public download size is invalid.')
+                        filename = metadata['filename']
+                        buffered, total = [], 0
+                        for chunk in chunks:
+                            if (type(chunk) is not bytes or not 0 < len(chunk) <= 65536
+                                    or total + len(chunk) > expected_bytes
+                                    or len(buffered) >= (expected_bytes + 65535) // 65536):
+                                raise ValueError('Public download bytes changed.')
+                            buffered.append(chunk)
+                            total += len(chunk)
+                        if total != expected_bytes:
+                            raise ValueError('Public download size changed.')
+                        verified_chunks = tuple(buffered)
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'text/plain; charset=utf-8')
+                    self.send_header('Content-Length', str(expected_bytes))
+                    self.send_header('Content-Disposition', 'attachment; filename="' + filename + '"')
+                    self.send_header('Cache-Control', 'no-store')
+                    self.send_header('X-Content-Type-Options', 'nosniff')
+                    self.send_header('Content-Security-Policy', CONSOLE_CSP)
+                    self.end_headers()
+                    started = True
+                    for chunk in verified_chunks:
+                        self.wfile.write(chunk)
+                except (ValueError, OSError):
+                    if started:
+                        self.close_connection = True
+                        return
+                    raise
+                return
             if parsed.path == '/api/health':
                 return self.send({'application': 'MENTAT', 'project': str(PROJECT),
                                   'data_root': app.configured_root,
@@ -3915,7 +3983,9 @@ def console_server(port, handler=None, host='127.0.0.1'):
     return server
 
 
-def main():
+def main(*, public_data=None, on_server_ready=None):
+    if on_server_ready is not None and not callable(on_server_ready):
+        raise ValueError('The native readiness hook must be a program callback.')
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=8802)
     parser.add_argument("--data-root", default=str(Path(os.environ.get("LOCALAPPDATA", Path.home())) / "Mentat" / "console"))
@@ -3944,8 +4014,14 @@ def main():
         server.server_close()
         sys.stderr.write(f"access gate: {error}\n")
         sys.exit(2)
-    server.app = Console(data_root, keys_file, rscript, options.read_only)
-    server.app.port = options.port or server.server_port
+    try:
+        server.app = Console(data_root, keys_file, rscript, options.read_only, public_data=public_data)
+        server.app.port = options.port or server.server_port
+        if on_server_ready is not None:
+            on_server_ready(server)
+    except BaseException:
+        server.server_close()
+        raise
     # One source discovery per stamp change, not per request (perf lane 2026-09-24).
     import source_memo
     source_memo.install()

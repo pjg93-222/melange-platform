@@ -74,7 +74,7 @@ def exact_review_errors(row: dict, inputs: dict) -> list[str]:
                     or row.get("automated_verified_at") != review["reviewed_at"]
                     or row.get("review_row_sha256") != materializer.row_hash(review)):
                 raise ValueError("automatic_review_provenance_binding")
-        except (ValueError, KeyError, OSError) as exc:
+        except (ValueError, KeyError, OSError, SMR.RecoveryError) as exc:
             errors.append("automated_review_binding:" + str(exc))
     elif (not review or review.get("reviewer_type") != "HUMAN"
             or not str(review.get("reviewer_name") or "").strip()
@@ -117,7 +117,7 @@ def exact_review_errors(row: dict, inputs: dict) -> list[str]:
                 or abs(float(review["start_sec"]) - float(row["start_sec"])) > .001
                 or abs(float(review["end_sec"]) - float(row["end_sec"])) > .001):
             errors.append("whole_turn_acoustic_coverage")
-    except (KeyError, ValueError, TypeError, materializer.PromotionRefusal):
+    except (KeyError, ValueError, TypeError, materializer.PromotionRefusal, SMR.RecoveryError):
         errors.append("whole_turn_acoustic_coverage")
     if selected.get("status") != "SELECTED_HARD_NAME_CUE_CANDIDATE" or not selected.get("cues"):
         errors.append("selected_named_handoff")

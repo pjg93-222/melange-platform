@@ -19,6 +19,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+FEC_BOOTSTRAP = Path(__file__).resolve().parents[1]
+if str(FEC_BOOTSTRAP) not in sys.path:
+    sys.path.insert(0, str(FEC_BOOTSTRAP))
+
 try:
     from lane_file_io import iter_ndjson_raw_lines, atomic_write_bytes
 except ImportError:  # pragma: no cover - package import path
@@ -238,6 +242,8 @@ def audit_review_partition(review_dir: Path) -> dict[str, Any]:
         raise FileNotFoundError(f"Missing required review files: {missing}")
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError("manifest.json is not a JSON object")
     ledger: dict[tuple[str, str], tuple[str, str]] = {}
     ledger_dispositions: Counter[str] = Counter()
     duplicate_ledger_keys: list[str] = []
@@ -265,7 +271,9 @@ def audit_review_partition(review_dir: Path) -> dict[str, Any]:
             )
         disposition = row.get("disposition")
         ledger_dispositions[str(disposition)] += 1
-        if disposition not in {expected for _, expected in PARTITIONS.values()}:
+        if not isinstance(disposition, str) or disposition not in {
+            expected for _, expected in PARTITIONS.values()
+        }:
             row_contract_errors.append(
                 {
                     "key": printable_key(key),
@@ -313,7 +321,7 @@ def audit_review_partition(review_dir: Path) -> dict[str, Any]:
             if (
                 not provenance_errors
                 and row.get("official_text_evidence_state")
-                in {None, "official_text_unavailable", "not_enriched"}
+                in (None, "official_text_unavailable", "not_enriched")
             ):
                 harmless_enrichment_lag.append(
                     {

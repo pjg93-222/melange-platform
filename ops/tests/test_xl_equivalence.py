@@ -14,7 +14,9 @@ import pytest
 
 OPS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(OPS / "compute"))
+sys.path.insert(0, str(OPS.parent / "fec"))
 import office_recalc as OR  # noqa: E402
+import roster  # noqa: E402
 import xl_equivalence as X  # noqa: E402
 
 ALLOW = ["_XLFN.XLOOKUP"]
@@ -258,7 +260,7 @@ def test_compare_cli_applies_the_allowance_and_the_flag_turns_it_off(monkeypatch
 
 # ---------------------------------------------------------------------------------------------------- rank-gated tolerance (D-177 amended 2026-10-13)
 # Paul: "Tiny rounding differences are allowed in number cells only when every rank, percentile and threshold matches exactly in the
-# same run; checked every time." Continuous cells: at most 1024 ULP. Discrete cells and the 533 member ranks: exact, in the same call.
+# same run; checked every time." Continuous cells: at most 1024 ULP. Discrete cells and the member ranks: exact, in the same call.
 
 BM = "Blended Model"
 RANKS = {"ranges": [f"{BM}!T3:T7", f"{BM}!Y3:Y7"], "members": 5}
@@ -400,15 +402,25 @@ def test_the_tolerance_is_refused_when_the_rank_check_fails():
     assert r["rank_check"]["result"] == "FAIL" and r["rank_check"]["rank_exact"] == 5 and r["rank_check"]["second_rank_column"]["differing"] == ["Y5"]
 
 
-def test_the_rank_check_reads_the_fields_cutover_needs_and_all_533_members():
-    book = {BM: {f"T{r}": ("n", float(r - 2), f"RANK(S{r},$S$3:$S$535)") for r in range(3, 536)}}
-    rc = X.rank_check(book, book, [f"{BM}!T3:T535"])
-    assert (rc["result"], rc["members"], rc["rank_exact"], rc["members_expected"]) == ("PASS", 533, 533, 533) and X.RANK_MEMBERS == 533
+def test_the_rank_check_reads_the_fields_cutover_needs_and_all_roster_members(tmp_path, monkeypatch):
+    n = 7                                                                  # a synthetic roster: the member count is the roster's, never a literal
+    (tmp_path / "data" / "engine").mkdir(parents=True)
+    (tmp_path / "data" / "engine" / "roster.json").write_text(json.dumps(
+        {"schema": roster.SCHEMA, "members": [{"member": f"M{i}", "bioguide": f"B{i}"} for i in range(n)]}), encoding="utf-8")
+    assert X.rank_members(tmp_path) == roster.count(root=tmp_path) == n
+    last = 2 + n
+    book = {BM: {f"T{r}": ("n", float(r - 2), f"RANK(S{r},$S$3:$S${last})") for r in range(3, last + 1)}}
+    rng = f"{BM}!T3:T{last}"
+    rc = X.rank_check(book, book, [rng], n)
+    assert (rc["result"], rc["members"], rc["rank_exact"], rc["members_expected"]) == ("PASS", n, n, n)
+    monkeypatch.setattr(X, "REPO", tmp_path)                                 # no members argument: the default is the roster of the tree
+    rc = X.rank_check(book, book, [rng])
+    assert (rc["result"], rc["members_expected"]) == ("PASS", n)
     short = {BM: {a: v for a, v in book[BM].items() if a != "T9"}}
-    rc = X.rank_check(book, short, [f"{BM}!T3:T535"])
-    assert rc["result"] == "FAIL" and rc["rank_exact"] == 532 and rc["rank_missing"] == ["T9"]
-    text = {BM: {**book[BM], "T9": ("str", "2", "RANK(S9,$S$3:$S$535)")}}
-    assert X.rank_check(text, text, [f"{BM}!T3:T535"])["result"] == "FAIL"           # equal but not a number is not a rank
+    rc = X.rank_check(book, short, [rng])
+    assert rc["result"] == "FAIL" and rc["rank_exact"] == n - 1 and rc["rank_missing"] == ["T9"]
+    text = {BM: {**book[BM], "T9": ("str", "2", f"RANK(S9,$S$3:$S${last})")}}
+    assert X.rank_check(text, text, [rng])["result"] == "FAIL"           # equal but not a number is not a rank
     assert X.rank_check(book, book, [])["result"] == "FAIL"
 
 

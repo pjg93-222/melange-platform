@@ -4,6 +4,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,6 +16,7 @@ import zipfile
 FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 
+import roster  # noqa: E402
 from legislation import build_legislation_workbook_numeric_plan as NP  # noqa: E402
 from legislation import extract_legislation_workbook_audited_layout as EL  # noqa: E402
 
@@ -97,9 +100,9 @@ def payload(workbook_sha: str) -> dict[str, object]:
             "bioguide_id": f"A{index + 1:06d}",
             "raw_row": index + 3,
             "sublayer_row": index + 4,
-            "congestion_row": 535 - index,
+            "congestion_row": roster.last_row("Congestion") - index,
         }
-        for index in range(533)
+        for index in range(roster.count())
     ]
     slots = [
         {
@@ -129,7 +132,7 @@ def payload(workbook_sha: str) -> dict[str, object]:
         "sublayer_category_columns": EL.CATEGORY_SUBLAYER_COLUMNS,
         "members": members,
         "sublayer_nonlegislative_values": {
-            category: [float(index)] * 533
+            category: [float(index)] * roster.count()
             for index, category in enumerate(EL.CATEGORIES)
         },
         "sublayer_legislative_weights": {
@@ -138,7 +141,7 @@ def payload(workbook_sha: str) -> dict[str, object]:
         },
         "efficiency_slots": slots,
         "sublayer_formula_audit": {
-            "checked_cells": 533 * 18,
+            "checked_cells": roster.count() * 18,
             "mismatch_count": 0,
             "mismatches": [],
         },
@@ -294,7 +297,7 @@ class ExtractorTests(unittest.TestCase):
         normalized = EL.validate_helper_payload(
             valid, expected_sha256=workbook_sha
         )
-        self.assertEqual(len(normalized["members"]), 533)
+        self.assertEqual(len(normalized["members"]), roster.count())
         self.assertEqual(
             normalized["members"][0]["bioguide"],
             normalized["members"][0]["bioguide_id"],
@@ -305,7 +308,7 @@ class ExtractorTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                len(values) == 533
+                len(values) == roster.count()
                 for values in normalized[
                     "sublayer_nonlegislative_values"
                 ].values()
@@ -323,7 +326,7 @@ class ExtractorTests(unittest.TestCase):
         invalid = json.loads(json.dumps(valid))
         invalid["members"].pop()
         with self.assertRaisesRegex(
-            EL.LayoutExtractionError, "exactly 533 members"
+            EL.LayoutExtractionError, f"exactly {roster.count()} members"
         ):
             EL.validate_helper_payload(
                 invalid, expected_sha256=workbook_sha
@@ -342,7 +345,7 @@ class ExtractorTests(unittest.TestCase):
         invalid = payload(workbook_sha)
         invalid["sublayer_formula_audit"]["mismatch_count"] = 1
         with self.assertRaisesRegex(
-            EL.LayoutExtractionError, "9,594 category"
+            EL.LayoutExtractionError, f"{roster.count() * 18:,} category"
         ):
             EL.validate_helper_payload(
                 invalid, expected_sha256=workbook_sha
@@ -482,7 +485,7 @@ class ExtractorTests(unittest.TestCase):
             "=SUMPRODUCT('Legislative Score - Normalized'!"
             "AI24:AM24,'Legislative Score - Normalized'!"
             "AI$2:AM$2) + SUMPRODUCT('Press Release - Normalized'!"
-            "I23,'Press Release - Normalized'!I$535)",
+            f"I23,'Press Release - Normalized'!I${roster.footer_row('Press Release - Normalized')})",
         )
 
     def test_artifact_runtime_uses_required_env_and_node_path(self) -> None:
@@ -673,6 +676,213 @@ class ExtractorTests(unittest.TestCase):
         self.assertNotIn("SpreadsheetFile.exportXlsx", helper_source)
         self.assertNotIn("symlink", python_source.casefold())
         self.assertNotIn("symlink", helper_source.casefold())
+
+
+HELPER = FEC / "extract_legislation_workbook_audited_layout_artifact.cjs"
+FAKE_ARTIFACT_TOOL = FEC / "tests" / "fixtures" / "fake_artifact_tool.cjs"
+GEOMETRY_SHEETS = (
+    "Legislative Score - Raw",
+    "Legislative Score - Normalized",
+    "Sub Layer - Raw",
+    "Congestion",
+)
+
+
+def geometry_for(count: int) -> dict[str, object]:
+    return {
+        "member_count": count,
+        "sheets": {
+            sheet: {
+                "first_row": roster.first_row(sheet),
+                "last_row": roster.first_row(sheet) + count - 1,
+            }
+            for sheet in GEOMETRY_SHEETS
+        },
+    }
+
+
+def rows_of(cell_range: str) -> int:
+    first, last = cell_range.split(":")
+    digits = lambda cell: int("".join(c for c in cell if c.isdigit()))  # noqa: E731
+    return digits(last) - digits(first) + 1
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required to run the helper")
+class ArtifactHelperGeometryTests(unittest.TestCase):
+    """The helper takes its member count and rows from the Python caller (the roster), never from literals."""
+
+    def run_helper(self, geometry: object):
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            fake = tmp / "node_modules" / "@oai" / "artifact-tool"
+            fake.mkdir(parents=True)
+            shutil.copyfile(FAKE_ARTIFACT_TOOL, fake / "index.js")
+            helper = tmp / HELPER.name
+            shutil.copyfile(HELPER, helper)
+            workbook = tmp / "frozen.xlsx"
+            workbook.write_bytes(b"fake workbook")
+            report = tmp / "report.json"
+            log = tmp / "calls.log"
+            args = [str(workbook), str(report), str(tmp / "renders")]
+            if geometry is not None:
+                args.append(
+                    geometry if isinstance(geometry, str) else json.dumps(geometry)
+                )
+            done = subprocess.run(
+                ["node", str(helper), *args],
+                cwd=tmp,
+                env={**os.environ, "FAKE_ARTIFACT_TOOL_LOG": str(log)},
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            payload = (
+                json.loads(report.read_text(encoding="utf-8"))
+                if report.is_file()
+                else None
+            )
+            calls = (
+                [json.loads(line) for line in log.read_text().splitlines()]
+                if log.is_file()
+                else []
+            )
+            return done, payload, calls, sha256(workbook)
+
+    def test_ranges_follow_the_member_count_it_is_given(self) -> None:
+        for count in sorted({roster.count(), 533, 535}):
+            with self.subTest(count=count):
+                done, payload, calls, _ = self.run_helper(geometry_for(count))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(payload["status"], "PASS")
+                self.assertEqual(len(payload["members"]), count)
+                self.assertEqual(
+                    payload["sublayer_formula_audit"]["checked_cells"], count * 18
+                )
+                self.assertEqual(
+                    payload["raw_block_ranges"]["Examination & Supervision"],
+                    f"C3:J{count + 2}",
+                )
+                self.assertEqual(
+                    payload["raw_block_ranges"]["Credit Card Mandates"],
+                    f"DC3:DJ{count + 2}",
+                )
+                tables = {
+                    (c["sheetId"], c["range"])
+                    for c in calls
+                    if c["op"] == "inspect" and c["kind"] == "table"
+                }
+                self.assertLessEqual(
+                    {
+                        ("Legislative Score - Raw", f"A3:A{count + 2}"),
+                        ("Sub Layer - Raw", f"B4:U{count + 3}"),
+                        ("Congestion", f"A3:B{count + 2}"),
+                        ("Sub Layer - Raw", f"AG1:AW{count + 3}"),
+                        ("Legislative Score - Normalized", f"C2:G{count + 2}"),
+                        ("Legislative Score - Normalized", f"EW2:FA{count + 2}"),
+                    },
+                    tables,
+                )
+                scans = {
+                    (c["sheetId"], c["range"])
+                    for c in calls
+                    if c["op"] == "inspect" and c["kind"] == "match"
+                }
+                self.assertEqual(
+                    scans,
+                    {
+                        ("Legislative Score - Raw", f"A1:FD{count + 2}"),
+                        ("Legislative Score - Normalized", f"A1:FD{count + 2}"),
+                        ("Sub Layer - Raw", f"A1:AW{count + 3}"),
+                        ("Congestion", f"A1:Q{count + 2}"),
+                    },
+                )
+                for call in calls:
+                    if call["op"] == "inspect" and call["kind"] == "table":
+                        self.assertGreaterEqual(
+                            call["tableMaxRows"], rows_of(call["range"]), call
+                        )
+
+    def test_python_accepts_the_helper_report_for_its_own_geometry(self) -> None:
+        done, payload, _, source_sha = self.run_helper(EL.helper_geometry())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        validated = EL.validate_helper_payload(payload, expected_sha256=source_sha)
+        self.assertEqual(len(validated["members"]), roster.count())
+
+    def test_run_hands_the_roster_geometry_to_the_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            frozen = root / "baseline" / "files" / EL.WORKBOOK_BASENAME
+            frozen.parent.mkdir(parents=True)
+            frozen.write_bytes(b"frozen workbook")
+            production = root / EL.WORKBOOK_BASENAME
+            production.write_bytes(b"live workbook")
+            manifest = write_json(
+                root / "baseline" / "baseline_manifest.json",
+                {
+                    "schema": EL.BASELINE_SCHEMA,
+                    "immutable_existing_copy_policy": True,
+                    "source_root": str(root),
+                    "files": [
+                        {
+                            "source": str(production),
+                            "copy": str(frozen),
+                            "size": frozen.stat().st_size,
+                            "sha256": sha256(frozen),
+                        }
+                    ],
+                },
+            )
+            fake = root / "fake_modules" / "@oai" / "artifact-tool"
+            fake.mkdir(parents=True)
+            shutil.copyfile(FAKE_ARTIFACT_TOOL, fake / "index.js")
+            result = EL.run(
+                baseline_manifest=manifest,
+                stage_dir=root / "audits" / "layout-stage",
+                helper=HELPER,
+                environ={
+                    **os.environ,
+                    "ARTIFACT_TOOL_NODE": shutil.which("node"),
+                    "ARTIFACT_TOOL_NODE_MODULES": str(root / "fake_modules"),
+                },
+            )
+            self.assertEqual(json.loads(result["command"][-1]), EL.helper_geometry())
+            self.assertEqual(len(result["layout"]["members"]), roster.count())
+
+    def test_helper_geometry_is_the_roster(self) -> None:
+        geometry = EL.helper_geometry()
+        self.assertEqual(geometry["member_count"], roster.count())
+        self.assertEqual(set(geometry["sheets"]), set(GEOMETRY_SHEETS))
+        for sheet, rows in geometry["sheets"].items():
+            self.assertEqual(rows["first_row"], roster.first_row(sheet))
+            self.assertEqual(rows["last_row"], roster.last_row(sheet))
+
+    def test_helper_refuses_missing_or_inconsistent_geometry(self) -> None:
+        good = geometry_for(535)
+        short = geometry_for(535)
+        short["sheets"]["Congestion"]["last_row"] -= 1
+        no_sheet = geometry_for(535)
+        del no_sheet["sheets"]["Sub Layer - Raw"]
+        cases = {
+            "missing": None,
+            "not json": "{not json",
+            "zero members": {**good, "member_count": 0},
+            "string count": {**good, "member_count": "535"},
+            "last row off by one": short,
+            "sheet absent": no_sheet,
+        }
+        for label, geometry in cases.items():
+            with self.subTest(label):
+                done, payload, calls, _ = self.run_helper(geometry)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn("roster geometry", done.stderr)
+                self.assertIsNone(payload)
+                self.assertEqual(calls, [])
+
+    def test_helper_source_has_no_member_count_literals(self) -> None:
+        import re
+
+        text = HELPER.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"\b53\d\b", text), [])
 
 
 if __name__ == "__main__":

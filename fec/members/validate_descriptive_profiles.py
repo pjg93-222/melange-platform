@@ -6,6 +6,12 @@ SCHEMA = "member-narratives-v3-descriptive"
 STATUS = "ACTIVE_GROUNDED_DESCRIPTIVE"
 CONTRACT = "descriptive-public-record-v1"
 
+import sys
+from pathlib import Path
+
+sys.path.append(str(Path(__file__).resolve().parents[1]))   # fec/, for roster (appended: never shadows a caller's modules)
+import roster  # noqa: E402
+
 # Publication length bound.  These two numbers do different jobs and only one of them
 # is an editorial choice.
 #
@@ -18,7 +24,7 @@ CONTRACT = "descriptive-public-record-v1"
 #   count does not matter.  Enforcing 250 meant a mandatory sentence added for one
 #   population -- the second audio layer, for the 74 members whose only audio is a
 #   verified voiceprint -- could push a wide profile over the line and make
-#   build_rows() raise, failing the whole 533-member regeneration on a length budget.
+#   build_rows() raise, failing the whole regeneration on a length budget.
 #   The bound is kept only as a RUNAWAY guard: 400 is ~1.7x the widest composed profile
 #   (237 words, Hillary Scholten) and ~1.6x the widest editorial override (243 words,
 #   Alex Padilla), so it leaves room for several more mandatory sentences while still
@@ -39,8 +45,8 @@ def validate_descriptive_profiles(document, receipt, *, basis_sha256,
     if not isinstance(document, dict) or not isinstance(receipt, dict):
         return ["profile artifact and receipt must be objects"]
     expected = set(member_names)
-    if len(expected) != 533:
-        errors.append("expected roster must contain 533 unique members")
+    if len(expected) != roster.count():
+        errors.append("expected roster must contain %d unique members" % roster.count())
     if document.get("schema") != SCHEMA or document.get("status") != STATUS:
         errors.append("unrecognized descriptive producer")
     if document.get("contract_version") != CONTRACT:

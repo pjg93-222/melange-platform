@@ -16,6 +16,7 @@ import tempfile
 import openpyxl
 
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import roster
 from moneyball_core import dump_atomic
 from paths import ROOT,WORKBOOK
 
@@ -56,9 +57,9 @@ def extract(workbook_path):
         snapshot.seek(0)
         values=openpyxl.load_workbook(snapshot,read_only=True,data_only=True)
         try:
-            raw=list(values['Legislative Score - Raw'].iter_rows(min_row=1,max_row=535,min_col=1,max_col=160,values_only=True))  # 160: CU Tax Status block cols 153-160 added 2026-07-17
-            rank_rows=list(values['Rank & Allocation'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=7,values_only=True))
-            current_norm=list(values['Legislative Score - Normalized'].iter_rows(min_row=3,max_row=535,min_col=1,max_col=160,values_only=True))
+            raw=list(values['Legislative Score - Raw'].iter_rows(min_row=1,max_row=roster.last_row('Legislative Score - Raw'),min_col=1,max_col=160,values_only=True))  # 160: CU Tax Status block cols 153-160 added 2026-07-17
+            rank_rows=list(values['Rank & Allocation'].iter_rows(min_row=roster.first_row('Rank & Allocation'),max_row=roster.last_row('Rank & Allocation'),min_col=1,max_col=7,values_only=True))
+            current_norm=list(values['Legislative Score - Normalized'].iter_rows(min_row=roster.first_row('Legislative Score - Normalized'),max_row=roster.last_row('Legislative Score - Normalized'),min_col=1,max_col=160,values_only=True))
         finally:
             values.close()
     expected=normalize_columns(raw)

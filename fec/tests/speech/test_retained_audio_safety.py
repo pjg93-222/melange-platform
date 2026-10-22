@@ -171,6 +171,44 @@ class RetainedAudio(unittest.TestCase):
                 row=json.loads(manifest.read_text());self.assertEqual(row['dur'],.5);self.assertEqual(row['end'],1.5)
                 self.assertEqual(row['sha256'],hashlib.sha256(wav.read_bytes()).hexdigest());self.assertEqual(json.loads(receipt.read_text())['status'],'PASS')
 
+    def test_rerun_rebinds_already_trimmed_wav_with_stale_hash(self):
+        root=self.root();wav=root/'clip.wav';self.wav(wav,8000)
+        # pre-trim size: legacy 78-byte ffmpeg header + 8001 frames, now trimmed to 8000
+        row=self.pcm_row(wav,8000);row['sha256']='0'*64;row['bytes']=78+2*8001
+        manifest=root/'clips.jsonl';self.manifest(manifest,[row]);original=wav.read_bytes()
+        self.assertEqual(self.repair(manifest,root/'receipt.json'),0)
+        self.assertEqual(wav.read_bytes(),original)
+        out=json.loads(manifest.read_text());self.assertEqual(out['sha256'],hashlib.sha256(original).hexdigest());self.assertEqual(out['bytes'],len(original))
+
+    def test_exact_length_hash_mismatch_without_trim_evidence_refuses(self):
+        # same length, different content (corrupt/replaced/edited) must never be rebound
+        cases=(('same_size',lambda n:n),('missing',None),('grew',lambda n:n-2),('over_one_second',lambda n:n+2*16000+200),('bool',True))
+        for label,stored in cases:
+            with self.subTest(case=label):
+                root=self.root();wav=root/'clip.wav';original=self.wav(wav,8000)
+                row=self.pcm_row(wav,8000);row['sha256']='0'*64
+                if callable(stored):row['bytes']=stored(len(original))
+                elif stored is not None:row['bytes']=stored
+                manifest=root/'clips.jsonl';before=self.manifest(manifest,[row]);receipt=root/'receipt.json'
+                with self.assertRaisesRegex(RuntimeError,'not a prior trim'):
+                    self.repair(manifest,receipt)
+                self.assertEqual(wav.read_bytes(),original);self.assertEqual(manifest.read_bytes(),before);self.assertFalse(receipt.exists())
+
+    def test_exact_length_hash_mismatch_in_wrong_format_refuses_before_any_trim(self):
+        root=self.root();first=root/'first.wav';second=root/'second.wav'
+        first_before=self.wav(first,8001);second_before=self.wav(second,8000,rate=8000)
+        row=self.pcm_row(second,8000);row['sha256']='0'*64;row['bytes']=len(second_before)+2
+        manifest=root/'clips.jsonl';before=self.manifest(manifest,[self.pcm_row(first),row])
+        with self.assertRaisesRegex(RuntimeError,'not a prior trim'):
+            self.repair(manifest,root/'receipt.json')
+        self.assertEqual(first.read_bytes(),first_before);self.assertEqual(second.read_bytes(),second_before);self.assertEqual(manifest.read_bytes(),before)
+
+    def test_whitespace_only_manifest_line_is_skipped(self):
+        root=self.root();wav=root/'clip.wav';self.wav(wav,8000)
+        manifest=root/'clips.jsonl';self.manifest(manifest,[self.pcm_row(wav,8000)])
+        manifest.write_bytes(manifest.read_bytes()+b'   '+bytes([10]))
+        self.assertEqual(self.repair(manifest,root/'receipt.json'),0)
+
     def test_exact_count_is_noop_and_existing_safety_limits_remain(self):
         for actual,expected,error in ((8000,8000,None),(7999,8000,'pad'),(24001,8000,'ceiling')):
             with self.subTest(actual=actual,expected=expected):

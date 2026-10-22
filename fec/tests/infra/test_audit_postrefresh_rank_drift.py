@@ -13,9 +13,12 @@ if str(FEC) not in sys.path:
 
 import audit.audit_postrefresh_rank_drift as audit
 
+# The audit pins the live roster size (roster lane 2026-10-20); the synthetic rank files are sized to it.
+N = audit.roster.count(root=audit.ROOT)
+
 
 def rank_value() -> dict:
-    names = [f"Member {index:03d}" for index in range(1, 534)]
+    names = [f"Member {index:03d}" for index in range(1, N + 1)]
     return {
         "rank": {name: index for index, name in enumerate(names, 1)},
         "score": {
@@ -64,7 +67,7 @@ class PostRefreshRankDriftTest(unittest.TestCase):
                 out_root=out_root,
             )
             self.assertTrue(created)
-            self.assertEqual(manifest["summary"]["member_count"], 533)
+            self.assertEqual(manifest["summary"]["member_count"], N)
             self.assertEqual(
                 manifest["summary"]["rank_changed_count"],
                 2,
@@ -85,7 +88,7 @@ class PostRefreshRankDriftTest(unittest.TestCase):
             rows = (
                 snapshot / "member_rank_drift.ndjson"
             ).read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(rows), 533)
+            self.assertEqual(len(rows), N)
             self.assertTrue(
                 all(
                     not json.loads(row)["legislation_recomputation_accepted"]
@@ -113,10 +116,10 @@ class PostRefreshRankDriftTest(unittest.TestCase):
             frozen = rank_value()
             live = rank_value()
             live["rank"]["Different Member"] = live["rank"].pop(
-                "Member 533"
+                f"Member {N:03d}"
             )
             live["score"]["Different Member"] = live["score"].pop(
-                "Member 533"
+                f"Member {N:03d}"
             )
             frozen_ranks = root / "frozen.json"
             live_ranks = root / "live.json"

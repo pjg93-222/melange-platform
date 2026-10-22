@@ -26,11 +26,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import bill_rules as BR
 from moneyball_core import save_workbook_atomic, write_text_atomic
 from paths import BACKUPS, ROOT, WORKBOOK
+import roster
 
 MANUAL = os.path.join(ROOT, "manual_bill_evidence.csv")
 RAW_SHEET = "Legislative Score - Raw"
 NORM_SHEET = "Legislative Score - Normalized"
-FIRST_DATA_ROW, LAST_DATA_ROW = 3, 535
+FIRST_DATA_ROW, LAST_DATA_ROW = roster.first_row(RAW_SHEET), roster.last_row(RAW_SHEET)
 
 # (category, canonical role) -> Legislative Score - Raw column.
 ROLE_COLS = {

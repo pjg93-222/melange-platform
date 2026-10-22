@@ -34,7 +34,6 @@ $owned = $false
 $script:pending = $null
 $script:pendingSince = $null
 $script:pendingAction = $null
-$script:dashboard = $null
 $script:nextClaim = [DateTime]::UtcNow
 $started = [DateTime]::UtcNow
 $tray = [Windows.Forms.NotifyIcon]::new()
@@ -55,9 +54,9 @@ function Start-FixedHelper([string[]]$Arguments, [bool]$Capture = $true) {
 function Open-LocalDashboard {
     # This action has no data-derived URL, argument or authority. A fresh local
     # process creates the one-use bootstrap and opens it without logging it.
-    if ($script:dashboard -and -not $script:dashboard.HasExited) { return }
-    if ($script:dashboard) { $script:dashboard.Dispose() }
-    $script:dashboard = Start-FixedHelper @('access-dashboard') $false
+    # Every click runs the helper; it reopens an already-running dashboard itself.
+    $dashboard = Start-FixedHelper @('access-dashboard') $false
+    $dashboard.Dispose()
 }
 function Start-Acknowledge([string]$Delivery, [string]$Outcome) {
     $script:pending = Start-FixedHelper @('notification-ack','--delivery',$Delivery,'--outcome',$Outcome)
@@ -115,7 +114,5 @@ try {
 } finally {
     $timer.Stop(); $timer.Dispose(); $tray.Visible=$false; $tray.Dispose(); $menu.Dispose()
     if ($script:pending) { if (-not $script:pending.HasExited) { $script:pending.Kill($true); $script:pending.WaitForExit() }; $script:pending.Dispose() }
-    # A dashboard already opened by the user remains available after notifier exit.
-    if ($script:dashboard) { $script:dashboard.Dispose() }
     if ($owned) { $mutex.ReleaseMutex() }; $mutex.Dispose()
 }

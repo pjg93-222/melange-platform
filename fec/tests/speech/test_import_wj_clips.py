@@ -256,3 +256,60 @@ def test_is_longer_than_existing_ties_favor_the_existing_capture():
     assert WJ.is_longer_than_existing(10.0, 12.0) is True
     assert WJ.is_longer_than_existing(10.0, 10.0) is False
     assert WJ.is_longer_than_existing(10.0, 8.0) is False
+
+
+def _run_main_fixture(tmp_path, monkeypatch, specs, existing, mode):
+    root = tmp_path / "wj_audio"
+    clip_root = tmp_path / "clips"
+    for sub in ("turns", "turns_v2"):
+        (root / sub).mkdir(parents=True)
+    clip_root.mkdir()
+    (root / "turn_manifest.jsonl").write_text(
+        json.dumps(specs["v1"]) + "\n", encoding="utf-8")
+    (root / "turn_manifest_v2.jsonl").write_text(
+        "".join(json.dumps(s) + "\n" for s in specs.get("v2", [])), encoding="utf-8")
+    write_wav(root / "turns" / "1.000000.wav", specs["v1_seconds"])
+    if specs.get("v2"):
+        write_wav(root / "turns_v2" / "1.000000.wav", specs["v2_seconds"])
+    (clip_root / "clips_manifest.jsonl").write_text(
+        json.dumps(existing) + "\n", encoding="utf-8")
+    monkeypatch.setattr(WJ, "CSpanIdentity", lambda: None)
+    monkeypatch.setattr(WJ, "exact_transcript_binding", lambda _t, spec, _i: {
+        "member_start": float(spec.get("member_start", spec["start"])), "date": "2026-01-01",
+        "title": "t", "url": "u", "speaker_label": "L", "text": "word",
+        "transcript_path": "p", "ordinal": 1,
+    })
+    rc = WJ.main(["--root", str(root), "--clip-root", str(clip_root),
+                  "--transcripts", str(tmp_path), mode])
+    assert rc == 0
+    return clip_root
+
+
+def test_dry_run_does_not_count_twin_that_is_only_longer_by_transcript_end(
+        tmp_path, monkeypatch, capsys):
+    # The existing row is physical (end 15); the candidate's transcript end (20) exceeds it
+    # but its physical end (15) does not, so --write would skip it. Dry-run must agree.
+    v1 = {"pid": "1", "member": "Target Member", "start": 0.0, "end": 20.0}
+    existing = {"outlet": "CSPAN", "sid": "1", "seg": 0, "member": "Target Member",
+                "start": 0.0, "end": 15.0, "dur": 15.0}
+    _run_main_fixture(tmp_path, monkeypatch, {"v1": v1, "v1_seconds": 15.0},
+                      existing, "--dry-run")
+    report = json.loads(capsys.readouterr().out)
+    assert report["shorter_existing_twins_retained"] == 0
+    assert report["accepted_by_manifest"] == {}
+    assert report["accepted_requiring_context_trim"] == 0
+
+
+def test_write_in_run_duplicate_output_updates_new_row_instead_of_indexerror(
+        tmp_path, monkeypatch):
+    # Two longer in-run captures round to the same physical end second -> same out path.
+    common = {"pid": "1", "member": "Target Member", "start": 10.0, "pad_start": 0.0,
+              "src": "gap"}
+    specs = {"v1": {**common, "end": 30.0}, "v1_seconds": 18.0,
+             "v2": [{**common, "end": 31.0}], "v2_seconds": 18.2}
+    existing = {"outlet": "CSPAN", "sid": "1", "seg": 10, "member": "Target Member",
+                "start": 10.0, "end": 15.0, "dur": 5.0, "out_wav": str(tmp_path / "old.wav")}
+    clip_root = _run_main_fixture(tmp_path, monkeypatch, specs, existing, "--write")
+    rows = WJ.read_jsonl(clip_root / "clips_manifest.jsonl")
+    assert len(rows) == 2
+    assert rows[1]["end"] == pytest.approx(18.2)

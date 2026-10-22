@@ -737,6 +737,21 @@ def _load_signed_opposition(derived, dyad_path):
     return opposition, receipt
 
 
+def _coverage_withhold(missing_panel, missing_receptivity, missing_pricing, root=None):
+    """Roster-refresh drift (2026-10-21): the frozen LDA panel and member_receptivity predate a roster arrival, so the arrival
+    is WITHHELD from this layer (it gets no row), never defaulted. Returns the three missing lists without arrivals; any
+    other gap stays so the coverage check still raises."""
+    missing = set(missing_panel) | set(missing_receptivity) | set(missing_pricing)
+    if not missing:
+        return missing_panel, missing_receptivity, missing_pricing      # no gap: never read roster.json
+    import roster
+    withheld = roster.drift(missing, (), root)[0]
+    if withheld:
+        print('  !! efficiency layers: roster drift; %d WITHHELD (%s)' % (len(withheld), ', '.join(sorted(withheld))))
+    return tuple([n for n in names if n not in withheld]
+                 for names in (missing_panel, missing_receptivity, missing_pricing))
+
+
 def build_from_files():
     if not (os.environ.get("MELANGE_LOCAL_ROOT") or os.environ.get("LOCALAPPDATA")):
         raise EfficiencyLayersError("LOCALAPPDATA is not set")
@@ -790,6 +805,7 @@ def build_from_files():
             "signed_non_cu_opposition_count": signed_opposition.get(bioguide, 0),
             "pricing_crowding": pricing_crowding.get(name),
         })
+    missing_panel, missing_receptivity, missing_pricing = _coverage_withhold(missing_panel, missing_receptivity, missing_pricing)
     if missing_panel or missing_receptivity or missing_pricing:
         raise EfficiencyLayersError(
             "current-member input coverage failure: panel=%d receptivity=%d pricing=%d"

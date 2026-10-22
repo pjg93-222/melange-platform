@@ -17,8 +17,8 @@ named with --evidence SLOT=PATH):
     chain    report       chain_parity.json        what `chain_parity.py compare --report` writes: result PASS, exit_code 0, no failed gates
     collect  report       collectors_replay.json   result PASS   (written by `collectors_replay.py run`)
     office   equivalence  office_equivalence.json  what `xl_equivalence.py compare --report` writes: equivalent true, cells compared > 0
-    office   rank_check   office_rank_check.json   result PASS, members 533, rank_exact 533   (D-174's 533-rank check; also nothing writes
-                                                   it yet: compute_pillars audit mode prints `rank EXACT 533/533`)
+    office   rank_check   office_rank_check.json   result PASS, members <roster size>, rank_exact <roster size>   (D-174's member-rank check; also nothing writes
+                                                   it yet: compute_pillars audit mode prints `rank EXACT N/N`)
 
 A report that is missing, unreadable, not an object, or says anything but PASS refuses the switch; the sha256 of every file read is
 recorded in the event.  Stdlib only.
@@ -36,8 +36,8 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "fec"))        # compute_engine, the one reader of engines.json
 from ops.release_lib import core             # noqa: E402
 import compute_engine as CE                  # noqa: E402
+import roster                                # noqa: E402
 
-RANK_MEMBERS = 533
 PARITY_DIR_ENV = "MELANGE_PARITY_DIR"
 
 
@@ -61,10 +61,19 @@ def _equivalence(doc):
         return "equivalent is %r with %r cells compared: not an equivalence of a non-empty comparison" % (doc.get("equivalent"), compared)
 
 
+def rank_members():
+    """The member count the office rank check must show: the roster's size in REPO (roster lane 2026-10-20; it was the literal 533)."""
+    return roster.count(root=REPO)
+
+
 def _ranks(doc):
-    if doc.get("result") != "PASS" or doc.get("members") != RANK_MEMBERS or doc.get("rank_exact") != RANK_MEMBERS:
+    try:
+        n = rank_members()
+    except (OSError, ValueError) as error:          # a missing or malformed roster refuses the switch; it is never guessed
+        return "cannot read the roster size: %s" % error
+    if doc.get("result") != "PASS" or doc.get("members") != n or doc.get("rank_exact") != n:
         return "result %r, members %r, rank_exact %r: need PASS with %d/%d" % (
-            doc.get("result"), doc.get("members"), doc.get("rank_exact"), RANK_MEMBERS, RANK_MEMBERS)
+            doc.get("result"), doc.get("members"), doc.get("rank_exact"), n, n)
 
 
 EVIDENCE = {          # engine key -> {slot: (default file name, check)}; a check returns a problem string or None

@@ -934,6 +934,22 @@ class ByteExactApplyTests(TempMixin):
         self.assertEqual(self.read_back(tree, 'fec/one.py'), live.before)
         self.assertFalse(os.path.exists(os.path.join(tree, 'fec', 'tools', 'fresh.py')))
 
+    def test_apply_to_refuses_a_traditional_hunk_git_would_apply(self):
+        # patch_labels sees only `diff --git` headers; git apply also applies bare ---/+++ sections.
+        live, patch_set = self.build_set()
+        tree = self.work_tree()
+        self.stage(tree, 'fec/one.py', live.before)
+        self.stage(tree, 'fec/other.txt', b'x\n')
+        patch_path = os.path.join(self._tmp, 'set.patch')
+        patch_set.write(patch_path)
+        with open(patch_path, 'ab') as handle:
+            handle.write(b'--- a/fec/other.txt\n+++ b/fec/other.txt\n@@ -1 +1 @@\n-x\n+HIJACK\n')
+        result = LP.apply_to(tree, patch_path, patch_set.manifest())
+        self.assertFalse(result['ok'])
+        self.assertEqual(result['mismatches'], ['fec/other.txt'])
+        self.assertEqual(self.read_back(tree, 'fec/other.txt'), b'x\n')
+        self.assertEqual(self.read_back(tree, 'fec/one.py'), live.before)
+
     def test_apply_to_refuses_a_manifest_naming_a_file_the_patch_does_not(self):
         live, patch_set = self.build_set()
         tree = self.work_tree()
@@ -964,6 +980,17 @@ class ByteExactApplyTests(TempMixin):
         self.assertEqual(result['mismatches'], ['fec/one.py'])
         self.assertEqual(self.read_back(tree, 'fec/one.py'), live.before)
         self.assertFalse(os.path.exists(os.path.join(tree, 'fec', 'tools', 'fresh.py')))
+
+
+class NumstatPathsTests(unittest.TestCase):
+    def test_normal_rename_and_trailing_empty(self):
+        listing = (b'1\t2\tfec/a.py\0'
+                   b'0\t0\t\0old.py\0new.py\0')
+        self.assertEqual(LP._numstat_paths(listing), {'fec/a.py', 'old.py', 'new.py'})
+
+    def test_unparseable_record_fails_closed(self):
+        with self.assertRaises(ValueError):
+            LP._numstat_paths(b'1\t2\tfec/a.py\0garbage-without-tabs\0')
 
 
 if __name__ == '__main__':

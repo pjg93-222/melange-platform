@@ -13,8 +13,8 @@ Run::
     python fec/members/wikipedia_biographies.py --member "Steve Scalise"
 
 The single-member mode merges that refreshed row into an existing artifact.  It
-is useful for debugging, but a normal production refresh should rebuild all 533
-rows so the coverage receipt remains meaningful.
+is useful for debugging, but a normal production refresh should rebuild every roster
+row so the coverage receipt remains meaningful.
 """
 import os as _o, sys as _s
 _s.path.insert(0, _o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))))

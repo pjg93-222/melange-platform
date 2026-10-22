@@ -113,6 +113,28 @@ class PrincipalTests(boundary_tests.DesktopAccessTests):
         with self.assertRaises(ValueError):prepare_principal(parse_principal({**data,'localUserId':str(user.pk+100)},'co-05'),self.root/'state')
         self.assertFalse(DesktopPrincipalBinding.objects.exists())
 
+    def test_passwordless_owner_is_never_asked_for_a_password(self):
+        from django.contrib.auth.models import User
+        from server.research.models import DesktopPrincipalBinding,Invitation
+        from server.research.desktop_principal import parse_principal,prepare_principal
+        DesktopPrincipalBinding.objects.all().delete(); User.objects.all().delete()
+        user=User.objects.create_user('admin',is_staff=True)   # no usable password, like the migrated owner
+        User.objects.create_user('recipient_'+'4'*32,password=self.password,is_staff=True)   # beside another account
+        principal=parse_principal({'schemaVersion':1,'serverId':self.principal.server_id,'deviceId':self.principal.device_id,
+            'principalId':self.principal.principal_id,'accountIdentity':self.principal.account_identity,
+            'localAccountIdentity':'admin','localUserId':str(user.pk),'districtId':'co-05',
+            'role':'local_administrator','mode':'existing-owner'},'co-05')
+        self.boundary.principal=principal; before=user.password; invitations=Invitation.objects.count()
+        self.assertIsNone(prepare_principal(principal,self.root/'state'))   # no invitation launch path
+        self.assertEqual(Invitation.objects.count(),invitations)
+        status,session=self.request('/api/auth/session')
+        self.assertEqual((status,session['authenticated'],session['username'],session['password_lock_disabled']),(200,True,'admin',True))
+        self.assertEqual(self.request('/api/accounts')[0],200)   # an administrator-only route, no data needed
+        self.assertEqual(self.request('/api/v3/meta',headers={'HTTP_X_DESKTOP_TOKEN':'u'*40})[0],403)   # the launch token still gates
+        self.assertEqual(self.request('/api/v3/meta',headers={'REMOTE_ADDR':'192.168.1.20'})[0],403)    # and the loopback boundary
+        self.assertIsNone(prepare_principal(principal,self.root/'state'))
+        user.refresh_from_db(); self.assertEqual(user.password,before)   # the account is unchanged
+
     def test_prelogin_static_interface_and_minimal_health_remain_available(self):
         self.fresh()
         self.assertEqual(self.request('/')[0],200)

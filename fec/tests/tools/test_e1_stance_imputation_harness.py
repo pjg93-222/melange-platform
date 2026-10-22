@@ -956,3 +956,16 @@ def test_harness_imports_match_pinned_stdlib_allowlist_and_exclude_fec():
     }
     assert imported == allowed
     assert all(not name.startswith("fec") for name in imported)
+
+
+def test_short_rows_raise_valueerror_not_typeerror(tmp_path: Path):
+    import pytest
+
+    with pytest.raises(ValueError):
+        harness._finite_float(None, "short row")  # type: ignore[arg-type]
+    members = tmp_path / "members.csv"
+    members.write_text(
+        "member_id,party,chamber,coverage_count\nM1,A\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError):
+        harness.read_members(members, ["M1"])

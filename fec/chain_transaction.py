@@ -25,7 +25,8 @@ CHAIN TRANSACTION (run_pipeline.main holds the pipeline lease, then opens one of
 
 WRITE SET.  There is no declared step->outputs table, so the set is a declared scope chosen from a measured census of the last
 full chain (2026-10-11): root-level artifacts by extension + the data/ trees the chain writes into.  Three classes:
-  copy     before-image taken, restored on rollback.
+  copy     before-image taken, restored on rollback.  TRACK_ONLY_EXCEPT puts the two mutable rank_honors pointer files here
+           even though their store is tracked.
   track    append-only generation stores (rank_honors, congress_advanced_current, ...): too big to copy and immutable by
            construction, so (size, mtime, sha256) is journalled and nothing is copied.  A NEW file is deleted on rollback; a
            MODIFIED or MISSING one cannot be restored, so it makes the rollback ROLLBACK_FAILED.  Rollback re-hashes every tracked
@@ -93,6 +94,10 @@ EXTRA_FILES = ('backups/Moneyball_Redesign.previous-generation.html',)   # sync_
 TRACK_ONLY = ('data/stance/rank_honors', 'data/legislation/vote_sources', 'data/legislation/congress_advanced_current',
               'data/legislation/sentinel_evidence', 'data/money/fec_generations', 'data/money/fec_page_cache',
               'data/speech/source_media_*')
+# Mutable pointers INSIDE a TRACK_ONLY store: the chain rewrites them in place (build_rank_honors -> active.json, honors_workbook
+# -> workbook_publications.json), so a hash-only journal cannot restore them and every chain failing after build_rank_honors ended
+# ROLLBACK_FAILED (run 20261021T040051Z).  They get a before-image like any copy path; the generation directories stay tracked.
+TRACK_ONLY_EXCEPT = ('data/stance/rank_honors/active.json', 'data/stance/rank_honors/workbook_publications.json')
 NEVER = ('data/engine/chain_txn', 'data/engine/dead_letter', 'data/engine/source_freshness.json',
          'data/engine/congress_pipeline_*', 'data/engine/daily_refresh_*', 'data/engine/weekly_refresh*',
          'data/engine/gate_step_*', 'data/engine/collector_gate1_cooldown.json', 'data/system/audit_scratch',
@@ -159,7 +164,7 @@ def iter_scope(root):
                 path = os.path.join(dirpath, name)
                 if _excluded(rel, NEVER) or os.path.islink(path):
                     continue
-                yield rel, path, 'track' if _excluded(rel, TRACK_ONLY) else 'copy'
+                yield rel, path, 'track' if _excluded(rel, TRACK_ONLY) and not _excluded(rel, TRACK_ONLY_EXCEPT) else 'copy'
     for rel in EXTRA_FILES:
         path = os.path.join(root, *rel.split('/'))
         if os.path.isfile(path) and not os.path.islink(path):
@@ -318,6 +323,12 @@ def _gate(base, copy_bytes, log):
             'chain transaction refused to start: the before-image (%.2f GB) would leave %.2f GB free on %s, below the %.0f GB '
             'floor (free now %.2f GB). Free disk or move the staging area (%s) and rerun; nothing was written.'
             % (copy_bytes / 1e9, max(left, 0) / 1e9, drive, floor_gb, free / 1e9, TXN_DIR_ENV))
+
+
+def preflight(root, log=print):
+    """Read-only: raise the refusal begin() would raise, before a wrapper spends time on steps whose chain cannot start."""
+    root = os.path.abspath(root)
+    _gate(txn_base(root), plan(root)['copy_bytes'], log)
 
 
 class ChainTxn:

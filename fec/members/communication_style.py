@@ -17,6 +17,7 @@ import sys
 import numpy as np
 
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import roster as roster_module   # build() and role_adjustment() have a `roster` dict of their own
 from moneyball_core import dump_atomic
 from paths import ROOT
 
@@ -51,8 +52,8 @@ def freeze(source_path):
     """One-time migration of the accepted earlier-day measurements into a durable locked source."""
     with open(source_path,encoding='utf-8') as handle:
         source=json.load(handle)
-    if source.get('schema')!='communication-style-v1' or len(source.get('members') or {})!=533:
-        raise ValueError('bootstrap source is not the accepted 533-member communication-style-v1 artifact')
+    if source.get('schema')!='communication-style-v1' or len(source.get('members') or {})!=roster_module.count():
+        raise ValueError('bootstrap source is not the accepted %d-member communication-style-v1 artifact' % roster_module.count())
     members={}
     for name,row in source['members'].items():
         members[name]={k:row.get(k) for k in ('scope','raw_text','facets','elaboration')}
@@ -108,8 +109,15 @@ def build():
     ranks=load('ranks_python.json')
     if roles.get('schema')!='party-elite-influence-roles-v3':
         raise ValueError('data/members/formal_visibility_roles.json schema mismatch')
-    if set(locked.get('members') or {})!=set(roster):
-        raise ValueError('locked communication measurements do not match the current roster')
+    # The lock is a frozen measurement of the roster it was taken on.  A member who arrived later (roster.json marks
+    # arrivals thin_evidence) gets explicit unavailable facets; a departed member's locked row is simply not published.
+    # Anyone else missing from the lock is still a hard error: the lock is never refit here.
+    # an arrival = flagged by the roster refresh, or seated after the 119th Congress opened (2025-01-03) on a term that began later
+    arrivals={m['member'] for m in roster_module.members()
+              if m.get('thin_evidence') or str(m.get('term_start') or '')>'2025-01-03'}
+    unlocked=set(roster)-set(locked.get('members') or {})
+    if unlocked-arrivals:
+        raise ValueError('locked communication measurements do not cover current members %s' % sorted(unlocked-arrivals))
 
     names,expected,residual,adjusted=role_adjustment(roster,dispositions,panel,roles)
     observed_values=[float(dispositions[name]['visibility_z']) for name in names]
@@ -118,7 +126,7 @@ def build():
     display_weights=ranks.get('formal_role_display_weight') or {}
     members={}
     for name in roster:
-        frozen=locked['members'][name]
+        frozen=locked['members'].get(name) or {}
         measured=frozen.get('facets') or {}
         facets={}
         for facet in FACETS:
@@ -128,7 +136,8 @@ def build():
                 facets[facet]={
                     'z':None,'percentile':None,
                     'status':'unavailable_insufficient_evidence',
-                    'reason':'locked v1 result did not produce a qualifying facet value',
+                    'reason':('locked v1 result did not produce a qualifying facet value' if frozen else
+                              'arrived after the locked v1 measurement; no interview cues measured yet'),
                 }
         exposure=None
         if name in adjusted:

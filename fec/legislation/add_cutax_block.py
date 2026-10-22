@@ -14,6 +14,7 @@ sys.stdout=io.TextIOWrapper(sys.stdout.buffer,encoding='utf-8')
 import openpyxl
 sys.path.insert(0,os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from paths import ROOT as MB_ROOT
+import roster
 from moneyball_core import save_workbook_atomic
 import bill_rules as BR
 
@@ -57,12 +58,12 @@ for c in range(NEWCOL0,NEWCOL0+8):
     if ls.cell(1,c).value not in (None,''): sys.exit(f'REFUSING: Raw col {c} not empty ({ls.cell(1,c).value!r})')
     if ln.cell(1,c).value not in (None,''): sys.exit(f'REFUSING: LegNorm col {c} not empty')
 
-# member rows (Raw + LegNorm both: rows 3-535, same order)
+# member rows (Raw + LegNorm both: the roster's member rows, same order)
 members={}
-for r in range(3,536):
+for r in roster.rows('Legislative Score - Raw'):
     nm=ls.cell(r,1).value
     if nm: members[str(nm).strip()]=r
-assert len(members)==533, f'member rows {len(members)}!=533'
+assert len(members)==roster.count(), f'member rows {len(members)}!={roster.count()}'
 missing=[m for (m,c) in agg if m not in members]
 if missing: sys.exit(f'REFUSING: letter members not in workbook rows: {sorted(set(missing))[:8]}')
 
@@ -70,7 +71,7 @@ if missing: sys.exit(f'REFUSING: letter members not in workbook rows: {sorted(se
 for i,(h,w) in enumerate(zip(NEWHDR,NEWW)):
     ls.cell(1,NEWCOL0+i).value=h
     ls.cell(2,NEWCOL0+i).value=w
-for r in range(3,536):
+for r in roster.rows('Legislative Score - Raw'):
     for i in range(8): ls.cell(r,NEWCOL0+i).value=0
 
 # ---- 2. paste letter counts (+=) ----
@@ -89,9 +90,9 @@ for i,h in enumerate(NEWHDR):                      # headers + weights on LegNor
     ln.cell(2,NEWCOL0+i).value=NEWW[i]
 recalc=0
 for c in TOUCHED:
-    vals={r:(ls.cell(r,c).value or 0) for r in range(3,536)}
+    vals={r:(ls.cell(r,c).value or 0) for r in roster.rows('Legislative Score - Raw')}
     mx=max([0.0]+[float(v) for v in vals.values() if isinstance(v,(int,float))])
-    for r in range(3,536):
+    for r in roster.rows('Legislative Score - Raw'):
         v=float(vals[r]) if isinstance(vals[r],(int,float)) else 0.0
         ln.cell(r,c).value=0.0 if mx==0 else v/mx
         recalc+=1

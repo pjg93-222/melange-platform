@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 from moneyball_core import dump_atomic   # S2-03: crash-safe artifact write
+import roster
 """CONGRESSIONAL SOCIAL-MEDIA COLLECTOR + DATABASE (user-directed 2026-07-01: "was the data collector
 for politicians tweets included? We need a very robust database").
 
@@ -12,13 +13,13 @@ congresstweets) stopped when that happened.  So this module IS the collector, bu
   * Bluesky adapter               — PUBLIC AppView API, NO KEY NEEDED; a growing share of members post
                                      there (coverage skews D — flagged in `status`).
   * Handle registry               — seeded from the canonical unitedstates/congress-legislators
-                                     legislators-social-media.json, joined to our 533 by bioguide.
+                                     legislators-social-media.json, joined to our roster by bioguide.
 Storage: SQLite `social_media.db` (WAL, UNIQUE-keyed idempotent upserts, per-handle checkpoints) with a
 normalized `interactions` table (retweet/quote/reply/mention events) so the Fink influence network and
 the Zhou-Elejalde stance-dynamics windows can be built straight off the DB.
 
 Usage:
-  python fec/collect/tweet_collector.py init                       # create db + seed handles (533 members)
+  python fec/collect/tweet_collector.py init                       # create db + seed handles (roster members)
   python fec/collect/tweet_collector.py fetch --platform bluesky   # keyless; --limit-members N for a smoke run
   python fec/collect/tweet_collector.py fetch --platform x         # needs env X_BEARER_TOKEN
   python fec/collect/tweet_collector.py status                     # coverage + freshness report
@@ -91,7 +92,7 @@ def cmd_init():
                    s.get('facebook'),s.get('youtube'),s.get('instagram'),datetime.datetime.now().isoformat()))
         n+=1; tw+=bool(s.get('twitter')); bs+=bool(s.get('bluesky'))
     c.commit()
-    print('seeded %d/533 members from the canonical registry: %d twitter handles, %d bluesky handles'%(n,tw,bs))
+    print('seeded %d/%d members from the canonical registry: %d twitter handles, %d bluesky handles'%(n,roster.count(),tw,bs))
     if bs==0: print('  (registry carries no bluesky field yet — add handles manually: UPDATE members SET bluesky=? WHERE name=?)')
     print('db: %s'%DB)
 def _upsert_post(c,plat,pid,bg,created,text,reply_to,quote_of,repost_of,likes,reposts,replies,raw,media=None):

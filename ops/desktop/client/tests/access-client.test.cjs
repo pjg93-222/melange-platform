@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test');const assert=require('node:assert/strict');const crypto=require('node:crypto');
-const {AccessClient,accessRequest,descriptor,verifyGrant,verifyStatus,canonical,trustIdentityHash}=require('../access-client.cjs');
-const now=Date.now();
+const {AccessClient,accessRequest,accessFailure,descriptor,verifyGrant,verifyStatus,canonical,trustIdentityHash}=require('../access-client.cjs');
+const now=Date.now(),CODE='ABCD-2345-WXYZ-6789',INVITE={inviteCode:CODE};
 function fixture(){
  const pair=crypto.generateKeyPairSync('ed25519'),raw=pair.publicKey.export({format:'der',type:'spki'}).subarray(-32),keyId=crypto.createHash('sha256').update(raw).digest('hex').slice(0,24),key=raw.toString('base64');
  const trust={schemaVersion:1,purpose:'melange-desktop-trust',serverId:crypto.randomUUID(),url:'https://192.168.1.10:7443',tlsSpkiSha256:'a'.repeat(64),accessPublicKeys:{[keyId]:key},updatePublicKeysByApp:Object.fromEntries(['melange','mentat','terrier'].map(app=>[app,{[keyId]:key}]))};
@@ -51,7 +51,7 @@ test('response-loss retry retains request secret/key, activation scoped, offline
   throw new Error('unexpected operation');
  };
  let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});
- assert.equal(await client.permitted(),false);await client.requestAccess('Fixture device');
+ assert.equal(await client.permitted(),false);await client.requestAccess('Fixture device',INVITE);
  const key=crypto.randomBytes(32).toString('base64url');await assert.rejects(client.activate(key),/response lost/);
  assert.equal(vault.values.get('access-request').requests[f.body.requestId].activationKey,key);assert.equal(await client.permitted(),false);
  client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.activate(key);
@@ -65,7 +65,7 @@ test('failed protected state write does not grant access and changed trust never
  const f=fixture(),vault=stores();let calls=0;
  const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request:async()=>{calls++;throw new Error('unexpected network');}});
  vault.store.write=async()=>{throw new Error('protected store unavailable');};
- await assert.rejects(client.requestAccess('Device'),/protected store/);assert.equal(calls,0);assert.equal(await client.permitted(),false);
+ await assert.rejects(client.requestAccess('Device',INVITE),/protected store/);assert.equal(calls,0);assert.equal(await client.permitted(),false);
 });
 test('activation token/state/cleanup failures retain correct grant binding across restart',async()=>{
  const f=fixture(),vault=stores();let suppliedGrant=f.body,token=crypto.randomBytes(48).toString('base64url');
@@ -75,10 +75,10 @@ test('activation token/state/cleanup failures retain correct grant binding acros
   throw new Error('unexpected operation');
  };
  let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});
- const key=crypto.randomBytes(32).toString('base64url');await client.requestAccess('Device');await client.activate(key);
+ const key=crypto.randomBytes(32).toString('base64url');await client.requestAccess('Device',INVITE);await client.activate(key);
  const originalGrant=f.body.grantId,originalToken=token;
  suppliedGrant={...f.body,grantId:crypto.randomUUID(),sequence:3};token=crypto.randomBytes(48).toString('base64url');
- await client.requestAccess('Device',{reapproval:true});
+ await client.requestAccess('Device',{...INVITE,reapproval:true});
  const write=vault.store.write;vault.store.write=async value=>{if(value.grantEnvelope&&value.pending===null)throw new Error('state commit failed');return write(value);};
  await assert.rejects(client.activate(key),/state commit failed/);
  client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});
@@ -92,8 +92,8 @@ test('activation token/state/cleanup failures retain correct grant binding acros
  vault.values.delete('access-token');await assert.rejects(client.refresh(),/credential.*missing/i);
 });
 
-test('native pinned transport has absolute drip deadline, rejects redirects/overflow/aborts, wrong pins and ambiguous hosts',async t=>{
- const {spawnSync}=require('node:child_process'),https=require('node:https');
+function tlsMaterial(){
+ const {spawnSync}=require('node:child_process');
  const generation=spawnSync(process.env.DESKTOP_TEST_PYTHON||'python',['-c',String.raw`
 import datetime,json
 from cryptography import x509
@@ -106,10 +106,14 @@ now=datetime.datetime.now(datetime.timezone.utc)
 cert=x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key()).serial_number(x509.random_serial_number()).not_valid_before(now-datetime.timedelta(minutes=1)).not_valid_after(now+datetime.timedelta(hours=1)).sign(key,hashes.SHA256())
 print(json.dumps({'key':key.private_bytes(serialization.Encoding.PEM,serialization.PrivateFormat.PKCS8,serialization.NoEncryption()).decode(),'cert':cert.public_bytes(serialization.Encoding.PEM).decode()}))
 `],{encoding:'utf8',timeout:30000,windowsHide:true}); // Bound fixture startup separately from the transport deadlines below.
- assert.equal(generation.status,0,'TLS fixture generator failed: '+String(generation.stderr));const material=JSON.parse(generation.stdout);
+ assert.equal(generation.status,0,'TLS fixture generator failed: '+String(generation.stderr));return JSON.parse(generation.stdout);
+}
+test('native pinned transport has absolute drip deadline, rejects redirects/overflow/aborts, wrong pins and ambiguous hosts',async t=>{
+ const https=require('node:https'),material=tlsMaterial();
  let mode='drip',hits=0;const sockets=new Set();
  const server=https.createServer(material,(_request,response)=>{hits++;
   if(mode==='redirect'){response.writeHead(302,{Location:'/v1/access/status'});response.end();return;}
+  if(mode==='forbidden'){response.writeHead(403);response.end('request authentication required');return;}
   response.writeHead(200,{'Content-Type':'application/json'});
   if(mode==='drip'){response.write('{');const interval=setInterval(()=>response.write(' '),20);response.on('close',()=>clearInterval(interval));}
   if(mode==='overflow')response.end('x'.repeat(20000));
@@ -120,9 +124,10 @@ print(json.dumps({'key':key.private_bytes(serialization.Encoding.PEM,serializati
  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{for(const socket of sockets)socket.destroy();server.close();});
  const f=fixture();f.trust.url='https://127.0.0.1:'+server.address().port;
  f.trust.tlsSpkiSha256=crypto.createHash('sha256').update(new crypto.X509Certificate(material.cert).publicKey.export({format:'der',type:'spki'})).digest('hex');
- const started=Date.now();await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:150}),/deadline/);assert.ok(Date.now()-started<1500);
- await assert.rejects(accessRequest({...f.trust,tlsSpkiSha256:'0'.repeat(64)},'/v1/access/status',{deadlineMs:500}),/identity mismatch/);
- mode='redirect';const prior=hits;await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:500}),/refused/);assert.equal(hits,prior+1);
+ const started=Date.now();await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:150}),error=>error.reason==='timeout'&&/deadline/.test(error.message));assert.ok(Date.now()-started<1500);
+ await assert.rejects(accessRequest({...f.trust,tlsSpkiSha256:'0'.repeat(64)},'/v1/access/status',{deadlineMs:500}),error=>error.reason==='identity'&&/identity mismatch/.test(error.message));
+ mode='redirect';const prior=hits;await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:500}),error=>error.reason==='refused'&&error.statusCode===302&&/refused/.test(error.message));assert.equal(hits,prior+1);
+ mode='forbidden';await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:500}),error=>error.reason==='refused'&&error.statusCode===403);
  mode='overflow';await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:500}),/too large/);
  mode='abort';await assert.rejects(accessRequest(f.trust,'/v1/access/status',{deadlineMs:500}),/interrupted|unavailable/);
  for(const url of ['https://[::1]','https://localhost','https://127.1','https://127.000.0.1'])assert.throws(()=>descriptor({...f.trust,url}));
@@ -148,14 +153,14 @@ test('explicit terminal request replacement preserves old recovery across failed
   if(path==='/v1/access/activate')return {grant:f.sign(f.body),accessToken:crypto.randomBytes(48).toString('base64url')};
   throw new Error('unexpected route');
  };
- let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture');
+ let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture',INVITE);
  const originalId=vault.state().pending.requestId,originalSecret=vault.values.get('access-request').requests[originalId].requestSecret;
- for(const active of ['pending','approved','used']){status=active;await assert.rejects(client.requestAccess('Fixture',{newRequest:true}),/preserved/);assert.equal(vault.state().pending.requestId,originalId);}
- status='expired';const write=vault.store.write;vault.store.write=async()=>{throw new Error('commit failed');};await assert.rejects(client.requestAccess('Fixture',{newRequest:true}),/commit failed/);
+ for(const active of ['pending','approved','used']){status=active;await assert.rejects(client.requestAccess('Fixture',{...INVITE,newRequest:true}),/preserved/);assert.equal(vault.state().pending.requestId,originalId);}
+ status='expired';const write=vault.store.write;vault.store.write=async()=>{throw new Error('commit failed');};await assert.rejects(client.requestAccess('Fixture',{...INVITE,newRequest:true}),/commit failed/);
  assert.equal(vault.values.get('access-request').requests[originalId].requestSecret,originalSecret);assert.equal(vault.state().pending.requestId,originalId);assert.equal(posts,1);
- vault.store.write=write;client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture',{newRequest:true});
+ vault.store.write=write;client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture',{...INVITE,newRequest:true});
  assert.notEqual(vault.state().pending.requestId,originalId);assert.equal(Object.keys(vault.values.get('access-request').requests).length,1);assert.equal(posts,2);
- status='used';expiry=Math.floor(now/1000)-1;const secondId=vault.state().pending.requestId;await client.requestAccess('Fixture',{newRequest:true});assert.notEqual(vault.state().pending.requestId,secondId);
+ status='used';expiry=Math.floor(now/1000)-1;const secondId=vault.state().pending.requestId;await client.requestAccess('Fixture',{...INVITE,newRequest:true});assert.notEqual(vault.state().pending.requestId,secondId);
  await client.activate(crypto.randomBytes(32).toString('base64url'));assert.equal(await client.permitted(),true);
 });
 
@@ -169,10 +174,10 @@ test('expired consumed renewal can restart while preserving the older active or 
    if(path==='/v1/access/status')return f.sign(f.status({sequence:revoked?2:1,revoked}));
    throw new Error('unexpected route');
   };
-  let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture');await client.activate(crypto.randomBytes(32).toString('base64url'));await client.refresh();
-  const before=structuredClone(vault.state());await client.requestAccess('Fixture',{reapproval:true});const consumedId=vault.state().pending.requestId;
+  let client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture',INVITE);await client.activate(crypto.randomBytes(32).toString('base64url'));await client.refresh();
+  const before=structuredClone(vault.state());await client.requestAccess('Fixture',{...INVITE,reapproval:true});const consumedId=vault.state().pending.requestId;
   requestState='used';expiry=Math.floor(now/1000)-1;client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});
-  await client.requestAccess('Fixture',{reapproval:true,newRequest:true});assert.notEqual(vault.state().pending.requestId,consumedId);
+  await client.requestAccess('Fixture',{...INVITE,reapproval:true,newRequest:true});assert.notEqual(vault.state().pending.requestId,consumedId);
   for(const field of ['grantEnvelope','statusEnvelope','highestSequence','revoked'])assert.deepEqual(vault.state()[field],before[field]);
   assert.equal((await client.accepted()).revoked,revoked);
  }
@@ -225,4 +230,130 @@ test('unapproved, revoked or missing protected access credentials never request 
  await assert.rejects(f.client.enrollUpdates('1.0.1'),/approval/);
  await f.vault.store.write({...previous,grantEnvelope:null});await assert.rejects(f.client.enrollUpdates('1.0.1'),/approval/);
  assert.equal(f.requests.length,0);
+});
+
+test('connection refused and a silent server carry stable reason codes',async t=>{
+ const net=require('node:net'),f=fixture(),sockets=new Set();
+ const probe=net.createServer();await new Promise(resolve=>probe.listen(0,'127.0.0.1',resolve));const closed=probe.address().port;await new Promise(resolve=>probe.close(resolve));
+ const silent=net.createServer(socket=>{sockets.add(socket);socket.on('error',()=>{});});await new Promise(resolve=>silent.listen(0,'127.0.0.1',resolve));
+ t.after(()=>{for(const socket of sockets)socket.destroy();silent.close();});
+ await assert.rejects(accessRequest({...f.trust,url:'https://127.0.0.1:'+closed},'/v1/access/status',{deadlineMs:2000}),error=>error.reason==='unreachable'&&/unavailable/.test(error.message));
+ await assert.rejects(accessRequest({...f.trust,url:'https://127.0.0.1:'+silent.address().port},'/v1/access/status',{deadlineMs:100}),error=>error.reason==='timeout');
+});
+test('accessFailure forwards only a known reason code, never message text, ids or secrets',()=>{
+ for(const reason of ['unreachable','timeout','refused','identity','trust','invite'])assert.equal(accessFailure(Object.assign(new Error('secret-token request-id /private/path'),{reason})),'access:'+reason);
+ for(const error of [new Error('secret-token'),Object.assign(new Error('x'),{reason:'secret-token'}),Object.assign(new Error('x'),{reason:'toString'}),Object.assign(new Error('x'),{statusCode:403}),null,undefined,'access:identity'])assert.equal(accessFailure(error),'access:failed');
+});
+test('poll re-POSTs the same unacknowledged request on 403 only; a distinct request is still refused while it is pending',async()=>{
+ const f=fixture(),vault=stores();let clock=now,postFails=true,getError=null;const posts=[],gets=[];
+ const request=async(_trust,path,options)=>{
+  if(path==='/v1/access/requests'){posts.push(options.body);if(postFails)throw Object.assign(new Error('Access connection unavailable'),{reason:'unreachable'});return {requestId:options.body.requestId,status:'pending',expiresAt:f.body.issuedAt+86400};}
+  gets.push(path);if(getError)throw getError;return {requestId:path.split('/').at(-1),status:'pending',expiresAt:f.body.issuedAt+86400};
+ };
+ const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>clock});
+ await assert.rejects(client.requestAccess('Fixture',INVITE),/unavailable/);
+ const id=vault.state().pending.requestId,material=structuredClone(vault.values.get('access-request'));assert.equal(posts.length,1);
+ getError=Object.assign(new Error('Access service refused the request'),{statusCode:403});clock+=16000;
+ await assert.rejects(client.poll(),/unavailable/);assert.equal(posts.length,2);
+ postFails=false;clock+=16000;
+ assert.equal((await client.poll()).status,'pending');assert.equal(posts.length,3);
+ for(const body of posts){assert.equal(body.requestId,id);assert.equal(body.requestSecret,material.requests[id].requestSecret);assert.equal(body.displayName,'Fixture');}
+ assert.equal(vault.state().pending.requestId,id);assert.deepEqual(vault.values.get('access-request'),material);
+ for(const error of [Object.assign(new Error('x'),{statusCode:500}),Object.assign(new Error('x'),{statusCode:404}),new Error('Access connection unavailable')]){getError=error;clock+=16000;await assert.rejects(client.poll());}
+ assert.equal(posts.length,3);
+ getError=null;await assert.rejects(client.requestAccess('Fixture',{...INVITE,newRequest:true}),/preserved/);
+ assert.equal(posts.length,3);assert.equal(vault.state().pending.requestId,id);
+});
+test('a failed first POST keeps the stored request so the next request re-sends the same id and secret',async()=>{
+ const f=fixture(),vault=stores();let fail=true;const posts=[];
+ const request=async(_trust,_path,options)=>{posts.push(options.body);if(fail)throw Object.assign(new Error('Access connection unavailable'),{reason:'unreachable'});return {requestId:options.body.requestId,status:'pending',expiresAt:f.body.issuedAt+86400};};
+ const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});
+ await assert.rejects(client.requestAccess('Fixture',INVITE),/unavailable/);fail=false;
+ assert.equal((await client.requestAccess('Fixture',INVITE)).status,'pending');
+ assert.equal(posts.length,2);assert.equal(posts[1].requestId,posts[0].requestId);assert.equal(posts[1].requestSecret,posts[0].requestSecret);
+});
+
+const inviteRefusal=()=>Object.assign(new Error('Access service refused the request'),{reason:'invite',statusCode:403});
+const accepted=(f,options)=>({requestId:options.body.requestId,status:'pending',expiresAt:f.body.issuedAt+86400});
+test('an optional invite code is trimmed, sent in the POST body, kept only in the protected request material and never in state or errors',async()=>{
+ const f=fixture(),vault=stores(),posts=[],writes=[],write=vault.store.write;vault.store.write=async value=>{writes.push(JSON.stringify(value));return write(value);};
+ const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request:async(_trust,_path,options)=>{posts.push(options.body);return accepted(f,options);},now:()=>now});
+ for(const inviteCode of [null,5,['x'],'x'.repeat(65),' '+'x'.repeat(65)+' ']){const error=await client.requestAccess('Fixture',{inviteCode}).then(()=>null,e=>e);assert.match(error?.message,/invite code/i);}
+ assert.equal(posts.length,0);assert.equal(writes.length,0);assert.equal(vault.values.has('access-request'),false);
+ await client.requestAccess('Fixture',{inviteCode:'  '+CODE+'  '});const id=posts[0].requestId;
+ assert.deepEqual(Object.keys(posts[0]).sort(),['appId','arch','deviceId','displayName','inviteCode','platform','requestId','requestSecret']);assert.equal(posts[0].inviteCode,CODE);
+ assert.equal(vault.values.get('access-request').requests[id].inviteCode,CODE);
+ assert.deepEqual(vault.state().pending,{requestId:id,displayName:'Fixture'});assert.ok(writes.length>0&&writes.every(text=>!text.includes(CODE)));
+});
+test('without an invite code the POST carries no inviteCode field and the material stores none (what servers with invites off expect)',async()=>{
+ for(const inviteCode of [undefined,'','   ']){
+  const f=fixture(),vault=stores(),posts=[];
+  const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request:async(_trust,_path,options)=>{posts.push(options.body);return accepted(f,options);},now:()=>now});
+  assert.equal((await client.requestAccess('Fixture',inviteCode===undefined?{}:{inviteCode})).status,'pending');
+  assert.deepEqual(Object.keys(posts[0]).sort(),['appId','arch','deviceId','displayName','platform','requestId','requestSecret']);
+  assert.deepEqual(Object.keys(vault.values.get('access-request').requests[posts[0].requestId]).sort(),['requestId','requestSecret']);
+ }
+});
+test('an invite refusal clears the pending request and its material so a new name and code start a fresh request',async()=>{
+ const f=fixture(),vault=stores(),posts=[];let refuse=true;
+ const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request:async(_trust,_path,options)=>{posts.push(options.body);if(refuse)throw inviteRefusal();return accepted(f,options);},now:()=>now});
+ const error=await client.requestAccess('Old name',{inviteCode:CODE}).then(()=>null,e=>e);
+ assert.equal(error.reason,'invite');assert.equal(accessFailure(error),'access:invite');assert.ok(!(error.message+accessFailure(error)).includes(CODE));
+ assert.equal(vault.state().pending,null);assert.equal(vault.values.has('access-request'),false);
+ refuse=false;assert.equal((await client.requestAccess('New name',{inviteCode:'NEW-CODE'})).status,'pending');
+ assert.equal(posts.length,2);assert.notEqual(posts[1].requestId,posts[0].requestId);assert.notEqual(posts[1].requestSecret,posts[0].requestSecret);
+ assert.equal(posts[1].displayName,'New name');assert.equal(posts[1].inviteCode,'NEW-CODE');assert.deepEqual(vault.state().pending,{requestId:posts[1].requestId,displayName:'New name'});
+});
+test('refusals other than invite_invalid and transport failures keep the pending request and its code for retry',async()=>{
+ for(const failure of [Object.assign(new Error('x'),{reason:'refused',statusCode:403}),Object.assign(new Error('x'),{reason:'unreachable'}),Object.assign(new Error('x'),{reason:'timeout'}),new Error('Invalid access response')]){
+  const f=fixture(),vault=stores(),client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request:async()=>{throw failure;},now:()=>now});
+  await assert.rejects(client.requestAccess('Fixture',INVITE),error=>error===failure);
+  const id=vault.state().pending.requestId;assert.equal(vault.values.get('access-request').requests[id].inviteCode,CODE);
+ }
+});
+test('poll re-POST resends the stored code, material without a code sends none, and an invite refusal there clears pending',async()=>{
+ const f=fixture(),vault=stores();let clock=now,post='unreachable';const posts=[];
+ const request=async(_trust,path,options)=>{
+  if(path==='/v1/access/requests'){posts.push(options.body);if(post==='unreachable')throw Object.assign(new Error('Access connection unavailable'),{reason:'unreachable'});if(post==='invite')throw inviteRefusal();return accepted(f,options);}
+  throw Object.assign(new Error('Access service refused the request'),{reason:'refused',statusCode:403});
+ };
+ const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>clock});
+ await assert.rejects(client.requestAccess('Fixture',INVITE),/unavailable/);
+ clock+=16000;post='ok';assert.equal((await client.poll()).status,'pending');assert.equal(posts[1].inviteCode,CODE);assert.equal(posts[1].requestId,posts[0].requestId);
+ const id=vault.state().pending.requestId,requestSecret=vault.values.get('access-request').requests[id].requestSecret;
+ await vault.secrets.write('access-request',{requests:{[id]:{requestId:id,requestSecret}}});
+ clock+=16000;assert.equal((await client.poll()).status,'pending');assert.equal(Object.hasOwn(posts[2],'inviteCode'),false);
+ post='invite';clock+=16000;const error=await client.poll().then(()=>null,e=>e);
+ assert.equal(error.reason,'invite');assert.equal(vault.state().pending,null);assert.equal(vault.values.has('access-request'),false);
+ clock+=16000;await assert.rejects(client.poll(),/No pending request/);
+});
+test('an invite refusal during reapproval clears only the new request and leaves the signed ledger and token intact',async()=>{
+ for(const revoked of [false,true]){
+  const f=fixture(),vault=stores();let refuse=false;
+  const request=async(_trust,path,options)=>{
+   if(path==='/v1/access/requests'){if(refuse)throw inviteRefusal();return accepted(f,options);}
+   if(path==='/v1/access/activate'){f.body.requestId=options.body.requestId;return {grant:f.sign(f.body),accessToken:crypto.randomBytes(48).toString('base64url')};}
+   if(path==='/v1/access/status')return f.sign(f.status({sequence:revoked?2:1,revoked}));
+   throw new Error('unexpected route');
+  };
+  const client=new AccessClient({...vault,trust:f.trust,identity:f.identity,request,now:()=>now});await client.requestAccess('Fixture',INVITE);await client.activate(crypto.randomBytes(32).toString('base64url'));await client.refresh();
+  const before=structuredClone(vault.state()),token=structuredClone(vault.values.get('access-token'));refuse=true;
+  await assert.rejects(client.requestAccess('Fixture',{...INVITE,reapproval:true}),error=>error.reason==='invite');
+  assert.equal(vault.state().pending,null);assert.equal(vault.values.has('access-request'),false);assert.deepEqual(vault.values.get('access-token'),token);
+  for(const field of ['grantEnvelope','statusEnvelope','highestSequence','revoked'])assert.deepEqual(vault.state()[field],before[field]);
+  assert.equal((await client.accepted()).revoked,revoked);
+ }
+});
+test('only a 403 invite_invalid answer changes the refusal reason; other bodies, statuses and oversize bodies stay refused',async t=>{
+ const https=require('node:https'),material=tlsMaterial(),sockets=new Set(),received=[];let status=403,body='';
+ const server=https.createServer(material,(request,response)=>{const chunks=[];request.on('data',part=>chunks.push(part));request.on('end',()=>{received.push(Buffer.concat(chunks).toString('utf8'));response.writeHead(status,{'Content-Type':'application/json'});response.end(body);});});
+ server.on('connection',socket=>{sockets.add(socket);socket.on('close',()=>sockets.delete(socket));});
+ await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));t.after(()=>{for(const socket of sockets)socket.destroy();server.close();});
+ const f=fixture();f.trust.url='https://127.0.0.1:'+server.address().port;
+ f.trust.tlsSpkiSha256=crypto.createHash('sha256').update(new crypto.X509Certificate(material.cert).publicKey.export({format:'der',type:'spki'})).digest('hex');
+ const attempt=async(code,text)=>{status=code;body=text;return accessRequest(f.trust,'/v1/access/requests',{method:'POST',body:{inviteCode:CODE},deadlineMs:1500}).then(()=>null,e=>e);};
+ const invite=await attempt(403,'{"error":"invite_invalid"}');assert.equal(invite.reason,'invite');assert.equal(invite.statusCode,403);assert.equal(JSON.parse(received[0]).inviteCode,CODE);
+ for(const [code,text] of [[403,'{"error":"access_denied"}'],[403,'request authentication required'],[403,''],[403,'{"error":"invite_invalid"'],[403,'{"error":["invite_invalid"]}'],[403,'{"error":"INVITE_INVALID"}'],[403,'x'.repeat(20000)],[403,'{"error":"invite_invalid","pad":"'+'x'.repeat(20000)+'"}'],[429,'{"error":"invite_invalid"}'],[500,'{"error":"invite_invalid"}'],[409,'{"error":"state_conflict"}']]){
+  const error=await attempt(code,text);assert.equal(error.reason,'refused',code+' '+text.slice(0,40));assert.equal(error.statusCode,code);
+ }
 });

@@ -48,7 +48,7 @@ run each step either on this host (engine `windows`: `python <script>` exactly a
 |---|---|---|---|
 | collect (`collect`) | the network collectors in `compute_engine.STEP_SERVICE`: CREC/CHRG, bill discovery, FEC money, rollcall, BILLSTATUS bulk, the eight interview legs, Wikipedia | `collectors.compose.yaml`: `collect`; admissions on `llm` | `report`: a collectors replay report, `result` PASS |
 | chain (`chain`) | `fec/run_pipeline.py` (weekly only) | `melange.compose.yaml`: `chain` | `report`: what `chain_parity.py compare --report` writes, `result` PASS, `exit_code` 0, no failed gates |
-| publish (`office`) | after `prepare dashboard deployment`: a LibreOffice view copy of the workbook in `outputs/workbook_view/`, never gating the refresh | `office-calc.compose.yaml` | `equivalence`: what `xl_equivalence.py compare --report` writes, `equivalent` true; `rank_check`: `result` PASS with `members` 533 and `rank_exact` 533 |
+| publish (`office`) | after `prepare dashboard deployment`: a LibreOffice view copy of the workbook in `outputs/workbook_view/`, never gating the refresh | `office-calc.compose.yaml` | `equivalence`: what `xl_equivalence.py compare --report` writes, `equivalent` true; `rank_check`: `result` PASS with `members` and `rank_exact` both equal to the roster's size (`fec/roster.py`) |
 
 Switching a phase on, and back:
 
@@ -61,9 +61,9 @@ set MELANGE_ENGINE_CHAIN=windows                      # per-process override of 
 
 The evidence files default to `audits/compute_parity/` (`chain_parity.json`, `collectors_replay.json`, `office_equivalence.json`, `office_rank_check.json`;
 `MELANGE_PARITY_DIR` moves the directory). The collectors replay report is written by `collectors_replay.py run` (below); `cutover.py` reads `result` only. The office pair is written by one run
-of `xl_equivalence.py compare REF CAND --expect-formulas 98269 --rank-range 'Blended Model!T3:T535' --rank-range 'Blended Model!Y3:Y535' --report office_equivalence.json
+of `xl_equivalence.py compare REF CAND --expect-formulas 98269 --rank-range 'Blended Model!T3:T<last member row>' --rank-range 'Blended Model!Y3:Y<last member row>' --report office_equivalence.json
 --rank-check-report office_rank_check.json`: the rank-gated rule of D-177 as amended 2026-10-13 (Paul: tiny rounding differences are allowed in number cells only
-when every rank, percentile and threshold matches exactly in the same run). In that run the 533 member ranks and every discrete cell (non-numeric values; formulas
+when every rank, percentile and threshold matches exactly in the same run). In that run the member ranks (the roster's size, `--rank-members N` overrides) and every discrete cell (non-numeric values; formulas
 with RANK, PERCENTRANK, TRUNC or ROUND; comparisons and IF/IFS/IFERROR/IFNA that give a flag or a label; any column holding a RANK or PERCENTRANK formula) are checked
 exactly, and only if all of them match may a continuous number differ, by at most 1024 ULP (`--continuous-ulp`; 256 is the most seen, SUMPRODUCT summation order).
 Otherwise the tolerance is refused, the old tier rules judge the rest, and the report says why. Both reports state the rank check and the tolerance.
@@ -124,7 +124,7 @@ collectors in `compute_engine.STEP_SERVICE` (each needs its own date or argument
 
 `chain_parity.py` proves a container run equals the Windows run from frozen, byte-identical inputs: A1 and A2 are two Windows runs
 (their difference is the noise floor), B is the container run. The byte gates are `ranks_python.json`, `dashboard_data.json` and
-`bipartisan.json`; every other changed path is judged by content (D-177) and rank delta must be 0 over 533 members.
+`bipartisan.json`; every other changed path is judged by content (D-177) and rank delta must be 0 over every roster member (G3 expects the size of the roster in the A1 root; `--expect-members N` overrides).
 
 ```
 python ops/compute/chain_parity.py freeze --src <tree> --dest <frozen> --list <read-set.txt> --list ops/required_inputs.txt   # then copy <frozen> to A1, A2, B
@@ -132,7 +132,7 @@ python ops/compute/chain_parity.py verify --root <A1> --manifest <frozen>.manife
 python ops/compute/chain_parity.py command --side windows   --root <A1> --today 2026-10-12 --local-dir <A1 local>\Melange --glassbox-dir <A1 events> --execute
 python ops/compute/chain_parity.py command --side container --root <B>  --today 2026-10-12 --audio-pilot-dir <live audio_pilot> --execute
 python ops/compute/chain_parity.py compare --frozen <frozen>.manifest.json --a1 <A1> --a2 <A2> --b <B> \
-    --map C:\melange-data=/melange-data --expect-members 533 --report parity.json --store <dir>
+    --map C:\melange-data=/melange-data --report parity.json --store <dir>
 ```
 
 The Windows side is a relocated, clean-environment run: it refuses without `--local-dir` (unset, the chain would write the live

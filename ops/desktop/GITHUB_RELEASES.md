@@ -12,25 +12,57 @@ publisher private key, access credential, or recipient list belongs in an app
 or release asset. Making the repository public is an owner action; none of the
 tools here change repository visibility.
 
-> **Signing prerequisite.** `packaging/github_release.py` now prepares each app's
-> signed release for that app's own repository (below). Producing a real signed
-> release still needs Paul's Windows Authenticode identity on each installer and
-> the per-app Ed25519 update roots and pinned Windows publisher subject enrolled
-> in the protected publisher state (`server/desktop_admin.py` `init` and
-> `trust-publisher`). Neither is part of this repository, and no tool here creates
-> them. Until both exist, per-app releases remain unsigned manual-install previews.
-
-> **Self-signed route (Paul's choice, 2026-10-16).** The Authenticode identity is a
-> self-signed code-signing certificate whose non-exportable key stays in Paul's
-> `CurrentUser\My`; only machines that import its public certificate into `Root`
-> report its signatures as `Valid`, so only those machines install updates. The
+> **Signing: self-signed certificate plus one-click trust (Paul's choice,
+> 2026-10-16; trust step added for 1.0.6).** Each installer is Authenticode-signed
+> on Paul's PC with the self-signed certificate
+> `CN=Melange Systems Desktop Release (self-signed)` (SHA-1 thumbprint
+> `0EBC9AD04E929CDD731EDB5D278A4143BC3D3D30`; end-entity, CA:false, Code Signing
+> EKU only, Digital Signature key usage). Its non-exportable key stays in Paul's
+> `CurrentUser\My`; no publicly trusted signing identity is used or needed. The
 > hosted build stays unsigned but bakes the public pin
 > `WINDOWS_PUBLISHER_NAME = CN=Melange Systems Desktop Release (self-signed)`
 > (workflow `RELEASE_PUBLISHER`, signed-release input mode, with `STABLE_TAG`
-> reserved). On Paul's PC the installer is then signed (RFC 3161 timestamp),
+> reserved). Paul then signs the installer (RFC 3161 timestamp),
 > `packaging/authenticode_binding.py` proves the signed file is the hosted bytes
 > plus only an appended signature, and the steps below prepare and publish the
-> stable `desktop-v<version>` release. Nothing in the updater checks changes.
+> stable `desktop-v<version>` release. The per-app Ed25519 update roots and the
+> pinned publisher subject live in the protected publisher state
+> (`server/desktop_admin.py` `init` and `trust-publisher`), outside this repository.
+>
+> A PC installs updates only when Windows reports that signer as `Valid`, that
+> is, when the public certificate is in the user's trusted roots. Trust is one
+> click, through Windows' own Yes/No security dialog, with no command line and
+> no administrator rights; it adds only that public certificate (shipped as
+> `client/melange-systems-desktop-release.cer`) to `CurrentUser\Root`:
+>
+> - the installer no longer touches the certificate store (no `certutil`, nothing
+>   elevated), so there is no "all users" or different-administrator account
+>   mismatch: trust is always granted to the account that runs the app;
+> - the app asks once, at its first interactive launch, when Windows definitely
+>   reports the certificate as not trusted and the user has not declined before
+>   (a refusal is remembered). The prompt is Windows' own Yes/No dialog;
+> - until trusted, the app shows "Automatic updates are off until this PC trusts
+>   the Melange Systems release certificate" in Settings, with a **Turn on
+>   updates** button (also in the app menu) that asks again
+>   (`client/publisher-trust.cjs`: it reads the bundled certificate once, refuses
+>   any bytes whose SHA-1 is not the pinned thumbprint, and imports those same
+>   in-memory bytes) and skips update downloads until trusted. Only a definite
+>   "not in the store" answer counts as untrusted; if the check itself fails the
+>   update check runs anyway, because Authenticode still gates every install;
+> - the certificate intentionally stays trusted after an app is uninstalled,
+>   because all three apps (Melange, Mentat, Terrier) share it;
+> - PCs that already run 1.0.5 (which cannot verify updates until trusted) can
+>   double-click `turn-on-updates.cmd`, published with every release: it carries
+>   the certificate, refuses to import anything but the pinned thumbprint (it
+>   adds the checked in-memory certificate, no temporary file), and reports the
+>   result in a Windows message box. Windows SmartScreen may first ask to
+>   confirm the downloaded file.
+>
+> Verified updates then apply without asking: when the app closes (silent NSIS
+> install), or, if one is still pending (for example after a shutdown), at the
+> next start before any window or backend opens, followed by a relaunch. A
+> running session is never interrupted. None of the manifest, sequence,
+> anti-rollback, hash or exact-publisher checks changed.
 
 ## From committed sources to a prepared installer
 
@@ -116,10 +148,15 @@ mismatch, old versions/sequences, and reusing a sequence for different bytes.
 The sequence ledger is checked per app across every repository it has recorded,
 and each new row records that app's own repository. Repeating the identical
 release at a new directory reproduces its envelopes. No network request or upload
-occurs. The output holds one directory per app, each with exactly five files:
+occurs. The output holds one directory per app, each with exactly six files:
 
 - `<app>-win32-x64.manifest.json`, `<app>-<version>-win32-x64.exe`, `<app>-trust.json`;
+- `turn-on-updates.cmd`, byte-identical to `client/turn-on-updates.cmd` (the
+  one-click trust file above; `--verify-output` refuses any other bytes);
 - that app's `release.json` (with its `appId` and `repository`) and `SHA256SUMS`.
+
+A directory prepared before the trust file existed (`desktop-v1.0.5`) still
+verifies with its original five files.
 
 Each signed manifest binds `purpose: melange-desktop-github-release`,
 `distribution: public-installations`, that app's lowercase GitHub repository,
@@ -130,8 +167,25 @@ release uploaded to another app's repository cannot install. The signed logical
 package path remains `/v1/packages/<app>/<sequence>/<installer-name>`; the GitHub
 adapter maps it to the exact asset in `desktop-v<version>`. Trust files contain
 only signed key transitions rooted in keys the installed app already trusts. A
-failed download cannot replace those roots. Recovery looks up the exact installed
-version tag, so keep older accepted release assets available.
+failed download cannot replace those roots. From 1.0.6 the client records the
+running version's signed manifest as its rollback baseline without downloading
+that version's installer, and rollback works offline from locally kept
+installers: the installer that was downloaded to update stays in the app's own
+per-user updater cache (`%LOCALAPPDATA%\<application id>\updater\updates`, moved out
+of the Documents profile so large installers are never synced; the update state,
+including the anti-rollback high-water, stays in the profile and is unaffected, and
+installers cached at the old location are ignored and fetched once again) after it
+is verified and activated, only the current and
+the immediately previous version keep one (older ones are pruned once the new
+version is confirmed running), and an interactive first install keeps a copy of
+its own setup file (`%LOCALAPPDATA%\<application id>\baseline\<version>`) so
+even the first rollback needs no download. A rollback verifies the local copy
+exactly as an activation does (signed-manifest hashes, then the exact
+Authenticode subject, twice). Only when no local copy exists, or it fails
+verification (it is then deleted), is the older installer fetched from its
+exact `desktop-v<version>` release, which therefore must stay hosted for that
+fallback. Network is needed only to fetch new updates. A per-machine (all users) install skips the first-install copy, because the app reads the signed-in user's `%LOCALAPPDATA%`; the first rollback there falls back to the network. The baseline copy is copied (not moved) and removed only after the rollback completes and the target version is confirmed running. A cached installer is deleted only when its own size or hash check fails, never for an untrusted signature or a tool error. If the installer later cannot be spawned, electron-updater exits the app once and the update is recorded as failed at the next start; the exceptions are EACCES/UNKNOWN (retried through its elevation helper, which can show a UAC prompt, rare for this per-user install) and ENOENT (opened interactively without `/S`), neither of which reports an error. Disk cost is about one
+extra installer per app (Melange roughly 575 MB).
 
 ## Publish the verified releases
 
@@ -178,7 +232,7 @@ foreach ($app in (Get-ChildItem -LiteralPath $newBundle -Directory).Name) {  # t
 }
 ```
 
-After reviewing each draft and its exact five assets, make it discoverable in
+After reviewing each draft and its exact six assets, make it discoverable in
 that app's repository (set `$repo` and `$tag` from that app's `release.json`):
 
 ```powershell

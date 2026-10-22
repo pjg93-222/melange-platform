@@ -41,31 +41,27 @@ const CATEGORIES = [
   "Mortgage & Housing",
   "CU Tax Status",
 ];
-const BLOCK_RANGES = Object.fromEntries(
-  CATEGORIES.map((category, index) => [
-    category,
-    [
-      "C3:J535",
-      "K3:R535",
-      "S3:Z535",
-      "AA3:AH535",
-      "AI3:AP535",
-      "AQ3:AX535",
-      "AY3:BF535",
-      "BG3:BN535",
-      "BO3:BV535",
-      "BW3:CD535",
-      "CE3:CL535",
-      "CM3:CT535",
-      "CU3:DB535",
-      "DC3:DJ535",
-      "DK3:DR535",
-      "DS3:DZ535",
-      "EA3:EH535",
-      "EW3:FD535",
-    ][index],
-  ]),
-);
+// First and last column of each category's block on the raw sheet, in CATEGORIES order.
+const BLOCK_COLUMNS = [
+  ["C", "J"],
+  ["K", "R"],
+  ["S", "Z"],
+  ["AA", "AH"],
+  ["AI", "AP"],
+  ["AQ", "AX"],
+  ["AY", "BF"],
+  ["BG", "BN"],
+  ["BO", "BV"],
+  ["BW", "CD"],
+  ["CE", "CL"],
+  ["CM", "CT"],
+  ["CU", "DB"],
+  ["DC", "DJ"],
+  ["DK", "DR"],
+  ["DS", "DZ"],
+  ["EA", "EH"],
+  ["EW", "FD"],
+];
 const SUBLAYER_COLUMNS = {
   "Examination & Supervision": "C",
   "CU Capital Requirements": "D",
@@ -228,13 +224,66 @@ function formulaAt(table, row, column) {
   return typeof value === "string" ? value : "";
 }
 
-async function main() {
-  const [inputArg, reportArg, renderDirArg] = process.argv.slice(2);
-  if (!inputArg || !reportArg || !renderDirArg) {
+/*
+ * The roster size and the member rows of each sheet come from the Python
+ * caller (fec/roster.py) as JSON on argv:
+ *   {"member_count": N, "sheets": {"<sheet>": {"first_row": F, "last_row": L}}}
+ * There is no built-in member count.  Missing or inconsistent geometry is
+ * refused, never defaulted.
+ */
+function loadGeometry(text) {
+  let geometry = null;
+  try {
+    geometry = JSON.parse(text);
+  } catch {
+    // refused below
+  }
+  const count = geometry && geometry.member_count;
+  if (typeof geometry !== "object" || !Number.isInteger(count) || count < 1) {
     throw new Error(
-      "usage: node helper.cjs frozen-input.xlsx report.json render-dir",
+      "roster geometry is missing or has no positive integer member_count",
     );
   }
+  const sheets = {};
+  for (const name of REQUIRED_SHEETS) {
+    const rows = geometry.sheets && geometry.sheets[name];
+    if (
+      !rows ||
+      !Number.isInteger(rows.first_row) ||
+      rows.first_row < 1 ||
+      rows.last_row !== rows.first_row + count - 1
+    ) {
+      throw new Error(
+        `roster geometry for "${name}" needs first_row and ` +
+          `last_row = first_row + member_count - 1`,
+      );
+    }
+    sheets[name] = { first: rows.first_row, last: rows.last_row };
+  }
+  return { count, sheets };
+}
+
+async function main() {
+  const [inputArg, reportArg, renderDirArg, geometryArg] =
+    process.argv.slice(2);
+  if (!inputArg || !reportArg || !renderDirArg) {
+    throw new Error(
+      "usage: node helper.cjs frozen-input.xlsx report.json render-dir " +
+        "roster-geometry-json",
+    );
+  }
+  const { count, sheets } = loadGeometry(geometryArg);
+  const raw = sheets["Legislative Score - Raw"];
+  const normalizedRows = sheets["Legislative Score - Normalized"];
+  const sub = sheets["Sub Layer - Raw"];
+  const congestionRows = sheets.Congestion;
+  const BLOCK_RANGES = Object.fromEntries(
+    CATEGORIES.map((category, index) => [
+      category,
+      `${BLOCK_COLUMNS[index][0]}${raw.first}:` +
+        `${BLOCK_COLUMNS[index][1]}${raw.last}`,
+    ]),
+  );
   const inputPath = path.resolve(inputArg);
   const reportPath = path.resolve(reportArg);
   const renderDir = path.resolve(renderDirArg);
@@ -257,25 +306,28 @@ async function main() {
     throw new Error(`required sheets missing: ${missingSheets.join(", ")}`);
   }
 
+  const rawNamesRange = `A${raw.first}:A${raw.last}`;
+  const sublayerRange = `B${sub.first}:U${sub.last}`;
+  const congestionRange = `A${congestionRows.first}:B${congestionRows.last}`;
   const rawNames = await inspectTable(
     workbook,
     "Legislative Score - Raw",
-    "A3:A535",
-    533,
+    rawNamesRange,
+    count,
     1,
   );
   const sublayer = await inspectTable(
     workbook,
     "Sub Layer - Raw",
-    "B4:U536",
-    533,
+    sublayerRange,
+    count,
     20,
   );
   const congestion = await inspectTable(
     workbook,
     "Congestion",
-    "A3:B535",
-    533,
+    congestionRange,
+    count,
     2,
   );
   const normalizedHeaders = await inspectTable(
@@ -288,8 +340,8 @@ async function main() {
   const efficiency = await inspectTable(
     workbook,
     "Sub Layer - Raw",
-    "AG1:AW536",
-    536,
+    `AG1:AW${sub.last}`,
+    sub.last,
     17,
   );
 
@@ -297,14 +349,15 @@ async function main() {
   congestion.values.forEach((row, offset) => {
     const name = cleanName(row[0]);
     const bioguide = String(row[1] || "").trim();
+    const sheetRow = offset + congestionRows.first;
     if (!name || congestionByName.has(name)) {
-      throw new Error(`blank/duplicate Congestion member at row ${offset + 3}`);
+      throw new Error(`blank/duplicate Congestion member at row ${sheetRow}`);
     }
-    congestionByName.set(name, { bioguide, row: offset + 3 });
+    congestionByName.set(name, { bioguide, row: sheetRow });
   });
 
   const members = [];
-  for (let index = 0; index < 533; index += 1) {
+  for (let index = 0; index < count; index += 1) {
     const rawName = cleanName((rawNames.values[index] || [])[0]);
     const sublayerName = cleanName((sublayer.values[index] || [])[0]);
     if (!rawName || rawName !== sublayerName) {
@@ -319,18 +372,18 @@ async function main() {
       name: rawName,
       bioguide: mapped.bioguide,
       bioguide_id: mapped.bioguide,
-      raw_row: index + 3,
-      sublayer_row: index + 4,
+      raw_row: index + raw.first,
+      sublayer_row: index + sub.first,
       congestion_row: mapped.row,
     });
   }
   if (
-    members.length !== 533 ||
-    new Set(members.map((row) => row.name)).size !== 533 ||
-    new Set(members.map((row) => row.bioguide_id)).size !== 533 ||
-    congestionByName.size !== 533
+    members.length !== count ||
+    new Set(members.map((row) => row.name)).size !== count ||
+    new Set(members.map((row) => row.bioguide_id)).size !== count ||
+    congestionByName.size !== count
   ) {
-    throw new Error("member identity coverage is not exactly 533");
+    throw new Error(`member identity coverage is not exactly ${count}`);
   }
 
   const nonlegislative = {};
@@ -339,17 +392,17 @@ async function main() {
   const inspectionReceipts = [
     {
       sheet: "Legislative Score - Raw",
-      range: "A3:A535",
+      range: rawNamesRange,
       ndjson_sha256: rawNames.ndjsonSha256,
     },
     {
       sheet: "Sub Layer - Raw",
-      range: "B4:U536",
+      range: sublayerRange,
       ndjson_sha256: sublayer.ndjsonSha256,
     },
     {
       sheet: "Congestion",
-      range: "A3:B535",
+      range: congestionRange,
       ndjson_sha256: congestion.ndjsonSha256,
     },
   ];
@@ -357,16 +410,18 @@ async function main() {
     const first = startColumn(BLOCK_RANGES[category]);
     const firstNumber = columnNumber(first);
     const last = columnName(firstNumber + 4);
+    // Row 2 holds the five legislative weights; member rows follow it.
+    const normalizedRange = `${first}2:${last}${normalizedRows.last}`;
     const normalized = await inspectTable(
       workbook,
       "Legislative Score - Normalized",
-      `${first}2:${last}535`,
-      534,
+      normalizedRange,
+      normalizedRows.last - 1,
       5,
     );
     inspectionReceipts.push({
       sheet: "Legislative Score - Normalized",
-      range: `${first}2:${last}535`,
+      range: normalizedRange,
       ndjson_sha256: normalized.ndjsonSha256,
     });
     const weights = normalized.values[0].map((value, index) =>
@@ -378,10 +433,12 @@ async function main() {
     legislativeWeights[category] = weights;
     const sublayerIndex = columnNumber(SUBLAYER_COLUMNS[category]) - 2;
     const residuals = [];
-    for (let index = 0; index < 533; index += 1) {
+    for (let index = 0; index < count; index += 1) {
       const normalizedRow = normalized.values[index + 1];
       if (!Array.isArray(normalizedRow) || normalizedRow.length !== 5) {
-        throw new Error(`${category} normalized row ${index + 3} is incomplete`);
+        throw new Error(
+          `${category} normalized row ${index + normalizedRows.first} is incomplete`,
+        );
       }
       const legislative = normalizedRow.reduce(
         (sum, value, column) =>
@@ -399,7 +456,8 @@ async function main() {
 
       const formula = formulaAt(sublayer, index, sublayerIndex);
       const compact = formula.replace(/\$/g, "").replace(/\s+/g, "");
-      const expectedData = `${first}${index + 3}:${last}${index + 3}`;
+      const dataRow = index + normalizedRows.first;
+      const expectedData = `${first}${dataRow}:${last}${dataRow}`;
       const expectedWeights = `${first}2:${last}2`;
       if (
         !formula.startsWith("=") ||
@@ -408,7 +466,7 @@ async function main() {
       ) {
         formulaMismatches.push({
           category,
-          cell: `${SUBLAYER_COLUMNS[category]}${index + 4}`,
+          cell: `${SUBLAYER_COLUMNS[category]}${index + sub.first}`,
           expected_data_range: expectedData,
           expected_weight_range: expectedWeights,
           formula,
@@ -428,7 +486,8 @@ async function main() {
   const tableBasis = /Table1\[([^\]]+)\]/g;
   for (let slotIndex = 0; slotIndex < 17; slotIndex += 1) {
     const formulas = [];
-    for (let row = 3; row < 536; row += 1) {
+    // The efficiency table starts at sheet row 1, so sheet row r is index r - 1.
+    for (let row = sub.first - 1; row < sub.last; row += 1) {
       formulas.push(formulaAt(efficiency, row, slotIndex));
     }
     const nonempty = formulas.filter((formula) => formula);
@@ -455,7 +514,7 @@ async function main() {
       uniqueReferences.map((column) => normalizedHeaderByColumn[column]),
     );
     const unambiguous =
-      nonempty.length === 533 &&
+      nonempty.length === count &&
       uniqueReferences.length === 1 &&
       uniqueBases.length === 1 &&
       candidates.length === 1 &&
@@ -483,17 +542,17 @@ async function main() {
         basis_category_candidates: basisCandidates,
         reference_category_candidates: referenceCandidates,
         inference_rule:
-          "one category only when 533 formulas, one normalized column, " +
+          `one category only when ${count} formulas, one normalized column, ` +
           "one Table1 basis, and both independently identify the same category",
       },
     });
   }
 
   const errorScanSpecs = [
-    ["Legislative Score - Raw", "A1:FD535"],
-    ["Legislative Score - Normalized", "A1:FD535"],
-    ["Sub Layer - Raw", "A1:AW536"],
-    ["Congestion", "A1:Q535"],
+    ["Legislative Score - Raw", `A1:FD${raw.last}`],
+    ["Legislative Score - Normalized", `A1:FD${normalizedRows.last}`],
+    ["Sub Layer - Raw", `A1:AW${sub.last}`],
+    ["Congestion", `A1:Q${congestionRows.last}`],
   ];
   const errorMatches = [];
   const errorScanReceipts = [];
@@ -569,7 +628,7 @@ async function main() {
     efficiency_slots: efficiencySlots,
     efficiency_mapping_18_to_17_approved: false,
     sublayer_formula_audit: {
-      checked_cells: 533 * 18,
+      checked_cells: count * 18,
       mismatch_count: formulaMismatches.length,
       mismatches: formulaMismatches.slice(0, 100),
     },

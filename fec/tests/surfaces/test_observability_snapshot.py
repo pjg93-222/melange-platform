@@ -18,6 +18,8 @@ import unittest
 from unittest import mock
 
 sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import roster  # noqa: E402
 ROOT = Path(os.environ.get('FEC_SURFACE_SOURCE_ROOT', Path(__file__).resolve().parents[3])) / 'fec/surfaces'
 
 
@@ -36,7 +38,7 @@ def extraction_namespace(loader):
     tree = ast.parse((ROOT / 'extract_workbook_audit_inputs.py').read_bytes())
     selected = ast.Module(body=[n for n in tree.body if isinstance(n, ast.FunctionDef)
                                and n.name in {'sha256_file', 'number', 'normalize_columns', 'extract'}], type_ignores=[])
-    env = {'hashlib': hashlib, 'os': os, 'io': io, 'tempfile': tempfile,
+    env = {'hashlib': hashlib, 'os': os, 'io': io, 'tempfile': tempfile, 'roster': roster,
            'openpyxl': types.SimpleNamespace(load_workbook=loader)}
     exec(compile(selected, str(ROOT / 'extract_workbook_audit_inputs.py'), 'exec'), env)
     return env

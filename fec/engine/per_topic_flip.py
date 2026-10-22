@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 import moneyball_core as MC
+import roster
 import json, sys, heapq, os, openpyxl
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 WM,WP=0.35,0.65; CAP=50000; BUDGET=2_000_000; INC=1000; BASE=0.15
@@ -56,7 +57,7 @@ def pflip(n,al,nA,nB,mAt,mBt):
 # 18 legislative topic blocks -> the 17 matrix categories (CFPB Restrain+Reach share the combined CFPB stance)
 from moneyball_core import blocks,BLOCKCAT
 labels={sc:str(nrm.cell(1,sc).value).replace(' - Sponsor','').replace(' Sponsor','').strip() for sc in blocks}
-nrow={nrm.cell(r,1).value:r for r in range(3,536) if nrm.cell(r,1).value}
+nrow={nrm.cell(r,1).value:r for r in roster.rows('Legislative Score - Normalized') if nrm.cell(r,1).value}
 eng={}
 for sc in blocks:
     sw=[nrm.cell(2,sc+o).value or 0 for o in (0,2,4)]; d={}

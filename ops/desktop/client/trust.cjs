@@ -150,10 +150,10 @@ async function downloadVerified(p,token,manifest,directory) {
 }
 async function verifyPackageFile(filename, manifest) {
   const stat=fs.lstatSync(filename);
-  if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==manifest.package.size) throw new Error('Cached package size or type changed');
+  if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==manifest.package.size) throw Object.assign(new Error('Cached package size or type changed'),{code:'PACKAGE_INTEGRITY'});
   const sha256=crypto.createHash('sha256'),sha512=crypto.createHash('sha512');
   for await(const chunk of fs.createReadStream(filename)){sha256.update(chunk);sha512.update(chunk);}
-  if(sha256.digest('hex')!==manifest.package.sha256||sha512.digest('base64')!==manifest.package.sha512)throw new Error('Cached package integrity failed');
+  if(sha256.digest('hex')!==manifest.package.sha256||sha512.digest('base64')!==manifest.package.sha512)throw Object.assign(new Error('Cached package integrity failed'),{code:'PACKAGE_INTEGRITY'});
   return filename;
 }
 module.exports={lanAddress,trustedOrigin,pairing,jsonRequest,verifyEnvelope,applyKeyTransitions,downloadVerified,verifyPackageFile};

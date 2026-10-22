@@ -130,8 +130,8 @@ def parse_args(argv=None):
     parser.add_argument("--supplement-receipt", type=Path,
                         default=Path(ROOT) / "data" / "speech" /
                         "source_media_supplement_v1.receipt.json")
-    parser.add_argument("--verified-manifest", type=Path, default=DEFAULT_VERIFIED_MANIFEST)
-    parser.add_argument("--verified-receipt", type=Path, default=DEFAULT_VERIFIED_RECEIPT)
+    parser.add_argument("--verified-manifest", type=Path, default=None)
+    parser.add_argument("--verified-receipt", type=Path, default=None)
     parser.add_argument("--identity-manifest", type=Path, default=DEFAULT_IDENTITY_MANIFEST)
     parser.add_argument("--identity-receipt", type=Path, default=DEFAULT_IDENTITY_RECEIPT)
     parser.add_argument("--candidate-manifest", type=Path, default=DEFAULT_CANDIDATE_MANIFEST)
@@ -147,7 +147,15 @@ def parse_args(argv=None):
                         "speech_triggers_20260826" / "trigger_pairs_pathA_v3.jsonl")
     parser.add_argument("--no-verify-audio-hashes", action="store_true")
     parser.add_argument("--no-measure-missing", action="store_true")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    # An explicitly named verified lane must exist; only the defaults may be absent.
+    args.verified_lane_explicit = (
+        args.verified_manifest is not None or args.verified_receipt is not None)
+    if args.verified_manifest is None:
+        args.verified_manifest = DEFAULT_VERIFIED_MANIFEST
+    if args.verified_receipt is None:
+        args.verified_receipt = DEFAULT_VERIFIED_RECEIPT
+    return args
 
 
 def sha256_file(path: Path) -> str:
@@ -488,9 +496,12 @@ def wav_contract(row, verify_hash):
     path = Path(to_host(str(row.get("out_wav") or "")))
     if not path.is_file():
         raise SpeechBuildError("accepted clip missing: %s" % path)
-    with wave.open(str(path), "rb") as handle:
-        facts = (handle.getnchannels(), handle.getframerate(), handle.getsampwidth(),
-                 handle.getnframes())
+    try:
+        with wave.open(str(path), "rb") as handle:
+            facts = (handle.getnchannels(), handle.getframerate(), handle.getsampwidth(),
+                     handle.getnframes())
+    except (OSError, EOFError, wave.Error) as exc:
+        raise SpeechBuildError("accepted clip WAV is unreadable: %s" % path) from exc
     expected_frames = int(row.get("frames") or -1)
     if facts[:3] != (1, 16000, 2) or facts[3] != expected_frames:
         raise SpeechBuildError("accepted clip WAV/frame contract failed: %s" % path)
@@ -514,9 +525,12 @@ def supplement_wav_contract(row, verify_hash):
     path = Path(to_host(str(row.get("wav") or "")))
     if not path.is_absolute() or not path.is_file():
         raise SpeechBuildError("supplemental clip missing or path is not absolute: %s" % path)
-    with wave.open(str(path), "rb") as handle:
-        facts = (handle.getnchannels(), handle.getframerate(), handle.getsampwidth(),
-                 handle.getnframes())
+    try:
+        with wave.open(str(path), "rb") as handle:
+            facts = (handle.getnchannels(), handle.getframerate(), handle.getsampwidth(),
+                     handle.getnframes())
+    except (OSError, EOFError, wave.Error) as exc:
+        raise SpeechBuildError("supplemental clip WAV is unreadable: %s" % path) from exc
     if facts[:3] != (1, 16000, 2):
         raise SpeechBuildError("supplemental clip WAV contract failed: %s" % path)
     duration = facts[3] / 16000.0
@@ -1151,7 +1165,7 @@ def _wav_facts(path):
         with wave.open(str(path), "rb") as handle:
             facts = (handle.getnchannels(), handle.getsampwidth(),
                      handle.getframerate(), handle.getnframes())
-    except (OSError, wave.Error) as exc:
+    except (OSError, EOFError, wave.Error) as exc:
         raise SpeechBuildError("verified source-media WAV is invalid: %s" % path) from exc
     if facts[:3] != (1, 2, 16000):
         raise SpeechBuildError("verified source-media WAV is not mono PCM16/16 kHz: %s" % path)
@@ -1688,7 +1702,8 @@ def measure_file(path, smile_holder):
 def validate_verified_final_contract(
         manifest_path, receipt_path, identity_manifest_path, identity_receipt_path,
         candidate_manifest_path, candidate_receipt_path, inventory_path,
-        calibration_path, roster, *, verify_hash=True, measure=None):
+        calibration_path, roster, *, verify_hash=True, measure=None,
+        require_present=False):
     """Validate and measure every exhaustive-identity source-media final.
 
     The final WAV is compared to the exact PCM frame range of its secured source
@@ -1698,6 +1713,10 @@ def validate_verified_final_contract(
     manifest_path = Path(manifest_path)
     receipt_path = Path(receipt_path)
     if not manifest_path.exists() and not receipt_path.exists():
+        if require_present:
+            raise SpeechBuildError(
+                "explicit verified-final manifest and receipt are both missing: %s" %
+                manifest_path)
         return [], {"enabled": False, "accepted_clips": 0}
     final_rows, identity_rows, candidate_rows, inventory_rows, chain = (
         _validate_verified_receipt_chain(
@@ -2159,7 +2178,15 @@ def build_clip_records(manifest_rows, roster, indices, cache, verify_hash=True,
             row, npr_bindings, sunday_bindings, found,
             local_youtube_bindings=local_youtube_bindings,
         )
-        if (prior and prior.get("manifest_row_sha256") == manifest_digest and
+        prior_feature = (prior or {}).get("feature_provenance") or {}
+        feature_stale = (
+            prior is not None and prior.get("measurement_source") == "accepted_span_feature"
+            and (found is None
+                 or prior_feature.get("row_sha256") != found["row_sha256"]
+                 or prior_feature.get("file_sha256") != found["file_sha256"])
+        )
+        if (prior and not feature_stale and
+                prior.get("manifest_row_sha256") == manifest_digest and
                 all(finite((prior.get("measures") or {}).get(ch)) is not None for ch in CHANNELS)):
             measured = {ch: float(prior["measures"][ch]) for ch in CHANNELS}
             measurement_source = prior.get("measurement_source") or "cache"
@@ -2746,6 +2773,7 @@ def build(args):
         # The verified-final lane always hashes and PCM-checks its inputs.  The
         # legacy performance escape hatch may not weaken this acceptance gate.
         verify_hash=True,
+        require_present=bool(getattr(args, "verified_lane_explicit", False)),
     )
     cnn_lineage_required = any(
         _verified_source_needs_cnn_lineage(row) for row in verified_records

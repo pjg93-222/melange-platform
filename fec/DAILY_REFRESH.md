@@ -36,15 +36,30 @@ recorded the day, detected the existing publication writer, and returned
 The full flow is:
 
 1. Calibration, fresh Congress.gov discovery with official GovInfo fallback,
-   evidence admissions, votes, tracked bill repository, sponsor/cosponsor
-   memberships, and BILLSTATUS.
+   evidence admissions, and votes.
 2. Press collection alongside sequential database collectors for floor
    speeches, hearings, interviews, Washington Journal and verified Bluesky
    handles. Item failures block publication even if a collector exits 0.
    Press body retrieval is budgeted per run: see "Partial press coverage".
 3. Source acceptance, cumulative press feed, extraction, Social Master,
    behavioral inputs and reference classifications.
-4. Complete canonical pipeline: membership verification, Sentinel Bill Ledger,
+4. Tracked bill repository, sponsor/cosponsor memberships, and BILLSTATUS. These
+   run after the long media steps and immediately before the canonical pipeline,
+   never before them (DE-043): the repository fetch and the chain's membership
+   verification, which rebinds `official_membership_movements.json` to the new
+   repository, are one unit. A kill during media after the fetch used to leave the
+   repository fetched and the membership unbound. The reorder shrinks that unbound
+   window from media (hours) to the repository step itself (after its write),
+   BILLSTATUS and, in media mode, the ~12 canonical steps before membership
+   verification (`calibration_guard.py` through `receptivity_layer.py`). Smoke runs
+   take the media-mode path, so they have the same window. A hard kill inside it
+   still strands the binding; a failure the wrapper survives to catch is rolled back.
+   `behavior_panel.py` and `behavioral_dispositions.py` (media-derived) now read the
+   previous run's `bill_repository_live.json`. Nothing is hash-bound to that read,
+   but for one run a cosponsor added since the previous fetch is judged unverified
+   (the bioguide-on-bill check), which drops that row from both steps. They feed
+   `receptivity_layer.py`, so its values can shift slightly for that run.
+5. Complete canonical pipeline: membership verification, Sentinel Bill Ledger,
    main Moneyball workbook, measurements, ranks, member desk, combined dashboard,
    live HTML alias and terminal source-to-dashboard audits.
 
@@ -145,10 +160,11 @@ wiring rather than producing a generation:
 - discovery is skipped and recorded as `SKIPPED_SMOKE`;
 - admissions runs `--limit 1 --no-llm --no-install`, so it makes no model call
   and does not replace the published admissions generation;
-- votes, repository and BILLSTATUS run unchanged;
+- votes run unchanged;
 - media runs `--smoke`: sources are limited to `crec`, `chrg` and `bluesky`, the
   whole press lane is recorded `SKIPPED_SMOKE`, all derived producers still run,
   and no success anchor is written;
+- repository and BILLSTATUS run unchanged, after media;
 - the canonical pipeline runs in full. There is no shortened version of it.
 
 `--smoke` cannot be combined with `--include-media` (argparse error). A smoke run

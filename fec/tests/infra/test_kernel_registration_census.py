@@ -15,7 +15,7 @@ The census reads the git index, so a new suite is caught when it is added to git
 Each BACKLOG value is a one-line reason: 'backlog-2026-10-11' means not yet run on its own;
 anything else records why the suite stays out of the kernel.
 """
-import ast,os,re,subprocess,unittest
+import ast,contextlib,io,os,re,subprocess,unittest
 
 FEC=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ROOT=os.path.dirname(FEC)
@@ -64,6 +64,27 @@ class KernelRegistrationCensus(unittest.TestCase):
     def test_backlog_holds_no_stale_entries(self):
         self.assertEqual(sorted(n for n in BACKLOG if n not in self.tracked or n in self.registered),[],
                          'a registered or deleted suite must leave BACKLOG')
+
+    def test_only_suites_the_export_names_may_be_absent(self):
+        # run_tests.py skips an absent registered suite only when ops/release_lib/export.py leaves it out by name
+        # (a published tree); any other absent suite still fails. Its two helpers are taken by ast and run here.
+        with open(os.path.join(FEC,'tests','run_tests.py'),encoding='utf-8') as f:
+            tree=ast.parse(f.read())
+        helpers=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name in ('_export_excluded','_report_missing')]
+        self.assertEqual(len(helpers),2)
+        failed=[]
+        ns={'os':os,'ok':lambda name,cond,detail='':failed.append(name) if not cond else None}
+        exec(compile(ast.Module(helpers,[]),'run_tests.py','exec'),ns)
+        excluded=ns['_export_excluded'](ROOT)
+        self.assertIn('test_original_workspace',excluded)
+        self.assertIn('test_cohort_output_bindings',excluded)
+        self.assertLessEqual(excluded,self.registered)          # registered locally, absent from the public tree
+        self.assertNotIn('test_kernel_registration_census',excluded)
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            ns['_report_missing'](['test_original_workspace','test_cohort_output_bindings','test_kernel_registration_census'],excluded)
+        self.assertEqual(failed,['test_kernel_registration_census suite clean'])   # the export's two are skipped, not failed
+        self.assertIn('SKIP test_original_workspace',out.getvalue())
+        self.assertEqual(ns['_export_excluded'](os.path.join(ROOT,'no-such-tree')),set())   # no export list: nothing excused
 
     def test_every_backlog_entry_has_a_reason(self):
         self.assertEqual([n for n,r in BACKLOG.items() if not (isinstance(r,str) and r.strip())],[])

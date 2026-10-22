@@ -179,14 +179,23 @@ def run_probe(html, profiles, node, timeout=600):
         with open(job, 'w', encoding='utf-8') as fh:
             json.dump({'html': html, 'profiles': profiles}, fh)
         t0 = time.time()
-        proc = subprocess.run([node, PROBE, job], capture_output=True, text=True,
-                              encoding='utf-8', errors='replace', timeout=timeout)
+        try:
+            proc = subprocess.run([node, PROBE, job], capture_output=True, text=True,
+                                  encoding='utf-8', errors='replace', timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            tail = ''.join(x.decode('utf-8', 'replace') if isinstance(x, bytes) else (x or '')
+                           for x in (exc.stdout, exc.stderr))
+            return None, ('probe timed out after %ss: ' % timeout + tail.strip())[-2000:], time.time() - t0
         elapsed = time.time() - t0
         marker = '__PROBE_JSON__'
         idx = proc.stdout.find(marker)
         if idx < 0:
             return None, (proc.stdout + '\n' + proc.stderr).strip()[-2000:], elapsed
-        return json.loads(proc.stdout[idx + len(marker):].strip()), proc.stderr.strip()[-2000:], elapsed
+        try:
+            payload = json.loads(proc.stdout[idx + len(marker):].strip())
+        except ValueError as exc:
+            return None, 'malformed probe JSON: %s' % exc, elapsed
+        return payload, proc.stderr.strip()[-2000:], elapsed
     finally:
         try:
             os.remove(job)
@@ -449,7 +458,7 @@ def main(argv):
               % (r.passed, r.failed, r.skipped, r.info.get('probe_seconds') or 0.0))
     try:
         from surfaces import glassbox_emit as GB
-        GB.emit('audit', 'fail' if r.failed else ('skip' if r.skipped and not r.passed else 'ok'),
+        GB.emit('audit', 'fail' if r.failed else ('skip' if r.skipped else 'ok'),
                 'rendered-desk audit: %d passed, %d failed, %d skipped' % (r.passed, r.failed, r.skipped),
                 source='moneyball-audit', stage='audit_rendered_desk',
                 metadata={'expected': r.info.get('expected'), 'probe_seconds': r.info.get('probe_seconds')})

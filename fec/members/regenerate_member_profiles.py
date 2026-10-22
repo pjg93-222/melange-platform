@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from fec import roster
 from fec.members.build_member_meeting_playbooks import build as build_playbook
 from fec.members.revise_member_narratives_v2 import coop_band, cross_party_hits, headed_text, mechanical_issues
 
@@ -47,6 +48,9 @@ DEFAULT_BACKUP = (
     / "data/members/member_narratives_v2_work"
     / "member_narratives_v2.pre_legacy_refresh_20260908.json"
 )
+# Once the v3 briefs are published this script must never rebuild the 09-04 legacy prose over them.
+DEFAULT_V3_BRIEFS = ROOT / "data/members/member_briefs_v3.json"
+DEFAULT_V3_RECEIPT = ROOT / "data/members/member_briefs_v3.receipt.json"
 UNQUALIFIED_LONGFORM_MEMBERS = frozenset({
     "Alex Padilla", "Maxine Waters", "Mike Johnson", "Steve Scalise",
 })
@@ -127,6 +131,30 @@ def omit_unsupported_cross_party(row: dict, evidence: dict) -> tuple[dict, list[
     return result, omissions
 
 
+def v3_publication_present(briefs: Path, receipt: Path) -> bool:
+    """True when v3 briefs exist beside a PASS receipt.  Deliberately no hash or drift check here: a
+    guard that switches itself off when an input drifts is exactly how legacy prose got written back."""
+    if not (briefs.is_file() and receipt.is_file()):
+        return False
+    try:
+        return json.loads(receipt.read_text(encoding="utf-8-sig")).get("status") == "PASS"
+    except (OSError, ValueError, AttributeError):
+        return True  # unreadable receipt next to a briefs file: treat as present and refuse
+
+
+def backup_before_write(path: Path, backup_dir: Path, stamp: str) -> Path | None:
+    """Copy an existing live file aside (never overwrite an earlier backup) before it is replaced."""
+    if not path.is_file():
+        return None
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    target, n = backup_dir / f"{path.stem}.pre_legacy_refresh_{stamp}{path.suffix}", 0
+    while target.exists():   # same stamp twice: a counter suffix, never an overwrite
+        n += 1
+        target = backup_dir / f"{path.stem}.pre_legacy_refresh_{stamp}-{n}{path.suffix}"
+    shutil.copy2(path, target)
+    return target
+
+
 def load(path: Path) -> dict:
     with path.open(encoding="utf-8-sig") as handle:
         document = json.load(handle)
@@ -194,9 +222,9 @@ def build_candidate(
         raise SystemExit("evidence source is not active fail-closed input")
     if pre_longform.get("schema") != "member-narratives-v2-api":
         raise SystemExit("pre-long-form profile source is not member-narratives-v2-api")
-    if (len(legacy_members) != 533 or set(legacy_members) != set(evidence_members)
+    if (len(legacy_members) != roster.count() or set(legacy_members) != set(evidence_members)
             or set(pre_longform_members) != set(evidence_members)):
-        raise SystemExit("legacy profile and evidence rosters must match all 533 members")
+        raise SystemExit("legacy profile and evidence rosters must match all %d members" % roster.count())
 
     members = {}
     paragraphs = {}
@@ -260,8 +288,8 @@ def build_candidate(
         "unsupported_cross_party_omissions": cross_party_omitted,
         "profiles_with_omissions": len(omitted_claims),
         "pre_longform_profiles_retained_pending_review": sorted(UNQUALIFIED_LONGFORM_MEMBERS),
-        "current_evidence_gate_pass": 533,
-        "meeting_playbooks_rebuilt": 533,
+        "current_evidence_gate_pass": roster.count(),
+        "meeting_playbooks_rebuilt": roster.count(),
         "audio_contract": (
             "Descriptive clip baselines and duration-weighted verified voiceprints are "
             "independent complementary layers on different scales. Either may exist without "
@@ -282,8 +310,8 @@ def build_candidate(
         "schema": "member-narratives-v2-api",
         "status": "ACTIVE_API_GENERATED_USER_RATIFIED",
         "basis_sha256": evidence["basis_sha256"],
-        "count": 533,
-        "ok_count": 533,
+        "count": roster.count(),
+        "ok_count": roster.count(),
         "provenance": provenance,
         "members": members,
     }
@@ -294,16 +322,16 @@ def build_candidate(
         "basis_sha256": evidence["basis_sha256"],
         "evidence_sha256": sha256(evidence_path),
         "counts": {
-            "members": 533,
-            "semantic_pass": 533,
-            "current_evidence_gate_pass": 533,
-            "legacy_profiles_retained": 533 - len(omitted_claims),
+            "members": roster.count(),
+            "semantic_pass": roster.count(),
+            "current_evidence_gate_pass": roster.count(),
+            "legacy_profiles_retained": roster.count() - len(omitted_claims),
             "ratified_profiles_retained": 529 - len(set(omitted_claims) - UNQUALIFIED_LONGFORM_MEMBERS),
             "profiles_with_omissions": len(omitted_claims),
             "unsupported_defense_sentences_omitted": sum(map(len, defense_omitted.values())),
             "unsupported_cross_party_sentences_omitted": sum(map(len, cross_party_omitted.values())),
             "pre_longform_profiles_retained_pending_review": 4,
-            "meeting_playbooks": 533,
+            "meeting_playbooks": roster.count(),
             "new_human_audio_reviews": 0,
             **audio_counts,
         },
@@ -315,7 +343,7 @@ def build_candidate(
     return candidate, receipt
 
 
-def main() -> int:
+def main(argv=None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--legacy", type=Path, default=DEFAULT_LEGACY)
     parser.add_argument("--pre-longform", type=Path, default=DEFAULT_PRE_LONGFORM)
@@ -325,7 +353,15 @@ def main() -> int:
     parser.add_argument("--candidate-out", type=Path, default=DEFAULT_CANDIDATE)
     parser.add_argument("--backup", type=Path, default=DEFAULT_BACKUP)
     parser.add_argument("--activate", action="store_true")
-    args = parser.parse_args()
+    parser.add_argument("--v3-briefs", type=Path, default=DEFAULT_V3_BRIEFS)
+    parser.add_argument("--v3-receipt", type=Path, default=DEFAULT_V3_RECEIPT)
+    args = parser.parse_args(argv)
+    if v3_publication_present(args.v3_briefs, args.v3_receipt):
+        # run_pipeline.py runs this step with --activate on every chain, so refusing with an error would
+        # fail every chain once v3 is published.  Skip cleanly instead: nothing is read, nothing is written.
+        print("SKIPPED: v3 member briefs and their PASS receipt exist (%s); the 09-04 legacy profiles are not "
+              "rebuilt and member_narratives_v2.json is left untouched." % args.v3_briefs.name)
+        return 0
     for key in ("legacy", "pre_longform", "evidence", "artifact", "receipt", "candidate_out", "backup"):
         setattr(args, key, getattr(args, key).resolve())
 
@@ -352,12 +388,13 @@ def main() -> int:
         os.replace(args.candidate_out, args.artifact)
         receipt["active_artifact_sha256"] = sha256(args.artifact)
         receipt["backup_path"] = str(backup.relative_to(ROOT)).replace("\\", "/")
+        backup_before_write(args.receipt, args.backup.parent, dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ"))
         dump_atomic(receipt, args.receipt)
         print(
             json.dumps(
                 {
                     "activated": str(args.artifact),
-                    "members": 533,
+                    "members": roster.count(),
                     "audio_layers": _audio_population(evidence["members"]),
                     "sha256": receipt["active_artifact_sha256"],
                 },
@@ -370,7 +407,7 @@ def main() -> int:
             json.dumps(
                 {
                     "candidate": str(args.candidate_out),
-                    "members": 533,
+                    "members": roster.count(),
                     "audio_layers": _audio_population(evidence["members"]),
                     "sha256": receipt["candidate_sha256"],
                 },

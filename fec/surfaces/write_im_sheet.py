@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 import shutil,os,json,sys,subprocess
+import roster
 import win32com.client as w
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 src=MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
@@ -15,7 +16,7 @@ PT=json.load(open(MB_ROOT+r'\per_topic_alloc.json'))
 flip=IM['flip']; coal=IM['coalition']; topics=list(PT.keys())
 import openpyxl
 bm=openpyxl.load_workbook(src,data_only=True)['Blended Model']
-members=[bm.cell(r,1).value for r in range(3,536) if bm.cell(r,1).value]
+members=[bm.cell(r,1).value for r in roster.rows('Blended Model') if bm.cell(r,1).value]
 xl=w.DispatchEx('Excel.Application'); xl.Visible=False; xl.DisplayAlerts=False
 wb=xl.Workbooks.Open(tmp)
 for s in list(wb.Worksheets):

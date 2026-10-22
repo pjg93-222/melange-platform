@@ -12,10 +12,11 @@ if(savedState&&savedState.enabled){
 }
 contextBridge.exposeInMainWorld('desktop',Object.freeze({
   info:()=>ipcRenderer.invoke('desktop:info'),
-  chooseDirectory:()=>ipcRenderer.invoke('desktop:directory'),
-  district:value=>ipcRenderer.invoke('desktop:district',value),
   districts:()=>ipcRenderer.invoke('desktop:districts'),
   switchDistrict:value=>ipcRenderer.invoke('desktop:switch-district',value),
+  districtData:()=>ipcRenderer.invoke('desktop:district-data'),
+  refreshDistrictData:()=>ipcRenderer.invoke('desktop:district-data-refresh'),
+  onDistrictData:callback=>{const listener=(_event,value)=>callback(value);ipcRenderer.on('desktop:district-data-status',listener);return()=>ipcRenderer.removeListener('desktop:district-data-status',listener);},
   rendererReady:()=>ipcRenderer.invoke('desktop:renderer-ready'),
   pair:value=>ipcRenderer.invoke('desktop:pair',value),
   launch:()=>ipcRenderer.invoke('desktop:launch'),

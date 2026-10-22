@@ -139,7 +139,7 @@ canvas{touch-action:none}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition-duration:1ms!important;animation-duration:1ms!important}}
 </style></head><body><div id=app>
 <header><h1><svg class=brand-glyph width="19" height="31" viewBox="0 0 128 208" aria-hidden="true"><path d="M108 20 L64 64 L28 104 L64 144 L20 188 M64 64 L100 104 L64 144" fill="none" stroke="#EECD5C" stroke-width="19" stroke-linejoin="miter" stroke-miterlimit="6"/></svg>Melange — Influence map</h1>
-<span class=sub>533 members of Congress, by where they stand on each issue</span>
+<span class=sub>Members of Congress, by where they stand on each issue</span>
 <a id=desklink class=desklink href="cu-member-desk.html">Member desk ▸</a><a id=lobnetlink class=desklink href="lobby-network.html">Industry ▸</a><a id=stflink class=desklink href="staffer-network.html">Staffer network ▸</a></header>
 <div id=bar>
 <span><label>Issue</label><select id=issue aria-label="Select policy issue"></select><span title="CU advocacy frame: positive means aligned with credit-union priorities; CFPB positive means restrain CFPB reach" style="color:#A49D8A;font-size:10px;margin-left:5px">CU frame ⓘ</span></span>
@@ -1459,7 +1459,7 @@ function setNetConfig(cfg){
       +' against '+(f.cu_p_max!==undefined?f.cu_p_max:'?')+' on credit union, and '
       +(f.dyads_p_ge_010!==undefined?f.dyads_p_ge_010:'?')+' pairs above p=0.10 against '
       +(f.cu_dyads_p_ge_010!==undefined?f.cu_dyads_p_ge_010:'?')+'. '
-      +(_sm.members_isolated?(_sm.members_isolated+' of 533 members have NO TIE in this network, so '
+      +(_sm.members_isolated?(_sm.members_isolated+' of '+N+' members have NO TIE in this network, so '
         +'engine output for them is uninformative. '):'')
       // Concentration is the reason a sector graph is thin, and it is more actionable than the
       // aggregate: a reader told "444 pairs" pictures a graph, not one member holding a fifth of it.

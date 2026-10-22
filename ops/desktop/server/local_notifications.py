@@ -7,6 +7,7 @@ from desktop_admin import Refused
 DEBOUNCE = 30
 LEASE = 90
 INTERVAL = 300
+REMIND_AFTER_SECONDS = 4 * 3600
 
 
 class LocalNotifications:
@@ -27,7 +28,9 @@ class LocalNotifications:
             recent = db.execute("SELECT COUNT(*),MAX(created) FROM notification_deliveries WHERE state LIKE 'local_%' AND created>?", (now-3600,)).fetchone()
             if recent[0] >= 6 or recent[1] is not None and now-recent[1] < INTERVAL:
                 return {'state': 'throttled'}
-            rows = db.execute("SELECT id,created FROM notification_outbox WHERE kind='access_requested' AND state IN ('pending_local','pending_provider','local_deferred') ORDER BY created LIMIT 100").fetchall()
+            # A request still awaiting review is announced again once its last
+            # delivery is older than REMIND_AFTER_SECONDS (same throttle applies).
+            rows = db.execute("SELECT id,created FROM notification_outbox WHERE kind='access_requested' AND (state IN ('pending_local','pending_provider','local_deferred') OR state IN ('local_handed_to_windows','local_unknown') AND request_id IN (SELECT request_id FROM requests WHERE state='pending' AND expires>?) AND delivery_id IN (SELECT id FROM notification_deliveries WHERE created<=?)) ORDER BY created LIMIT 100", (now, now-REMIND_AFTER_SECONDS)).fetchall()
             if not rows:
                 return {'state': 'idle'}
             if now-max(r['created'] for r in rows) < DEBOUNCE:

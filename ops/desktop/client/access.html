@@ -18,6 +18,9 @@
     <label for="display-name">Your name or device label</label>
     <input id="display-name" name="displayName" type="text" maxlength="160" autocomplete="off" spellcheck="false" required>
     <p class="hint">The administrator sees this label when reviewing your request.</p>
+    <label for="invite-code">Invite code (if you were given one)</label>
+    <input id="invite-code" name="inviteCode" type="text" maxlength="64" autocomplete="off" spellcheck="false" autocapitalize="characters" placeholder="XXXX-XXXX-XXXX-XXXX">
+    <p class="hint">Leave this blank unless your administrator sent you a code.</p>
     <button id="request-submit" type="submit">Request access</button>
   </form>
   <section id="pending-panel" hidden>

@@ -61,15 +61,15 @@ def vote_source_errors(root: Path) -> list[str]:
         if receipt.get('schema') != 'vote-category-refresh-v1' or receipt.get('status') != 'PASS':
             return ['vote refresh receipt is not PASS']
         archives = sorted(root.glob('congress_bills_archive_*.xlsx'))
-        archive = Path(receipt['archive'])
+        archive = Path(to_host(receipt['archive']))
         if not archives or archive.resolve() != archives[-1].resolve():
             return ['vote refresh does not use the current bill archive']
         errors = []
         inputs = receipt.get('inputs_sha256') or {}
         config = json.loads((root / 'data/legislation/vote_source_snapshot.json').read_text(encoding='utf-8-sig'))
-        source_dir = Path(config['source_dir'])
-        required = [archive, source_dir / 'receipt.json', Path(config['historical_exclusions']),
-                    Path(config['names']), root / 'data/legislation/cfpb_bill_directions.csv',
+        source_dir = Path(to_host(config['source_dir']))
+        required = [archive, source_dir / 'receipt.json', Path(to_host(config['historical_exclusions'])),
+                    Path(to_host(config['names'])), root / 'data/legislation/cfpb_bill_directions.csv',
                     root / 'legislation_exclusion_ledger.ndjson', root / 'legislation_hold_ledger.ndjson',
                     root / 'fec/legislation/vote_by_category.py', root / 'fec/legislation/build_vote_category.py']
         from legislation import sentinel_admissions as SA
@@ -77,10 +77,10 @@ def vote_source_errors(root: Path) -> list[str]:
             required.append(root / SA.RELATIVE)
         required.extend(source_dir / f'HS{c}_{kind}.csv'
                         for c in (117, 118, 119) for kind in ('members', 'rollcalls', 'votes'))
-        if set(inputs) != {str(p.resolve()) for p in required}:
+        if {str(Path(to_host(k)).resolve()) for k in inputs} != {str(p.resolve()) for p in required}:
             errors.append('incomplete vote input hash coverage')
         for name, expected in inputs.items():
-            source = Path(name)
+            source = Path(to_host(name))
             if not source.is_file() or file_sha256(source) != expected:
                 errors.append(f'vote input bytes differ: {source.name}')
         outputs = {'vote_category_lean.json': root / 'vote_category_lean.json',
@@ -110,6 +110,13 @@ def vote_source_errors(root: Path) -> list[str]:
 def file_sha256(path: Path) -> str:
     with path.open('rb') as handle:
         return hashlib.file_digest(handle, 'sha256').hexdigest()
+
+
+def _safe_sha(path: Path):
+    try:
+        return file_sha256(path)
+    except OSError:
+        return None
 
 
 def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[str]:
@@ -156,7 +163,7 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
             errors.append(f'{source.name}: incomplete source hash set')
         for name in all_names:
             path = source / name
-            if not path.is_file() or file_sha256(path) != hashes.get(name):
+            if not path.is_file() or (h := _safe_sha(path)) is None or h != hashes.get(name):
                 errors.append(f'{source.name}: source bytes differ: {name}')
         intake_binding = run.get('collection_intake') or {}
         if (not isinstance(intake_binding, dict) or not isinstance(intake_binding.get('path'), str)
@@ -164,7 +171,7 @@ def press_source_errors(feed: dict, root: Path, current_intake: dict) -> list[st
             errors.append(f'{source.name}: acceptance receipt bytes differ')
             continue
         intake_path = Path(to_host(intake_binding['path']))
-        if not intake_path.is_file() or file_sha256(intake_path) != intake_binding.get('sha256'):
+        if not intake_path.is_file() or (h := _safe_sha(intake_path)) is None or h != intake_binding.get('sha256'):
             errors.append(f'{source.name}: acceptance receipt bytes differ')
             continue
         try:

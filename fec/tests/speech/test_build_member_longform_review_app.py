@@ -113,3 +113,60 @@ if(!semanticProblems([{kind:'incomplete'}]).length)throw new Error('missing find
 if(!semanticProblems([null]).length)throw new Error('malformed finding accepted');
 """
         subprocess.run([node, "-e", code], text=True, check=True)
+
+
+def test_storage_key_is_stable_across_queue_rebuilds():
+    rows = [{"turn_id": "b", "candidate_turn_binding_sha256": "2" * 64},
+            {"turn_id": "a", "candidate_turn_binding_sha256": "1" * 64}]
+    first = mod.render(rows, "queue-hash-1", "draft-hash-1")
+    rebuilt = mod.render(list(reversed(rows)), "queue-hash-2", "draft-hash-2")
+    key = lambda h: next(l for l in h.splitlines() if l.startswith("const STORE="))
+    assert key(first) == key(rebuilt)
+    # turns entering/leaving the queue or rebinding must not move the store
+    changed = [dict(rows[0], candidate_turn_binding_sha256="3" * 64), rows[1], {"turn_id": "c"}]
+    assert key(mod.render(changed, "queue-hash-1", "draft-hash-1")) == key(first)
+    assert key(mod.render(rows[:1], "queue-hash-1", "draft-hash-1")) == key(first)
+
+
+_DOM_STUB = """
+const __store=new Map(Object.entries(__INITIAL_STORAGE));
+globalThis.localStorage={getItem:k=>__store.has(k)?__store.get(k):null,setItem:(k,v)=>__store.set(k,String(v))};
+const __els={};
+globalThis.document={getElementById:id=>__els[id]=__els[id]||{id,type:id==='attest'?'checkbox':'text',value:'',checked:false,textContent:'',innerHTML:'',addEventListener(){}},createElement:()=>({click(){}})};
+globalThis.addEventListener=()=>{};globalThis.alert=()=>{};
+"""
+
+
+def _run_page(node: str, rendered: str, storage: dict, after: str) -> dict:
+    script = re.search(r"<script>(.*?)</script>", rendered, re.DOTALL).group(1)
+    code = (_DOM_STUB.replace("__INITIAL_STORAGE", json.dumps(storage)) + script + after
+            + "\nprocess.stdout.write(JSON.stringify({storage:Object.fromEntries(__store),"
+              "progress:__els.progress.textContent,status:__els.reviewStatus.value}));")
+    done = subprocess.run([node, "-e", code], text=True, check=True, capture_output=True)
+    return json.loads(done.stdout)
+
+
+def test_saved_decisions_survive_queue_changes_and_drop_only_on_own_binding_change():
+    node = shutil.which("node")
+    if not node:
+        return
+    def row(turn, binding, member):
+        return {"turn_id": turn, "member": member, "candidate_turn_binding_sha256": binding,
+                "draft_semantic_findings": [], "draft_identity_note": "", "draft_boundary_note": ""}
+    a, b = row("a", "1" * 64, "Alpha"), row("b", "2" * 64, "Beta")
+    first = _run_page(node, mod.render([a], "q1", "d1"), {},
+                      "\n__els.reviewStatus.value='ACCEPT';stash();")
+    assert first["progress"].startswith("1 decided")
+    # a new turn enters the queue: the decision for the unchanged turn is still shown
+    grown = _run_page(node, mod.render([a, b], "q2", "d2"), first["storage"], "\nshow(0);")
+    assert grown["progress"].startswith("1 decided")
+    assert grown["status"] == "ACCEPT"
+    # the turn leaves the queue and comes back: still there
+    shrunk = _run_page(node, mod.render([b], "q3", "d3"), grown["storage"], "")
+    back = _run_page(node, mod.render([a, b], "q4", "d4"), shrunk["storage"], "\nshow(0);")
+    assert back["status"] == "ACCEPT"
+    # the turn's own binding changes: its old decision is ignored, not exported or counted
+    rebound = _run_page(node, mod.render([dict(a, candidate_turn_binding_sha256="9" * 64), b], "q5", "d5"),
+                        back["storage"], "\nshow(0);")
+    assert rebound["progress"].startswith("0 decided")
+    assert rebound["status"] == "PENDING"

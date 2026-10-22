@@ -21,6 +21,9 @@ CLIENT = HERE.parent / 'client'
 EXTENSIONS = {'.py', '.r', '.ps1', '.psm1', '.sh', '.tpl', '.js', '.mjs', '.cjs', '.css', '.html', '.svg', '.png', '.ico', '.xml', '.woff', '.woff2', '.ttf', '.wasm'}
 DENIED_PARTS = {'node_modules', '.git', '.venv', '__pycache__', 'tests', 'test', 'fixtures', 'outputs', '.cache'}
 DENIED_NAMES = {'keys.json', '.env', '.secret', 'accounts.sqlite3', 'dashboard_password.txt'}
+# Runtime databases (and their WAL/SHM/journal side files) are user state, never source, wherever they appear.
+DENIED_SUFFIXES = ('.sqlite', '.sqlite3', '.sqlite-wal', '.sqlite-shm', '.sqlite-journal', '.sqlite3-wal', '.sqlite3-shm', '.sqlite3-journal',
+                   '.db', '.db-wal', '.db-shm', '.db-journal')
 POCKET_TEMPLATE = 'mentat/tools/pocket/mentat-pocket.html'
 POCKET_PATTERN = re.compile(r'(/\*__DATA_START__\*/).*?(/\*__DATA_END__\*/)', re.S)
 BOOTSTRAP_FILES = (
@@ -61,6 +64,8 @@ def selected_files(root, spec):
             parts = file.relative_to(root).parts
             if any(file.relative_to(root).as_posix() == prefix or file.relative_to(root).as_posix().startswith(prefix + '/') for prefix in spec.get('excludedSourcePrefixes', [])):
                 continue
+            if file.name.lower().endswith(DENIED_SUFFIXES):
+                continue
             if file.is_file() and not file.is_symlink() and not any(p in DENIED_PARTS for p in parts) and file.suffix.lower() in EXTENSIONS and file.name not in DENIED_NAMES:
                 # CSV files are data unless explicitly named as immutable schema below.
                 if file.name.startswith(('test_', '.')) or '.bak' in file.name:
@@ -72,6 +77,8 @@ def selected_files(root, spec):
         file = root / relative
         if not file.is_file() or file.is_symlink():
             raise RuntimeError(f'Required immutable source file is missing: {file}')
+        if file.name.lower().endswith(DENIED_SUFFIXES):
+            raise RuntimeError(f'Runtime database cannot be a release source file: {file}')
         result.add(Path(relative))
     return sorted(result)
 

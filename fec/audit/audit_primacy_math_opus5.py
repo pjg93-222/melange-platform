@@ -26,6 +26,8 @@ from paths import ROOT as ROOT_TEXT
 
 
 ROOT = Path(ROOT_TEXT)
+# Audit basis: factor board, or the legxfactor revert. Never the live per_area_v1 default.
+BOARD = 'legxfactor' if TU.PRIMACY_BOARD == 'legxfactor' else 'factor'
 OUTPUT = (
     ROOT / 'audits' / 'legfix5' / 'production_promotion'
     / 'greenlight-20260728a-primacy-v1'
@@ -77,13 +79,13 @@ def sha256(path):
 def board(names, pcts, factors):
     # D-031: pinned to the 2026-07-29 factor board this audit was written against;
     # the live default ('per_area_v1') needs a grade map this script does not load.
-    scores = TU.primacy_scores(pcts, factors, mode='factor')
+    scores = TU.primacy_scores(pcts, factors, mode=BOARD)
     order = sorted(
         names, key=lambda member: (-scores[member], member)
     )
     # Mirror legislative_press_tiers exactly: the evidence floor sits between
     # placements (empty here) and the conduct ladder, factor-mode only.
-    if TU.PRIMACY_BOARD == 'factor':
+    if BOARD == 'factor':
         order = TU.apply_evidence_floor(
             order,
             TU.load_primacy_cu_credit(str(ROOT)),
@@ -143,7 +145,7 @@ def main():
     # (user-ratified 2026-07-29, "certainty outranks estimation"); the
     # legxfactor revert ranks on factor_shrunk. Mirror tier_util exactly.
     rank_field = (
-        'factor_ranked' if TU.PRIMACY_BOARD == 'factor'
+        'factor_ranked' if BOARD == 'factor'
         else 'factor_shrunk'
     )
     control = board(
@@ -186,11 +188,10 @@ def main():
         for name in evidence_files
     }
 
-    cfpb_rows = list(csv.DictReader(
-        (ROOT / 'data' / 'legislation' / 'cfpb_bill_directions.csv').open(
-            encoding='utf-8-sig', newline=''
-        )
-    ))
+    with (ROOT / 'data' / 'legislation' / 'cfpb_bill_directions.csv').open(
+        encoding='utf-8-sig', newline=''
+    ) as handle:
+        cfpb_rows = list(csv.DictReader(handle))
     cfpb_contract_ok = bool(cfpb_rows) and all(
         (
             row['Category'] == 'Reduce'
@@ -270,7 +271,7 @@ def main():
                 treatment_scores[member]
                 - (
                     treatment_rows[member]['factor_ranked']
-                    if TU.PRIMACY_BOARD == 'factor'
+                    if BOARD == 'factor'
                     else float(ranks['pcts'][member]['leg'])
                     * treatment_rows[member]['factor_shrunk']
                 )
@@ -281,7 +282,7 @@ def main():
         # the penalty strength was chosen specifically so Juan Vargas keeps a
         # Tier 1 seat. Guards against future K drift evicting him silently.
         'vargas_holds_tier_one_under_factor_board': (
-            TU.PRIMACY_BOARD != 'factor'
+            BOARD != 'factor'
             or treatment_rank.get('Juan Vargas', 999) <= 13
         ),
         'all_referenced_local_evidence_files_exist': (
@@ -300,7 +301,7 @@ def main():
             treatment_rank[member] <= maximum
             for member, maximum in (
                 TARGET_LIMITS
-                if TU.PRIMACY_BOARD == 'factor'
+                if BOARD == 'factor'
                 else TARGET_LIMITS_LEGXFACTOR
             ).items()
         ),
@@ -330,6 +331,7 @@ def main():
             'paid_api_cost_usd': 0.0,
         },
         'formula': {
+            'board': BOARD,
             'role_weights': PF.ROLE_W,
             'act_weights': PF.ACT_W,
             'letter_weight': PF.LETTER_W,
@@ -348,7 +350,7 @@ def main():
             'tier_score': (
                 'factor_ranked = factor_shrunk - K*(1-lambda)'
                 '*|factor_raw - baseline|'
-                if TU.PRIMACY_BOARD == 'factor'
+                if BOARD == 'factor'
                 else 'leg_pct * factor_shrunk'
             ),
             'adjudicated_credit_rule': (

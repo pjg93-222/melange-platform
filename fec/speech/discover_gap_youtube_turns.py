@@ -81,14 +81,10 @@ def ordered_alignment(
     if len(target) < 12:
         return None
     anchor_len = min(5, len(target))
-    anchors = [
-        target[index : index + anchor_len]
-        for index in range(0, min(len(target) - anchor_len + 1, 35), 5)
-    ]
     candidate_starts: set[int] = set()
-    for anchor in anchors:
+    for target_offset in range(0, min(len(target) - anchor_len + 1, 35), 5):
+        anchor = target[target_offset : target_offset + anchor_len]
         first = anchor[0]
-        target_offset = target.index(first)
         for index, token in enumerate(caption_tokens):
             if token != first:
                 continue
@@ -357,48 +353,53 @@ def align_candidates(
     def one(task: tuple[dict[str, Any], dict[str, Any]]) -> dict[str, Any]:
         gap, candidate = task
         member = gap["member"]
+        error_row = {
+            "schema": "youtube-gap-turn-candidate-v1",
+            "member": member,
+            "bioguide": gap.get("bioguide"),
+            "chamber": gap.get("chamber"),
+            **candidate,
+        }
         try:
             caption_rows = fetch_caption(candidate["video_id"], root)
-            caption_tokens, caption_times = flatten_caption(caption_rows)
-            alignment = best_turn_alignment(
-                turns[member], caption_tokens, caption_times, minimum_ratio=minimum_ratio
-            )
-            normalized_caption = " ".join(caption_tokens)
-            full_name = " ".join(normalize_tokens(member))
-            named = bool(full_name and full_name in normalized_caption)
-            status = "TRANSCRIPT_BOUND_CANDIDATE" if alignment else "DISCOVERY_ONLY"
-            output = {
-                "schema": "youtube-gap-turn-candidate-v1",
-                "status": status,
-                "member": member,
-                "bioguide": gap.get("bioguide"),
-                "chamber": gap.get("chamber"),
-                **candidate,
-                "caption_segments": len(caption_rows),
-                "caption_named_member": named,
-                "identity_policy": "title/date/channel are discovery-only; stored member-labelled turn alignment required",
-            }
-            if alignment:
-                turn = alignment.pop("turn")
-                output["alignment"] = {
-                    **{key: round(value, 6) if isinstance(value, float) else value for key, value in alignment.items()},
-                    "transcript_rowid": turn["rowid"],
-                    "transcript_source": turn["source"],
-                    "transcript_package": turn["package"],
-                    "transcript_text_sha256": hashlib.sha256(turn["text"].encode("utf-8")).hexdigest(),
-                    "transcript_nwords": turn["nwords"],
-                }
-            return output
         except Exception as exc:
+            # terminal no-caption cases are not retryable; transport/IP-block errors are
+            terminal = type(exc).__name__ in ("TranscriptsDisabled", "NoTranscriptFound")
             return {
-                "schema": "youtube-gap-turn-candidate-v1",
-                "status": "CAPTION_ERROR",
-                "member": member,
-                "bioguide": gap.get("bioguide"),
-                "chamber": gap.get("chamber"),
-                **candidate,
+                **error_row,
+                "status": "NO_CAPTIONS" if terminal else "CAPTION_ERROR",
                 "error": f"{type(exc).__name__}: {exc}"[:600],
             }
+        caption_tokens, caption_times = flatten_caption(caption_rows)
+        alignment = best_turn_alignment(
+            turns[member], caption_tokens, caption_times, minimum_ratio=minimum_ratio
+        )
+        normalized_caption = " ".join(caption_tokens)
+        full_name = " ".join(normalize_tokens(member))
+        named = bool(full_name and full_name in normalized_caption)
+        status = "TRANSCRIPT_BOUND_CANDIDATE" if alignment else "DISCOVERY_ONLY"
+        output = {
+            "schema": "youtube-gap-turn-candidate-v1",
+            "status": status,
+            "member": member,
+            "bioguide": gap.get("bioguide"),
+            "chamber": gap.get("chamber"),
+            **candidate,
+            "caption_segments": len(caption_rows),
+            "caption_named_member": named,
+            "identity_policy": "title/date/channel are discovery-only; stored member-labelled turn alignment required",
+        }
+        if alignment:
+            turn = alignment.pop("turn")
+            output["alignment"] = {
+                **{key: round(value, 6) if isinstance(value, float) else value for key, value in alignment.items()},
+                "transcript_rowid": turn["rowid"],
+                "transcript_source": turn["source"],
+                "transcript_package": turn["package"],
+                "transcript_text_sha256": hashlib.sha256(turn["text"].encode("utf-8")).hexdigest(),
+                "transcript_nwords": turn["nwords"],
+            }
+        return output
 
     rows: list[dict[str, Any]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, workers)) as executor:
@@ -408,6 +409,13 @@ def align_candidates(
             if index % 25 == 0 or index == len(tasks):
                 print(f"CAPTION {index}/{len(tasks)}", flush=True)
     return sorted(rows, key=lambda row: (row["member"], row["video_id"]))
+
+
+def summarize_rows(rows: list[dict[str, Any]]) -> tuple[str, int]:
+    """Receipt status and member count; error rows do not count as candidates."""
+    errors = any(row["status"] == "CAPTION_ERROR" for row in rows)
+    members = len({row["member"] for row in rows if row["status"] not in ("CAPTION_ERROR", "NO_CAPTIONS")})
+    return ("PARTIAL_CAPTION_ERRORS_VISIBLE" if errors else "PASS_DISCOVERY_ONLY"), members
 
 
 def main() -> int:
@@ -436,9 +444,10 @@ def main() -> int:
         minimum_ratio=args.minimum_ratio,
     )
     write_jsonl(args.output, rows)
+    status, members_with_candidates = summarize_rows(rows)
     receipt = {
         "schema": "youtube-gap-turn-candidate-receipt-v1",
-        "status": "PASS_DISCOVERY_ONLY",
+        "status": status,
         "generated_at": utc_now(),
         "contract": {
             "minimum_alignment_ratio": args.minimum_ratio,
@@ -453,7 +462,7 @@ def main() -> int:
         },
         "coverage": {
             "gap_members": len(gaps),
-            "members_with_candidates": len({row["member"] for row in rows}),
+            "members_with_candidates": members_with_candidates,
             "members_with_transcript_bound_candidates": len(
                 {row["member"] for row in rows if row["status"] == "TRANSCRIPT_BOUND_CANDIDATE"}
             ),
@@ -462,6 +471,7 @@ def main() -> int:
                 row["status"] == "TRANSCRIPT_BOUND_CANDIDATE" for row in rows
             ),
             "caption_errors": sum(row["status"] == "CAPTION_ERROR" for row in rows),
+            "no_captions": sum(row["status"] == "NO_CAPTIONS" for row in rows),
             "members_without_stored_turns": sorted(member for member, values in turns.items() if not values),
         },
         "output": str(args.output.resolve()),

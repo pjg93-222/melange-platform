@@ -15,6 +15,7 @@ import os
 import re
 from pathlib import Path
 
+from fec import roster
 from fec.members.revise_member_narratives_v2 import (
     BANNED_PRIVATE_STATE,
     EVIDENCE_PATH,
@@ -110,8 +111,8 @@ def main():
     evidence = load(args.evidence).get("members") or {}
     revisions_doc = load(args.revisions)
     revisions = revisions_doc.get("members") or {}
-    if set(candidate) != set(evidence) or len(candidate) != 533:
-        raise SystemExit("candidate/evidence member keys must match all 533 members")
+    if set(candidate) != set(evidence) or len(candidate) != roster.count():
+        raise SystemExit("candidate/evidence member keys must match all %d members" % roster.count())
 
     members = {}
     local_count = 0
@@ -169,16 +170,16 @@ def main():
         **{key: value for key, value in revisions_doc.items() if key != "members"},
         "status": "PASS",
         "model": "mixed: claude-sonnet-5 and codex-deterministic-scope-repair-v1",
-        "count": 533,
-        "ok_count": 533,
+        "count": roster.count(),
+        "ok_count": roster.count(),
         "failed_members": [],
         "external_semantic_count": external_count,
         "local_deterministic_count": local_count,
         "members": members,
     }
     dump_atomic(document, args.revisions)
-    print("local fallback result: 533/533 mechanically accepted; external=%d local=%d" %
-          (external_count, local_count))
+    print("local fallback result: %d/%d mechanically accepted; external=%d local=%d" %
+          (roster.count(), roster.count(), external_count, local_count))
 
 
 if __name__ == "__main__":

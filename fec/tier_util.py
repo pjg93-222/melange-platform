@@ -590,6 +590,21 @@ def primacy_scores(pcts, factors, mode=None, grades=None, *, grade_form=None,
     return out
 
 
+def withhold_roster_arrivals(members, pcts, factors, root=None):
+    """Roster-refresh drift (2026-10-21): an arrival the factor artifact predates is WITHHELD
+    from the board, never defaulted. Returns (pcts, withheld). Any other member without a
+    factor stays in pcts so primacy_scores still fails loud."""
+    if not any(m in pcts and m not in factors for m in members):
+        return pcts, []          # no drift: never read roster.json
+    import roster
+    withheld = roster.drift(members, factors, root)[0]
+    if withheld:
+        print('  !! primacy board: roster drift; %d WITHHELD (%s)'
+              % (len(withheld), ', '.join(sorted(withheld))))
+        pcts = {m: v for m, v in pcts.items() if m not in withheld}
+    return pcts, sorted(withheld)
+
+
 def apply_conduct_ladder(order, breaches, delivered=None, buckets=BUCKETS, *,
                          minimum_slots=None):
     """Seat once under the strictest evidence or net-conduct restriction.
@@ -936,7 +951,7 @@ def apply_evidence_floor(order, cu_credit, minimum=None, buckets=BUCKETS,
 
     ``minimum<=0`` disables the gate. An empty ``cu_credit`` map (absent
     evidence file) stands the gate down entirely -- without this, a missing
-    file would silently untier all 533 members. ``exempt`` members (explicit
+    file would silently untier every member. ``exempt`` members (explicit
     tier placements, Paul's pins) are never displaced by the gate.
     """
     floors = evidence_slot_floors(order, cu_credit, minimum=minimum,
@@ -1044,8 +1059,9 @@ def legislative_press_tiers(members, root=None, with_detail=False, *, mode=None,
     baseline = (load_primacy_baseline(root)
                 if board_mode == 'per_area_v1' and PRIMACY_GRADE_FORM == 'deviation'
                 else None)
+    pcts, _withheld = withhold_roster_arrivals(members, rp.get('pcts', {}), factors, root)
     all_scores = primacy_scores(
-        rp.get('pcts', {}), factors, mode=board_mode, grades=grade_pct,
+        pcts, factors, mode=board_mode, grades=grade_pct,
         baseline=baseline,
     )
     rankable = [member for member in members if member in all_scores]
@@ -1053,7 +1069,7 @@ def legislative_press_tiers(members, root=None, with_detail=False, *, mode=None,
         # D-027 seating: the within-chamber percentile of the board value first,
         # then the raw value, then the name. The percentile is taken over the
         # members actually being seated -- the population the board is a board
-        # OF -- which is the 533-member display roster every production caller
+        # OF -- which is the display roster every production caller
         # passes. A caller that passes a subset gets that subset's percentiles,
         # exactly as it already gets that subset's 13/24/48 buckets.
         seat_pct = within_chamber_percentile(

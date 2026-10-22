@@ -1030,7 +1030,9 @@ def build_plan(repository: dict, updates: list[dict], pending: list[dict], *,
         status = str(decision.get("integration_state") or row.get("candidate_status") or "pending review")
         automatic=automatic_decisions.get(key)
         if automatic:
-            status='automated_'+automatic['disposition']+'_non_scoring'
+            # A verdict dropped at the 30-day source-outage carry limit (D-260) keeps its disposition on record but is no longer scored.
+            status=('automated_carry_expired_non_scoring' if automatic.get('carry_expired')
+                    else 'automated_'+automatic['disposition']+'_non_scoring')
         if not decision:
             discovery_pending += 1
         categories = list(row.get("matched_scoring_categories") or []) + list(row.get("matched_monitor_categories") or [])

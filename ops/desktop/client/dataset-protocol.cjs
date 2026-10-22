@@ -16,7 +16,9 @@ function proposal(value,grant,{registry=Object.freeze({}),allowUnsupported=false
  scope(grant,value.districtId);
  if(!Array.isArray(value.parentRevisionIds)||value.parentRevisionIds.length>8||new Set(value.parentRevisionIds).size!==value.parentRevisionIds.length||value.parentRevisionIds.some(id=>!uuid(id)||id===value.revisionId))throw new Error('Invalid dataset parents');
  if(!Array.isArray(value.objects)||value.objects.length<1||value.objects.length>128)throw new Error('Invalid dataset objects');
- const roles=new Set();for(const item of value.objects){exact(item,['role','sha256','size']);if(typeof item.role!=='string'||!/^[a-z][a-z0-9_.-]{0,63}$/.test(item.role)||roles.has(item.role)||!hash(item.sha256)||!integer(item.size,MAX_OBJECT))throw new Error('Invalid dataset object');roles.add(item.role);}
+ // District packs are gzip objects; rawSize (bytes after gunzip) lets the client bound decompression before it starts.
+ const raw=value.kind==='terrier.district-data.v1';
+ const roles=new Set();for(const item of value.objects){exact(item,raw?['role','sha256','size','rawSize']:['role','sha256','size']);if(typeof item.role!=='string'||!/^[a-z][a-z0-9_.-]{0,63}$/.test(item.role)||roles.has(item.role)||!hash(item.sha256)||!integer(item.size,MAX_OBJECT)||raw&&!integer(item.rawSize))throw new Error('Invalid dataset object');roles.add(item.role);}
  if(!value.counts||typeof value.counts!=='object'||Array.isArray(value.counts)||Object.keys(value.counts).some(key=>!['items','files','records'].includes(key)||!integer(value.counts[key],1000000000)))throw new Error('Invalid dataset counts');
  if(Buffer.byteLength(canonical(value))>65536)throw new Error('Dataset metadata too large');
  const adapter=Object.hasOwn(registry,value.kind)?registry[value.kind]:null;

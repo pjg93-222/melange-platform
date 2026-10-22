@@ -128,9 +128,15 @@ def model_dir_sha256(model_dir):
         if not path.is_file() or path.name.startswith("."):
             continue
         file_digest = hashlib.sha256()
-        with open(path, "rb") as handle:
-            for block in iter(lambda: handle.read(1024 * 1024), b""):
-                file_digest.update(block)
+        try:
+            with open(path, "rb") as handle:
+                for block in iter(lambda: handle.read(1024 * 1024), b""):
+                    file_digest.update(block)
+        except OSError as exc:
+            # weekly 10-18: a OneDrive online-only model.safetensors whose hydration stalled raised Errno 22 here.
+            raise Stage5Refused(
+                "cannot read model file %s (%s); it may be a OneDrive online-only file. Pin it with: "
+                'attrib +P -U "%s\\*" /S /D' % (path, exc, model_dir)) from exc
         digest.update(("%s\0%d\0%s\n" % (path.name, path.stat().st_size, file_digest.hexdigest())).encode("utf-8"))
     return digest.hexdigest()
 

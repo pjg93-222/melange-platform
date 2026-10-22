@@ -32,6 +32,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:      # run as a script: make fec.roster importable
+    sys.path.insert(0, str(ROOT))
+from fec import roster  # noqa: E402
 EVIDENCE_PATH = ROOT / "data" / "members" / "member_narrative_evidence_v4.json"
 ARTIFACT_PATH = ROOT / "member_narratives_v2.json"
 AUDIT_PATH = ROOT / "data" / "members" / "member_narratives_v2_semantic_audit.json"
@@ -454,7 +457,7 @@ def audit_all(args, client, evidence, artifact, review_system):
     failed = sorted(name for name, result in records.items() if not result.get("pass"))
     document = {
         "schema": "member-narratives-v2-semantic-audit-v1",
-        "status": "PASS" if len(records) == 533 and not failed else "REPAIRS_REQUIRED",
+        "status": "PASS" if len(records) == roster.count() and not failed else "REPAIRS_REQUIRED",
         "model": client.model,
         "evidence_basis_sha256": load(EVIDENCE_PATH).get("basis_sha256"),
         "count": len(records),
@@ -597,7 +600,7 @@ def validate_inputs(evidence_doc, artifact_doc):
         raise SystemExit("installed narrative artifact has an unexpected provenance label")
     if artifact_doc.get("basis_sha256") != evidence_doc.get("basis_sha256"):
         raise SystemExit("artifact/evidence basis hash mismatch")
-    if set(evidence) != set(artifact) or len(evidence) != 533:
+    if set(evidence) != set(artifact) or len(evidence) != roster.count():
         raise SystemExit("artifact/evidence member keys do not match exactly")
     return evidence, artifact
 
@@ -623,10 +626,10 @@ def main() -> int:
     if len(targets) != 268 or covered_targets != 143:
         raise SystemExit("known target gate failed: targets=%d covered=%d (expected 268/143)" % (len(targets), covered_targets))
     if args.command == "plan":
-        print("members=533 known_cross_party_targets=268 covered_targets=143 uncovered_targets=125")
-        print("audit_calls=533; generation target is 268 plus any additional audit failures")
+        print("members=%d known_cross_party_targets=268 covered_targets=143 uncovered_targets=125" % roster.count())
+        print("audit_calls=%d; generation target is 268 plus any additional audit failures" % roster.count())
         print("maximum generation calls=%d writer + %d reviewer at %d rounds; actual stops on first accepted round" %
-              (533 * args.max_rounds, 533 * args.max_rounds, args.max_rounds))
+              (roster.count() * args.max_rounds, roster.count() * args.max_rounds, args.max_rounds))
         return 0
 
     key = read_key(args)
@@ -638,7 +641,7 @@ def main() -> int:
         audit_doc = audit_all(args, client, evidence, artifact, review_system)
     else:
         audit_doc = load(args.audit_out)
-        if audit_doc.get("count") != 533:
+        if audit_doc.get("count") != roster.count():
             raise SystemExit("semantic audit is incomplete; run the audit command first")
     if args.command in ("generate", "run"):
         generate_repairs(args, client, evidence, artifact, audit_doc, writer_system, review_system)

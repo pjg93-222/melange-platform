@@ -22,7 +22,7 @@ THE RULE (derived from the surviving aligned cells AND the formula text; no nega
 signed-magnitude reduces to value/MAX):
         NRM[r][c] = 0.0                     if colmax(c) == 0     (IFERROR(...,0))
                   = RAW[r][c] / colmax(c)   otherwise
-        colmax(c) = max(0, max RAW over data rows 3..535)
+        colmax(c) = max(0, max RAW over the member data rows 3..last)
 
 LEFT UNCHANGED (reported): col 144 ('None', a MIN-MAX rule over a different raw column, already
 own-row) and cols 146,148,150,151,152 (blank normalized + all-zero raw -> no derivable
@@ -42,6 +42,7 @@ import openpyxl
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 from moneyball_core import save_workbook_atomic  # crash-safe verified workbook replace
+import roster
 
 B = MB_ROOT
 WB = B + r"\Moneyball Main Version - Blended.xlsx"
@@ -49,7 +50,7 @@ BACKUP_DIR = os.path.join(B, "backups")
 RAW_SHEET = "Legislative Score - Raw"
 NRM_SHEET = "Legislative Score - Normalized"
 
-FIRST_DATA_ROW, LAST_DATA_ROW = 3, 535
+FIRST_DATA_ROW, LAST_DATA_ROW = roster.first_row(RAW_SHEET), roster.last_row(RAW_SHEET)
 FIRST_VALUE_COL, LAST_VALUE_COL = 3, 160  # 160 since 2026-07-17 (CU Tax Status block 153-160)
 WEIGHT_ROW = 2
 EXCLUDED_COLS = frozenset({144, 146, 148, 150, 151, 152})
@@ -94,7 +95,7 @@ def main():
     cols = value_max_cols()
     colmax = {c: max([0.0] + [rawval(r, c) for r in range(FIRST_DATA_ROW, LAST_DATA_ROW + 1)]) for c in cols}
 
-    # ---- SAFETY: confirm rows-3..535 max reproduces the formula denominator (weight <= max) ------
+    # ---- SAFETY: confirm the member-rows max reproduces the formula denominator (weight <= max) ------
     weight_violations = [c for c in cols if rawval(WEIGHT_ROW, c) > colmax[c] + 1e-12 and colmax[c] > 0]
     if weight_violations:
         sys.exit("REFUSING: weight row exceeds data max in cols %s -- denominator ambiguous; inspect before repair."

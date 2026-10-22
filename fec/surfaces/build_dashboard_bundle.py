@@ -2,6 +2,7 @@ import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.pa
 from moneyball_core import (build_party_map, dump_atomic, overall_display_tier, salience_issue_params,
                             select_network_file, cu_dropped_sponsors, cu_edge_rows)   # shared artifact + stance/network authorities
 import json, sys, glob, os, csv, openpyxl, networkx as nx, math, random, re, unicodedata, zlib, hashlib
+import roster
 from legislation import dashboard_legislative_workbench as DLW
 from legislation.legislation_culling_status import load_surface_status
 from members.hearing_display_contract import load_optional as load_hearing_display
@@ -78,17 +79,21 @@ _SPEECH_PROFILE_ART=(json.load(open(_SPEECH_PROFILE_PATH,encoding='utf-8'))
 _PROFILE_BASIS_PATH=os.path.join(MB_ROOT,'data','members','profile_basis_v2.json')
 _PROFILE_BASIS_SHA=(hashlib.sha256(open(_PROFILE_BASIS_PATH,'rb').read()).hexdigest()
                     if os.path.exists(_PROFILE_BASIS_PATH) else None)
-if _SPEECH_PROFILE_ART and not (
+_SPEECH_PROFILE_OK=(not _SPEECH_PROFILE_ART) or (
         _SPEECH_PROFILE_ART.get('schema')=='member-narrative-evidence-v4' and
         _SPEECH_PROFILE_ART.get('status')=='ACTIVE_FAIL_CLOSED_INPUT' and
         _SPEECH_PROFILE_ART.get('basis_sha256')==_PROFILE_BASIS_SHA and
-        (_SPEECH_PROFILE_ART.get('counts') or {}).get('members')==533 and
-        (_SPEECH_PROFILE_ART.get('counts') or {}).get('speech_pass')==533 and
-        len(_SPEECH_PROFILE_ART.get('members') or {})==533 and
+        (_SPEECH_PROFILE_ART.get('counts') or {}).get('members')==roster.count() and
+        (_SPEECH_PROFILE_ART.get('counts') or {}).get('speech_pass')==roster.count() and
+        len(_SPEECH_PROFILE_ART.get('members') or {})==roster.count() and
         all((((row.get('speech_profile') or {}).get('status'))=='PASS')
-            for row in (_SPEECH_PROFILE_ART.get('members') or {}).values())):
-    raise ValueError('member narrative speech-profile artifact failed its 533-member PASS contract')
-_SPEECH_PROFILES=(_SPEECH_PROFILE_ART or {}).get('members') or {}
+            for row in (_SPEECH_PROFILE_ART.get('members') or {}).values()))
+# A failed contract (e.g. the artifact still describes the pre-refresh roster) withholds the profiles loudly, as make_member_desk
+# does for the same artifact; the media-inclusive run regenerates it.  It no longer takes the whole bundle down.
+if not _SPEECH_PROFILE_OK:
+    print('  !! member_narrative_evidence_v4.json failed its %d-member speech-profile contract; '
+          'speech profiles WITHHELD' % roster.count())
+_SPEECH_PROFILES=((_SPEECH_PROFILE_ART or {}).get('members') or {}) if _SPEECH_PROFILE_OK else {}
 # One overall display implementation across workbook col G, dashboard, and member desk: Ally is the
 # scored top, while Champion is the active primacy board's top 13 WITH a qualifying action (D-030).
 # The retired "Legislative+Press Tier 1 -> Champion" overlay is the no-board fallback in
@@ -376,7 +381,7 @@ _WMEAN_CU=sum(_d['weight'] for _,_,_d in G.edges(data=True))/max(1,G.number_of_e
 def _config_layout(adj_triples):
     """Force layout of an index-keyed edge list, expressed in the CU canvas frame.
 
-    Returns (Xc,Yc,meta) with Xc/Yc 533-length int lists in `members` order, or None."""
+    Returns (Xc,Yc,meta) with Xc/Yc roster-length int lists in `members` order, or None."""
     import numpy as _np
     if not adj_triples: return None
     H=nx.Graph(); H.add_nodes_from(members)          # NODE ORDER FIRST: every member gets a position
@@ -782,7 +787,7 @@ bundle={'issues':issues,'name':name,'x':X,'y':Y,'party':''.join(PARTY),'gen':''.
             'schema':_SPEECH_PROFILE_ART['schema'],'status':'PASS_ALL_MEMBERS',
             'basis_sha256':_SPEECH_PROFILE_ART['basis_sha256'],
             'counts':_SPEECH_PROFILE_ART['counts'],'method':_SPEECH_PROFILE_ART['method']}}
-           if _SPEECH_PROFILE_ART else {}),
+           if _SPEECH_PROFILE_ART and _SPEECH_PROFILE_OK else {}),   # a WITHHELD artifact never publishes a PASS receipt
         'tier':TIER,'tierrank':TIERRANK,'tierdetail':TIERDETAIL,   # Legislative+Press tier (1/2/3, 0=untiered) + its leg+press rank; DISPLAY-ONLY, rank-independent
         'legislation_culling':{
             'status':CULLING_STATUS.get('status'),

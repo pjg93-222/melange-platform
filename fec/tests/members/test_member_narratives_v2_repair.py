@@ -3,6 +3,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from fec import roster
+
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -93,9 +95,9 @@ def test_known_repair_partition_and_missing_measure_gate():
 def test_evidence_ledger_construct_and_speech_contracts():
     document = json.loads((ROOT / "data/members/member_narrative_evidence_v4.json").read_text(encoding="utf-8"))
     assert document["schema"] == "member-narrative-evidence-v4"
-    assert document["counts"]["members"] == 533
+    assert document["counts"]["members"] == roster.count()
     assert document["counts"]["cross_party_covered"] == 300  # 301 -> 300: CU_IDENTITY_FIX (0b65a2cab) drops Menendez
-    assert document["counts"]["speech_pass"] == 533
+    assert document["counts"]["speech_pass"] == roster.count()
     assert document["method"]["constructs_independent"] is True
     for row in document["members"].values():
         profile = row.get("speech_profile") or {}
@@ -233,8 +235,8 @@ def test_every_member_uses_the_active_profile_contract():
         return
     receipt = json.loads((ROOT / "data/members/member_narratives_v2_semantic_receipt.json").read_text(
         encoding="utf-8"))
-    assert len(artifact["members"]) == 533
-    assert receipt["counts"]["meeting_playbooks"] == 533
+    assert len(artifact["members"]) == roster.count()
+    assert receipt["counts"]["meeting_playbooks"] == roster.count()
     for row in artifact["members"].values():
         playbook = row["meeting_playbook"]
         assert set(("open", "bring", "run_the_room", "close", "derivation", "scope")) <= set(playbook)

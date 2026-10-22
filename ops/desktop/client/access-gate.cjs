@@ -1,7 +1,8 @@
 'use strict';
 const {checkedRecord}=require('./local-access.cjs');
 const NAMES={melange:'Melange',mentat:'Mentat',terrier:'Terrier'};
-function argument(value,key){if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).join('|')!==key||typeof value[key]!=='string')throw new Error('Invalid access action');return value[key];}
+// Optional keys may be absent; when present they must be strings like the required one.
+function argument(value,key,...optional){if(!value||typeof value!=='object'||Array.isArray(value)||!Object.hasOwn(value,key)||Object.keys(value).some(name=>name!==key&&!optional.includes(name))||Object.values(value).some(item=>typeof item!=='string'))throw new Error('Invalid access action');return value[key];}
 class DesktopAccessGate{
  constructor({appId,client,local,passwords,configuration,owner=async()=>null,now=Date.now}){
   if(!NAMES[appId])throw new Error('Unsupported app');Object.assign(this,{appId,client,local,passwords,configuration,owner,now});this.accepted=null;this.requestReply=null;this.cleanupPending=false;this.busy=false;
@@ -15,12 +16,15 @@ class DesktopAccessGate{
     canRequestAgain:['denied','expired'].includes(reply.status)||(reply.status==='used'&&reply.expiresAt<=Math.floor(this.now()/1000)&&accepted?.grant.requestId!==raw.pending.requestId)}:{})};
   }
   if(!accepted)return {...base,phase:'needs_request'};
-  if(accepted.revoked){this.local?.lock();return {...base,phase:'revoked',canRequestAgain:true};}
+  // A non-legacy Terrier tester's private district store is deleted on revocation (main.cjs dropDistrictData); every other install keeps its local data.
+  if(accepted.revoked){this.local?.lock();return {...base,phase:'revoked',canRequestAgain:true,...(this.appId==='terrier'&&this.configuration().terrierLegacy===undefined?{districtDataRemoved:true}:{})};}
   const grant=accepted.grant,owner=await this.owner(accepted,this.configuration());
   const accountIdentity=owner&&this.appId==='terrier'?owner.dataBindings.find(item=>item.districtId===this.configuration().district)?.localUsername:grant.accountIdentity;
   const identity={...base,accountIdentity:accountIdentity||grant.accountIdentity,...(this.cleanupPending?{requestCleanupPending:true}:{})};
-  if(this.appId==='terrier')return {...identity,phase:'terrier_signin'};
-  if(owner||this.local.current(grant))return {...identity,phase:'ready'};
+  // The approved Terrier owner is never asked for a password; other Terrier accounts use Terrier's own sign-in.
+  if(this.appId==='terrier')return {...identity,phase:owner?'ready':'terrier_signin'};
+  // Melange/Mentat: verified once on this computer, then remembered (see LocalAccess.resume).
+  if(owner||await this.local.resume(grant))return {...identity,phase:'ready'};
   const password=await this.passwords.read(grant);if(password)checkedRecord(password,grant);
   return {...identity,phase:password?'locked':'needs_password'};
  }
@@ -29,9 +33,9 @@ class DesktopAccessGate{
   try{
    const state=await this.info();
    if(method==='request'){
-    const displayName=argument(payload,'displayName');if(displayName.trim()!==displayName)throw new Error('Invalid display name');
+    const displayName=argument(payload,'displayName','inviteCode'),inviteCode=(payload.inviteCode??'').trim();if(displayName.trim()!==displayName)throw new Error('Invalid display name');if(payload.inviteCode!==undefined&&(inviteCode.length<1||inviteCode.length>64))throw new Error('Invalid invite code');
     if(state.phase!=='needs_request'&&!state.canRequestAgain)throw new Error('Current request must be preserved');
-    this.requestReply=await this.client.requestAccess(displayName,{newRequest:state.phase==='pending',reapproval:Boolean(this.accepted)});
+    this.requestReply=await this.client.requestAccess(displayName,{newRequest:state.phase==='pending',reapproval:Boolean(this.accepted),inviteCode});
    }else if(method==='poll'){
     if(payload!==undefined||state.phase!=='pending')throw new Error('No pending request');this.requestReply=await this.client.poll();
    }else if(method==='activate'){
@@ -42,7 +46,8 @@ class DesktopAccessGate{
    }else if(method==='unlock'){
     const password=argument(payload,'password');if(state.phase!=='locked')throw new Error('Password sign-in unavailable');await this.local.unlock(this.accepted.grant,password);
    }else if(method==='lock'){
-    if(payload!==undefined)throw new Error('Invalid access action');this.local?.lock();
+    // Lock also forgets this computer, so the password is asked for again at the next open.
+    if(payload!==undefined)throw new Error('Invalid access action');this.local?.lock();if(this.accepted&&!this.accepted.revoked)await this.local?.forget(this.accepted.grant);
    }else throw new Error('Unsupported access action');
    return await this.info();
   }finally{this.busy=false;}
@@ -58,7 +63,7 @@ class DesktopAccessGate{
     principalId:grant.principalId,accountIdentity:grant.accountIdentity,localAccountIdentity:mapping?.localUsername||grant.accountIdentity,
     localUserId:mapping?.localUserId||null,role:grant.role,districtId:configuration.district,mode:owner?'existing-owner':'recipient'}};
   }
-  const session=this.local.current(grant);if(!owner&&!session)throw new Error('Local sign-in required');
+  const session=await this.local.resume(grant);if(!owner&&!session)throw new Error('Local sign-in required');
   return {accepted,owner,session,principal:null};
  }
  districts(){if(!this.accepted||this.accepted.revoked||this.appId!=='terrier')return [];return [...this.accepted.grant.districtIds];}

@@ -130,7 +130,10 @@ def test_audit_wires_frozen_parity_into_live_freshness(live_root, monkeypatch):
             assert os.environ['PILLAR_SNAPSHOT_FREEZE'] == '1'
             return output
 
-        exec(block, {'os': os, 'B': str(live_root), 'run': run,
+        import sys
+        sys.path.insert(0, str(FEC))
+        import roster   # audit_full.py's label for the parity check counts the roster
+        exec(block, {'os': os, 'B': str(live_root), 'run': run, 'roster': roster,
                      'ck': lambda *args: checks.append(args)})
         assert checks[0][1] is passed
         assert checks[1][:2] == (LIVE_CHECK, passed)

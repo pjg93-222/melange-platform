@@ -353,7 +353,7 @@ def main() -> int:
     acquired = [row for row in read_jsonl(args.acquisition)
                 if row.get("status") in {"ACQUIRED_IDENTITY_VERIFIED", "ACQUIRED_IDENTITY_UNVERIFIED"}]
     existing_asr = {str(row["video_id"]): row for row in read_jsonl(args.existing_asr)}
-    existing = {row["member"]: row for row in read_jsonl(args.out)} if args.resume else {}
+    existing = {row["member"]: row for row in read_jsonl(args.out)} if (args.resume or args.member) else {}
     selected = acquired
     if args.member:
         selected = [row for row in selected if row["member"] in set(args.member)]

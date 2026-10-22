@@ -301,6 +301,54 @@ class CollectorResumeContinuityTests(unittest.TestCase):
             ]
         )
 
+    def test_write_report_refuses_bound_inputs_and_writes_atomically(self) -> None:
+        report = audit.audit_continuity(
+            self.baseline, self.current, self.partition_audit, expected_query_count=1
+        )
+        protected = [self.baseline, self.current, self.partition_audit]
+        for target in protected:
+            before = audit.sha256_file(target)
+            with self.assertRaises(ValueError):
+                audit.write_report(report, target, protected)
+            self.assertEqual(before, audit.sha256_file(target))
+        out = self.root / "out" / "report.json"
+        sha = audit.write_report(report, out, protected)
+        self.assertEqual(sha, audit.sha256_file(out))
+        self.assertEqual(
+            f"{sha}  report.json\n",
+            out.with_suffix(".json.sha256").read_text(encoding="ascii"),
+        )
+
+
+    def test_cli_refuses_output_inside_the_evidence_tree(self) -> None:
+        """--output naming a referenced page/query artifact (or any new file
+        beside them) must fail closed before writing, leaving evidence intact."""
+        page = self.root / "raw" / "pages" / "q1" / "page_001.json"
+        query = self.root / "queries" / "q1.json"
+        outside = tempfile.TemporaryDirectory()
+        self.addCleanup(outside.cleanup)
+        good = Path(outside.name) / "report.json"
+        argv = sys.argv
+        self.addCleanup(setattr, sys, "argv", argv)
+        for target in (page, query, self.root / "queries" / "new_report.json"):
+            before = audit.sha256_file(target) if target.exists() else None
+            sys.argv = [
+                "audit", "--baseline-manifest", str(self.baseline),
+                "--current-manifest", str(self.current),
+                "--partition-audit", str(self.partition_audit),
+                "--expected-query-count", "1", "--output", str(target),
+            ]
+            self.assertEqual(audit.main(), 2, target)
+            if before is None:
+                self.assertFalse(target.exists(), target)
+            else:
+                self.assertEqual(before, audit.sha256_file(target), target)
+            self.assertFalse(
+                target.with_suffix(target.suffix + ".sha256").exists(), target
+            )
+        sys.argv[-1] = str(good)
+        self.assertIn(audit.main(), (0, 3))
+        self.assertTrue(good.exists())
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 import moneyball_core as MC
+import roster
 """Shared Linear-Threshold flip model (imported by scenario.py and optimize.py).
 Winnability of a member on a topic:  pflip(n) = a/(a+b),
   a = WM*pm*(cu+1)/((cu+1)+HALFF*R) + WP*nA/mAt   (party-weighted proximity to champions)
@@ -66,7 +67,7 @@ for sc in blocks: cat2sc.setdefault(BLOCKCAT[sc],sc)
 # blocks INTO the CFPB eng signal so the engagement grain matches the combined-stance grain and no signal is
 # lost. cat2blocks lists every contributing block per canonical category sc.
 cat2blocks={sc:[b for b in blocks if BLOCKCAT[b]==BLOCKCAT[sc]] for sc in set(cat2sc.values())}
-nrow={nrm.cell(r,1).value:r for r in range(3,536) if nrm.cell(r,1).value}
+nrow={nrm.cell(r,1).value:r for r in roster.rows('Legislative Score - Normalized') if nrm.cell(r,1).value}
 eng={}
 for sc in set(cat2sc.values()):
     d={n:0.0 for n in members}
@@ -108,7 +109,7 @@ def topic_priority(cat,mode='flip'):
     return _priority_cache[key]
 _rowcache={}
 def _stance_rows(MAT):
-    """Row VIEW of MAT in `members` order, so the per-call signature does not redo 533 lookups
+    """Row VIEW of MAT in `members` order, so the per-call signature does not redo per-member lookups
     into the outer dict (2026-08-03). The signature itself is unchanged — same values, same order,
     same tuple — this only removes the outer `MAT[n]` indirection and swaps the generator for a
     list comprehension. Measured ~2x on the signature build, which is ~80% of a topic_setup cache

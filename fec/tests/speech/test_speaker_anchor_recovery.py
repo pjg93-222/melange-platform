@@ -46,110 +46,206 @@ class SpeakerAnchorRecoveryTests(unittest.TestCase):
             set(),
         )
 
+    def _merge_fixture(self, root, overlap_in_chain=False):
+        root = Path(root)
+        inventory = root / "inventory.jsonl"
+        packages = ["https://example.test/abc", "https://example.test/fox"]
+        SMR.write_jsonl_atomic(inventory, [
+            {"package": package, "package_id": "pkg:%d" % index}
+            for index, package in enumerate(packages)
+        ])
+        calibration = root / "calibration.json"
+        calibration.write_text("{}", encoding="utf-8")
+        calibration_sha = SMR.sha256_file(calibration)
+
+        candidate_receipts = []
+        identity_receipts = []
+        for index, source in enumerate(("abc-this-week", "fox"), 1):
+            candidate = {
+                "schema": SMR.CLIP_SCHEMA, "status": "CANDIDATE_AUDIT_REQUIRED",
+                "clip_id": "candidate:%d" % index, "source_family": source,
+                "member": "Member One",
+                "package": packages[index - 1], "alignment_ratio": 0.99,
+                "source_audio_sha256": str(index) * 64,
+                "source_receipt_sha256": ("a" if index == 1 else "b") * 64,
+                "asr_transcript_sha256": "c" * 64,
+                "asr_transcript_receipt_sha256": "d" * 64,
+                "source_sample_rate": 16000, "source_start_frame": 0,
+                "source_frame_count": (320000 if index == 1 else 384000),
+                "source_slice_pcm_sha256": "e" * 64,
+                "staged_pcm_sha256": "e" * 64,
+                "audio_sha256": ("f" if index == 1 else "0") * 64,
+                "turn_id": "sqlite:speeches:%d" % index,
+            }
+            candidate["cut_binding_sha256"] = SMR.candidate_cut_binding(candidate)
+            candidate["clip_sha256"] = SMR._candidate_hash(candidate)
+            cands = [candidate]
+            if overlap_in_chain and index == 1:
+                twin = dict(
+                    candidate, clip_id="candidate:3", member="Member Two",
+                    source_audio_sha256=candidate["source_audio_sha256"],
+                    source_start_frame=0, source_frame_count=160000,
+                    audio_sha256="9" * 64, turn_id="sqlite:speeches:3",
+                )
+                twin["cut_binding_sha256"] = SMR.candidate_cut_binding(twin)
+                twin["clip_sha256"] = SMR._candidate_hash(twin)
+                cands.append(twin)
+            candidate_manifest = root / ("candidate_%d.jsonl" % index)
+            SMR.write_jsonl_atomic(candidate_manifest, cands)
+            candidate_receipt = root / ("candidate_%d.receipt.json" % index)
+            SMR.write_json_atomic(candidate_receipt, {
+                "schema": SMR.CANDIDATE_RECEIPT_SCHEMA, "status": "AUDIT_REQUIRED",
+                "manifest": str(candidate_manifest.resolve()),
+                "manifest_sha256": SMR.sha256_file(candidate_manifest),
+                "candidate_clips": len(cands), "inventory": str(inventory.resolve()),
+                "inventory_sha256": SMR.sha256_file(inventory),
+                "exact_frame_cut_binding_required": True,
+            })
+            comparison = root / ("comparison_%d.npz" % index)
+            comparison.write_bytes(("comparison-%d" % index).encode())
+            if index == 1:
+                decision = {
+                    "schema": SAR.IDENTITY_SCHEMA, "status": "UNRESOLVED",
+                    "clip_id": candidate["clip_id"],
+                    "claimed_member": candidate["member"],
+                    "reasons": [SAR.COMPACT_UNRESOLVED_REASON],
+                    "operational_confidence_label": "100_PERCENT_STRUCTURAL_CONSENSUS",
+                    "probability_claim": False,
+                    "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
+                    "identified_at": "2026-08-30T12:00:00-04:00",
+                }
+            else:
+                decision = {
+                    "schema": SAR.IDENTITY_SCHEMA, "status": "UNRESOLVED",
+                    "clip_id": candidate["clip_id"],
+                    "candidate_clip_sha256": candidate["clip_sha256"],
+                    "candidate_audio_sha256": candidate["audio_sha256"],
+                    "candidate_cut_binding_sha256": candidate["cut_binding_sha256"],
+                    "calibration_sha256": calibration_sha,
+                    "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
+                    "comparison_matrix": str(comparison.resolve()),
+                    "comparison_matrix_sha256": SMR.sha256_file(comparison),
+                }
+            decision["identity_row_sha256"] = SAR._row_hash(
+                decision, "identity_row_sha256")
+            decisions = [decision]
+            if len(cands) > 1:
+                twin_decision = dict(
+                    decision, clip_id="candidate:3", claimed_member="Member Two")
+                twin_decision["identity_row_sha256"] = SAR._row_hash(
+                    twin_decision, "identity_row_sha256")
+                decisions.append(twin_decision)
+            identity_manifest = root / ("identity_%d.jsonl" % index)
+            SMR.write_jsonl_atomic(identity_manifest, decisions)
+            identity_receipt = root / ("identity_%d.receipt.json" % index)
+            SMR.write_json_atomic(identity_receipt, {
+                "schema": SAR.IDENTITY_RECEIPT_SCHEMA, "status": "PASS",
+                "identity_schema": SAR.IDENTITY_SCHEMA,
+                "manifest": str(identity_manifest.resolve()),
+                "manifest_sha256": SMR.sha256_file(identity_manifest),
+                "decisions": len(decisions),
+                "candidate_manifest_sha256": SMR.sha256_file(candidate_manifest),
+                "candidate_receipt_sha256": SMR.sha256_file(candidate_receipt),
+                "inventory_sha256": SMR.sha256_file(inventory),
+                "calibration_sha256": calibration_sha,
+                "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
+                "minimum_alignment_ratio": 0.68,
+                "exact_frame_cut_binding_required": True,
+                "all_anchor_comparisons_persisted": True,
+                "anchor_vectors_sha256": "1" * 64,
+                "calibration_window_manifest_sha256": "2" * 64,
+                "model_manifest_sha256": "3" * 64,
+            })
+            candidate_receipts.append(str(candidate_receipt))
+            identity_receipts.append(str(identity_receipt))
+
+        args = SimpleNamespace(
+            merge_candidate_receipt=candidate_receipts,
+            merge_identity_receipt=identity_receipts,
+            minimum_ratio=0.68, calibration=str(calibration), inventory=str(inventory),
+            candidate_manifest=str(root / "cumulative_candidates.jsonl"),
+            candidate_receipt=str(root / "cumulative_candidates.receipt.json"),
+            decision_manifest=str(root / "cumulative_identity.jsonl"),
+            decision_receipt=str(root / "cumulative_identity.receipt.json"),
+        )
+        return args, calibration_sha
+
+    def test_merge_identity_receipt_copies_computed_frame_disjointness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            args, _ = self._merge_fixture(Path(directory), overlap_in_chain=True)
+            self.assertEqual(SAR.run_merge(args), 0)
+            cand = json.loads(Path(args.candidate_receipt).read_text())
+            ident = json.loads(Path(args.decision_receipt).read_text())
+            self.assertIs(cand["input_candidate_audio_frame_sets_disjoint"], False)
+            self.assertIs(ident["input_candidate_audio_frame_sets_disjoint"], False)
+
+    def test_short_anchor_is_refused_before_embedding(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wav = root / "Member One" / "a.wav"
+            wav.parent.mkdir()
+            wav.write_bytes(b"x")
+            with mock.patch.object(SAR, "_read_verify", return_value={
+                "Member One/a.wav": {"speaker": "SOLO_TARGET", "identity": "MATCH", "keep": True},
+            }), mock.patch.object(SAR, "wav_contract", return_value=(10.0, 160000)):
+                rows, summary = SAR.build_anchor_manifest(
+                    Path("verify.json"), root, hash_audio=False)
+            self.assertEqual(rows, [])
+            self.assertEqual(len(summary["refused_references"]), 1)
+
+    def test_embed_and_identify_refuse_model_swap(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "anchors.jsonl"
+            SMR.write_jsonl_atomic(manifest, [])
+            model = root / "model.json"
+            model.write_text("{}", encoding="utf-8")
+            receipt = root / "anchors.receipt.json"
+            SMR.write_json_atomic(receipt, {
+                "schema": SAR.ANCHOR_RECEIPT_SCHEMA,
+                "manifest_sha256": SMR.sha256_file(manifest),
+                "model_manifest_sha256": "0" * 64,
+            })
+            args = SimpleNamespace(
+                anchor_manifest=str(manifest), anchor_receipt=str(receipt),
+                model_manifest=str(model), vault_root=str(root / "vault"),
+                max_anchors=None, shard_index=0, shard_count=1, workers=1,
+            )
+            result = {"status": "PASS"}
+            with mock.patch.object(SAR, "_production_backend") as backend,                     mock.patch.object(SAR, "build_embedding_vault", return_value=result) as build:
+                # A fresh vault root passes even though the receipt records an old hash.
+                self.assertEqual(SAR.run_embed(args), 0)
+                build.assert_called_once()
+                # The vault root is now bound to this model; a different model on it is refused.
+                model.write_text('{"swap": 1}', encoding="utf-8")
+                build.reset_mock()
+                with self.assertRaisesRegex(SAR.IdentityRefused, "different model"):
+                    SAR.run_embed(args)
+                build.assert_not_called()
+            SAR._bind_cache_to_model(root / "cache", "a" * 64)
+            SAR._bind_cache_to_model(root / "cache", "a" * 64)
+            with self.assertRaisesRegex(SAR.IdentityRefused, "different model"):
+                SAR._bind_cache_to_model(root / "cache", "b" * 64)
+
+    def test_identify_cancels_queued_work_drops_orphans_and_reuses_compact_rows(self):
+        source = Path(SAR.__file__).read_text(encoding="utf-8")
+        start = source.index("def run_identify")
+        end = source.index("def run_merge")
+        identify = source[start:end]
+        self.assertIn("shutdown(wait=True, cancel_futures=True)", identify)
+        self.assertIn("in all_candidate_ids", identify)
+        gate = identify[identify.index("if prior and not args.refresh:"):]
+        self.assertLess(
+            gate.index("compact_unresolved_short_window"),
+            gate.index("_validate_transcript_binding(candidate)"),
+        )
+
     def test_merge_emits_exact_cumulative_candidate_identity_chain(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            inventory = root / "inventory.jsonl"
-            packages = ["https://example.test/abc", "https://example.test/fox"]
-            SMR.write_jsonl_atomic(inventory, [
-                {"package": package, "package_id": "pkg:%d" % index}
-                for index, package in enumerate(packages)
-            ])
-            calibration = root / "calibration.json"
-            calibration.write_text("{}", encoding="utf-8")
-            calibration_sha = SMR.sha256_file(calibration)
-
-            candidate_receipts = []
-            identity_receipts = []
-            for index, source in enumerate(("abc-this-week", "fox"), 1):
-                candidate = {
-                    "schema": SMR.CLIP_SCHEMA, "status": "CANDIDATE_AUDIT_REQUIRED",
-                    "clip_id": "candidate:%d" % index, "source_family": source,
-                    "member": "Member One",
-                    "package": packages[index - 1], "alignment_ratio": 0.99,
-                    "source_audio_sha256": str(index) * 64,
-                    "source_receipt_sha256": ("a" if index == 1 else "b") * 64,
-                    "asr_transcript_sha256": "c" * 64,
-                    "asr_transcript_receipt_sha256": "d" * 64,
-                    "source_sample_rate": 16000, "source_start_frame": 0,
-                    "source_frame_count": (320000 if index == 1 else 384000),
-                    "source_slice_pcm_sha256": "e" * 64,
-                    "staged_pcm_sha256": "e" * 64,
-                    "audio_sha256": ("f" if index == 1 else "0") * 64,
-                    "turn_id": "sqlite:speeches:%d" % index,
-                }
-                candidate["cut_binding_sha256"] = SMR.candidate_cut_binding(candidate)
-                candidate["clip_sha256"] = SMR._candidate_hash(candidate)
-                candidate_manifest = root / ("candidate_%d.jsonl" % index)
-                SMR.write_jsonl_atomic(candidate_manifest, [candidate])
-                candidate_receipt = root / ("candidate_%d.receipt.json" % index)
-                SMR.write_json_atomic(candidate_receipt, {
-                    "schema": SMR.CANDIDATE_RECEIPT_SCHEMA, "status": "AUDIT_REQUIRED",
-                    "manifest": str(candidate_manifest.resolve()),
-                    "manifest_sha256": SMR.sha256_file(candidate_manifest),
-                    "candidate_clips": 1, "inventory": str(inventory.resolve()),
-                    "inventory_sha256": SMR.sha256_file(inventory),
-                    "exact_frame_cut_binding_required": True,
-                })
-                comparison = root / ("comparison_%d.npz" % index)
-                comparison.write_bytes(("comparison-%d" % index).encode())
-                if index == 1:
-                    decision = {
-                        "schema": SAR.IDENTITY_SCHEMA, "status": "UNRESOLVED",
-                        "clip_id": candidate["clip_id"],
-                        "claimed_member": candidate["member"],
-                        "reasons": [SAR.COMPACT_UNRESOLVED_REASON],
-                        "operational_confidence_label": "100_PERCENT_STRUCTURAL_CONSENSUS",
-                        "probability_claim": False,
-                        "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
-                        "identified_at": "2026-08-30T12:00:00-04:00",
-                    }
-                else:
-                    decision = {
-                        "schema": SAR.IDENTITY_SCHEMA, "status": "UNRESOLVED",
-                        "clip_id": candidate["clip_id"],
-                        "candidate_clip_sha256": candidate["clip_sha256"],
-                        "candidate_audio_sha256": candidate["audio_sha256"],
-                        "candidate_cut_binding_sha256": candidate["cut_binding_sha256"],
-                        "calibration_sha256": calibration_sha,
-                        "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
-                        "comparison_matrix": str(comparison.resolve()),
-                        "comparison_matrix_sha256": SMR.sha256_file(comparison),
-                    }
-                decision["identity_row_sha256"] = SAR._row_hash(
-                    decision, "identity_row_sha256")
-                identity_manifest = root / ("identity_%d.jsonl" % index)
-                SMR.write_jsonl_atomic(identity_manifest, [decision])
-                identity_receipt = root / ("identity_%d.receipt.json" % index)
-                SMR.write_json_atomic(identity_receipt, {
-                    "schema": SAR.IDENTITY_RECEIPT_SCHEMA, "status": "PASS",
-                    "identity_schema": SAR.IDENTITY_SCHEMA,
-                    "manifest": str(identity_manifest.resolve()),
-                    "manifest_sha256": SMR.sha256_file(identity_manifest), "decisions": 1,
-                    "candidate_manifest_sha256": SMR.sha256_file(candidate_manifest),
-                    "candidate_receipt_sha256": SMR.sha256_file(candidate_receipt),
-                    "inventory_sha256": SMR.sha256_file(inventory),
-                    "calibration_sha256": calibration_sha,
-                    "scoring_contract_sha256": SAR.identity_scoring_contract_sha256(),
-                    "minimum_alignment_ratio": 0.68,
-                    "exact_frame_cut_binding_required": True,
-                    "all_anchor_comparisons_persisted": True,
-                    "anchor_vectors_sha256": "1" * 64,
-                    "calibration_window_manifest_sha256": "2" * 64,
-                    "model_manifest_sha256": "3" * 64,
-                })
-                candidate_receipts.append(str(candidate_receipt))
-                identity_receipts.append(str(identity_receipt))
-
-            args = SimpleNamespace(
-                merge_candidate_receipt=candidate_receipts,
-                merge_identity_receipt=identity_receipts,
-                minimum_ratio=0.68, calibration=str(calibration), inventory=str(inventory),
-                candidate_manifest=str(root / "cumulative_candidates.jsonl"),
-                candidate_receipt=str(root / "cumulative_candidates.receipt.json"),
-                decision_manifest=str(root / "cumulative_identity.jsonl"),
-                decision_receipt=str(root / "cumulative_identity.receipt.json"),
-            )
+            args, calibration_sha = self._merge_fixture(root)
             self.assertEqual(SAR.run_merge(args), 0)
             merged_candidates = SMR.read_jsonl(Path(args.candidate_manifest), required=True)
             merged_decisions = SMR.read_jsonl(Path(args.decision_manifest), required=True)

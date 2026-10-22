@@ -12,6 +12,9 @@ $collectionShortcut.TargetPath = $collectionPythonW
 $collectionShortcut.Arguments = '"' + $collectionLauncher + '"'
 $collectionShortcut.WorkingDirectory = $collectionRoot
 $collectionShortcut.Description = 'Live press recovery and Politico collection status'
-$collectionShortcut.IconLocation = 'C:\Program Files\Google\Chrome\Application\chrome.exe,0'
+# Same browser order as launch_collection_monitor.pyw; pythonw.exe (checked above) when neither is installed.
+$collectionIcon = @('C:\Program Files\Google\Chrome\Application\chrome.exe', 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe', $collectionPythonW) |
+    Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$collectionShortcut.IconLocation = "$collectionIcon,0"
 $collectionShortcut.Save()
 Write-Output $collectionLink

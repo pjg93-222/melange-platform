@@ -50,9 +50,10 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 FEC = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, FEC)
 from paths import WORKBOOK  # noqa: E402
+import roster  # noqa: E402
 
-FIRST_DATA_ROW = 3
-LAST_DATA_ROW = 535           # 533 members, rows 3..535
+FIRST_DATA_ROW = roster.first_row("Legislative Score - Raw")
+LAST_DATA_ROW = roster.last_row("Legislative Score - Raw")           # the member block: 535 at 533 members
 FIRST_VALUE_COL = 3           # col A=names, B=district, C.. = category value columns
 LAST_VALUE_COL = 160           # CU Tax Status block extends the value region through col 160
 TOL = 1e-6

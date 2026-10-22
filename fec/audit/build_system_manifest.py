@@ -287,7 +287,7 @@ REGISTRY = (
             'side are the clearest statement of where the scope line falls.'),
     _s('repo.congestion', 'live_tree', 'data/engine/congestion.json', 'SOURCE',
        'NO IN-REPO PRODUCER (roster snapshot; the 120th-rollover campaign owns its resurrection)',
-       ['fec/moneyball_core.py congestion()', 'every engine that resolves the 533 roster'],
+       ['fec/moneyball_core.py congestion()', 'every engine that resolves the roster'],
        'Rebuild from voteview/legislators rosters per the rollover campaign; there is no live '
        'producer script today.',
        'per Congress', 3, 'hash_always', count=False,

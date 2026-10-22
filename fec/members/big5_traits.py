@@ -72,7 +72,7 @@ try:
             _seen.add(_h)
             texts[m].append(t); nsp+=1
 except sqlite3.OperationalError as _db_exc:
-    raise RuntimeError('speech corpus read failed (%s); every trait z is standardized within THIS corpus, so a missing table or a mid-read lock must not silently reshape all 533 scores' % _db_exc) from _db_exc
+    raise RuntimeError('speech corpus read failed (%s); every trait z is standardized within THIS corpus, so a missing table or a mid-read lock must not silently reshape every score' % _db_exc) from _db_exc
 print('corpus: speeches %d turns folded in (%d duplicates skipped)'%(nsp,ndup))
 # ---------------- closed-vocabulary categories (LIWC-analog; word lists are the published exemplars) ----------------
 CAT={

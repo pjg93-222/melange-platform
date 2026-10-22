@@ -126,5 +126,34 @@ class QuarantineCollision(unittest.TestCase):
         self.assertFalse(self.manifest.with_name('clips.pre-zero-rms-20260828.jsonl').exists())
 
 
+    def test_failed_move_rolls_back_moves_and_manifest(self):
+        first = self.clip('first/one.wav', b'one')
+        second = self.clip('second/two.wav', b'two')
+        original = self.write_manifest(self.rows([first, second]))
+        real, calls = os.replace, []
+
+        def flaky(src, dst):
+            calls.append(src)
+            if len(calls) == 2:
+                raise PermissionError('held open')
+            return real(src, dst)
+
+        os.replace = flaky
+        try:
+            with self.assertRaises(PermissionError):
+                self.run_main(2)
+        finally:
+            os.replace = real
+        self.assertEqual(first.read_bytes(), b'one')
+        self.assertEqual(second.read_bytes(), b'two')
+        self.assertEqual(self.manifest.read_bytes(), original)
+        self.assertFalse(self.manifest.with_name('clips.pre-zero-rms-20260828.jsonl').exists())
+        self.assertFalse(self.manifest.with_name('clips.jsonl.part').exists())
+
+    def test_blank_manifest_line_is_skipped(self):
+        first = self.clip('one.wav', b'one')
+        self.manifest.write_bytes(json.dumps(self.rows([first])[0]).encode() + b'\n\n')
+        self.assertEqual(self.run_main(1), 0)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

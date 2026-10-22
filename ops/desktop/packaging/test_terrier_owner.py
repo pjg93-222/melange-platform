@@ -13,7 +13,7 @@ class OwnerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.temporary = tempfile.TemporaryDirectory(prefix='terrier-owner-test-')
-        root = Path(cls.temporary.name)
+        root = Path(cls.temporary.name).resolve()
         cls.state = root/'state'
         sys.path.insert(0, os.environ['TERRIER_TEST_SOURCE'])
         os.environ.update(DJANGO_SETTINGS_MODULE='server.settings', CU_LOCAL_ADMIN='0', CU_STATE_DIR=str(root/'state'),

@@ -7,6 +7,7 @@
 <script src="/theme.js" defer></script><script src="/chart-export.js" defer></script><script src="/figure-pdf.js" defer></script><script src="/chart-math.js" defer></script><script src="/ui-state.js" defer></script><script src="/coverage-view.js" defer></script><script src="/scope.js" defer></script><script src="/app.js" defer></script><script src="/grouped-chart.js" defer></script><script src="/charts.js" defer></script><script src="/graph-explorer.js" defer></script><script src="/graph.js" defer></script><script src="/comparison.js" defer></script><script src="/funding-comparison.js" defer></script><script src="/map-layers.js" defer></script><script src="/map-engine.js" defer></script><script src="/map-studio.js" defer></script><script src="/map-evidence.js" defer></script><script src="/chart-studio-core.js" defer></script><script src="/contribution-plot.js" defer></script><script src="/contribution-charts.js" defer></script><script src="/contribution-map.js" defer></script><script src="/chart-studio-contributions.js" defer></script><script src="/chart-studio.js" defer></script><script src="/chart-briefing.js" defer></script>
 <link rel="stylesheet" href="/insights.css"><script src="/insights.js" defer></script>
 <script src="/worksheet-comparison.js" defer></script>
+<script src="/public_data.js" defer></script>
 <link rel="stylesheet" href="/workspace-polish.css">
 <link rel="stylesheet" href="/flow.css"><script src="/flow-layout.js" defer></script><script src="/flow-chart.js" defer></script><script src="/evidence-flow.js" defer></script><script src="/graph-flow.js" defer></script><script src="/studio-flow.js" defer></script>
 <link rel="stylesheet" href="/map.css">
@@ -26,6 +27,7 @@
 <button id="tab-cross-reference" type="button" role="tab" aria-controls="view-cross-reference" aria-selected="false" tabindex="-1">Cross-reference</button>
 <span class="nav-group" role="presentation">Evidence</span>
 <button id="tab-evidence" type="button" role="tab" aria-controls="view-evidence" aria-selected="false" tabindex="-1">PAC evidence</button>
+<button id="tab-public-data" type="button" role="tab" aria-controls="view-public-data" aria-selected="false" tabindex="-1">Public data</button>
 </nav><span class="local-indicator">Local only</span><span id="connection" role="status">Connecting…</span></header>
 <main id="workspace-main" tabindex="-1">
 <section class="workspace" aria-label="Mentat workspace">
@@ -647,6 +649,15 @@
 </div>
 </div>
 <section id="evidence-map" class="panel evidence-map" aria-label="District map" hidden></section>
+</section>
+<section id="view-public-data" role="tabpanel" aria-labelledby="tab-public-data" hidden>
+<div class="panel-heading"><div><div class="section-label">OFFICIAL SOURCES</div><h2>Public data</h2></div><button id="public-data-reload" class="secondary" type="button">Reload public data</button></div>
+<p>Read the official FEC committee, candidate, linkage and committee-transaction tables for 2022, 2024 and 2026. Values are shown as filed in the selected source.</p>
+<label for="public-data-table">Source table<select id="public-data-table" disabled></select></label>
+<p id="public-data-status" role="status">Open this tab to load the verified public source.</p>
+<div class="table-scroll"><table id="public-data-rows" aria-label="Official FEC source rows"></table></div>
+<div class="worksheet-comparison-actions"><button id="public-data-previous" class="secondary" type="button" disabled>Previous page</button><button id="public-data-next" class="secondary" type="button" disabled>Next page</button><a id="public-data-download" hidden>Download source table</a><a id="public-data-source" target="_blank" rel="noopener noreferrer" hidden>Official FEC archive</a></div>
+<p id="public-data-provenance" class="muted"></p>
 </section>
 </section>
 </main><script src="/evidence.js" defer></script><footer>MENTAT <span>FEC collection · canonical names + aliases</span></footer>

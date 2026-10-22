@@ -12,11 +12,12 @@ from a backup taken BEFORE any media blend ran. This script does that, safely an
 Usage:
   python rebuild_press_cache.py --from "backups/Moneyball Main Version - Blended.PRE-<...>.xlsx"
   python rebuild_press_cache.py --list          # show candidate pre-blend backups
-A pre-blend backup is one whose 'Press Release - Raw' row 535 label cell says 'Weights' AND whose
+A pre-blend backup is one whose 'Press Release - Raw' footer row (the row right under the member block) label cell says 'Weights' AND whose
 raw cells are the ORIGINAL press values. The safest source is a PRE-* backup from before 2026-07-02
 (the media-blend date); the script refuses a source whose Z1 note already says 'MEDIA BLEND'."""
 import sys, os, glob, argparse
 import openpyxl
+import roster
 from moneyball_core import dump_atomic
 M=MB_ROOT
 def candidates():
@@ -36,11 +37,12 @@ if 'MEDIA BLEND' in z1:
     print('!! REFUSING: %s is a POST-blend workbook (Z1=%r). Its raw cells already contain press+social; '
           'pick a PRE-blend backup.'%(os.path.basename(src),z1[:60])); sys.exit(2)
 hdr={rw.cell(1,c).value:c for c in range(1,30) if rw.cell(1,c).value}
-members=[rw.cell(r,1).value for r in range(2,536) if rw.cell(r,1).value]
+PRESS_ROWS=roster.rows('Press Release - Raw')   # member rows only; the 'Weights' footer below them was never a member
+members=[rw.cell(r,1).value for r in PRESS_ROWS if rw.cell(r,1).value]
 cache={}
 for h,c in hdr.items():
     if h in ('Names','District/State') or not isinstance(h,str): continue
-    cache[h]={m:(rw.cell(r,c).value or 0.0) for r,m in ((r,rw.cell(r,1).value) for r in range(2,536)) if m}
+    cache[h]={m:(rw.cell(r,c).value or 0.0) for r,m in ((r,rw.cell(r,1).value) for r in PRESS_ROWS) if m}
 out=M+r'\data\stance\press_raw_original.json'
 if os.path.exists(out):
     bak=out+'.replaced-%s'%__import__('datetime').datetime.now().strftime('%Y%m%d-%H%M%S')

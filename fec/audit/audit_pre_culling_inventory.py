@@ -24,6 +24,7 @@ import gzip
 import json
 import pathlib
 import sys
+import zlib
 from collections import Counter
 
 WORKSPACE = pathlib.Path(__file__).resolve().parents[2]
@@ -157,7 +158,7 @@ def main() -> int:
                 with gzip.open(b, "rb") as g:
                     g.read(2048)
                 ok += 1
-            except OSError:
+            except (OSError, EOFError, zlib.error):
                 bad += 1
         print("   body readable (500) : %d ok / %d unreadable" % (ok, bad))
 

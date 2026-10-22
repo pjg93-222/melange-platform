@@ -17,7 +17,7 @@ function requestMaterials(value){
  const records=value.requests||{[value.requestId]:value};
  if(typeof records!=='object'||Array.isArray(records)||Object.keys(records).length>2)throw new Error('Invalid protected request material');
  for(const [id,item]of Object.entries(records)){
-  if(!uuid(id)||!item||item.requestId!==id||!secret(item.requestSecret)||Object.keys(item).some(key=>!['requestId','requestSecret','activationKey'].includes(key))||(item.activationKey!==undefined&&!secret(item.activationKey)))throw new Error('Invalid protected request material');
+  if(!uuid(id)||!item||item.requestId!==id||!secret(item.requestSecret)||Object.keys(item).some(key=>!['requestId','requestSecret','activationKey','inviteCode'].includes(key))||(item.activationKey!==undefined&&!secret(item.activationKey))||(item.inviteCode!==undefined&&(typeof item.inviteCode!=='string'||item.inviteCode.length>64)))throw new Error('Invalid protected request material');
  }
  return records;
 }
@@ -32,7 +32,7 @@ function descriptor(value){
  return {...structuredClone(value),url:origin};
 }
 function trustIdentityHash(value){const checked=descriptor(value);const stable={schemaVersion:checked.schemaVersion,purpose:checked.purpose,serverId:checked.serverId,tlsSpkiSha256:checked.tlsSpkiSha256,accessPublicKeys:checked.accessPublicKeys};return crypto.createHash('sha256').update(canonical(stable)).digest('hex');}
-function refreshDescriptor(previous,next){if(trustIdentityHash(previous)!==trustIdentityHash(next))throw new Error('Access server verification identity cannot be replaced');return descriptor(next);}
+function refreshDescriptor(previous,next){if(trustIdentityHash(previous)!==trustIdentityHash(next))throw fail('Access server verification identity cannot be replaced','trust');return descriptor(next);}
 function envelope(value,trust){
  exact(value,['schemaVersion','keyId','payload','signature']);
  if(value.schemaVersion!==1||typeof value.keyId!=='string'||!Object.hasOwn(trust.accessPublicKeys,value.keyId))throw new Error('Untrusted access signer');
@@ -72,6 +72,10 @@ function verifyStatus(value,trustValue,identity,accepted,now=Date.now()){
  if(accepted.revoked&&!body.revoked)throw new Error('Learned revocation cannot be cleared by status');
  return {...accepted,highestSequence:body.sequence,revoked:accepted.revoked||body.revoked,statusHash:digest};
 }
+// A fixed reason code is the only failure detail that may leave the main process.
+function fail(message,reason){const error=new Error(message);error.reason=reason;return error;}
+const REASONS=new Set(['unreachable','timeout','refused','identity','trust','invite']);
+function accessFailure(error){return 'access:'+(REASONS.has(error?.reason)?error.reason:'failed');}
 function accessRequest(trustValue,relative,{method='GET',authorization,body,deadlineMs=15000}={}){
  const trust=descriptor(trustValue),origin=new URL(trust.url);
  if(!/^\/v1\/access\/(requests(?:\/[0-9a-f-]{36})?|activate|status|presence|events|update-enrollment)$/.test(relative))return Promise.reject(new Error('Unsupported access operation'));
@@ -81,22 +85,31 @@ function accessRequest(trustValue,relative,{method='GET',authorization,body,dead
  return new Promise((resolve,reject)=>{
   const agent=new https.Agent({keepAlive:false});let request,response,socket,settled=false;
   const finish=(error,value)=>{if(settled)return;settled=true;clearTimeout(deadline);response?.destroy();request?.destroy();socket?.destroy();agent.destroy();error?reject(error):resolve(value);};
-  const deadline=setTimeout(()=>finish(new Error('Access request deadline exceeded')),deadlineMs);
+  const deadline=setTimeout(()=>finish(fail('Access request deadline exceeded','timeout')),deadlineMs);
   agent.createConnection=(_options,callback)=>{
    let completed=false;const done=(error,connection)=>{if(!completed){completed=true;callback(error,connection);}};
    socket=tls.connect({host:origin.hostname,port:Number(origin.port)||443,...(!net.isIP(origin.hostname)?{servername:origin.hostname}:{}),rejectUnauthorized:false});
-   socket.once('error',()=>{done(new Error('Access connection unavailable'));finish(new Error('Access connection unavailable'));});
+   socket.once('error',()=>{done(fail('Access connection unavailable','unreachable'));finish(fail('Access connection unavailable','unreachable'));});
    socket.once('secureConnect',()=>{try{
     const certificate=new crypto.X509Certificate(socket.getPeerCertificate(true).raw);
     const pin=crypto.createHash('sha256').update(certificate.publicKey.export({format:'der',type:'spki'})).digest();
     if(Date.now()<Date.parse(certificate.validFrom)||Date.now()>Date.parse(certificate.validTo)||!crypto.timingSafeEqual(pin,Buffer.from(trust.tlsSpkiSha256,'hex')))throw new Error('Access server identity mismatch');
     done(null,socket);
-   }catch{done(new Error('Access server identity mismatch'));finish(new Error('Access server identity mismatch'));}});
+   }catch{done(fail('Access server identity mismatch','identity'));finish(fail('Access server identity mismatch','identity'));}});
   };
   const headers={Accept:'application/json',...(authorization?{Authorization:authorization}:{}),...(data?{'Content-Type':'application/json','Content-Length':data.length}:{})};
   request=https.request(new URL(relative,origin),{method,headers,agent},incoming=>{
    response=incoming;
-   if(![200,201].includes(response.statusCode)){const error=new Error('Access service refused the request');error.statusCode=response.statusCode;finish(error);return;}
+   if(![200,201].includes(response.statusCode)){
+    const error=fail('Access service refused the request','refused');error.statusCode=response.statusCode;
+    if(response.statusCode!==403){finish(error);return;}
+    // Only a 403 body is read, and only to tell the fixed invite_invalid answer from any other refusal; anything unreadable stays 'refused'.
+    let size=0;const chunks=[];
+    response.on('data',part=>{size+=part.length;if(size>16384)finish(error);else chunks.push(part);});
+    response.once('end',()=>{try{if(JSON.parse(Buffer.concat(chunks).toString('utf8'))?.error==='invite_invalid')error.reason='invite';}catch{/* not JSON: plain refusal */}finish(error);});
+    response.once('aborted',()=>finish(error));response.once('error',()=>finish(error));response.once('close',()=>finish(error));
+    return;
+   }
    let size=0,ended=false;const chunks=[];
    response.on('data',part=>{size+=part.length;if(size>16384)finish(new Error('Access response too large'));else chunks.push(part);});
    response.once('aborted',()=>finish(new Error('Access response interrupted')));
@@ -104,15 +117,16 @@ function accessRequest(trustValue,relative,{method='GET',authorization,body,dead
    response.once('close',()=>{if(!ended)finish(new Error('Access response interrupted'));});
    response.once('end',()=>{ended=true;try{finish(null,JSON.parse(Buffer.concat(chunks).toString('utf8')));}catch{finish(new Error('Invalid access response'));}});
   });
-  request.once('error',()=>finish(new Error('Access connection unavailable')));request.end(data);
+  request.once('error',()=>finish(fail('Access connection unavailable','unreachable')));request.end(data);
  });
 }
 class AccessClient{
  constructor({trust,identity,store,secrets,request=accessRequest,now=Date.now}){this.trust=descriptor(trust);exact(identity,['appId','deviceId','platform','arch']);target(identity);this.identity=structuredClone(identity);this.store=store;this.secrets=secrets;this.request=request;this.now=now;this.busy=false;}
  async state(){const value=await this.store.read();if(!value)return {schemaVersion:1,identity:this.identity,trustHash:trustIdentityHash(this.trust)};if(value.schemaVersion!==1||canonical(value.identity)!==canonical(this.identity)||value.trustHash!==trustIdentityHash(this.trust))throw new Error('Protected access state belongs to another device or server');return value;}
  async operation(action){if(this.busy)throw new Error('An access operation is already in progress');this.busy=true;try{return await action();}finally{this.busy=false;}}
- async requestAccess(displayName,{reapproval=false,newRequest=false}={}){return this.operation(async()=>{
+ async requestAccess(displayName,{reapproval=false,newRequest=false,inviteCode}={}){return this.operation(async()=>{
   if(typeof displayName!=='string'||Array.from(displayName).length<1||Array.from(displayName).length>80||/[\x00-\x1f\x7f]/.test(displayName))throw new Error('Invalid device display name');
+  const code=inviteCode===undefined?'':typeof inviteCode==='string'?inviteCode.trim():null;if(code===null||code.length>64)throw new Error('Invalid invite code');
   const state=await this.state();if(state.grantEnvelope&&reapproval!==true)throw new Error('Explicit administrator reapproval is required to replace an access grant');
   const materials=requestMaterials(await this.secrets.read('access-request'));let pending=state.pending,material=materials[pending?.requestId];
   if(pending&&!material)throw new Error('Protected request recovery material unavailable');
@@ -127,16 +141,25 @@ class AccessClient{
   }
   if(!pending){
    const previous=state.pending?.requestId&&materials[state.pending.requestId];
-   pending={requestId:crypto.randomUUID(),displayName};material={requestId:pending.requestId,requestSecret:crypto.randomBytes(32).toString('base64url')};
+   pending={requestId:crypto.randomUUID(),displayName};material={requestId:pending.requestId,requestSecret:crypto.randomBytes(32).toString('base64url'),...(code?{inviteCode:code}:{})};
    const protectedRecords={...(previous?{[previous.requestId]:previous}:{}),[pending.requestId]:material};
    // Old material remains usable if the durable state commit fails.
    await this.secrets.write('access-request',{requests:protectedRecords});
    await this.store.write({...state,pending});
    try{await this.secrets.write('access-request',{requests:{[pending.requestId]:material}});}catch{/* Redundant protected recovery is harmless and bounded. */}
   }
-  return requestStatus(await this.request(this.trust,'/v1/access/requests',{method:'POST',body:{...this.identity,...pending,requestSecret:material.requestSecret}}),pending.requestId);
+  return this.submit(pending,material);
  });}
- async poll(){return this.operation(async()=>{const state=await this.state(),material=requestMaterials(await this.secrets.read('access-request'))[state.pending?.requestId];if(!state.pending||!material)throw new Error('No pending request');if(this.lastPoll&&this.now()-this.lastPoll<15000)throw new Error('Wait before checking approval again');this.lastPoll=this.now();return requestStatus(await this.request(this.trust,'/v1/access/requests/'+state.pending.requestId,{authorization:'Request '+material.requestSecret}),state.pending.requestId);});}
+ // The invite code is optional and lives only in the protected request material (never the state record) so the poll re-POST can resend it; without one, no inviteCode field is sent.
+ async submit(pending,material){
+  try{return requestStatus(await this.request(this.trust,'/v1/access/requests',{method:'POST',body:{...this.identity,...pending,requestSecret:material.requestSecret,...(material.inviteCode?{inviteCode:material.inviteCode}:{})}}),pending.requestId);}
+  catch(error){if(error?.reason==='invite')await this.discard(pending.requestId);throw error;}
+ }
+ // A refused code can never succeed for this request, so drop it (state first: material without state would strand the request) and let the user start over.
+ async discard(requestId){try{const state=await this.state();if(state.pending?.requestId===requestId){await this.store.write({...state,pending:null});await this.secrets.delete('access-request');}}catch{/* the invite refusal is still reported; a leftover request only costs one more refusal */}}
+ async poll(){return this.operation(async()=>{const state=await this.state(),material=requestMaterials(await this.secrets.read('access-request'))[state.pending?.requestId];if(!state.pending||!material)throw new Error('No pending request');if(this.lastPoll&&this.now()-this.lastPoll<15000)throw new Error('Wait before checking approval again');this.lastPoll=this.now();
+  // 403: the server never stored this id (the first POST was lost). Re-send the same id and secret; the server treats that as idempotent.
+  try{return requestStatus(await this.request(this.trust,'/v1/access/requests/'+state.pending.requestId,{authorization:'Request '+material.requestSecret}),state.pending.requestId);}catch(error){if(error.statusCode!==403)throw error;return this.submit(state.pending,material);}});}
  async activate(activationKey){return this.operation(async()=>{
   if(!secret(activationKey))throw new Error('Invalid activation key');
   const state=await this.state(),materials=requestMaterials(await this.secrets.read('access-request')),material=materials[state.pending?.requestId];
@@ -189,4 +212,4 @@ class AccessClient{
   return this.request(this.trust,route,{method:'POST',authorization:'Bearer '+token,body});
  }
 }
-module.exports={AccessClient,accessRequest,descriptor,verifyGrant,verifyStatus,canonical,trustIdentityHash,refreshDescriptor,verifyAccessEnvelope};
+module.exports={AccessClient,accessRequest,accessFailure,descriptor,verifyGrant,verifyStatus,canonical,trustIdentityHash,refreshDescriptor,verifyAccessEnvelope};

@@ -918,7 +918,8 @@ function renderRanked(){
   if(HONORS&&(rstate.sort==='tier'||(!area&&rstate.sort==='rank')))r.sort((a,b)=>overallRankOrder(a,b,rstate.sort));
   const potentialSort=!area&&rstate.sort==='potential',adjustedPotentialSort=!area&&rstate.sort==='potential_adjusted',potentialMode=potentialSort||adjustedPotentialSort;
   const standingSort=false;
-  $('#count').textContent=`Showing ${r.length} of ${M.length} members`+(area?` · ${area}`:'');
+  const gone=rstate.q?(D.departed||[]).filter(d=>d.name.toLowerCase().includes(rstate.q)):[];   // former members stay findable
+  $('#count').textContent=`Showing ${r.length} of ${M.length} members`+(area?` · ${area}`:'')+gone.map(d=>` · ${d.name}: ${d.notice}`).join('');
   $('#th-rank').textContent=rstate.sort==='tier'?'Primacy rank':potentialMode?'Opportunity rank':HONORS?(area?'Field rank':standingSort?'Action rank':'Priority rank'):'Rank';
   $('#th-stance').textContent=HONORS?(area?'Recognition · '+area:'Stance · overall'):area?('Stance · '+area):'Stance · overall';
   $('#th-score').textContent=area?(HONORS?'Raw action score':area):(adjustedPotentialSort?(dpAdjustable?'Adjusted potential':'Potential score'):potentialSort?'Potential score':standingSort?'Raw action score':HONORS?'Model score':'Score');
@@ -1074,7 +1075,8 @@ function methodHTML(m){
   /* The approach brief is the first thing inside 'Profile', so its provenance is stated here and
      here only — the brief itself carries no explanatory text (Paul 2026-09-01). Shown for withheld
      members too: it describes the feature, not one member's instance. */
-  if(P.narrative&&P.narrative.format==='descriptive-v3')add('Profile summary','Three plain-language paragraphs summarize the public record, public communication, and the limits of the available evidence. These summaries use checked templates tied to the recorded source measures. Each profile is checked for source consistency, complete coverage, and a length of 200–400 words. These checks are deterministic; they are not an independent human review of every audio recording. A recurring interview pattern requires two independently produced interviews in different settings. Single-source observations remain provisional.');
+  if(P.brief_v3)add('Meeting brief','Drafted from one evidence packet per member and checked mechanically against the v3 style rules and the packet’s evidence ids. Advice traces to public evidence; it is not a private prediction. The Basis line and its Confidence level are computed from source counts and the evidence tier, never written by the writer.');
+  else if(P.narrative&&P.narrative.format==='descriptive-v3')add('Profile summary','Three plain-language paragraphs summarize the public record, public communication, and the limits of the available evidence. These summaries use checked templates tied to the recorded source measures. Each profile is checked for source consistency, complete coverage, and a length of 200–400 words. These checks are deterministic; they are not an independent human review of every audio recording. A recurring interview pattern requires two independently produced interviews in different settings. Single-source observations remain provisional.');
   else if(P.narrative||P.narrative_status)add('Approach brief','Written from the measures already on this profile: the personality axes, the observed-behaviour percentiles, the speech measures and the hearing-antagonism facet. Those are gathered into one evidence packet per member and drafted by Claude Sonnet on 31 August 2026. Each brief is checked mechanically for length, for banned phrasing, and for wording reused from another member. No check confirms a sentence against the measure it came from.');
   if(m.district_brief)add('District brief',`Three evidence-grounded paragraphs covering household and housing conditions, credit-union relevance, and industry specialization. The corpus was generated ${esc(districtBriefMeta.generated||'—')} and passed deterministic word-band, figure-cap, evidence-grounding, formatting, ban-list, and novelty checks. It is displayed as narrative context, not as a score. ${esc(((districtBriefMeta.known_limitations||[])[0])||'')}`);
   if(m.cook_pvi)add('Cook PVI · 2026 source snapshot',`Cook Political Report's rounded label describes historical presidential partisan lean relative to the nation; it is not an election forecast. This snapshot covers voting House districts only, with no Senate or territorial values. A district-code match does not verify the current member or current district boundaries. Source incumbent names are not used for matching. ${cookPviSourceHTML()} This context does not enter scores, ranks, allocations, receptivity, ROI, or efficiency calculations.`);
@@ -1184,8 +1186,37 @@ function respHTML(m){
       <div class=mrow><span>${P.basis==='behavioral'?'Record-based':'Presentation-based'}</span><b>${P.susc_trait_z>0?'+':''}${P.susc_trait_z}</b></div>
       ${P.persona_susc_z!=null?`<div class=mrow><span>Presentation-based (public)</span><b>${P.persona_susc_z>0?'+':''}${P.persona_susc_z}</b></div>`:''}
       <div style="font-size:11px;font-weight:700;color:${rd[1]};background:${rd[1]}22;border:1px solid ${rd[1]}55;padding:2px 8px;border-radius:10px;display:inline-block;margin-top:4px">${rd[0]}</div>`:'';
-  const appr=P.approach?`<div class=eyebrow style=margin-top:8px>Quick read</div><div style="font-size:12px;line-height:1.45;color:var(--ink,#D2CDBC);background:#2E2514;border:1px solid var(--line,#433317);border-radius:8px;padding:7px 9px">${esc(P.approach)}</div>`:'';
+  const appr=(P.approach&&!P.brief_v3&&!P.departed_notice)?`<div class=eyebrow style=margin-top:8px>Quick read</div><div style="font-size:12px;line-height:1.45;color:var(--ink,#D2CDBC);background:#2E2514;border:1px solid var(--line,#433317);border-radius:8px;padding:7px 9px">${esc(P.approach)}</div>`:'';
   return `${suscRows}${appr}`;
+}
+/* v3 meeting brief (Paul 2026-10-20). Rendered in template order: title, archetype, bottom line, Do (4),
+   Don't (3), warning sign, follow-up, Profile (personality, how X speaks, how X decides), then the
+   Basis line. The Basis line is computed in code (build_member_brief_packets.py) and arrives as
+   B.basis.line; nothing here writes or rewords it. Everything goes through esc(). The block sits
+   inside the Profile section as plain nodes (no <details>), so Print / PDF includes it. */
+function briefV3HTML(B){
+  const plural=B.pronoun==='they';
+  const lab='color:#7dd3fc;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.05em;margin:8px 0 2px';
+  const li=a=>`<ul data-bv3-list style="margin:0 0 4px 16px;padding:0">${(a||[]).map(x=>`<li>${esc(x)}</li>`).join('')}</ul>`;
+  const line=(k,v)=>`<div data-bv3="${k}" style=margin-bottom:5px><b>${k}:</b> ${esc(v)}</div>`;
+  const para=(k,v)=>`<div data-bv3="${k}" style=margin-bottom:6px><b>${k}.</b> ${esc(v)}</div>`;
+  return `<div class=eyebrow style=margin-top:10px>Meeting brief</div>
+      <div data-bv3-block style="font-size:12px;line-height:1.52;color:var(--ink,#D2CDBC);background:#2E2514;border:1px solid var(--line,#433317);border-radius:8px;padding:10px 12px">
+        <div data-bv3="title" style="font-size:14px;font-weight:700;margin-bottom:2px">${esc(B.name)} \u2014 The ${esc(B.animal)}</div>
+        <div data-bv3="archetype" style="margin-bottom:8px;color:var(--muted,#B8AD90)">Archetype: ${esc(B.animal)}, ${esc(B.descriptor)}</div>
+        ${B.stale?`<div data-bv3="stale" style="margin-bottom:8px;color:#EECD5C;font-weight:700">Evidence updated after this brief was written (${esc(B.stale.date)})</div>`:''}
+        ${line('Bottom line',B.bottom_line)}
+        <div data-bv3="do-label" style="${lab}">Do</div>${li(B.do)}
+        <div data-bv3="dont-label" style="${lab}">Don't</div>${li(B.dont)}
+        ${line('Warning sign',B.warning_sign)}
+        ${line('Follow-up',B.follow_up)}
+        <div data-bv3="profile-label" style="${lab}">Profile</div>
+        ${para('Personality',B.personality)}
+        ${para('How '+esc(B.pronoun)+(plural?' speak':' speaks'),B.speaks)}
+        ${para('How '+esc(B.pronoun)+(plural?' decide':' decides'),B.decides)}
+        ${B.basis?`<div data-bv3="basis" style="margin-top:8px;font-size:10.5px;color:var(--faint,#8C8266)">${esc(B.basis.line)}</div>`
+          :`<div data-bv3="basis-withheld" style="margin-top:8px;font-size:10.5px;color:#EECD5C">Basis withheld: ${esc(B.basis_withheld||'no basis available')}</div>`}
+      </div>`;
 }
 /* Approach brief. Promoted out of psychHTML (Paul 2026-08-31) so it is the first thing
    inside 'Profile' instead of two folds deep. openMember renders it as BARE content,
@@ -1198,6 +1229,9 @@ function respHTML(m){
    esc() replaces [&<>] only, so clean prose renders byte-for-byte as before. */
 function narrativeHTML(m){
   const P=m.psy||{};
+  if(P.departed_notice)return `<div class=eyebrow style=margin-top:10px>Meeting brief</div>
+      <div data-bv3="departed" style="font-size:12px;line-height:1.52;color:var(--ink,#D2CDBC);background:#2E2514;border:1px solid var(--line,#433317);border-radius:8px;padding:10px 12px">${esc(P.departed_notice)}</div>`;
+  if(P.brief_v3)return briefV3HTML(P.brief_v3);
   const NAR=P.narrative;
   if(NAR&&NAR.format==='descriptive-v3')return `<div class=eyebrow style=margin-top:10px>Profile summary</div>
       <div style="font-size:12px;line-height:1.52;color:var(--ink,#D2CDBC);background:#2E2514;border:1px solid var(--line,#433317);border-radius:8px;padding:10px 12px">

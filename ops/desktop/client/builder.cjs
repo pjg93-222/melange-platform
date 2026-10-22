@@ -20,7 +20,12 @@ module.exports={
   appId:selected.applicationId,productName:selected.name,artifactName:selected.name+'-${version}-${os}-${arch}.${ext}',
   directories:{output:process.env.DESKTOP_DIST_ROOT?path.join(path.resolve(process.env.DESKTOP_DIST_ROOT),selected.id):'dist/'+selected.id},asar:true,
   files:[...require('./release-files.cjs')],
-  extraResources:[{from:runtime,to:'runtime/'+selected.id,filter:['**/*']}],
+  // The filter below is case-sensitive; after-pack.cjs walks the packed runtime/*/sources case-insensitively and removes (and logs) any state directory or database file.
+  afterPack:path.join(__dirname,'after-pack.cjs'),
+  // Runtime databases created by any local run after staging are user state; build_runtime.py also refuses them.
+  extraResources:[{from:runtime,to:'runtime/'+selected.id,filter:['**/*','!sources/**/state/**','!sources/**/*.{sqlite,sqlite3,db,sqlite-wal,sqlite-shm,sqlite-journal,sqlite3-wal,sqlite3-shm,sqlite3-journal,db-wal,db-shm,db-journal}']},
+   // Public release certificate only (no longer used by the app; kept for publisher-trust.cjs and turn-on-updates.cmd).
+   {from:path.join(__dirname,'melange-systems-desktop-release.cer'),to:'melange-systems-desktop-release.cer'}],
   extraMetadata:{name:selected.id+'-desktop',description:selected.name+' independent local desktop application',desktopAppConfig:{appId:selected.id,windowsPublisherName:process.env.WINDOWS_PUBLISHER_NAME||null,desktopAccessTrust:accessTrust,desktopUpdateSource}},
   win:{target:['nsis'],icon,signtoolOptions:process.env.WINDOWS_PUBLISHER_NAME?{publisherName:process.env.WINDOWS_PUBLISHER_NAME}:undefined,verifyUpdateCodeSignature:true},
   nsis:{oneClick:false,perMachine:false,allowToChangeInstallationDirectory:true,deleteAppDataOnUninstall:false,runAfterFinish:false,include:path.join(__dirname,'installer.nsh'),installerIcon:icon,uninstallerIcon:icon},

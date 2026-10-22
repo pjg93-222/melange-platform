@@ -1302,6 +1302,154 @@ class SourceMediaRecoveryTests(unittest.TestCase):
                     minimum_ratio=0.68,
                 )
 
+    def _discover_args(self, inventory):
+        return types.SimpleNamespace(
+            inventory=str(inventory), source="cnn", package_id=None,
+            retry_blocked=False, max_packages=0, refresh=False,
+            cnn_search=False, pause=0, workers=1, checkpoint_every=1,
+        )
+
+    def test_discover_locked_sqlite_becomes_retryable_probe_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            inventory = Path(tmp) / "inventory.jsonl"
+            inventory.write_text(json.dumps({
+                "package_id": "pkg:test", "source_family": "cnn",
+                "discovery": {"status": "needs_probe"},
+            }) + "\n", encoding="utf-8")
+            saved = []
+            with (
+                mock.patch.object(SMR, "shared_discovery_state", return_value={}),
+                mock.patch.object(
+                    SMR, "discover_one",
+                    side_effect=sqlite3.OperationalError("database is locked"),
+                ),
+                mock.patch.object(SMR, "persist", side_effect=lambda rows, path: saved.append(rows) or {}),
+            ):
+                self.assertEqual(SMR.run_discover(self._discover_args(inventory)), 2)
+            self.assertEqual(saved[-1][0]["discovery"]["status"], "probe_error")
+
+    def test_cnn_archive_locked_sqlite_falls_through_as_probe_error(self):
+        record = {"source_family": "cnn", "package": "https://x.test/show/a", "members": []}
+        with mock.patch.object(
+            SMR, "discover_cnn_archive",
+            side_effect=sqlite3.OperationalError("database is locked"),
+        ):
+            result = SMR.discover_one(record, {})
+        self.assertEqual(result["status"], "probe_error")
+
+    def test_tvnews_phrase_primary_failure_is_retryable_not_terminal_miss(self):
+        record = {"date": "2020-05-03", "members": []}
+        with (
+            mock.patch.object(SMR, "archive_tv_clips", side_effect=SMR.urllib.error.URLError("reset")),
+            mock.patch.object(SMR, "gdelt_tv_clips", return_value=("phrase", [])),
+        ):
+            result = SMR.discover_tvnews_phrase(record, "MSNBC", "MSNBCW_", "adapter")
+        self.assertEqual(result["status"], "probe_error")
+        self.assertIn("reset", result["evidence"]["archive_error"])
+        # A healthy primary with no hits is still a true terminal miss.
+        with mock.patch.object(SMR, "archive_tv_clips", return_value=("phrase", [])):
+            result = SMR.discover_tvnews_phrase(record, "MSNBC", "MSNBCW_", "adapter")
+        self.assertEqual(result["status"], "no_media")
+        self.assertEqual(result["evidence"]["caption_backend"], "archive-org")
+
+    def _cbs_page(self, published, hls_count=1, title="3/6 Face the Nation"):
+        urls = "".join(
+            f'<a href="https://prod.vodvideo.cbsnews.com/{i}/{100 + i}_hls/master.m3u8"></a>'
+            for i in range(hls_count)
+        )
+        return (
+            f'<title>{title}</title>'
+            f'<script type="application/ld+json">{{"uploadDate": "{published}T10:00:00-05:00"}}</script>'
+            + urls
+        )
+
+    def test_cbs_requires_matching_year_and_labels_failures_by_reason(self):
+        record = {"date": "2025-03-06"}
+        cases = (
+            (self._cbs_page("2022-03-06"), "no_media"),
+            (self._cbs_page("2025-03-06", hls_count=2), "ambiguous"),
+            (self._cbs_page("2025-03-06", title="Other Show"), "no_media"),
+            (self._cbs_page("2025-03-06"), "exact_episode_asr_required"),
+        )
+        for page, status in cases:
+            with self.subTest(status=status), mock.patch.object(SMR, "fetch_text", return_value=page):
+                self.assertEqual(SMR.discover_cbs(record)["status"], status)
+
+    def _run_align_fixture(self, tmp, rows, existing, align_record_effect, args_extra=None):
+        root = Path(tmp)
+        inventory = root / "inventory.jsonl"
+        inventory.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        media = root / "media"
+        media.mkdir()
+        (media / "candidate_clips.jsonl").write_text(
+            "".join(json.dumps(r) + "\n" for r in existing), encoding="utf-8"
+        )
+        args = types.SimpleNamespace(**{
+            "inventory": str(inventory), "source": "", "package_id": None, "refresh": False,
+            "max_packages": 0, "media_root": str(media), "model": str(root), "cpu_threads": 1,
+            "workers": 1, "minimum_ratio": 0.68, "checkpoint_every": 1, **(args_extra or {}),
+        })
+        fake_fw = types.SimpleNamespace(WhisperModel=lambda *a, **k: object())
+        fake_os = types.SimpleNamespace(
+            Smile=lambda **k: object(),
+            FeatureSet=types.SimpleNamespace(eGeMAPSv02=1),
+            FeatureLevel=types.SimpleNamespace(Functionals=1),
+        )
+        with (
+            mock.patch.dict("sys.modules", {"faster_whisper": fake_fw, "opensmile": fake_os}),
+            mock.patch.object(SMR, "align_record", side_effect=align_record_effect) as ar,
+            mock.patch.object(SMR, "persist", return_value={}),
+            mock.patch.object(SMR, "candidate_cut_binding", return_value="cb"),
+            mock.patch.object(SMR, "_candidate_hash", return_value="ch"),
+        ):
+            rc = SMR.run_align(args)
+        kept = SMR.read_jsonl(media / "candidate_clips.jsonl")
+        return rc, kept, ar
+
+    def _align_row(self, alignment=None):
+        return {
+            "package_id": "pkg:1", "package": "p1", "source_family": "cnn",
+            "acquisition": {"status": "acquired", "items": [
+                {"media_id": "m1", "wav": "a.wav"}, {"media_id": "m2", "wav": "b.wav"},
+            ]},
+            "alignment": alignment or {},
+        }
+
+    def _prior_clip(self, clip_id="c0"):
+        return {"clip_id": clip_id, "package": "p1", "source_family": "cnn",
+                "schema": SMR.CLIP_SCHEMA, "cut_binding_sha256": "cb", "clip_sha256": "ch",
+                "alignment_ratio": 0.9}
+
+    def test_align_failure_keeps_previously_emitted_clips(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, kept, _ = self._run_align_fixture(
+                tmp, [self._align_row()], [self._prior_clip()],
+                RuntimeError("out of memory"), {"refresh": True},
+            )
+        self.assertEqual(rc, 2)
+        self.assertEqual([c["clip_id"] for c in kept], ["c0"])
+
+    def test_align_partial_item_failure_is_failure_and_retried(self):
+        new_clip = {**self._prior_clip("c1")}
+        with tempfile.TemporaryDirectory() as tmp:
+            rc, kept, _ = self._run_align_fixture(
+                tmp, [self._align_row()], [],
+                [[new_clip], RuntimeError("wav locked")],
+            )
+            self.assertEqual(rc, 2)
+            self.assertEqual([c["clip_id"] for c in kept], ["c1"])
+        partial = self._align_row({
+            "status": "candidate_clips_emitted", "candidate_clips": 1,
+            "clip_schema": SMR.CLIP_SCHEMA, "exact_frame_cut_binding": True,
+            "item_errors": [{"media_id": "m2", "reason": "wav locked"}],
+        })
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, ar = self._run_align_fixture(
+                tmp, [partial], [self._prior_clip("c1")],
+                [[new_clip], [new_clip]],
+            )
+        self.assertTrue(ar.called)
+
 
 if __name__ == "__main__":
     unittest.main()

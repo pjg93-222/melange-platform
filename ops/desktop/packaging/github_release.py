@@ -24,8 +24,14 @@ REPOSITORIES = {'melange': 'pjg93-222/Melange', 'mentat': 'pjg93-222/Mentat', 't
 assert set(REPOSITORIES) == APPS
 
 
-def app_assets(app, version):
-    return sorted((f'{app}-win32-x64.manifest.json', app + '-trust.json', f'{app}-{version}-win32-x64.exe'))
+# Double-clickable one-click trust of the pinned public release certificate, for installs (such as 1.0.5)
+# that cannot verify updates until this PC trusts it. Shipped byte-identical to the reviewed client file.
+TRUST_LAUNCHER = Path(__file__).resolve().parents[1] / 'client' / 'turn-on-updates.cmd'
+
+
+def app_assets(app, version, launcher=True):
+    return sorted((f'{app}-win32-x64.manifest.json', app + '-trust.json', f'{app}-{version}-win32-x64.exe')
+                  + ((TRUST_LAUNCHER.name,) if launcher else ()))
 
 
 def repositories(spec):
@@ -170,6 +176,7 @@ def prepare(store, spec, output):
                     raise Refused('installer changed before staging completed')
                 (directory / f'{app}-{platform}-{arch}.manifest.json').write_bytes(canonical(envelope))
                 (directory / (app + '-trust.json')).write_bytes(canonical({'transitions': config['apps'][app].get('transitions', [])}))
+                (directory / TRUST_LAUNCHER.name).write_bytes(TRUST_LAUNCHER.read_bytes())
                 assets = app_assets(app, version)
                 index = {'schemaVersion': 1, 'purpose': 'melange-desktop-github-release', 'repository': repos[app], 'appId': app,
                          'tag': tag, 'version': version, 'sequence': sequence, 'platform': platform, 'arch': arch,
@@ -204,11 +211,15 @@ def verify_bundle(store, output, repository=None):
         raise Refused('invalid staged release identity')
     if repository is not None and (not isinstance(repository, str) or repository.lower() != index['repository']):
         raise Refused(f'{app} release belongs to {REPOSITORIES[app]}, not {repository}')
-    assets = app_assets(app, index['version'])
-    if index.get('assets') != assets or {path.name for path in output.iterdir()} != set(assets + ['release.json', 'SHA256SUMS']):
+    # Releases prepared before the trust launcher (desktop-v1.0.5) still verify with their original asset set.
+    assets = next((candidate for candidate in (app_assets(app, index['version']), app_assets(app, index['version'], False))
+                   if index.get('assets') == candidate), None)
+    if assets is None or {path.name for path in output.iterdir()} != set(assets + ['release.json', 'SHA256SUMS']):
         raise Refused('public release must contain exactly the declared app assets')
     if any(path.is_symlink() or not path.is_file() for path in output.iterdir()):
         raise Refused('public assets must be regular files')
+    if TRUST_LAUNCHER.name in assets and (output / TRUST_LAUNCHER.name).read_bytes() != TRUST_LAUNCHER.read_bytes():
+        raise Refused('trust launcher differs from the reviewed client file')
     config = store.config()
     envelope = json.loads((output / f'{app}-win32-x64.manifest.json').read_text(encoding='utf-8'))
     manifest = verify_envelope(envelope, config['apps'][app]['publicKeys'], app=app, platform='win32', arch='x64')

@@ -509,6 +509,169 @@ class AppsAdminTests(unittest.TestCase):
         self.assertEqual(verbs(), ['start', 'pull', 'up'])
         self.assertEqual([(e['action'], e['outcome']) for e in reversed(self.entries())], [('start', 'succeeded'), ('update', 'succeeded')])
 
+    def test_an_action_does_not_read_docker_in_the_request(self):
+        # `docker ps` has taken 1.9 to 32 s on a busy machine; the page gives up on a request at 12 s. The request only checks the
+        # service against the list that offered the button, and the spawned step does the work.
+        stopped, runner = make_apps(self.temp.name, self.store, FakeRunner(running=('mentat-console', 'terrier'), stopped=('melange-desk',)))
+        verbs = lambda: [c[0][6] if c[0][1] == 'compose' else c[0][1] for c in runner.calls]
+        self.assertEqual({r['service']: r['actions'] for r in stopped.overview()['services']}['melange-desk'], ['start', 'logs'])
+        runner.timeout = {'ps'}                                 # docker ps now runs out of time
+        reads = verbs().count('ps')
+        self.assertEqual(stopped.handle('/apps/action', {'service': 'melange-desk', 'action': 'start'}), {'ok': True, 'accepted': True})
+        self.assertEqual(verbs().count('ps'), reads)           # no read in the request
+        self.assertEqual((verbs()[-1], runner.calls[-1][0][-1]), ('start', 'melange-desk'))
+        self.assertEqual([(e['service'], e['action'], e['outcome']) for e in self.entries()], [('melange-desk', 'start', 'succeeded')])
+
+    def test_an_action_before_any_list_is_read_is_accepted_and_its_failure_reaches_the_log_and_the_row(self):
+        for name, setup, message in (('compose start fails', lambda r: r.fail.add('start'), '[redacted]'),
+                                     ('compose start runs out of time', lambda r: r.timeout.add('start'), 'Docker took too long to answer.')):
+            with self.subTest(name):
+                runner = FakeRunner(running=('mentat-console', 'terrier'), stopped=('melange-desk',))
+                setup(runner)
+                cold, _ = make_apps(self.temp.name, self.store, runner)
+                self.assertIsNone(cold.kept())
+                self.assertEqual(cold.handle('/apps/action', {'service': 'melange-desk', 'action': 'start'}), {'ok': True, 'accepted': True})
+                self.assertFalse([c for c in runner.calls if c[0][1] == 'ps'])      # accepted without reading docker
+                self.assertEqual(self.entries()[0]['outcome'], 'failed')
+                self.assertEqual(cold.busy, {})
+                row = {r['service']: r for r in cold.overview()['services']}['melange-desk']
+                self.assertEqual((row['last']['action'], row['last']['outcome']), ('start', 'failed'))
+                self.assertIn(message, row['last']['message'])
+                self.assertIn('start', row['actions'])                              # the button is back, so the page can try again
+
+    def test_docker_down_offers_to_start_docker_desktop_only_when_it_can(self):
+        daemon_down = lambda argv, **kwargs: SimpleNamespace(returncode=1, stdout=b'', stderr=b'error during connect: open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.')
+        with tempfile.TemporaryDirectory() as local, tempfile.TemporaryDirectory() as machine, \
+                mock.patch.dict(os.environ, {'LOCALAPPDATA': local, 'ProgramFiles': machine}):
+            down, _ = make_apps(self.temp.name, self.store, daemon_down)
+            view = down.overview()
+            self.assertEqual((view['docker']['ok'], view['docker']['canStart']), (False, False))   # no Docker Desktop exe on this computer
+            self.assertIn('Docker is not running', view['docker']['message'])
+            exe = Path(machine) / 'Docker' / 'Docker' / 'Docker Desktop.exe'
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b'')
+            self.assertEqual(down.overview()['docker']['canStart'], True)
+            slow, runner = make_apps(self.temp.name, self.store)
+            runner.timeout = {'ps'}                                                                # slow is not down: nothing to start
+            view = slow.overview()
+            self.assertEqual((view['docker']['ok'], view['docker']['message'], view['docker']['canStart']), (False, 'Docker took too long to answer.', False))
+
+    def test_docker_going_down_after_a_list_was_read_keeps_the_list_and_still_offers_to_start_it(self):
+        down_text = 'Docker is not running. Start Docker Desktop, then check again.'
+        with tempfile.TemporaryDirectory() as local, tempfile.TemporaryDirectory() as machine,                 mock.patch.dict(os.environ, {'LOCALAPPDATA': local, 'ProgramFiles': machine}):
+            exe = Path(machine) / 'Docker' / 'Docker' / 'Docker Desktop.exe'
+            exe.parent.mkdir(parents=True)
+            exe.write_bytes(b'')
+            admin, runner = make_apps(self.temp.name, self.store)
+            first = admin.overview()
+            self.assertEqual((first['stale'], first['docker']), (False, {'ok': True, 'message': None, 'canStart': False}))
+            read = runner.inspect
+            runner.inspect, runner.partial = (lambda ids: '[]'), 'error during connect: the docker daemon is not running'
+            view = admin.overview()                                  # the daemon went away: the same read, now failing as "not running"
+            self.assertEqual((view['stale'], view['checkedAt'], len(view['services'])), (True, first['checkedAt'], 3))   # the kept list is still served
+            self.assertEqual(view['docker'], {'ok': True, 'message': down_text, 'canStart': True})
+            exe.unlink()
+            self.assertEqual(admin.overview()['docker'], {'ok': True, 'message': down_text, 'canStart': False})   # nothing to start on this computer
+            runner.inspect, runner.partial = read, None
+            self.assertEqual(admin.overview()['docker'], {'ok': True, 'message': None, 'canStart': False})        # and it clears once Docker answers
+            exe.write_bytes(b'')
+            runner.timeout = {'ps'}                                  # slow is not down: the old text, no button
+            view = admin.overview()
+            self.assertEqual((view['stale'], view['staleReason'], view['docker']), (True, 'Docker took too long to answer.', {'ok': True, 'message': None, 'canStart': False}))
+
+    def test_logs_take_the_container_from_the_kept_list_and_read_docker_only_when_none_is_kept(self):
+        runner = FakeRunner(running=('melange-desk', 'mentat-console'))          # terrier has no container
+        admin, _ = make_apps(self.temp.name, self.store, runner)
+        cold, _ = make_apps(self.temp.name, self.store, runner)                  # never read a list
+        admin.overview()                                                         # a list is kept
+        runner.timeout = {'ps'}                                                  # docker ps now runs out of time
+        calls = len(runner.calls)
+        self.assertTrue(admin.handle('/apps/logs', {'service': 'mentat-console'})['lines'])
+        self.assertEqual([c[0][1] for c in runner.calls[calls:]], ['logs'])      # no ps in the request
+        self.assertEqual(runner.calls[-1][0][-1], ID['mentat-console'])
+        with self.assertRaises(NotSetUp):
+            admin.handle('/apps/logs', {'service': 'terrier'})                   # the kept list has no container for it
+        self.assertEqual([c[0][1] for c in runner.calls[calls:]], ['logs'])
+        with self.assertRaises(DockerUnavailable):                               # with no list kept, it does read, and says so
+            cold.handle('/apps/logs', {'service': 'mentat-console'})
+        self.assertEqual(runner.calls[-1][0][1:3], ['ps', '-a'])
+
+    def test_an_action_is_refused_with_the_down_message_while_docker_is_known_not_to_be_running(self):
+        runner = FakeRunner(running=('mentat-console', 'terrier'), stopped=('melange-desk',))
+        admin, _ = make_apps(self.temp.name, self.store, runner)
+        admin.overview()
+        read = runner.inspect
+        runner.inspect, runner.partial = (lambda ids: '[]'), 'error during connect: the docker daemon is not running'
+        self.assertTrue(admin.overview()['stale'])                               # the latest read found the daemon down
+        calls = len(runner.calls)
+        with self.assertRaises(DockerUnavailable) as raised:
+            admin.handle('/apps/action', {'service': 'melange-desk', 'action': 'start'})
+        self.assertEqual(raised.exception.message, 'Docker is not running. Start Docker Desktop, then check again.')
+        self.assertEqual((len(runner.calls), self.entries(), admin.busy), (calls, [], {}))   # no docker read, nothing recorded, nothing busy
+        runner.inspect, runner.partial = read, None
+        runner.timeout = {'ps'}
+        self.assertTrue(admin.overview()['stale'])                               # slow is not down: the action is accepted as before
+        self.assertEqual(admin.handle('/apps/action', {'service': 'melange-desk', 'action': 'start'}), {'ok': True, 'accepted': True})
+        self.assertEqual([(e['action'], e['outcome']) for e in self.entries()], [('start', 'succeeded')])
+
+    def test_the_down_error_is_read_once_so_a_read_finishing_meanwhile_cannot_swap_it_out(self):
+        admin, _ = make_apps(self.temp.name, self.store)
+        admin.overview()                                                         # a list is kept
+
+        class Vanishing(DockerUnavailable):
+            @property
+            def down(self):                                                      # a read on another thread finishes between the test and the use
+                admin.failed = None
+                return True
+        admin.failed = gone = Vanishing('Docker is not running. Start Docker Desktop, then check again.')
+        with self.assertRaises(DockerUnavailable) as raised:
+            admin.handle('/apps/action', {'service': 'melange-desk', 'action': 'start'})
+        self.assertIs(raised.exception, gone)                                    # the error that was tested, not None.with_traceback
+        self.assertEqual(admin.busy, {})
+        kept = admin.kept()
+        admin.snapshot = lambda: (kept, 'Another check is still running.')
+        admin.failed = gone
+        self.assertEqual(admin.overview()['docker']['message'], gone.message)    # the overview says what it tested, too
+
+    def test_start_docker_launches_only_the_fixed_exe_detached_and_audits_it(self):
+        launched = []
+        self.apps.docker.launch = lambda argv, **kwargs: launched.append((argv, kwargs))
+        with tempfile.TemporaryDirectory() as local, tempfile.TemporaryDirectory() as machine, \
+                mock.patch.dict(os.environ, {'LOCALAPPDATA': local, 'ProgramFiles': machine}):
+            with self.assertRaises(NotSetUp):
+                self.apps.handle('/apps/docker-start', {})                       # neither install folder holds the exe
+            self.assertEqual((launched, self.entries()), ([], []))
+            system = Path(machine) / 'Docker' / 'Docker' / 'Docker Desktop.exe'
+            system.parent.mkdir(parents=True)
+            system.write_bytes(b'')
+            self.assertEqual(self.apps.handle('/apps/docker-start', {}), {'ok': True, 'accepted': True})
+            self.assertEqual(launched[-1][0], [str(system)])
+            self.assertEqual(launched[-1][1]['cwd'], os.path.dirname(str(system)))   # its own folder, not the dashboard's (a OneDrive repo)
+            user = Path(local) / 'Programs' / 'DockerDesktop' / 'Docker Desktop.exe'
+            user.parent.mkdir(parents=True)
+            user.write_bytes(b'')
+            self.apps.handle('/apps/docker-start', {})
+            argv, kwargs = launched[-1]
+            self.assertEqual(argv, [str(user)])                                  # the per-user install comes first
+            self.assertIs(kwargs['shell'], False)
+            self.assertEqual(kwargs['creationflags'], getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+            self.assertEqual(kwargs['cwd'], os.path.dirname(str(user)))
+            self.assertEqual({kwargs[name] for name in ('stdin', 'stdout', 'stderr')}, {subprocess.DEVNULL})
+            self.assertEqual([(e['service'], e['action'], e['outcome']) for e in self.entries()], [('docker-desktop', 'start', 'succeeded')] * 2)
+            shown = self.apps.overview()['activity']                                 # and it shows in the Apps timeline
+            self.assertEqual([(a['name'], a['action'], a['outcome']) for a in shown], [('Docker Desktop', 'start', 'succeeded')] * 2)
+            for request in ({'path': str(user)}, {'exe': r'C:\evil.exe'}, {'args': ['--x']}, {'service': 'terrier'}):   # nothing from the request reaches the launch
+                with self.subTest(request=request), self.assertRaises(BadRequest):
+                    self.apps.handle('/apps/docker-start', request)
+            self.assertEqual(len(launched), 2)
+
+            def broken(argv, **kwargs):
+                raise OSError('not allowed')
+            self.apps.docker.launch = broken
+            with self.assertRaises(ActionFailed):
+                self.apps.handle('/apps/docker-start', {})
+            self.assertEqual(self.entries()[0]['outcome'], 'failed')
+
     def test_failed_action_logs_one_failed_entry_with_redacted_reason(self):
         failing, runner = make_apps(self.temp.name, self.store, FakeRunner(fail=('restart',)))
         failing.handle('/apps/action', {'service': 'terrier', 'action': 'restart'})
@@ -580,6 +743,13 @@ class AppsAdminTests(unittest.TestCase):
             thread.join(3)
         closing.shutdown()
         self.assertEqual(len(self.entries()), 1)              # the action that finished afterwards adds nothing
+
+    def test_the_page_waits_out_the_slowest_invite(self):
+        # invite() reads the containers (REFRESH_BUDGET), then runs the command (INVITE_TIMEOUT, plus 5 s to kill its tree).
+        # A page that aborts first loses the link while Terrier still creates the invitation; a retry then hits 'Use reset'.
+        script = (Path(apps.__file__).parent / 'admin_ui_v2' / 'app.js').read_text(encoding='utf-8')
+        wait = int(re.search(r"call\('/apps/invite',\{[^}]*\},(\d+)\)", script).group(1)) / 1000
+        self.assertGreater(wait, apps.REFRESH_BUDGET + apps.INVITE_TIMEOUT + 5)
 
     def test_invite_uses_terrier_command_and_returns_the_link_once(self):
         result = self.apps.handle('/apps/invite', {'email': 'maya@example.org', 'role': 'organizer'})

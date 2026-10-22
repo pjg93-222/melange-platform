@@ -8,6 +8,7 @@ actively cosponsors CU bills (Legislative >= ally dial L8) is NOT tagged Opponen
 Done via Excel COM so Tables/LET formulas are preserved and the workbook recalculates (openpyxl can't).
 Backs the workbook up first."""
 import win32com.client as win32, shutil, datetime, sys
+import roster
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 WB = MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
 bak = WB.replace('.xlsx', '.PRE-STANCEGUARD-%s.xlsx' % datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
@@ -22,10 +23,10 @@ xl = win32.DispatchEx('Excel.Application'); xl.Visible = False; xl.DisplayAlerts
 try:
     wb = xl.Workbooks.Open(WB)
     ws = wb.Worksheets('Rank & Allocation')
-    ws.Range('G3:G535').Formula = F
+    ws.Range('G%d:G%d' % (roster.first_row('Rank & Allocation'), roster.last_row('Rank & Allocation'))).Formula = F
     xl.CalculateFull()
     import collections
-    cnt = collections.Counter(ws.Cells(r, 7).Value for r in range(3, 536) if ws.Cells(r, 1).Value)
+    cnt = collections.Counter(ws.Cells(r, 7).Value for r in roster.rows('Rank & Allocation') if ws.Cells(r, 1).Value)
     print('Stance Tier counts after guard:', dict(cnt))
     for r in (51, 458, 491):
         print('  %-16s -> %s' % (ws.Cells(r, 1).Value, ws.Cells(r, 7).Value))

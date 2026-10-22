@@ -26,6 +26,7 @@ DEFAULT_SUPPLEMENTAL_DISCOVERY = ROOT / "data/speech/member_longform_general_web
 DEFAULT_PRIMARY_ACQUISITION = ROOT / "data/speech/member_longform_acquisition_v1.jsonl"
 DEFAULT_RETRY_ACQUISITION = ROOT / "data/speech/member_longform_no_cue_retry_acquisition_v1.jsonl"
 DEFAULT_ROLES = ROOT / "data/speech/member_leadership_role_cutoffs_v1.json"
+DEFAULT_OVERRIDES = retry.DEFAULT_OVERRIDES
 DEFAULT_OUT = ROOT / "data/speech/member_longform_no_cue_retry2_queue_v1.jsonl"
 DEFAULT_RECEIPT = ROOT / "data/speech/member_longform_no_cue_retry2_queue_v1.receipt.json"
 
@@ -83,6 +84,7 @@ def main() -> int:
         help="Acquisition ledger paired with --additional-cues; repeat in source order.",
     )
     parser.add_argument("--roles", type=Path, default=DEFAULT_ROLES)
+    parser.add_argument("--overrides", type=Path, default=DEFAULT_OVERRIDES)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT)
     parser.add_argument("--receipt", type=Path, default=DEFAULT_RECEIPT)
     args = parser.parse_args()
@@ -108,6 +110,9 @@ def main() -> int:
     roles = set(
         (json.loads(args.roles.read_text(encoding="utf-8-sig")).get("members") or {}).keys()
     )
+    overridden = {
+        str(row["member"]) for row in SMR.read_jsonl(args.overrides)
+    } if args.overrides.exists() else set()
     unresolved = {
         member for member, row in primary_cues.items()
         if row.get("status") == "NO_FULL_NAME_CUE_FOUND"
@@ -118,6 +123,10 @@ def main() -> int:
         )
         and member not in roles
     }
+    # A reviewed override is the primary source; never fall back to the
+    # unreviewed discovery pool for these members.
+    deferred_to_override = unresolved & overridden
+    unresolved -= overridden
     grouped: dict[str, list[dict]] = {}
     discovery_rows = [
         normalized_candidate(raw, "youtube")
@@ -199,6 +208,7 @@ def main() -> int:
             "unresolved_after_primary_and_first_retry": len(unresolved),
             "additional_source_queued": len(rows),
             "without_discovered_additional_source": len(unresolved) - len(rows),
+            "deferred_to_reviewed_primary_override": len(deferred_to_override),
         },
         "contract": {
             "earlier_recordings_are_preserved": True,
@@ -223,6 +233,10 @@ def main() -> int:
                 {"path": str(path.resolve()), "sha256": SMR.sha256_file(path)}
                 for path in args.additional_acquisition
             ],
+            "overrides_sha256": (
+                SMR.sha256_file(args.overrides)
+                if args.overrides.is_file() else None
+            ),
             "leadership_roles_sha256": SMR.sha256_file(args.roles),
         },
         "output": {"path": str(args.out.resolve()), "sha256": SMR.sha256_file(args.out)},

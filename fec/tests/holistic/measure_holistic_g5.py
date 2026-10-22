@@ -9,8 +9,9 @@ WT = os.path.normpath(os.path.join(HERE, '..', '..', '..'))
 sys.path.insert(0, os.path.join(WT, 'fec'))
 os.environ.pop('NET_CONFIG', None)
 import moneyball_core as MC
+import roster
 
-DEN = 533 * 532 // 2  # roster pairs
+DEN = roster.count() * (roster.count() - 1) // 2  # roster pairs
 
 def tail(xs, t): return round(sum(1 for x in xs if x > t) / len(xs), 6) if xs else None
 def med(xs): return round(statistics.median(xs), 6) if xs else None

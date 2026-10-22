@@ -34,9 +34,13 @@ class GitHooksTests(Base):
 
 
 class ExportConfigTests(Base):
-    def test_exactly_the_five_research_dependent_tests_are_excluded(self):
+    def test_exactly_the_eleven_research_dependent_tests_are_excluded(self):
         research_tests = export.MELANGE_RESEARCH_TESTS
-        self.assertEqual(len(research_tests), 5)
+        self.assertEqual(len(research_tests), 11)
+        # PR #14 round 3: six fec/tests/research files that import or read fec/research/.
+        for name in ("exchange_context_audit_checks", "fetch_demographics_guards", "fetch_hearing_pilot_provenance",
+                     "mine_anchors_matcher", "refinement_common_write_json", "refinement_report_guards"):
+            self.assertIn(f"fec/tests/research/test_{name}.py", research_tests, name)
         expected = {                                                    # synthetic paths -> disposition
             **{path: "excluded path" for path in research_tests},
             "fec/research/cosponsor_universe/universe_gold_cohort.py": "excluded path",   # the research rule itself
@@ -71,10 +75,15 @@ class ExportConfigTests(Base):
         self.assertTrue(export.MELANGE_EXCLUDE.match("fec/research/anything.py"))
 
     def test_the_local_artifact_workspace_test_is_excluded_by_exact_path(self):
-        self.assertEqual(export.MELANGE_LOCAL_ARTIFACT_TESTS, ("fec/tests/surfaces/test_original_workspace.py",))
-        self.assertTrue(export.MELANGE_EXCLUDE.match("fec/tests/surfaces/test_original_workspace.py"))
+        self.assertEqual(export.MELANGE_LOCAL_ARTIFACT_TESTS, ("fec/tests/surfaces/test_original_workspace.py",
+                                                               "fec/tests/collect/test_cspan_chromote_retry.py",
+                                                               "fec/tests/collect/test_cspan_chromote_retry.R"))
+        for path in export.MELANGE_LOCAL_ARTIFACT_TESTS:
+            self.assertTrue(export.MELANGE_EXCLUDE.match(path), path)
         for path in ("fec/tests/surfaces/test_original_workspace.pyc", "fec/tests/surfaces/test_original_workspace_extra.py",
-                     "fec/tests/surfaces/test_clean_workspace.cjs", "x/fec/tests/surfaces/test_original_workspace.py"):
+                     "fec/tests/surfaces/test_clean_workspace.cjs", "x/fec/tests/surfaces/test_original_workspace.py",
+                     "fec/tests/collect/test_cspan_chromote_retry.pyc", "fec/tests/collect/test_cspan_chromote_retry_extra.py",
+                     "fec/tests/collect/test_refresh_cspan_wj_errors.py", "x/fec/tests/collect/test_cspan_chromote_retry.R"):
             self.assertIsNone(export.MELANGE_EXCLUDE.match(path), path)
 
     def test_the_shipped_config_keeps_the_r_lock_that_deps_yml_reads(self):

@@ -96,3 +96,21 @@ def test_capacity_share_audit_accepts_zero_funding_and_rejects_wrong_normalizati
     out=project(roster,{'A000001':{'cu':D(100),'banks':D(100)},'C000001':{'banks':D(100)}},{},{'H0AA00001':'A000001','H0CC00001':'C000001'})
     assert out[1]['money_source_status'].startswith('UNRESOLVED') and out[1]['cu']==100
     assert capacity_share_errors(out)==[]
+
+
+def test_source_bound_totals_tolerate_only_the_recorded_roster_drift(tmp_path):
+    import json
+    from audit.legacy_workbook_audit import money_totals_match_source
+    output=tmp_path/'projection.json'
+    source=[{'member':'A','bioguide':'A1','cu':5,'banks':1,'finserv':0},{'member':'D','bioguide':'D1','cu':2,'banks':0,'finserv':0}]
+    output.write_text(json.dumps(source),encoding='utf-8')
+    import hashlib
+    receipt=tmp_path/'fec_refresh_current.json'
+    receipt.write_text(json.dumps({'status':'PASS','output':{'path':str(output),'sha256':hashlib.sha256(output.read_bytes()).hexdigest()}}),encoding='utf-8')
+    rows=[{'member':'A','bioguide':'A1','cu':5,'banks':1,'finserv':0},{'member':'B','bioguide':'B1','cu':0,'banks':0,'finserv':0}]
+    assert money_totals_match_source(rows,receipt) is False
+    application=tmp_path/'fec_money_application.json'
+    application.write_text(json.dumps({'roster_drift':{'withheld':['B'],'dropped':['D']}}),encoding='utf-8')
+    assert money_totals_match_source(rows,receipt) is True
+    rows[1]['cu']=1
+    assert money_totals_match_source(rows,receipt) is False

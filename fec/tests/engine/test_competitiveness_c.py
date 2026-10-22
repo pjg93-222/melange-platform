@@ -155,7 +155,7 @@ def test_dc_pr_caucus_independent_and_unmatched(records):
     assert records['Eleanor Norton']['join_method'] == 'state_table' and records['Eleanor Norton']['pvi2026'] == -44
     assert records['Eleanor Norton']['c'] == MC.compet_c(44)
     pr = records['Pablo Hernandez Rivera']
-    assert pr['c'] == 1.0 and 'territory_delegate_c1' in pr['flags'] and pr['join_status'] != 'MATCHED'
+    assert pr['c'] == 1.0 and 'territory_delegate_c1' in pr['flags'] and pr['join_status'] != 'MATCHED'   # CM-3 (ruled 2026-10-11, Paul-delegated): PR c == 1.0
     for nm in ('Bernard Sanders', 'Angus King'):
         assert records[nm]['oriented_party'] == 'D' and 'independent_caucus_oriented' in records[nm]['flags']
     assert records['Angus King']['lean'] == 4 and records['Bernard Sanders']['lean'] == 17
@@ -163,6 +163,15 @@ def test_dc_pr_caucus_independent_and_unmatched(records):
     assert k['c'] == 1.0 and k['lean'] is None and 'unoriented_independent' in k['flags']
     z = records['Zed Nomatch']
     assert z['c'] == 1.0 and z['join_method'] == 'unmatched' and 'no_cook_row' in z['flags']
+
+
+def test_cm3_delegate_rulings_keep_c_and_carry_provenance(records):
+    # CM-3 (ruled 2026-10-11, Paul-delegated): GU/VI/AS/MP take the PR path (c == 1.0); DC stays on the state table; both flags carry the ruling in the header
+    terr = BC.build_records([_m('Territory %s' % st, 'T%d' % i, 'House', st, 0, 'D') for i, st in enumerate(('GU', 'VI', 'AS', 'MP'))], COOK, STATES)
+    assert len(terr) == 4 and all(r['c'] == 1.0 and r['join_method'] == 'territory_delegate' and 'territory_delegate_c1' in r['flags'] for r in terr.values())
+    assert records['Eleanor Norton']['join_method'] == 'state_table' and 'dc_delegate_state_row' in records['Eleanor Norton']['flags']
+    assert set(BC.DELEGATE_RULINGS) == {'territory_delegate_c1', 'dc_delegate_state_row'}
+    assert all('ruled 2026-10-11 (Paul-delegated, CM-3)' in v for v in BC.DELEGATE_RULINGS.values())
 
 
 def test_district_row_claimed_by_another_incumbent_gets_c_one(records):

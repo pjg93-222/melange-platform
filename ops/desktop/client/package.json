@@ -1,6 +1,6 @@
 {
   "name": "melange-desktop-client",
-  "version": "1.0.5",
+  "version": "1.0.14",
   "private": true,
   "description": "Independent Melange, Terrier and Mentat desktop applications",
   "main": "main.cjs",

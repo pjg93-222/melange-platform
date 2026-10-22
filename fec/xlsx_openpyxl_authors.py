@@ -13,7 +13,7 @@ and verification code does not change:
 
 What artifact-tool did that openpyxl cannot, and how each is handled (see ops/compute/xlsx_content_diff.py for the
 parity proof):
-  * recalculation + the 533-member score/rank check in workbook_cell_sync.cjs -- openpyxl has no formula engine, so
+  * recalculation + the per-member score/rank check in workbook_cell_sync.cjs -- openpyxl has no formula engine, so
     the proof records ``scores_and_ranks_verified: null`` and ``recalc: not-run``; the check moves to the
     LibreOffice ``office-calc`` job (design F1: Python, not the workbook, is the rank authority).
   * autofitColumns() -- approximated from the text length (widths are presentation, reported not gated).
@@ -160,7 +160,7 @@ def _column_index(letters):
 def author_cell_sync(plan_path):
     """Write exactly the changed cells; merge_cells() copies those cells into the package and nothing else.
 
-    The Node helper also rebuilt four whole views to recalculate and compare 533 scores and ranks. That check needs a
+    The Node helper also rebuilt four whole views to recalculate and compare every member's score and rank. That check needs a
     formula engine, so it is recorded as not run rather than faked.
     """
     plan_path = Path(plan_path)

@@ -211,7 +211,7 @@ def metric_object(
 def _finite_float(raw: str, description: str) -> float:
     try:
         value = float(raw)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid float for {description}: {raw!r}") from exc
     if not math.isfinite(value):
         raise ValueError(f"non-finite float for {description}: {raw!r}")
@@ -267,7 +267,7 @@ def read_members(
                 raise ValueError(f"invalid or duplicate member_id at row {line_number}")
             try:
                 coverage_count = int(row["coverage_count"])
-            except ValueError as exc:
+            except (TypeError, ValueError) as exc:
                 raise ValueError(
                     f"invalid coverage_count at members row {line_number}"
                 ) from exc

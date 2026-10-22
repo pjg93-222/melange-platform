@@ -111,7 +111,10 @@ METHOD_NOTE = (
     "feature uses HR/S bills in the prior Congress only. Committee assignments are "
     "normally made at the start of a Congress and are substantively known at bill "
     "introduction, but the committee inputs are point-in-time captures rather than "
-    "dated rosters and can reflect mid-Congress changes."
+    "dated rosters and can reflect mid-Congress changes. For the live Congress "
+    "(the 119th), members absent from fec/legislators.csv at scoring time are "
+    "excluded as candidates; their joins are not counted (20 pre-snapshot 119th "
+    "joins as of 2026-09-04)."
 )
 
 CONTINUOUS_FEATURES = (

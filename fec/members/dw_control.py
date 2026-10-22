@@ -22,6 +22,7 @@ import os, csv, json, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 
+import roster as _roster   # load_dw() has a `roster` parameter of its own
 from paths import ROOT
 B = ROOT
 
@@ -59,6 +60,6 @@ def dw_cols(DW, members):
 if __name__ == '__main__':
     DW = load_dw()
     exts = sorted((v['extremity'], m) for m, v in DW.items())
-    print('DW-NOMINATE control: %d/533 members' % len(DW))
+    print('DW-NOMINATE control: %d/%d members' % (len(DW), _roster.count()))
     print('most extreme:', ', '.join('%s %.2f' % (m, e) for e, m in exts[-5:][::-1]))
     print('most centrist:', ', '.join('%s %.2f' % (m, e) for e, m in exts[:5]))

@@ -13,7 +13,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 from desktop_admin import (APPS, BoundedServer, Refused, Store, b64, canonical,
-                           digest, file_hashes, handler_for, open_dashboard_window,
+                           digest, file_hashes, handler_for, invite_env, main, open_dashboard_window,
                            private_address, protect, unb64, verify_envelope)
 
 
@@ -336,3 +336,38 @@ def test_dashboard_window_is_registered_browser_app_mode_else_default_browser(re
     else:
         popen.assert_not_called()
         opened.assert_called_once_with(url)
+
+
+@pytest.mark.parametrize('raw,expected', [(None, False), ('', False), (' ', False), ('0', False), ('false', False), ('No', False), (' OFF ', False),
+                                          ('1', True), (' 1', True), ('true', True), ('TRUE', True), ('Yes', True), (' on	', True)])
+def test_invite_env_accepts_the_documented_values(raw, expected):
+    assert invite_env({} if raw is None else {'MELANGE_ACCESS_REQUIRE_INVITE': raw}) is expected
+
+
+@pytest.mark.parametrize('raw', ['2', 'enabled', 'y', 'tru', 'on off', '1 1', '-1'])
+def test_invite_env_refuses_unrecognised_values_instead_of_leaving_enforcement_off(raw):
+    with pytest.raises(Refused, match='MELANGE_ACCESS_REQUIRE_INVITE'):
+        invite_env({'MELANGE_ACCESS_REQUIRE_INVITE': raw})
+
+
+@pytest.mark.parametrize('raw,flag,expected', [(None, [], False), ('true', [], True), ('off', [], False), ('0', ['--require-invite'], True)])
+def test_serve_resolves_enforcement_from_environment_and_flag(store, monkeypatch, raw, flag, expected):
+    monkeypatch.delenv('MELANGE_ACCESS_REQUIRE_INVITE', raising=False)
+    if raw is not None: monkeypatch.setenv('MELANGE_ACCESS_REQUIRE_INVITE', raw)
+    with mock.patch('desktop_admin.handler_for') as handler, mock.patch('desktop_admin.BoundedServer', side_effect=OSError('stop here')):
+        assert main(['--state', str(store.root), 'serve', *flag]) == 2
+    assert handler.call_args.args[1] is expected
+
+
+@pytest.mark.parametrize('flag', [[], ['--require-invite']])
+def test_serve_refuses_a_junk_enforcement_value_before_listening(store, monkeypatch, capsys, flag):
+    monkeypatch.setenv('MELANGE_ACCESS_REQUIRE_INVITE', 'enabled')
+    with mock.patch('desktop_admin.BoundedServer') as server:
+        assert main(['--state', str(store.root), 'serve', *flag]) == 2
+    server.assert_not_called()
+    assert 'MELANGE_ACCESS_REQUIRE_INVITE' in capsys.readouterr().err
+
+
+def test_junk_enforcement_value_does_not_affect_other_commands(store, monkeypatch):
+    monkeypatch.setenv('MELANGE_ACCESS_REQUIRE_INVITE', 'enabled')
+    assert main(['--state', str(store.root), 'devices']) == 0

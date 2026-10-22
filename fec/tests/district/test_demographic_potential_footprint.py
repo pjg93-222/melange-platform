@@ -5,7 +5,7 @@ fec/district/demographic_potential.py. Registered beside test_demographic_potent
 
 The Davis/gate-census/reversal tests read the real LIVE data artifacts
 (district_industry_4digit.json, member_desk_bundle.json) read-only, the same
-way run_tests.py's own kernel already depends on the real 533-member roster
+way run_tests.py's own kernel already depends on the real member roster
 (MC.members()) rather than a synthetic fixture. Those tests skip cleanly if
 the LIVE tree's data files are not present in this checkout (e.g. a bare
 worktree).

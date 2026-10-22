@@ -154,9 +154,12 @@ class CharNgramTfidfBackend:
         normalized_queries: list[str],
         normalized_candidates: list[str],
     ) -> list[list[float]]:
+        import numpy
+
         candidate_matrix = self.vectorizer.fit_transform(normalized_candidates)
         query_matrix = self.vectorizer.transform(normalized_queries)
-        return (query_matrix @ candidate_matrix.T).toarray().tolist()
+        # L2-normalised dot products can round to 1.0000000000000002; clamp round-off.
+        return numpy.clip((query_matrix @ candidate_matrix.T).toarray(), 0.0, 1.0).tolist()
 
 
 def load_plugin(specification: str) -> Callable[[list[str], list[str]], object]:

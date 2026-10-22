@@ -93,6 +93,47 @@ class VoiceFirstRecoveryTests(unittest.TestCase):
         self.assertEqual(coverage["OneEvent"]["duration_sec"], 600.0)
         self.assertEqual(coverage["OneEvent"]["events"], 1)
 
+    def test_scan_chain_refuses_missing_per_claim_thresholds_and_foreign_vault(self):
+        ok = "PASS_ZERO_FALSE_ACCEPT_CALIBRATION"
+        anchor = {"combined_vectors_sha256": "v", "model_manifest_sha256": "m"}
+        prod = {"per_claim_thresholds_status": ok, "per_claim_false_accepts": 0,
+                "anchor_vectors_sha256": "v", "model_manifest_sha256": "m"}
+        multi = {"protocols": {"1x8": {"per_claim_thresholds_status": ok}},
+                 "production_three_window_calibration_sha256": "p"}
+        VFR.require_scan_calibration_chain(anchor, prod, multi, "p")
+        cases = [
+            ({"per_claim_thresholds_status": None}, {}, "p"),
+            ({"per_claim_false_accepts": 1}, {}, "p"),
+            ({"anchor_vectors_sha256": "other"}, {}, "p"),
+            ({"model_manifest_sha256": "other"}, {}, "p"),
+            ({}, {"protocols": {"1x8": {}}}, "p"),
+            ({}, {}, "different-file"),
+        ]
+        for prod_patch, multi_patch, sha in cases:
+            with self.assertRaises(VFR.VoiceFirstRefused):
+                VFR.require_scan_calibration_chain(
+                    anchor, {**prod, **prod_patch}, {**multi, **multi_patch}, sha)
+
+    def test_word_gate_runs_before_profile_cap(self):
+        words = [{"word": "one two three four five", "start_sec": 0.0, "end_sec": 1.0}]
+        runs = [
+            {"source_audio_sha256": "a", "source_start_frame": 0, "source_frame_count": 100},
+            {"source_audio_sha256": "a", "source_start_frame": 100 * VFR.SAMPLE_RATE,
+             "source_frame_count": 100},
+        ]
+        kept, rejected = VFR.filter_runs_by_word_gate(runs, {"a": words})
+        self.assertEqual(kept, runs[:1])
+        self.assertEqual(rejected, 1)
+
+    def test_scan_status_is_pass_only_when_a_dense_window_passed(self):
+        self.assertEqual(VFR.scan_status_for([]), "NO_PASSING_WINDOWS")
+        self.assertEqual(VFR.scan_status_for([{"passes_3x_window": False}]),
+                         "NO_PASSING_WINDOWS")
+        self.assertEqual(
+            VFR.scan_status_for([{"passes_3x_window": False}, {"passes_3x_window": True}]),
+            "PASS",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

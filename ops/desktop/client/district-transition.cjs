@@ -8,8 +8,8 @@ function districtFingerprint(profile,configuration){
  const roots=runtimeRoots('terrier',profile,configuration),records=[];
  const record=filename=>{try{const stat=fs.lstatSync(filename,{bigint:true});records.push([filename,String(stat.dev),String(stat.ino),String(stat.size),String(stat.mtimeNs),String(stat.ctimeNs),stat.isSymbolicLink()]);}catch(error){if(error.code!=='ENOENT')throw error;records.push([filename,null]);}};
  for(const name of ['scores','contacts','street','walk','roads'])for(const suffix of ['','.sqlite3-wal','.sqlite3-journal'])record(path.join(roots.data,name+(suffix||'.sqlite3')));
+ record(path.join(roots.data,'density.json'));
  for(const suffix of ['','-wal','-journal'])record(path.join(roots.state,'accounts.sqlite3'+suffix));
- record(path.join(roots.data,'.desktop-password-lock-disabled'));
  const snapshots=path.join(roots.state,'snapshots');let entries=[];try{entries=fs.readdirSync(snapshots).sort();}catch(error){if(error.code!=='ENOENT')throw error;}
  records.push(['snapshots',entries]);for(const key of entries)for(const name of ['manifest.json','rows.json','geometry.json','streets.geojson','district.geojson','area_indices.json','adjacency.json'])record(path.join(snapshots,key,name));
  return JSON.stringify([roots,records]);
@@ -37,30 +37,34 @@ class DistrictTransition{
   let target,changed=false,loaded=false,oldLocation=this.location();
   try{
    if(await old.activity()===true)throw new Error('Wait for the current calculation to finish before switching districts.');check();
-   await this.verify(selected);check();this.mark(operation,'data-verified');
+   const verified=await this.verify(selected);check();
+   // Verified dataset roots are ephemeral. Only the original approved selection is saved to settings.
+   const effective=verified&&typeof verified==='object'?verified:selected;
+   if(effective.district!==selected.district)throw new Error('District verification returned a different district.');
+   this.mark(operation,'data-verified');
    const remembered=this.pool.get(district);target=remembered?.runtime;
-   if(target&&remembered.fingerprint!==this.fingerprint(selected)){this.pool.delete(district);await target.stop();target=null;}
+   if(target&&remembered.fingerprint!==this.fingerprint(effective)){this.pool.delete(district);await target.stop();target=null;}
    if(target&&!target.child){this.pool.delete(district);await target.stop();target=null;}
    if(!target){await this.prune();check();target=this.createRuntime();}else operation.cacheHit=true;
    // Runtime.start freshly authorizes both new and retained backends.
-   const candidateFingerprint=this.fingerprint(selected);
-   this.starting=target;await target.start(selected);check();this.mark(operation,'backend-ready',{cacheHit:operation.cacheHit});
-   if(operation.cacheHit&&this.fingerprint(selected)!==candidateFingerprint)throw new Error('District data changed while opening. Please try again.');
-   const loadedFingerprint=this.fingerprint(selected);
+   const candidateFingerprint=this.fingerprint(effective);
+   this.starting=target;await target.start(effective);check();this.mark(operation,'backend-ready',{cacheHit:operation.cacheHit});
+   if(operation.cacheHit&&this.fingerprint(effective)!==candidateFingerprint)throw new Error('District data changed while opening. Please try again.');
+   const loadedFingerprint=this.fingerprint(effective);
    if(approvalIdentity(target.authorization)!==approvalIdentity(old.authorization)){await this.clearInactive();throw new Error('Access changed. Reopen the workspace before switching districts.');}
    if(await old.activity()===true)throw new Error('Wait for the current calculation to finish before switching districts.');check();
    // The outgoing backend's own writes are not a replacement: re-fingerprint it now, while quiescent, so a return reuses it.
-   if(this.pool.get(previous.district)?.runtime===old)this.remember(previous,old);
+   if(this.pool.get(previous.district)?.runtime===old)this.remember(old.configuration||previous,old);
    this.write(selected);this.activate(target);changed=true;
    if(!await this.canReveal(target.authorization))throw new Error('Access changed while opening the district.');check();
-   if(this.fingerprint(selected)!==loadedFingerprint)throw new Error('District data changed while opening. Please try again.');
+   if(this.fingerprint(effective)!==loadedFingerprint)throw new Error('District data changed while opening. Please try again.');
    let pathname='/';try{pathname='/'+(new URL(oldLocation).pathname.split('/').filter(Boolean)[0]||'');}catch{}
    const destination=target.launchPath&&target.launchPath!=='/'?target.launchPath:pathname;
    this.pendingReady=operation;
    await this.navigate(target.origin+destination);loaded=true;check();
    if(!await this.canReveal(target.authorization))throw new Error('Access changed while opening the district.');check();
-   if(this.fingerprint(selected)!==loadedFingerprint)throw new Error('District data changed while opening. Please try again.');
-   target.launchPath='/';this.remember(selected,target);operation.committed=true;
+   if(this.fingerprint(effective)!==loadedFingerprint)throw new Error('District data changed while opening. Please try again.');
+   target.launchPath='/';this.remember(effective,target);operation.committed=true;
    this.mark(operation,'navigation-ready',{cacheHit:operation.cacheHit});if(operation.readyAt){this.pendingReady=null;this.mark(operation,'renderer-ready',{cacheHit:operation.cacheHit,rendererElapsedMs:Math.round((operation.readyAt-operation.started)*10)/10});}await this.prune();return true;
   }catch(error){
    this.mark(operation,'failed',{cacheHit:operation.cacheHit});

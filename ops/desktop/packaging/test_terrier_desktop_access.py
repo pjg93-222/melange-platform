@@ -97,6 +97,32 @@ class DesktopAccessTests(unittest.TestCase):
         self.user.is_superuser=True; self.user.save(update_fields=['is_superuser'])
         self.assertEqual(self.request('/api/v3/people?unexpected=1')[0], 400)
 
+    def test_existing_owner_is_never_asked_for_a_password_but_recipients_are(self):
+        from django.contrib.auth.models import User
+        from server.research.models import DesktopPrincipalBinding
+        from server.research.desktop_principal import parse_principal
+        self.assertEqual(self.request('/api/v3/people')[0], 401)   # a recipient with a password still has to sign in
+        owner = User.objects.create_user('admin', password=self.password, is_staff=True, is_superuser=True)
+        password_hash = owner.password
+        principal = parse_principal({'schemaVersion':1,'serverId':self.principal.server_id,'deviceId':self.principal.device_id,
+            'principalId':self.principal.principal_id,'accountIdentity':self.principal.account_identity,
+            'localAccountIdentity':'admin','localUserId':str(owner.pk),'districtId':'co-05',
+            'role':'local_administrator','mode':'existing-owner'}, 'co-05')
+        DesktopPrincipalBinding.objects.all().delete()
+        DesktopPrincipalBinding.objects.create(server_id=principal.server_id,device_id=principal.device_id,
+            principal_id=principal.principal_id,account_identity=principal.account_identity,
+            local_username='admin',district_id='co-05',mode='existing-owner',user=owner)
+        self.boundary.principal = principal
+        status, session = self.request('/api/auth/session')
+        self.assertEqual(status, 200)
+        self.assertTrue(session['authenticated'] and session['local_admin_access'] and session['password_lock_disabled'])
+        self.assertEqual(session['username'], 'admin')
+        self.assertEqual(self.request('/api/v3/people?unexpected=1')[0], 400)   # past the authorization gate with no sign-in
+        owner.refresh_from_db()
+        self.assertEqual(owner.password, password_hash)   # request-only access: the account is untouched
+        status, session = self.request('/api/auth/session', headers={'HTTP_X_DESKTOP_TOKEN': ''})
+        self.assertEqual(status, 403)   # the launch token is still what proves the desktop boundary
+
     def test_anonymous_and_viewer_cannot_read_person_data(self):
         self.assertEqual(self.request('/api/v3/people')[0], 401)
         self.sign_in()

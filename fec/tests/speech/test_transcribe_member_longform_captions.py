@@ -95,3 +95,21 @@ def test_changed_acquisition_invalidates_resumed_transcript():
     existing = {"source_id": "old", "wav_sha256": "old-hash", "status": "CAPTION_TRANSCRIPT_READY_IDENTITY_UNVERIFIED"}
     assert module.transcript_needs_processing(acquired, existing, False, False) is True
     assert module.transcript_needs_processing(acquired, acquired, False, False) is False
+
+
+def test_member_filter_without_resume_keeps_other_members_rows(tmp_path, monkeypatch):
+    import json
+    import sys
+    acquisition = tmp_path / "acq.jsonl"
+    acquisition.write_text(json.dumps({
+        "member": "A", "status": "ACQUIRED_IDENTITY_UNVERIFIED", "source_id": "s"}) + "\n", encoding="utf-8")
+    out = tmp_path / "out.jsonl"
+    keep = {"member": "B", "status": "CAPTION_TRANSCRIPT_READY_IDENTITY_UNVERIFIED"}
+    out.write_text(json.dumps(keep) + "\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", [
+        "x", "--acquisition", str(acquisition), "--existing-asr", str(tmp_path / "none.jsonl"),
+        "--out", str(out), "--receipt", str(tmp_path / "r.json"),
+        "--member", "NoSuchMember"])
+    assert module.main() == 0
+    rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert [row["member"] for row in rows] == ["B"]

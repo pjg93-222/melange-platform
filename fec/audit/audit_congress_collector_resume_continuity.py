@@ -18,6 +18,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+FEC_BOOTSTRAP = Path(__file__).resolve().parents[1]
+if str(FEC_BOOTSTRAP) not in sys.path:
+    sys.path.insert(0, str(FEC_BOOTSTRAP))
+
+try:
+    from lane_file_io import atomic_write_bytes
+except ImportError:  # pragma: no cover - package import path
+    from fec.lane_file_io import atomic_write_bytes
+
 
 SCHEMA = "acu-congress-collector-resume-continuity-audit-v1"
 QUERY_SEMANTIC_FIELDS = (
@@ -736,19 +745,33 @@ def audit_continuity(
     return report
 
 
-def write_report(report: dict[str, Any], output_path: Path) -> str:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-        newline="\n",
-    )
-    file_sha = sha256_file(output_path)
-    output_path.with_suffix(output_path.suffix + ".sha256").write_text(
-        f"{file_sha}  {output_path.name}\n",
-        encoding="ascii",
-        newline="\n",
-    )
+def write_report(
+    report: dict[str, Any],
+    output_path: Path,
+    protected: Iterable[Path] = (),
+    evidence_roots: Iterable[Path] = (),
+) -> str:
+    output_path = output_path.resolve()
+    sidecar = output_path.with_suffix(output_path.suffix + ".sha256")
+    # Every query, page and timeout receipt the manifest references resolves
+    # inside its run directory (_safe_relative_file), so refusing the whole
+    # tree protects all of them, including ones a later run will add.
+    for root in evidence_roots:
+        root = Path(root).resolve()
+        for target in (output_path, sidecar):
+            if target.is_relative_to(root):
+                raise ValueError("report output must not be written inside an evidence tree")
+    for value in protected:
+        source = Path(value).resolve()
+        for target in (output_path, sidecar):
+            if target == source or (
+                target.exists() and source.exists() and target.samefile(source)
+            ):
+                raise ValueError("report output must not overwrite a bound input")
+    body = (json.dumps(report, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    file_sha = hashlib.sha256(body).hexdigest()
+    atomic_write_bytes(output_path, body)
+    atomic_write_bytes(sidecar, f"{file_sha}  {output_path.name}\n".encode("ascii"))
     return file_sha
 
 
@@ -771,7 +794,18 @@ def main() -> int:
             args.partition_audit,
             expected_query_count=args.expected_query_count,
         )
-        file_sha = write_report(report, args.output)
+        review_files = [
+            Path(item["file"])
+            for item in report["candidate_review_partition_binding"]["bindings"]
+            if isinstance(item.get("file"), str) and item["file"]
+        ]
+        file_sha = write_report(
+            report,
+            args.output,
+            [args.baseline_manifest, args.current_manifest, args.partition_audit,
+             *review_files],
+            evidence_roots=[args.current_manifest.resolve().parent],
+        )
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"continuity audit failed before report generation: {exc}", file=sys.stderr)
         return 2

@@ -15,8 +15,10 @@ from typing import Any
 import uuid
 
 try:
+    import roster
     from lane_file_io import atomic_write_bytes
 except ImportError:  # pragma: no cover - package import path
+    from fec import roster
     from fec.lane_file_io import atomic_write_bytes
 
 
@@ -98,7 +100,8 @@ def read_rank_file(path: Path) -> dict[str, Any]:
     rank = value["rank"]
     score = value["score"]
     require(set(rank) == set(score), f"Rank/score member set drift: {path}")
-    require(len(rank) == 533, f"Expected 533 rank members: {path}")
+    expected_members = roster.count(root=ROOT)
+    require(len(rank) == expected_members, f"Expected {expected_members} rank members: {path}")
     observed_ranks = []
     for member in rank:
         require(
@@ -117,8 +120,8 @@ def read_rank_file(path: Path) -> dict[str, Any]:
         )
         observed_ranks.append(rank[member])
     require(
-        sorted(observed_ranks) == list(range(1, 534)),
-        f"Ranks are not an exact 1..533 permutation: {path}",
+        sorted(observed_ranks) == list(range(1, expected_members + 1)),
+        f"Ranks are not an exact 1..{expected_members} permutation: {path}",
     )
     return value
 
@@ -196,8 +199,9 @@ def build_audit(
     squared_delta_sum = sum(
         row["rank_delta_live_minus_frozen"] ** 2 for row in rows
     )
+    n_members = float(len(rows))
     rank_correlation = 1.0 - (
-        6.0 * squared_delta_sum / (533.0 * (533.0**2 - 1.0))
+        6.0 * squared_delta_sum / (n_members * (n_members**2 - 1.0))
     )
     changed = [row for row in rows if row["absolute_rank_delta"]]
     score_changed = [
@@ -229,7 +233,7 @@ def build_audit(
     producer = file_item(Path(__file__).resolve())
     summary = {
         "member_count": len(rows),
-        "member_set_closed": len(rows) == 533,
+        "member_set_closed": len(rows) == roster.count(root=ROOT),
         "rank_changed_count": len(changed),
         "score_changed_count": len(score_changed),
         "maximum_absolute_rank_movement": max(

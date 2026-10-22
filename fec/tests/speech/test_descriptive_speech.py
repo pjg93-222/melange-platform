@@ -918,5 +918,70 @@ class DisplayOnlyContract(unittest.TestCase):
         self.assertIn('counts["locally_measured"] > 0', source)
 
 
+class UnreadableWavAndCacheContracts(unittest.TestCase):
+    def test_zero_byte_wav_is_a_contract_failure_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "empty.wav"
+            path.write_bytes(b"")
+            with self.assertRaises(S.SpeechBuildError):
+                S.wav_contract({"out_wav": str(path), "frames": 1}, False)
+            with self.assertRaises(S.SpeechBuildError):
+                S.supplement_wav_contract({"wav": str(path)}, False)
+            with self.assertRaises(S.SpeechBuildError):
+                S._wav_facts(path)
+            garbage = Path(directory) / "garbage.wav"
+            garbage.write_bytes(b"not a riff file at all")
+            with self.assertRaises(S.SpeechBuildError):
+                S.wav_contract({"out_wav": str(garbage), "frames": 1}, False)
+
+    def test_explicit_missing_verified_lane_fails_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "gone.jsonl"
+            args = (missing, Path(directory) / "gone.receipt.json") + (missing,) * 6
+            records, meta = S.validate_verified_final_contract(*args, set())
+            self.assertEqual((records, meta["enabled"]), ([], False))
+            with self.assertRaises(S.SpeechBuildError):
+                S.validate_verified_final_contract(*args, set(), require_present=True)
+
+    def test_parse_args_marks_explicit_verified_paths(self):
+        self.assertFalse(S.parse_args([]).verified_lane_explicit)
+        self.assertTrue(S.parse_args(["--verified-manifest", "x.jsonl"]).verified_lane_explicit)
+        self.assertEqual(S.parse_args([]).verified_manifest, S.DEFAULT_VERIFIED_MANIFEST)
+
+    def test_stale_feature_cache_is_not_reused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            wav = Path(directory) / "c.wav"
+            make_wav(wav, 16000)
+            row = {"member": "A", "outlet": "CNN", "sha256": S.sha256_file(wav),
+                   "out_wav": str(wav), "frames": 16000, "dur": 1.0,
+                   "samplerate": 16000}
+            digest = S.row_sha256(row)
+            old = {ch: 1.0 for ch in S.CHANNELS}
+            new = {ch: 2.0 for ch in S.CHANNELS}
+            prior = {"manifest_row_sha256": digest, "measures": old,
+                     "measurement_source": "accepted_span_feature",
+                     "feature_provenance": {"file_sha256": "a" * 64, "row_sha256": "b" * 64}}
+            found = {"path": Path(directory) / "f.jsonl", "file_sha256": "c" * 64,
+                     "row_sha256": "d" * 64, "row": new}
+            key = S.feature_key(row, "CNN")
+            orig = (S.load_npr_bindings, S.load_sunday_bindings,
+                    S.load_local_youtube_bindings, S.classify_identity)
+            try:
+                S.load_npr_bindings = lambda: (Path(directory) / "n", {})
+                S.load_sunday_bindings = lambda: (Path(directory) / "s", {})
+                S.load_local_youtube_bindings = lambda: ({}, [])
+                S.classify_identity = lambda *a, **k: {"tier": "turn_bound"}
+                (Path(directory) / "n").write_text("x")
+                (Path(directory) / "s").write_text("x")
+                records, counts, _ = S.build_clip_records(
+                    [row], {"A"}, {"CNN": {key: found}}, {row["sha256"]: prior},
+                    verify_hash=False, measure_missing=False)
+            finally:
+                (S.load_npr_bindings, S.load_sunday_bindings,
+                 S.load_local_youtube_bindings, S.classify_identity) = orig
+            self.assertEqual(records[0]["measures"][S.CHANNELS[0]], 2.0)
+            self.assertEqual(records[0]["feature_provenance"]["file_sha256"], "c" * 64)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

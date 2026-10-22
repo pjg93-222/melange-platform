@@ -10,7 +10,7 @@ Sources (adapters):
            mention, "MULLIN:" after — intros build a per-segment surname alias map.
   * MTP  — nbcnews.com Meet the Press weekly transcript pages (hub + archive page discovery).
            Labels: "SEN. ELIZABETH WARREN:" (title-prefixed full names).
-Attribution: normalized full-name match against the 533 roster (titles stripped); surname-only
+Attribution: normalized full-name match against the member roster (titles stripped); surname-only
 continuation labels resolve ONLY via the segment's own intro aliases; unresolvable speakers are
 DROPPED, never guessed (same discipline as fetch_congressional_record). Host/anchor speech never
 enters the corpus. Storage: speeches table, source='INTERVIEW' (big5_traits and the per-source
@@ -20,7 +20,7 @@ Usage:
   python fec/members/fetch_interviews.py mtp
   python fec/members/fetch_interviews.py status
 Politeness: ~0.7s between requests, identified research-collector UA. Internal research use."""
-import sys, os, re, json, sqlite3, datetime, time, urllib.request, urllib.error, collections, socket
+import sys, os, re, json, hashlib, sqlite3, datetime, time, urllib.request, urllib.error, collections, socket
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 # TURN-BOUNDARY GRAMMAR (N12, Paul-approved 2026-09-19). The ALL-CAPS label classes below could not
 # see a backtick (O`DONNELL:), a lower-case parenthetical (WALLACE (voice-over):), a bracketed
@@ -77,6 +77,19 @@ def _write_source_receipt(source, payload):
         handle.write('\n')
     os.replace(temporary, path)
     return path
+
+def _keys_digest(sorted_keys):
+    return hashlib.sha256('\n'.join(sorted_keys).encode()).hexdigest()
+
+def _read_source_receipt(source):
+    """The previous receipt for `source`; {} when it is missing or unreadable (never trusted then)."""
+    path = os.path.join(B, 'data', 'engine', 'interview_source_receipts', source + '.json')
+    try:
+        with open(path, encoding='utf-8') as handle:
+            document = json.load(handle)
+    except (OSError, ValueError):
+        return {}
+    return document if isinstance(document, dict) else {}
 
 def get(url, tries=3):
     for i in range(tries):
@@ -874,21 +887,83 @@ def run_hewitt():
             print('hh %s FAIL %s' % (slug[:50], str(e)[:80]), flush=True)
     con.close(); print('hewitt done: %d member turns' % tot)
 
-def run_msnow():
+# run_msnow's callers (weekly_refresh, daily_media_refresh, refresh_table) all kill it at 3600 s and none
+# passes --budget-s, so the leg carries its own default 600 s below that ceiling (a page fetch can take
+# ~200 s of get() retries and the receipt write follows the loop). --budget-s overrides it.
+MSNOW_DEFAULT_BUDGET_S = 3000
+
+def run_msnow(budget=0):
     """MS NOW (ex-MSNBC) transcript archive via the site's PUBLIC WordPress REST API (user-directed
     2026-07-10, 'Get MS NOW, more data the better'). Discovery: ms.now pages are JS-rendered, but
     the platform exposes the standard WP REST surface (apiRoot https://www.ms.now/wp-json/ is
     printed in the page's own jetpack state) with a DEDICATED custom post type: /wp/v2/transcript —
     10,744 posts, 2010->2024, full content.rendered INSIDE the list responses (one request per
-    page of 50 = the whole archive in ~215 requests). robots.txt: 'User-agent: *' allows all but
+    page of 50 = the whole archive in ~215 requests, ~660 MB). robots.txt: 'User-agent: *' allows all but
     /search? (the named-AI-bot blocks target training crawlers, same posture as our other legs).
     The type MIXES real show transcripts (CAPS labels, 'SEN. BERNIE SANDERS (I), VERMONT:') with
     maddowblog essays — parse_turns yields zero member rows on essays, so they drop naturally
-    (drop-never-guess). Resume: per-post keys msnow:<id>; page walk is date-ASC so the id set is
-    stable under new publications. D-side skew acknowledged: this is the L-flank archive; Fox
-    (run_fox) was the R mirror until their transcripts ended ~2022."""
+    (drop-never-guess). Resume: per-post keys msnow:<id>. D-side skew acknowledged: this is the L-flank
+    archive; Fox (run_fox) was the R mirror until their transcripts ended ~2022.
+
+    2026-10-19 — the weekly step kept hitting its 3600 s timeout: every run walked all ~215 pages
+    oldest-first just to learn there was nothing new, and printed nothing until a page added turns.
+    The walk is now NEWEST-first and ends at the first page whose posts are all already collected, but
+    only when the previous receipt says COMPLETE: a missing or PARTIAL receipt (a failed page, a budget
+    stop, an aborted walk) may hide an unseen post deeper than the first seen page, so that run
+    walks the whole archive and its COMPLETE receipt re-enables the cheap path. The receipt also records
+    known_ok_posts, and a log that holds fewer msnow posts than that (rows deleted to force a re-collect)
+    walks fully too. Known ceiling: a post back-dated into the already-walked range after a COMPLETE
+    run is not seen until the next full walk (delete the receipt to force one).
+
+    A walk that stops early (budget, failed page) leaves resume_before in its PARTIAL receipt: the date the
+    walk had cleanly reached (a failed page freezes it; offsets shift as posts publish, a date does not).
+    The next run catches up newest-first as usual and, at the first fully-seen page, resumes the backfill
+    with before=<that date>T23:59:59 from page 1 until the archive ends, so repeated budget stops converge
+    to COMPLETE instead of re-walking from page 1. The cursor day is re-covered on purpose (a page can be
+    cut mid-day); seen posts cost a fetch, not a re-store. A missing or malformed cursor, or a log that
+    lost rows since the receipt, means a full walk. Each page prints a progress line, and `budget` seconds
+    (default MSNOW_DEFAULT_BUDGET_S, run_cnn's pattern) end the walk BETWEEN pages with a PARTIAL
+    receipt and a False return, so --strict exits 2 instead of the caller's SIGKILL discarding stdout."""
     import json as _json
+    budget = budget or MSNOW_DEFAULT_BUDGET_S
     con = db(); done = {k for (k,) in con.execute("SELECT key FROM iv_fetch_log WHERE status='ok'")}
+    previous = _read_source_receipt('msnow'); previous_status = previous.get('status')
+    log_keys = sorted(k for k in done if k.startswith('msnow:')); log_holds = len(log_keys)
+    # COMPLETE says the last walk left no gap, not that the log still holds what it collected: deleting
+    # msnow: rows to force a re-collect must defeat the early stop, so the receipt records how many
+    # msnow posts the log held (known_ok_posts) and the early stop needs the log to hold at least that many.
+    # A receipt without the field (written before it existed, as the live one is) is trusted: it is
+    # COMPLETE and the log holds every post, and refusing it would cost a full 215-page walk on the
+    # first run. A present but unreadable value is not trusted.
+    # The count cannot see a same-count replacement (rows deleted, others added), so the receipt also
+    # records the msnow: ids the log held (known_ok_post_ids, one comma-joined line) and a sha256 of the
+    # sorted keys (known_ok_post_keys). The ids are authoritative: every recorded id must still be in the
+    # log, i.e. the log equals the receipt or grew (a run killed before its receipt). A receipt with only
+    # the digest needs an exact key-set match at the recorded count (a hash cannot prove a superset, so
+    # more keys than recorded pass on the count); one with only the count keeps the count rule.
+    recorded = previous.get('known_ok_posts'); recorded_keys = previous.get('known_ok_post_keys')
+    recorded_ids = previous.get('known_ok_post_ids')
+    log_intact = recorded is None or (isinstance(recorded, int) and log_holds >= recorded)
+    if recorded_ids is not None:
+        log_intact = (isinstance(recorded_ids, str)
+                      and set(filter(None, recorded_ids.split(','))) <= {k[len('msnow:'):] for k in log_keys})
+    elif log_intact and recorded_keys is not None:
+        log_intact = (isinstance(recorded_keys, str) and re.fullmatch(r'[0-9a-f]{64}', recorded_keys) is not None
+                      and (log_holds > recorded or _keys_digest(log_keys) == recorded_keys))
+    can_stop_early = previous_status == 'COMPLETE' and log_intact
+    # A budget stop or failed page leaves resume_before: the date the walk had cleanly reached (offsets shift
+    # as posts publish, a date does not). The run then catches up on what is new, and resumes below it.
+    resume = previous.get('resume_before')
+    resuming = (previous_status == 'PARTIAL' and log_intact and isinstance(resume, str)
+                and re.fullmatch(r'\d{4}-\d{2}-\d{2}', resume) is not None)
+    if previous_status == 'COMPLETE' and not log_intact:
+        print('msnow: iv_fetch_log holds %s msnow posts but the last COMPLETE walk recorded %s (or a different key set) -- walking the full archive'
+              % (log_holds, recorded), flush=True)
+    elif resuming:
+        print('msnow: previous walk was PARTIAL -- catching up, then resuming the backfill below %s' % resume, flush=True)
+    elif not can_stop_early:
+        print('msnow: previous walk was %s -- walking the full archive' % (previous_status or 'not recorded'), flush=True)
+    t0 = time.monotonic(); stop = None
     tot = 0; page = 1; failures = 0; source_dates = []; source_posts = 0; new_posts = 0
     # Every failure branch below increments `page` and continues, so a host that answers EVERY page
     # with a 5xx/timeout/garbage walks the page counter forever (each retry costs ~9s of get()
@@ -902,12 +977,19 @@ def run_msnow():
     CONSECUTIVE_FAILURE_CEILING = 10
     consecutive_failures = 0
     aborted = False
+    cursor = resume if resuming else None   # oldest date cleanly reached; frozen by the first failed page
+    bound = None; pages_before = 0           # bound: the before= date of the backfill; pages_before: catch-up pages
     while True:
-        url = ('https://www.ms.now/wp-json/wp/v2/transcript?per_page=50&orderby=date&order=asc&page=%d' % page)
+        if (time.monotonic() - t0) > budget:
+            stop = 'budget'
+            print('MSNOW BUDGET EXHAUSTED after %ds at page %d -- archive walk INCOMPLETE' % (budget, page), flush=True)
+            break
+        url = ('https://www.ms.now/wp-json/wp/v2/transcript?per_page=50&orderby=date&order=desc&page=%d' % page)
+        if bound: url += '&before=%sT23:59:59' % bound   # end of the cursor day: re-covers it, so a page cut mid-day loses nothing
         try:
             raw = get(url); time.sleep(PAUSE)
         except urllib.error.HTTPError as e:
-            if e.code in (400, 404) and page > 1: break  # past the last page (WP returns 400 rest_post_invalid_page_number); on page 1 it is a removed/renamed endpoint = FAILURE
+            if e.code in (400, 404) and page > 1: stop = 'end'; break  # past the last page (WP returns 400 rest_post_invalid_page_number); on page 1 it is a removed/renamed endpoint = FAILURE
             failures += 1; consecutive_failures += 1
             print('msnow page %d FAIL %s' % (page, e.code), flush=True); page += 1
             if consecutive_failures >= CONSECUTIVE_FAILURE_CEILING: aborted = True; break
@@ -925,15 +1007,17 @@ def run_msnow():
             if consecutive_failures >= CONSECUTIVE_FAILURE_CEILING: aborted = True; break
             continue
         consecutive_failures = 0
-        if not posts: break
+        if not posts: stop = 'end'; break
         source_posts += len(posts)
-        nd = 0
+        nd = 0; page_new = 0
+        page_dates = [(p.get('date') or '')[:10] for p in posts if p.get('date')]
+        if page_dates and not failures: cursor = min(page_dates + ([cursor] if cursor else []))
         for p in posts:
             key = 'msnow:%s' % p.get('id')
             date = (p.get('date') or '')[:10]
             if date: source_dates.append(date)
             if key in done: continue
-            new_posts += 1
+            new_posts += 1; page_new += 1
             link = p.get('link') or url
             if not date:                                 # run-5 lesson: NEVER store dateless rows
                 con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'nodate', datetime.datetime.now().isoformat()))
@@ -945,8 +1029,16 @@ def run_msnow():
             con.execute('INSERT OR REPLACE INTO iv_fetch_log VALUES (?,?,?)', (key, 'ok', datetime.datetime.now().isoformat()))
             done.add(key)
         con.commit(); tot += nd
-        if nd: print('msnow page %d: %d member turns (total %d)' % (page, nd, tot), flush=True)
+        print('msnow page %d: %d posts, %d new, %d member turns (total %d), %ds elapsed' % (
+            page, len(posts), page_new, nd, tot, time.monotonic() - t0), flush=True)
         page += 1
+        if (can_stop_early or resuming) and not bound and not page_new:
+            if can_stop_early:
+                stop = 'caught_up'
+                print('msnow: page %d held nothing unseen -- caught up, walk ends' % (page - 1), flush=True)
+                break
+            print('msnow: page %d held nothing unseen -- caught up, resuming below %s' % (page - 1, cursor), flush=True)
+            bound = cursor; pages_before = page - 1; page = 1
     if aborted:
         print('msnow %d consecutive failed pages -- archive walk INCOMPLETE' % CONSECUTIVE_FAILURE_CEILING, flush=True)
     stats = con.execute(
@@ -956,21 +1048,28 @@ def run_msnow():
     ).fetchone()
     con.close(); print('MSNOW done: %d member turns' % tot)
     _write_source_receipt('msnow', {
-        'status': 'COMPLETE' if failures == 0 else 'PARTIAL',
+        'status': 'COMPLETE' if failures == 0 and stop != 'budget' else 'PARTIAL',
         'freshness_mode': 'historical_archive',
+        'walk_order': 'newest_first',
+        'walk_stop': 'consecutive_failures' if aborted else stop,
+        'known_ok_posts': sum(1 for k in done if k.startswith('msnow:')),
+        'known_ok_post_keys': _keys_digest(sorted(k for k in done if k.startswith('msnow:'))),
+        'known_ok_post_ids': ','.join(k[len('msnow:'):] for k in sorted(k for k in done if k.startswith('msnow:'))),
+        'resume_before': None if failures == 0 and stop != 'budget' else cursor,
         'archive_posts_enumerated': source_posts,
-        'archive_pages_checked': max(0, page - 1),
+        'archive_pages_checked': max(0, pages_before + page - 1),
         'archive_page_failures': failures,
         'new_posts_checked': new_posts,
         'source_terminal_date': max(source_dates) if source_dates else None,
         'accepted_member_content_latest_date': stats[3],
         'accepted_turns': stats[0], 'accepted_members': stats[1],
         'accepted_packages': stats[2], 'turns_added': tot,
-        'availability_note': ('The public MS NOW WordPress transcript endpoint is audited in full; '
+        'availability_note': ('The public MS NOW WordPress transcript endpoint is walked newest-first, '
+                              'and in full after any incomplete walk; '
                               'current site coverage is not represented as a transcript unless that '
                               'endpoint publishes a speaker-labelled transcript.'),
     })
-    return failures == 0
+    return failures == 0 and stop != 'budget'
 
 def run_axefiles():
     """The Axe Files with David Axelrod (CNN Audio) — one-time backfill (show concluded Dec 2024;
@@ -1472,8 +1571,8 @@ if __name__ == '__main__':
         run_hewitt()
         if not _sentinel(): sys.exit(3)
     elif 'msnow' in sys.argv:
-        if _strict and not run_msnow(): sys.exit(2)
-        elif not _strict: run_msnow()
+        if _strict and not run_msnow(budget=_budget): sys.exit(2)
+        elif not _strict: run_msnow(budget=_budget)
         if not _sentinel(): sys.exit(3)
     elif 'nprfeed' in sys.argv:
         run_nprfeed()

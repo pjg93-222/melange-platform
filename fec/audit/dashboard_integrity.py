@@ -4,6 +4,7 @@ import hashlib, json, os, re
 import openpyxl
 from paths import ROOT, WORKBOOK, p
 import moneyball_core as MC
+import roster as roster_rows   # not `roster`: the checkers below bind a local `roster` list
 import stance.stance_rules as SR
 import district.demographic_potential as DP
 from engine.pillar_policy import PILLAR_WEIGHTS
@@ -43,15 +44,22 @@ def _check(condition, message, errors):
     if not condition: errors.append(message)
 
 
-def preflight(member_names, category_stance, dashboard_data, archive_leg):
-    """Validate the identity and category joins before any desk artifact is written."""
+def preflight(member_names, category_stance, dashboard_data, archive_leg, analytic_inputs_only=False):
+    """Validate the identity and category joins before any desk artifact is written.
+
+    analytic_inputs_only (make_member_desk --analytic-inputs-only): that stage runs before dashboard_data.json is rebuilt for the
+    current roster, so dashboard_data roster drift is a warning there and a hard error everywhere else."""
     errors=[]; warnings=[]; roster=MC.members(); rset=set(roster); cats=category_stance.get('cats') or []
     _check(len(roster)==len(rset), 'canonical roster contains duplicate names', errors)
     _check(len(member_names)==len(set(member_names)), 'member desk source contains duplicate names', errors)
     _check(set(member_names)==rset, 'member desk source roster differs from canonical roster', errors)
     snames=dashboard_data.get('name') or []
     _check(len(snames)==len(set(snames)), 'dashboard_data contains duplicate names', errors)
-    _check(set(snames)==rset, 'dashboard_data roster differs from canonical roster', errors)
+    if analytic_inputs_only and set(snames)!=rset:
+        warnings.append('dashboard_data roster differs from canonical roster (analytic-inputs stage; rebuilt downstream): '
+                        'missing=%d extras=%d'%(len(rset-set(snames)),len(set(snames)-rset)))
+    else:
+        _check(set(snames)==rset, 'dashboard_data roster differs from canonical roster', errors)
     _check(set(category_stance.get('matrix') or {})==rset, 'stance matrix roster differs from canonical roster', errors)
     _check(set(category_stance.get('scores') or {})==rset, 'stance score roster differs from canonical roster', errors)
     _check(set(archive_leg).issubset(rset), 'legislation archive contains unknown/current-roster-mismatched names', errors)
@@ -66,9 +74,9 @@ def preflight(member_names, category_stance, dashboard_data, archive_leg):
     _check(all(len(s)==len(issues) for s in stance_rows), 'dashboard stance strings do not align to issue count', errors)
 
     wb=openpyxl.load_workbook(WORKBOOK,read_only=True,data_only=True)
-    ra=wb['Rank & Allocation']; wn=[ra.cell(r,1).value for r in range(3,536) if ra.cell(r,1).value]
-    # Rows 2:534 are the 533-member roster; row 535 is the literal "Weights" footer.
-    rw=wb['Press Release - Raw']; mn=[rw.cell(r,1).value for r in range(2,535) if rw.cell(r,1).value]
+    ra=wb['Rank & Allocation']; wn=[ra.cell(r,1).value for r in roster_rows.rows('Rank & Allocation') if ra.cell(r,1).value]
+    # Press Raw: the member rows (roster_rows.rows) are followed by the literal "Weights" footer (roster_rows.footer_row).
+    rw=wb['Press Release - Raw']; mn=[rw.cell(r,1).value for r in roster_rows.rows('Press Release - Raw') if rw.cell(r,1).value]
     wb.close()
     _check(len(wn)==len(set(wn)) and set(wn)==rset, 'Rank & Allocation roster is duplicated or misaligned', errors)
     _check(len(mn)==len(set(mn)) and set(mn)==rset, 'Press Release - Raw roster is duplicated or misaligned', errors)
@@ -458,6 +466,46 @@ def check_demographic_potential(bundle, members, errors):
     return potential_count,potential_markets
 
 
+def district_brief_errors(members, meta, roster):
+    """District-brief checks for the desk bundle: (errors, warnings, attached_count).
+
+    The desk WITHHOLDS the brief of a roster arrival the ratified corpus predates (meta['coverage']['withheld']): that member must
+    carry no brief, every other member a valid one, and the corpus accounts for exactly the roster less the withheld plus the
+    departed rows it still holds (meta['coverage']['dropped']).  With nothing withheld or dropped this is the original full-roster check."""
+    errors=[]; warnings=[]
+    coverage=meta.get('coverage') or {}
+    withheld=set(coverage.get('withheld') or []); dropped=set(coverage.get('dropped') or [])
+    _check(withheld.issubset(set(roster)),
+           'district briefs withheld for members outside the roster: '+', '.join(sorted(withheld-set(roster))),errors)
+    attached=0
+    for m in members:
+        name=m.get('name'); brief=m.get('district_brief')
+        if name in withheld:
+            _check(brief is None,'district brief attached to withheld member '+str(name),errors)
+            continue
+        brief=brief or {}
+        paragraphs=[brief.get('p%d'%index) for index in range(1,4)]
+        brief_ok=(all(isinstance(value,str) and value.strip() for value in paragraphs)
+                  and type(brief.get('words')) is int
+                  and 200<=brief.get('words')<=250)
+        _check(brief_ok,'district brief is missing or malformed for '+str(name),errors)
+        if brief_ok: attached+=1
+    counts=meta.get('counts') or {}
+    corpus_rows=len(roster)-len(withheld)+len(dropped)
+    _check(
+        meta.get('schema')=='district-demographic-briefs-v1'
+        and meta.get('status')=='RATIFIED_FOR_DASHBOARD'
+        and counts.get('roster')==corpus_rows
+        and counts.get('accepted')==corpus_rows
+        and counts.get('missing')==0
+        and attached==len(roster)-len(withheld),
+        'ratified district brief corpus is absent or incomplete',errors)
+    if withheld:
+        warnings.append('%d district briefs WITHHELD for roster arrivals the corpus predates: %s'%(
+            len(withheld),', '.join(sorted(withheld))))
+    return errors,warnings,attached
+
+
 def postflight(bundle, preflight_report):
     """Validate the completed desk bundle and enforce deterministic regeneration."""
     errors=[]; warnings=[]; roster=MC.members(); rset=set(roster); cats=bundle.get('cats') or []
@@ -471,7 +519,6 @@ def postflight(bundle, preflight_report):
            'desk bundle does not carry the ratified diminished-sentiment pillar weights',errors)
     n2b=MC.name2bio(); social_members=set(); article_total=bill_total=0; missing_bio=[]
     media_count_mismatches=[]; unknown_media_sources=[]
-    district_brief_count=0
     for m in members:
         name=m.get('name'); article_total+=len(m.get('articles') or []); bill_total+=len(m.get('bills') or [])
         _check(len(m.get('stances') or '')==len(cats), 'desk stance string misaligned for '+str(name), errors)
@@ -495,27 +542,13 @@ def postflight(bundle, preflight_report):
             media_count_mismatches.append((name,'iv_sources',totals.get('iv_sources'),None))
         for b in m.get('bills') or []:
             _check(set(b.get('areas') or []).issubset(allowed), 'unknown bill category for '+str(name), errors)
-        brief=m.get('district_brief') or {}
-        paragraphs=[brief.get('p%d'%index) for index in range(1,4)]
-        brief_ok=(all(isinstance(value,str) and value.strip() for value in paragraphs)
-                  and type(brief.get('words')) is int
-                  and 200<=brief.get('words')<=250)
-        _check(brief_ok,'district brief is missing or malformed for '+str(name),errors)
-        if brief_ok: district_brief_count+=1
     _check(not unknown_media_sources,
            'desk bundle contains unaccounted media source types: '+str(unknown_media_sources[:5]),errors)
     _check(not media_count_mismatches,
            'desk media totals show producer-side omissions/caps: '+str(media_count_mismatches[:5]),errors)
     district_briefs_meta=bundle.get('district_briefs_meta') or {}
-    district_brief_counts=district_briefs_meta.get('counts') or {}
-    _check(
-        district_briefs_meta.get('schema')=='district-demographic-briefs-v1'
-        and district_briefs_meta.get('status')=='RATIFIED_FOR_DASHBOARD'
-        and district_brief_counts.get('roster')==len(roster)
-        and district_brief_counts.get('accepted')==len(roster)
-        and district_brief_counts.get('missing')==0
-        and district_brief_count==len(roster),
-        'ratified district brief corpus is absent or incomplete',errors)
+    brief_errors,brief_warnings,district_brief_count=district_brief_errors(members,district_briefs_meta,roster)
+    errors.extend(brief_errors); warnings.extend(brief_warnings)
     _check(
         bool(re.fullmatch(r'[0-9a-f]{64}',str(
             district_briefs_meta.get('evidence_sha256') or ''))),

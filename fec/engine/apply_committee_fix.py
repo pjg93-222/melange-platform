@@ -6,6 +6,7 @@ normalized RAW committee score = committee_raw / MAX(committee_raw), so leadersh
 plain membership. COM + recalc."""
 import sys, shutil, os, datetime
 import win32com.client as win32
+import roster
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 B = MB_ROOT
 WB = B + r'\Moneyball Main Version - Blended.xlsx'
@@ -15,7 +16,7 @@ xl = win32.DispatchEx('Excel.Application'); xl.Visible = False; xl.DisplayAlerts
 try:
     wb = xl.Workbooks.Open(WB); ws = wb.Worksheets('Blended Model')
     print('before col18(R) row3:', ws.Cells(3,18).Formula)
-    ws.Range('R3:R535').Formula = '=E3/MAX($E$3:$E$535)'   # Influence% = committee_raw / max (E=col5 Committee raw)
+    ws.Range(roster.col_range('R', 'Blended Model', absolute=False)).Formula = '=E3/MAX(%s)' % roster.col_range('E', 'Blended Model')   # Influence% = committee_raw / max (E=col5 Committee raw)
     print('after  col18(R) row3:', ws.Cells(3,18).Formula, '| row4:', ws.Cells(4,18).Formula)
     xl.CalculateFull()
     wb.Save(); wb.Close(SaveChanges=True); print('SAVED + recalculated')

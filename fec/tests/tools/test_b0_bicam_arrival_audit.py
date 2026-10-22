@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from fec import roster as roster_source
 from fec.tools import b0_bicam_arrival_audit as b0
 
 
@@ -243,14 +244,15 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         members = [{"member_id": f"m{index}", "bioguide_id": value} for index, value in enumerate(identifiers)]
         return roster, legislators, voteview, members
 
-    def test_08_roster_bar_passes_533_and_names_misses_duplicates(self) -> None:
+    def test_08_roster_bar_passes_the_roster_size_and_names_misses_duplicates(self) -> None:
         roster, legislators, voteview, members = self._roster_files()
-        result = b0.audit_roster(roster, legislators, voteview, members)
+        result = b0.audit_roster(roster, legislators, voteview, members, expected_roster=533)
         self.assertTrue(result["pass"])
         self.assertEqual(result["joined"], 533)
+        self.assertFalse(b0.audit_roster(roster, legislators, voteview, members, expected_roster=535)["pass"])   # the bar is the caller's roster size
         roster, legislators, voteview, members = self._roster_files(533, True)
         members = members[:-1]
-        result = b0.audit_roster(roster, legislators, voteview, members)
+        result = b0.audit_roster(roster, legislators, voteview, members, expected_roster=533)
         self.assertFalse(result["pass"])
         self.assertEqual(result["roster_duplicates"], ["B000000"])
         self.assertEqual(result["missing_from_bicam"], ["B000532"])
@@ -375,6 +377,43 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         self.assertEqual(presence, {"valid"})
         self.assertEqual({row["canonical_key"] for row in errors}, {"missing", "rejected"})
 
+    def test_15b_truncated_gzip_is_integrity_error_or_ledgered(self) -> None:
+        full = io.BytesIO()
+        with gzip.GzipFile(fileobj=full, mode="wb", mtime=0) as stream:
+            stream.write(b"a,b\n" + b"1,2\n" * 5000)
+        truncated = full.getvalue()[:-12]
+        path = self.directory / "trunc.csv.gz"
+        path.write_bytes(truncated)
+        with self.assertRaises(b0.IntegrityError):
+            b0.inspect_component(path, "csv.gz", {"x": "a"})
+        with self.assertRaises(b0.IntegrityError):
+            b0.load_component_rows(self.directory, {"filename": "trunc.csv.gz", "format": "csv.gz", "columns": {"x": "a"}})
+        run = self.directory / "legfix_trunc"
+        body_dir = run / "accepted_html" / "shared"
+        body_dir.mkdir(parents=True)
+        (run / "receipts").mkdir()
+        (body_dir / "page.html.gz").write_bytes(full.getvalue()[:10])
+        self._write_ndjson(run / "receipts" / "receipts.ndjson", [
+            {"canonical_key": "k", "status": "accepted", "accepted_html": "accepted_html/shared/page.html.gz"},
+        ])
+        presence, errors, _ = b0.load_legfix5_presence(run)
+        self.assertEqual(presence, set())
+        self.assertEqual({row["canonical_key"] for row in errors}, {"k"})
+
+    def test_15c_transport_failure_names_component_and_cause(self) -> None:
+        with mock.patch.object(b0.urllib.request, "build_opener", side_effect=OSError("boom")):
+            with self.assertRaises(b0.IntegrityError) as ctx:
+                b0.atomic_download(
+                    "https://example.test/x.csv.gz", self.directory / "x.csv.gz", "", "csv.gz", {}
+                )
+        self.assertIn("x.csv.gz", str(ctx.exception))
+        self.assertIn("boom", str(ctx.exception))
+        with mock.patch.object(b0.urllib.request, "build_opener", side_effect=b0.UsageError("policy")):
+            with self.assertRaises(b0.IntegrityError):
+                b0.atomic_download(
+                    "https://example.test/x.csv.gz", self.directory / "x.csv.gz", "", "csv.gz", {}
+                )
+
     def _build_integration_inputs(
         self,
         *,
@@ -411,6 +450,10 @@ class B0BicamArrivalAuditTests(unittest.TestCase):
         self._write_csv(snapshot / "bills_sponsored.csv", ["bill_id", "member_id", "relationship"], [[f"b{index}", "m0", "cosponsor"] for index in range(1, 649)])
         roster = integration / "congestion.json"
         roster.write_text(json.dumps([{"bioguide": value} for value in identifiers]), encoding="utf-8")
+        (integration / "data" / "engine").mkdir(parents=True)                      # the bar is the roster's size in the --repo-root tree
+        (integration / "data" / "engine" / "roster.json").write_text(json.dumps({
+            "schema": roster_source.SCHEMA, "members": [{"member": f"Member {index}", "bioguide": value} for index, value in enumerate(identifiers)],
+        }), encoding="utf-8")
         legislators = integration / "legislators.csv"
         voteview = integration / "voteview.csv"
         self._write_csv(legislators, ["bioguide_id"], [[value] for value in identifiers])

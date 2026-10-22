@@ -153,9 +153,10 @@ is unaffected. Full detail is in [`../DAILY_REFRESH.md`](../DAILY_REFRESH.md).
 
 `--smoke` exercises the whole shape of the job cheaply. It skips discovery
 (recorded as `SKIPPED_SMOKE`), runs admissions with `--limit 1 --no-llm
---no-install`, leaves votes, repository and BILLSTATUS unchanged, runs
-`collect/daily_media_refresh.py --smoke`, and runs the canonical pipeline in
-full - there is no shortened canonical chain. It cannot be combined with
+--no-install`, leaves votes unchanged, runs `collect/daily_media_refresh.py
+--smoke`, leaves repository and BILLSTATUS unchanged (they run after media,
+DE-043), and runs the canonical pipeline in full - there is no shortened
+canonical chain. It cannot be combined with
 `--include-media`. A smoke run records `"mode": "smoke"` in the status document
 and its run-directory receipt, writes no
 `data/engine/congress_pipeline_receipt.json`, and is refused by

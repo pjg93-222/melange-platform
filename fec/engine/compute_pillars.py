@@ -6,7 +6,7 @@ Python computes the ENTIRE rank chain from raw inputs; the workbook is a self-re
 (fullCalcOnLoad — Excel recalculates its formulas whenever the user opens it):
 
   Press Release - Raw ──(pos/neg-max normalization, Python: moneyball_core.press_matrix)──> normalized
-  normalized × row-535 tiered weights (user dial literals) ──> press pillar
+  normalized × footer-row ('Weights') tiered weights (user dial literals) ──> press pillar
   Press% = pillar/max (active at a diminished weight)
   Influence% = committee E/max · Leg% = PERCENTRANK(O,5) · Demo% = PERCENTRANK(F,5)
   Score  = .45·Leg% + .10·Press% + .40·Influence% + .05·Demo%
@@ -35,6 +35,7 @@ if '--effectiveness-shadow' in sys.argv:
     sys.exit(0)
 import openpyxl
 import moneyball_core as MC
+import roster
 from engine import influence_roles as IR
 from engine.pillar_policy import PILLAR_WEIGHTS, scoring_policy
 from engine.effectiveness_integration import legislative_percentiles
@@ -44,9 +45,9 @@ wb=openpyxl.load_workbook(os.path.join(B, 'Moneyball Main Version - Blended.xlsx
 pn=wb['Press Release - Normalized']; ra=wb['Rank & Allocation']; bm=wb['Blended Model']
 # Member roster from R&A col A (TYPED values — survives openpyxl saves; Blended col A is formula-backed
 # and its cache dies whenever sync/blend save the workbook: the openpyxl-save/cached-value dragon).
-members=[ra.cell(r,1).value for r in range(3,536) if ra.cell(r,1).value]
+members=[ra.cell(r,1).value for r in roster.rows('Rank & Allocation') if ra.cell(r,1).value]
 bmrows={m:i+3 for i,m in enumerate(members)}   # Blended rows mirror R&A row order (asserted in fallback path)
-prow={pn.cell(r,1).value:r for r in range(2,535) if pn.cell(r,1).value}
+prow={pn.cell(r,1).value:r for r in roster.rows('Press Release - Normalized') if pn.cell(r,1).value}
 norm,w535,hdrs=MC.press_matrix()
 COLS=list(norm)
 # ---- press pillar ----
@@ -106,7 +107,7 @@ else:
             for cb in cands:
                 try:
                     _wb2=openpyxl.load_workbook(cb,data_only=True); _bm2=_wb2['Blended Model']
-                    rows2={_bm2.cell(r,1).value:r for r in range(3,536) if _bm2.cell(r,1).value}
+                    rows2={_bm2.cell(r,1).value:r for r in roster.rows('Blended Model') if _bm2.cell(r,1).value}
                     if len(rows2)<len(members)*0.9: continue
                     a2,O,E,F=_read_OEF(_bm2,rows2)
                     if a2:

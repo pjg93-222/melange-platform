@@ -125,6 +125,113 @@ def test_a_different_roster_refuses_even_when_stale(tmp_path):
         money.apply(root)
 
 
+def roster_doc(root, departed=(), arrival=True):
+    members = [{'member': 'A', 'bioguide': 'A1'},
+               {'member': 'B', 'bioguide': 'B1', **({'term_start': '2026-09-01'} if arrival else {})}]
+    write(root, 'data/engine/roster.json', {'schema': 'melange-roster-v1', 'members': members,
+                                            'departed': [{'member': m, 'bioguide': m + '1'} for m in departed]})
+
+
+def drift_root(tmp_path, arrival=True, arrival_money=0):
+    """Projection covers A + departed D; the live congestion holds A + roster arrival B (which the generation predates)."""
+    root = money_root(tmp_path, 1, roster=('A', 'D'))
+    rows = json.loads((root / 'data/engine/congestion.json').read_text())
+    rows[1]['cu'] = arrival_money
+    write(root, 'data/engine/congestion.json', rows)
+    roster_doc(root, departed=('D',), arrival=arrival)
+    return root
+
+
+def test_roster_drift_withholds_arrivals_and_drops_departures(tmp_path, capsys):
+    root = drift_root(tmp_path)
+    before = json.loads((root / 'data/engine/congestion.json').read_text())
+    before_sha = sha(root / 'data/engine/congestion.json')
+    assert money.apply(root) == 2
+    rows = json.loads((root / 'data/engine/congestion.json').read_text())
+    assert rows[0]['cu'] == 7 and rows[0]['unrelated'] == 'keep-A'
+    assert rows[1] == before[1]
+    receipt = json.loads((root / 'data/money/fec_money_application.json').read_text())
+    assert receipt['roster_drift'] == {'withheld': ['B'], 'dropped': ['D'], 'congestion_before_sha256': before_sha}
+    assert receipt['congestion_sha256'] == sha(root / 'data/engine/congestion.json')
+    assert '!! FEC money: roster drift; 1 WITHHELD (B), 1 DROPPED (D)' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('kwargs', [{'arrival': False}, {'arrival_money': 5}])
+def test_roster_drift_beyond_arrivals_and_departures_still_refuses(tmp_path, kwargs):
+    root = drift_root(tmp_path, **kwargs)
+    with pytest.raises(ValueError, match='different roster'):
+        money.apply(root)
+
+
+@pytest.mark.parametrize('order', [('B', 'A'), ('A', 'A', 'B')])
+def test_off_drift_reorders_and_duplicates_still_refuse(tmp_path, order):
+    root = money_root(tmp_path, 1, roster=order)
+    roster_doc(root)
+    with pytest.raises(ValueError, match='different roster'):
+        money.apply(root)
+
+
+def _pinned(root, a_unrelated=None):
+    rows = json.loads((root / 'data/engine/congestion.json').read_text())
+    g0 = [dict(rows[0], **({'unrelated': a_unrelated} if a_unrelated else {})), {'member': 'D', 'bioguide': 'D1'}]
+    g0_path = write(root, 'data/money/fec_generations/g0/congestion.json', g0)
+    write(root, 'data/system/system_manifest.json', {'stores': [
+        {'id': 'repo.congestion', 'integrity_policy': 'hash_always', 'hashes': {'congestion.json': sha(g0_path)}}]})
+
+
+def test_the_money_pin_advances_across_a_roster_refresh_and_nothing_else(tmp_path):
+    root = drift_root(tmp_path)
+    _pinned(root)
+    money.apply(root)
+    manifest = json.loads((root / 'data/system/system_manifest.json').read_text())
+    assert manifest['stores'][0]['hashes'] == {'congestion.json': sha(root / 'data/engine/congestion.json')}
+    root = drift_root(tmp_path / 'edited')
+    _pinned(root, a_unrelated='edited-since')
+    with pytest.raises(ValueError, match='outside'):
+        money.apply(root)
+
+
+def test_identity_mapping_drift_is_allowed_only_as_added_ids(tmp_path, capsys):
+    root = money_root(tmp_path, 1)
+    roster_doc(root)
+    old = write(root, 'backups/roster_refresh_x/legislators.csv', 'bioguide_id,fec_ids\nA1,H0XX00001\nB1,H0XX00002\n')
+    current = write(root, 'fec/legislators.csv', 'bioguide_id,fec_ids\nA1,H0XX00001;S6XX00003\nB1,H0XX00002\n')
+    receipt_path = root / 'data/money/fec_refresh_current.json'
+    receipt = json.loads(receipt_path.read_text())
+    receipt['dependencies'] = {str(current): sha(old)}
+    write(root, 'data/money/fec_refresh_current.json', receipt)
+    assert money.apply(root) == 2
+    out = json.loads((root / 'data/money/fec_money_application.json').read_text())
+    assert out['identity_mapping_drift'] == {'collected_mapping_sha256': sha(old), 'candidate_ids_added_since': ['S6XX00003']}
+    assert '!! FEC money: identity mapping drift; 1 candidate ids added' in capsys.readouterr().out
+    current.write_text('bioguide_id,fec_ids\nA1,H0XX00002\nB1,H0XX00001\n', encoding='utf-8')
+    receipt['dependencies'] = {str(current): sha(old)}
+    write(root, 'data/money/fec_refresh_current.json', receipt)
+    with pytest.raises(ValueError, match='identity mapping'):
+        money.apply(root)
+    current.write_text('bioguide_id,fec_ids\nA1,H0XX00001;S6XX00003\nB1,H0XX00002\n', encoding='utf-8')
+    old.unlink()
+    with pytest.raises(ValueError, match='identity mapping'):
+        money.apply(root)
+
+
+def test_a_departed_members_candidate_id_re_pointed_to_a_continuing_member_refuses(tmp_path):
+    root = money_root(tmp_path, 1)
+    roster_doc(root, departed=('B',))
+    csv = lambda *rows: chr(10).join(('bioguide_id,fec_ids',) + rows) + chr(10)
+    old = write(root, 'backups/roster_refresh_x/legislators.csv', csv('A1,H0XX00001', 'B1,H0XX00002'))
+    current = write(root, 'fec/legislators.csv', csv('A1,H0XX00001;H0XX00002', 'B1,'))
+    receipt = json.loads((root / 'data/money/fec_refresh_current.json').read_text())
+    receipt['dependencies'] = {str(current): sha(old)}
+    write(root, 'data/money/fec_refresh_current.json', receipt)
+    with pytest.raises(ValueError, match='identity mapping'):
+        money.apply(root)
+    current.write_text(csv('A1,H0XX00001', 'B1,'), encoding='utf-8')   # the departed id merely dropped is the allowed drift
+    receipt['dependencies'] = {str(current): sha(old)}
+    write(root, 'data/money/fec_refresh_current.json', receipt)
+    assert money.apply(root) == 2
+
+
 def test_money_that_never_succeeded_refuses(tmp_path):
     root = money_root(tmp_path, 20)
     (root / 'data/money/fec_refresh_current.json').unlink()
@@ -207,14 +314,16 @@ def test_a_stale_individual_admission_is_labelled_and_the_later_strict_checks_st
         admissions.load(tmp_path)
 
 
-def test_source_outage_carry_forward_limit_is_unchanged(tmp_path):
+def test_source_outage_carry_past_the_limit_is_dropped_not_refused(tmp_path):
+    # D-260: the 30-day bar still holds (the verdict is not served), but it no longer refuses the whole generation.
     key = '119:hr:1'
     carried = {'canonical_key': key, 'disposition': 'include', 'confidence': 'high', 'checked_at': stamp(45),
                'carried_forward': 'source_unavailable', 'carried_at': stamp(1)}
     write(tmp_path, 'data/legislation/sentinel_admissions.json',
           admissions_doc(1, bills={key: {'key': key, 'areas': []}}, decisions={key: carried}))
-    with pytest.raises(ValueError, match='past its verification limit'):
-        admissions.load(tmp_path)
+    document = admissions.load(tmp_path)
+    assert key not in document['bills'] and document['carry_expired_keys'] == [key]
+    assert document['freshness_status'] == 'STALE_LABELLED'
 
 
 # --------------------------------------------------------------------------------------------- official membership movements

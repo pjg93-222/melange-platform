@@ -1,12 +1,17 @@
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'Lan')]
 param(
-    [Parameter(Mandatory = $true)][string]$ListenIPAddress,
-    [Parameter(Mandatory = $true)][string]$ExpectedNetworkName,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Lan')][string]$ListenIPAddress,
+    [Parameter(Mandatory = $true, ParameterSetName = 'Lan')][string]$ExpectedNetworkName,
+    # Internet mode behind a local TCP pass-through relay (Tailscale Funnel): listens on 127.0.0.1 only.
+    [Parameter(Mandatory = $true, ParameterSetName = 'Public')][string]$PublicOrigin,
     [Parameter(Mandatory = $true)][string]$PythonExecutable,
     [Parameter(Mandatory = $true)][string]$StateDirectory,
     [ValidateRange(1024, 65535)][int]$Port = 38443
 )
 $ErrorActionPreference = 'Stop'
+if ($PublicOrigin -and $Port -ne 38443) {
+    throw 'PublicOrigin mode listens on 127.0.0.1:38443, the only local port relay_tunnel.py forwards to.'
+}
 if ($PSVersionTable.PSVersion.Major -lt 7) {
     throw 'The publisher supervisor requires PowerShell 7 or later.'
 }
@@ -24,15 +29,60 @@ $stateDirectory = (Get-Item -LiteralPath $StateDirectory -ErrorAction Stop).Full
 $statusFile = Join-Path $stateDirectory 'listener-status.json'
 $launchScript = Join-Path $PSScriptRoot 'Start-LanPublisher.ps1'
 $serverScript = Join-Path $PSScriptRoot 'desktop_admin.py'
+$notifierScript = Join-Path $PSScriptRoot 'Start-AccessNotifier.ps1'
 if (-not (Test-Path -LiteralPath (Join-Path $stateDirectory 'trust.json'))) {
     throw 'Initialize the protected publisher state before enabling login startup.'
 }
+$serverArguments = @($serverScript, '--state', $stateDirectory)
+if ($PublicOrigin) {
+    # desktop_admin.py applies the https_origin rules; the origin must already be canonical and a DNS name.
+    $descriptor = (& $PythonExecutable $serverScript --state $stateDirectory --public-origin $PublicOrigin access-trust --url $PublicOrigin) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or ($descriptor | ConvertFrom-Json).url -cne $PublicOrigin -or ([Uri]$PublicOrigin).HostNameType -ne 'Dns') {
+        throw 'PublicOrigin must be a canonical https DNS origin accepted by desktop_admin.py, with application access initialized.'
+    }
+    $ListenIPAddress = '127.0.0.1'
+    $serverArguments += @('--public-origin', $PublicOrigin)
+}
+$serverArguments += @('serve', '--listen', $ListenIPAddress, '--port', [string]$Port)
+function Get-InviteRequired {
+    # Same values as desktop_admin.py invite_env(); the publisher child inherits this environment. $null = unreadable value, so the publisher refuses to start.
+    $raw = ([string]$env:MELANGE_ACCESS_REQUIRE_INVITE).Trim().ToLowerInvariant()
+    if ($raw -in '1', 'true', 'yes', 'on') { return $true }
+    if ($raw -in '', '0', 'false', 'no', 'off') { return $false }
+    return $null
+}
 function Write-ListenerStatus([string]$Status) {
     # Fixed status values only: never write enrollment codes, credentials or request data.
-    $record = [ordered]@{ status = $Status; checkedAt = [DateTime]::UtcNow.ToString('o'); supervisorPid = $PID; publisherPid = if ($publisherProcess) { $publisherProcess.Id } else { $null } }
+    # Start-AccessNotifier.ps1 writes no status file of its own; this is its only liveness record.
+    $record = [ordered]@{ status = $Status; checkedAt = [DateTime]::UtcNow.ToString('o'); supervisorPid = $PID; publisherPid = if ($publisherProcess) { $publisherProcess.Id } else { $null }
+        notifierPid = if ($notifierProcess) { $notifierProcess.Id } else { $null }; inviteRequired = Get-InviteRequired }
     $temporary = $statusFile + '.' + $PID + '.tmp'
     [IO.File]::WriteAllText($temporary, ($record | ConvertTo-Json))
     [IO.File]::Move($temporary, $statusFile, $true)
+}
+function Start-AccessNotifierProcess([string]$Executable) {
+    # A failed tray must not end this loop: the supervisor's exit closes the job and takes the
+    # publisher down with it. Return $null so the status records notifierPid null and the next pass retries.
+    $process = $null
+    try {
+        $notifierStart = [Diagnostics.ProcessStartInfo]::new()
+        $notifierStart.FileName = $Executable
+        $notifierStart.UseShellExecute = $false
+        $notifierStart.CreateNoWindow = $true
+        foreach ($argument in @('-NoProfile','-NonInteractive','-STA','-WindowStyle','Hidden','-File', $notifierScript, '-PythonExecutable',$PythonExecutable,'-StateDirectory',$stateDirectory)) {
+            $notifierStart.ArgumentList.Add($argument)
+        }
+        $process = [Diagnostics.Process]::Start($notifierStart)
+        [MelangePublisherJob]::Assign($publisherJob, $process)
+        return $process
+    } catch {
+        # A started notifier outside the job would outlive the supervisor; stop it before retrying.
+        if ($process) {
+            try { $process.Kill($true) } catch { }
+            $process.Dispose()
+        }
+        return $null
+    }
 }
 try {
     try { $ownedMutex = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownedMutex = $true }
@@ -90,21 +140,16 @@ public static class MelangePublisherJob {
             $notifierProcess.Dispose(); $notifierProcess = $null
         }
         if (-not $notifierProcess -and (Test-Path -LiteralPath (Join-Path $stateDirectory 'access.sqlite3'))) {
-            $notifierStart = [Diagnostics.ProcessStartInfo]::new()
-            $notifierStart.FileName = (Get-Process -Id $PID).Path
-            $notifierStart.UseShellExecute = $false
-            $notifierStart.CreateNoWindow = $true
-            foreach ($argument in @('-NoProfile','-NonInteractive','-STA','-WindowStyle','Hidden','-File', (Join-Path $PSScriptRoot 'Start-AccessNotifier.ps1'), '-PythonExecutable',$PythonExecutable,'-StateDirectory',$stateDirectory)) {
-                $notifierStart.ArgumentList.Add($argument)
-            }
-            $notifierProcess = [Diagnostics.Process]::Start($notifierStart)
-            [MelangePublisherJob]::Assign($publisherJob, $notifierProcess)
+            $notifierProcess = Start-AccessNotifierProcess (Get-Process -Id $PID).Path
         }
         $networkReady = $false
         try {
-            & $launchScript -ListenIPAddress $ListenIPAddress -ExpectedNetworkName $ExpectedNetworkName `
-                -PythonExecutable $PythonExecutable -StateDirectory $stateDirectory -Port $Port -ConfigureOnly | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw 'Network validation failed.' }
+            # Loopback relay mode has no LAN adapter or inbound firewall rule to validate.
+            if (-not $PublicOrigin) {
+                & $launchScript -ListenIPAddress $ListenIPAddress -ExpectedNetworkName $ExpectedNetworkName `
+                    -PythonExecutable $PythonExecutable -StateDirectory $stateDirectory -Port $Port -ConfigureOnly | Out-Null
+                if ($LASTEXITCODE -ne 0) { throw 'Network validation failed.' }
+            }
             $networkReady = $true
         } catch {
             $networkReady = $false
@@ -126,7 +171,7 @@ public static class MelangePublisherJob {
             $start.FileName = $PythonExecutable
             $start.UseShellExecute = $false
             $start.CreateNoWindow = $true
-            foreach ($argument in @($serverScript, '--state', $stateDirectory, 'serve', '--listen', $ListenIPAddress, '--port', [string]$Port)) {
+            foreach ($argument in $serverArguments) {
                 $start.ArgumentList.Add($argument)
             }
             $publisherProcess = [Diagnostics.Process]::Start($start)

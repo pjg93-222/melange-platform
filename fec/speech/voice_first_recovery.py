@@ -488,9 +488,10 @@ def _inventory_indexes(rows: Sequence[dict[str, Any]]) -> tuple[dict[str, dict[s
 
 def collect_sources(
     inventory_rows: Sequence[dict[str, Any]], cnn_routes: Path, fox_root: Path
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     by_package, by_package_id = _inventory_indexes(inventory_rows)
     sources: dict[str, dict[str, Any]] = {}
+    skips = {"fox_skipped_not_in_inventory": 0, "fox_skipped_missing_asr": 0}
 
     def add(
         source_receipt_path: Path, transcript_receipt_path: Path,
@@ -579,12 +580,16 @@ def collect_sources(
             package = str(source_receipt.get("transcript_package_url") or "")
             inventory_row = by_package.get(package)
         if inventory_row is None:
+            skips["fox_skipped_not_in_inventory"] += 1
             continue
         transcript_receipt = source_receipt_path.with_name("transcript.receipt.json")
         transcript = source_receipt_path.with_name("transcript.words.jsonl")
         if transcript_receipt.is_file() and transcript.is_file():
             add(source_receipt_path, transcript_receipt, transcript, inventory_row, "fox-broadcast")
-    return sorted(sources.values(), key=lambda row: (row["source_family"], row["source_audio_sha256"]))
+        else:
+            skips["fox_skipped_missing_asr"] += 1
+    ordered = sorted(sources.values(), key=lambda row: (row["source_family"], row["source_audio_sha256"]))
+    return ordered, skips
 
 
 _WORKER_BACKEND: Any = None
@@ -841,6 +846,58 @@ def _write_pcm_slice(source: Path, target: Path, start: int, count: int) -> None
             temp.unlink()
 
 
+PER_CLAIM_PASS = "PASS_ZERO_FALSE_ACCEPT_CALIBRATION"
+
+
+def require_scan_calibration_chain(
+    anchor_receipt: dict[str, Any], production_calibration: dict[str, Any],
+    multi_calibration: dict[str, Any], production_calibration_sha256: str,
+) -> None:
+    """Refuse calibrations lacking per-claim thresholds or bound to another vault."""
+    protocol = (multi_calibration.get("protocols") or {}).get("1x8") or {}
+    try:
+        false_accepts = int(production_calibration.get("per_claim_false_accepts", -1))
+    except (TypeError, ValueError):
+        false_accepts = -1
+    if (
+        production_calibration.get("per_claim_thresholds_status") != PER_CLAIM_PASS
+        or false_accepts != 0
+        or protocol.get("per_claim_thresholds_status") != PER_CLAIM_PASS
+        or production_calibration.get("anchor_vectors_sha256")
+        != anchor_receipt.get("combined_vectors_sha256")
+        or production_calibration.get("model_manifest_sha256")
+        != anchor_receipt.get("model_manifest_sha256")
+        or multi_calibration.get("production_three_window_calibration_sha256")
+        != production_calibration_sha256
+    ):
+        raise VoiceFirstRefused(
+            "voice-first calibrations lack per-claim thresholds or are not bound to this vault"
+        )
+
+
+def filter_runs_by_word_gate(
+    runs: Sequence[dict[str, Any]], words_by_source: dict[str, list[dict[str, Any]]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Drop runs with <5 transcript tokens before the per-member cap is applied."""
+    kept = []
+    for run in runs:
+        words = words_for_interval(
+            words_by_source[run["source_audio_sha256"]],
+            int(run["source_start_frame"]), int(run["source_frame_count"]),
+        )
+        text_value = " ".join(str(row.get("word") or "").strip() for row in words).strip()
+        if text_value and len(SMR.normalize_tokens(text_value)) >= 5:
+            kept.append(run)
+    return kept, len(runs) - len(kept)
+
+
+def scan_status_for(window_rows: Sequence[dict[str, Any]]) -> str:
+    """PASS only when at least one dense 3x window actually passed, not merely was scored."""
+    if any(row.get("passes_3x_window") for row in window_rows):
+        return "PASS"
+    return "NO_PASSING_WINDOWS"
+
+
 def run_scan(args: argparse.Namespace) -> int:
     inventory_path = Path(args.inventory)
     inventory_rows = SMR.read_jsonl(inventory_path, required=True)
@@ -863,7 +920,11 @@ def run_scan(args: argparse.Namespace) -> int:
         != anchor_receipt.get("combined_vectors_sha256")
     ):
         raise VoiceFirstRefused("voice-first anchor/calibration chain is stale")
-    sources = collect_sources(
+    require_scan_calibration_chain(
+        anchor_receipt, production_calibration, multi_calibration,
+        SMR.sha256_file(Path(args.production_calibration)),
+    )
+    sources, source_skips = collect_sources(
         inventory_rows, Path(args.cnn_routes), Path(args.fox_root)
     )
     requested = {value.strip() for value in args.source.split(",") if value.strip()}
@@ -1093,11 +1154,12 @@ def run_scan(args: argparse.Namespace) -> int:
     ))
     SMR.write_jsonl_atomic(window_manifest, window_rows)
     raw_runs = passing_runs(window_rows, minimum_windows=3)
-    selected_runs = select_disjoint_profile_units(raw_runs, needed_by_member)
     words_by_source = {
         source_sha: _load_words(Path(source["asr_transcript"]))
         for source_sha, source in source_by_sha.items()
     }
+    gated_runs, word_gate_rejected = filter_runs_by_word_gate(raw_runs, words_by_source)
+    selected_runs = select_disjoint_profile_units(gated_runs, needed_by_member)
     candidates = []
     clip_root = output_root / "candidates"
     for run in selected_runs:
@@ -1106,8 +1168,6 @@ def run_scan(args: argparse.Namespace) -> int:
         count = int(run["source_frame_count"])
         words = words_for_interval(words_by_source[run["source_audio_sha256"]], start, count)
         text_value = " ".join(str(row.get("word") or "").strip() for row in words).strip()
-        if not text_value or len(SMR.normalize_tokens(text_value)) < 5:
-            continue
         clip_id = (
             f"voice-first:{run['source_audio_sha256'][:20]}:{start}:{count}"
         )
@@ -1200,13 +1260,16 @@ def run_scan(args: argparse.Namespace) -> int:
         "cleanup_authorized": False,
     }
     SMR.write_json_atomic(Path(args.candidate_receipt), candidate_receipt)
+    scan_status = scan_status_for(window_rows)
     scan_receipt = {
         "schema": SCAN_RECEIPT_SCHEMA,
-        "status": "PASS",
+        "status": scan_status,
         "generated_at": SMR.utc_now(),
         "source_manifest": str(source_manifest.resolve()),
         "source_manifest_sha256": SMR.sha256_file(source_manifest),
         "sources": len(sources),
+        **source_skips,
+        "runs_rejected_by_word_gate": word_gate_rejected,
         "source_audio_hours": round(sum(float(row["duration_sec"]) for row in sources) / 3600, 6),
         "window_manifest": str(window_manifest.resolve()),
         "window_manifest_sha256": SMR.sha256_file(window_manifest),
@@ -1248,7 +1311,8 @@ def run_scan(args: argparse.Namespace) -> int:
     }
     SMR.write_json_atomic(Path(args.scan_receipt), scan_receipt)
     print(json.dumps({
-        "status": "PASS", "sources": len(sources), "windows": len(window_rows),
+        "status": scan_status, "sources": len(sources), **source_skips,
+        "windows": len(window_rows), "runs_rejected_by_word_gate": word_gate_rejected,
         "raw_three_window_units": len(raw_runs), "selected_candidates": len(candidates),
         "candidate_manifest_sha256": SMR.sha256_file(candidate_manifest),
     }, sort_keys=True))

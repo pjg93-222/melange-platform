@@ -22,6 +22,7 @@ import time
 import urllib.error
 import urllib.request
 import urllib.parse
+from html import unescape
 from html.parser import HTMLParser
 
 import bill_rules as BR
@@ -125,17 +126,49 @@ class SourceUnavailable(ValueError):
         self.texts = texts
 
 
+class CarryExpired(ValueError):
+    """An admitted bill's published verdict is past SA.CARRY_FORWARD_MAX_DAYS while its source is still down (D-260).
+    main() drops the bill from the scored set and defers it; it does not fail the refresh."""
+
+
 class ClassifierQuotaExhausted(RuntimeError):
     """The classifier reported a rate or spend limit (HTTP 429, "spend limit", "usage limit"). Every later call would
     fail and bill the same way, so main() stops the per-key loop instead of recording one more error per key."""
 
 
+HOLD_AFTER_DEFERRALS = 3  # consecutive classifier deferrals of one key before it is held (Paul 2026-10-19 follow-up to R1)
+HOLD_PARK_DAYS = 7  # a "classifier unavailable" hold is not re-selected (each retry is a billed call) until its checked_at is this old
+CLASSIFIER_UNAVAILABLE_PREFIX = 'classifier unavailable'  # the hold rationale starts with it: written at the deferral cap, read by _parked_hold
 _QUOTA_TEXT = re.compile(r'spend limit|usage limit|"api_error_status"\s*:\s*429', re.IGNORECASE)
 
 
 def _quota_limit(text, envelope=None):
     """Did the classifier's output (stdout/stderr text, or an already-parsed JSON envelope) report a rate/spend limit?"""
     return str((envelope or {}).get('api_error_status')) == '429' or bool(_QUOTA_TEXT.search(text or ''))
+
+
+def _hold_checked_at(decision):
+    """A decision's checked_at as an aware datetime (a naive stamp is read as UTC); None when absent or unreadable."""
+    try: checked=datetime.fromisoformat(decision['checked_at'])
+    except (KeyError, TypeError, ValueError): return None
+    return checked if checked.tzinfo else checked.replace(tzinfo=timezone.utc)
+
+
+def _parked_hold(decision, now):
+    """A hold written after HOLD_AFTER_DEFERRALS classifier deferrals (rationale CLASSIFIER_UNAVAILABLE_PREFIX + " N runs: ...")
+    that is still younger than HOLD_PARK_DAYS at the run's clock `now`. It says nothing about the bill, so retrying it every run
+    only re-bills the same outage. An unreadable checked_at is not parked."""
+    if decision.get('disposition')!='hold' or not str(decision.get('rationale') or '').startswith(CLASSIFIER_UNAVAILABLE_PREFIX): return False
+    checked=_hold_checked_at(decision)
+    return checked is not None and now-checked < timedelta(days=HOLD_PARK_DAYS)
+
+
+def _classifier_unavailable(exc):
+    """A claude-cli call that timed out, exited non-zero or returned an is_error envelope (e.g. "overloaded") for a
+    non-quota reason: no verdict, and nothing about the bill. (A quota stop is the ClassifierQuotaExhausted subclass,
+    caught first, and `type is` keeps it out of here.)"""
+    return isinstance(exc, subprocess.TimeoutExpired) or (
+        type(exc) is RuntimeError and str(exc).startswith('tool-free classifier'))
 
 
 class BelowHighConfidence(ValueError):
@@ -145,6 +178,16 @@ class BelowHighConfidence(ValueError):
     def __init__(self, confidence):
         ValueError.__init__(self, 'only high-confidence evidence may resolve a candidate')
         self.confidence = confidence
+
+
+class InvalidScoringCategory(ValueError):
+    """A category row outside the registry, or a category named twice. From a FRESH classify call it is the classifier answering
+    outside its output schema (119:hr:10082 failed the 2026-10-20 run): a hold on a new key, a carry of the published verdict on
+    an admitted one. From a cached, carried or published verdict it stays an error: that is registry drift."""
+
+    def __init__(self, category, duplicate):
+        ValueError.__init__(self, 'unknown or duplicate scoring category: %s %r'
+                            % ('duplicate' if duplicate else 'unknown', category))
 
 
 class MixedCategoryDirections(ValueError):
@@ -212,6 +255,115 @@ def statute_text(raw, title, section):
     return text
 
 
+# D-259: the House Code service has been down since 2026-10-12, so a cited section is read from GovInfo's most recent USCODE
+# edition (keyless: the link service names the document, GF.network_fetcher reads it). The edition is recorded per document;
+# GovInfo's lags the House's, which is current through the latest public law.
+class _NoFollow(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None  # a 3xx surfaces as an HTTPError, so the Location can be checked before anything is fetched
+
+
+_LINK_OPENER = urllib.request.build_opener(_NoFollow)
+_USCODE_LOCATION = re.compile(
+    r'https://www\.govinfo\.gov/content/pkg/USCODE-(?P<ed>\d{4})-title(?P<t>\w+)/html/'
+    r'USCODE-(?P=ed)-title(?P=t)-(?:[\w-]+-)?sec(?P<s>[\w-]+)\.htm', re.ASCII)
+# ponytail: process-global breaker and counts (main() resets them), fine for one main() per process. They are module state
+# because tests patch collect() with a fixed signature.
+_STATUTE_RUN = {'house_down': None, 'integrity_failures': 0, 'counts': {'house_code': 0, 'govinfo_uscode': 0}}
+
+
+def _govinfo_integrity(message):
+    """A GovInfo document that is not what was asked for (wrong redirect, wrong section, a fetch guard, undecodable bytes) says
+    nothing about the bill either, so it is an outage for the bill and not a failed refresh (D-212): the carry, expiry and
+    deferral tiers apply. Counted in the receipt; the House-side guards are not touched."""
+    _STATUTE_RUN['integrity_failures'] += 1
+    return SourceUnavailable('govinfo_integrity: ' + message)
+
+
+def govinfo_statute_text(raw, title, section):
+    """Parse a GovInfo USCODE granule. Its title must name the requested title and its first section heading the requested
+    section: a link-service error page or another section's document cannot stand in for it."""
+    page = raw.decode('utf-8')
+    parser = _OfficialText(); parser.feed(page)
+    heading = ' '.join(' '.join(parser.title_parts).split())
+    head = re.search(r'<h3 class="section-head">(.*?)</h3>', page, re.S)
+    section_head = unescape(re.sub(r'<[^>]+>', '', head.group(1))).translate(_STATUTE_DASHES).strip() if head else ''
+    if (not re.match(r'U\.S\.C\. Title ' + re.escape(str(title)) + r' - ', heading) or
+            not re.match('\u00a7\\s*' + re.escape(section.translate(_STATUTE_DASHES)) + r'\.', section_head, re.I)):
+        raise StatuteIdentityMismatch('official statute document identity mismatch: '
+            f'requested {title} USC {section}; received GovInfo page title {heading!r}, section head {section_head!r}')
+    return ' '.join(' '.join(parser.parts).split())
+
+
+def statute_document_text(raw, source):
+    """Parse cached statute evidence by the host that served it."""
+    parse = govinfo_statute_text if urllib.parse.urlsplit(source['url']).hostname == 'www.govinfo.gov' else statute_text
+    return parse(raw, source['title'], source['section'])
+
+
+def govinfo_statute(title, section):
+    """Resolve one cited section to GovInfo's most recent USCODE edition. Returns (url, raw, text, provenance). Raises
+    SourceUnavailable when GovInfo cannot supply it, including (reason prefixed govinfo_integrity:, counted) when what it
+    names or serves is not the section asked for; a client error (401, 405, 414) raises as the House side does."""
+    link = (f'https://www.govinfo.gov/link/uscode/{title}/{section.lower()}'
+            '?type=usc&year=mostrecent&link-type=html')
+    request = urllib.request.Request(link, headers={'User-Agent': 'Melange official-evidence research/1.0'})
+    location = None
+    try:
+        _retry_read(lambda: _LINK_OPENER.open(request, timeout=60).close(), source=link)
+        raise SourceUnavailable(f'GovInfo USCODE link service did not redirect {title} USC {section}')
+    except urllib.error.HTTPError as exc:
+        if exc.code in (400, 404):
+            raise SourceUnavailable(f'GovInfo USCODE most-recent edition has no {title} USC {section} (HTTP {exc.code})') from exc
+        if exc.code in (401, 405, 414):
+            raise   # our request was wrong, not GovInfo down: an error, as a House client error is
+        if exc.headers and exc.code in (301, 302, 303, 307):
+            location = exc.headers.get('Location')
+        if exc.fp is not None:
+            exc.close()   # the redirect body is never read; do not leave the socket to the garbage collector
+        if not location:
+            raise SourceUnavailable(f'GovInfo USCODE link service HTTP {exc.code} for {title} USC {section}') from exc
+    except (OSError, http.client.HTTPException) as exc:
+        raise SourceUnavailable(f'GovInfo USCODE link service unreachable for {title} USC {section}: '
+                                f'{type(exc).__name__}: {exc}') from exc
+    named = _USCODE_LOCATION.fullmatch(location)
+    if not named or named['t'] != str(title) or named['s'].lower() != section.translate(_STATUTE_DASHES).lower():
+        raise _govinfo_integrity('redirect names a different document: '
+                                 f'requested {title} USC {section}; received {location!r}')
+    fetch = GF.network_fetcher(60)
+    try:
+        raw = _retry_read(lambda: fetch(location, 2000000), source=location)
+    except GF.FallbackError as exc:
+        # network_fetcher chains the transport error (timeout, URLError, an HTTP status) it wraps; a FallbackError with no such
+        # cause is one of its guards (oversize, final-URL drift, a refused redirect, a non-200 success).
+        if not isinstance(exc.__cause__, OSError):
+            raise _govinfo_integrity(f'fetch guard refused {title} USC {section}: {exc}') from exc
+        raise SourceUnavailable(f'GovInfo USCODE fetch failed for {title} USC {section}: {exc}') from exc
+    except OSError as exc:
+        raise SourceUnavailable(f'GovInfo USCODE fetch failed for {title} USC {section}: {exc}') from exc
+    try:
+        text = govinfo_statute_text(raw, title, section)
+    except (StatuteIdentityMismatch, UnicodeDecodeError) as exc:
+        raise _govinfo_integrity(str(exc)) from exc
+    return location, raw, text, {
+        'statute_source': 'govinfo_uscode', 'edition': 'USCODE-' + named['ed'], 'resolved_from': link}
+
+
+def _house_status_unavailable(error):
+    """Is this House Code HTTP error an outage rather than a wrong request? A 5xx, a throttle (429), a WAF block (403), a
+    request timeout (408) and the 404/410 the site's temporary-format notice rides on (D-186) are; a plain 404 or any other
+    4xx stands as an error."""
+    if error.code >= 500 or error.code in (403, 408, 429):
+        return True
+    if error.code in (404, 410):
+        try:
+            body = error.read() if error.fp is not None else b''
+        except (OSError, ValueError):
+            body = b''
+        return b'operating in a temporary format' in body.lower()
+    return False
+
+
 def substantive_texts(texts):
     """Ignore only the House Code page's publication-date banner for caching.
 
@@ -250,7 +402,7 @@ def bound_decision_texts(decision):
             raise ValueError('cached admission evidence hash mismatch: ' + source['path'])
         url = source['url']
         if source.get('kind') == 'statute':
-            texts[url] = statute_text(raw, source['title'], source['section'])
+            texts[url] = statute_document_text(raw, source)
         elif url.startswith('https://www.govinfo.gov/content/pkg/BILLS-'):
             texts[url] = GF._parse_bill_text(raw, url=url, canonical_key=decision['canonical_key'])
         elif not url.startswith('https://www.govinfo.gov/bulkdata/BILLSTATUS/'):
@@ -297,20 +449,127 @@ def reusable_decision(key, texts, categories, *, published, checkpoint, model, t
     return None
 
 
-CARRY_FIELDS = ('carried_forward', 'carried_at', 'last_verified_at')
+def statute_signature(records, documents):
+    """What a verdict rests on in the statute: {'12 USC 1757': {'source': 'house'|'govinfo', 'sha256': ...}} for every statute
+    record whose document is in `documents`. The hash is of the substantive text (the House page's daily banner stripped, as the
+    evidence fingerprint does), so it moves only when the law's wording does."""
+    signature = {}
+    for record in records:
+        if record.get('kind') == 'statute' and record['url'] in documents:
+            host = urllib.parse.urlsplit(record['url']).hostname
+            text = substantive_texts({record['url']: documents[record['url']]})[record['url']]
+            signature[f"{record['title']} USC {record['section']}"] = {
+                'source': {'uscode.house.gov': 'house', 'www.govinfo.gov': 'govinfo'}.get(host, host),
+                'sha256': hashlib.sha256(text.encode('utf-8')).hexdigest()}
+    return signature
+
+
+def statute_source_switch_reuse(key, published, texts, evidence, categories, *, model, transport, declined=None):
+    """Anti-churn for an ADMITTED bill whose evidence changed ONLY in its statute source (House Code to GovInfo USCODE, or back).
+
+    GovInfo's USCODE edition is older than the House text a verdict was classified on, so reclassifying on it adds noise, not
+    signal (the 2026-10-20 run re-billed 12 admitted bills on the switch and six came back as fresh holds). The PUBLISHED verdict
+    stands, unbilled and ahead of whatever the checkpoint holds, when the bill text (every version) is unchanged, the same
+    (title, section) identities are cited, and for every section the served text is either the text the verdict was CLASSIFIED on
+    (same hash, so House flapping back to the classified text reuses) or GovInfo's text for a section classified on House. The
+    classified evidence is the decision's classified_statute map, or, for a verdict that has never been re-sealed, its own bound
+    evidence. So an in-place amendment on House after a round trip through GovInfo is real evidence and is reclassified. A carry
+    that came from a refused classifier answer is never re-sealed here: that would reset its 30-day clock with no classification.
+    Returns (decision, meta) shaped like reusable_decision's, so the caller re-seals it on the new evidence with the normal
+    re-verified checked_at; None whenever a condition fails (the caller then reuses or classifies as usual). A published verdict
+    with a bad category is still an error (registry drift); a hash mismatch is still the integrity alarm. When it declines because
+    the evidence changed in more than the source (or the verdict cannot be re-sealed), the reason is appended to `declined`, so the
+    caller can say why a billed call follows; no reason is given when nothing applies (a new key, identical evidence)."""
+    def decline(reason):
+        if declined is not None:
+            declined.append(reason)
+
+    if (not published or published.get('disposition') != 'include' or published.get('policy') != POLICY
+            or published.get('carry_expired') or not published.get('evidence_fingerprint')):
+        return None
+    if published.get('carried_forward') == 'classifier_invalid_output':
+        # Re-sealing would stamp a fresh checked_at on a verdict whose last real classification is old, resetting its 30-day clock
+        # with no classification. (A source_unavailable carry may be re-sealed: its evidence was collected again, the bill text is
+        # unchanged, and it is the same verdict the source outage kept.)
+        return decline('the published verdict is a classifier_invalid_output carry; re-sealing it would reset its 30-day clock')
+    classifier = published.get('classifier') or {}
+    parameters = published.get('fingerprint_parameters') or {
+        'policy': published.get('policy'), 'model': classifier.get('model'), 'transport': classifier.get('transport', 'api')}
+    if parameters != {'policy': POLICY, 'model': model, 'transport': transport}:
+        return decline('the published verdict was classified under another policy, model or transport')
+    try:
+        historical = bound_decision_texts(published)
+    except OSError:
+        return decline('the published verdict\'s cached evidence cannot be read')
+    if published['evidence_fingerprint'] not in (evidence_fingerprint(historical, model=model, transport=transport),
+                                                  evidence_fingerprint(historical, model=model, transport=transport, legacy=True)):
+        raise ValueError('cached admission fingerprint does not match its bound evidence')
+    bill_text = lambda documents: {u: t for u, t in documents.items() if u.startswith('https://www.govinfo.gov/content/pkg/BILLS-')}
+    if not bill_text(historical) or bill_text(historical) != bill_text(texts):
+        return decline('the bill text changed')      # a real re-verification, never this rule
+    # What the verdict was CLASSIFIED on. A verdict that has been re-sealed carries it; one that never was has not been touched
+    # by this rule, so its bound evidence is what it was classified on.
+    held = statute_signature(published.get('evidence', []), historical)
+    classified = published.get('classified_statute') or held
+    served = statute_signature(evidence, texts)
+    if not classified or set(classified) != set(served) or set(held) != set(served):
+        return decline('the cited statute sections changed') if classified or served else None
+    if held == served:
+        return None      # nothing moved: the ordinary cache hit
+    for identity, now in served.items():
+        was = classified[identity]
+        # Reusable when the law is what it was classified on (same hash, whatever the source), or when GovInfo's older edition
+        # now stands in for House text the verdict was classified on: that difference is non-material. Anything else (House text
+        # that differs from what was classified, or a section classified on GovInfo now served differently) is real evidence.
+        if now['sha256'] != was['sha256'] and not (now['source'] == 'govinfo' and was['source'] == 'house'):
+            return decline(f"{identity} changed in place: classified on {was['source']} text, now served {now['source']} text that differs")
+    try:
+        decision = validate_decision(published, key, texts, categories)
+    except InvalidScoringCategory:
+        raise
+    except ValueError as invalid:
+        # e.g. a category quote that only existed in the old statute text: re-decide rather than carry it over
+        return decline(f'the published verdict no longer validates against the current documents: {invalid}')
+    return ({**decision, 'statute_source_switch_reuse': True, 'classified_statute': classified},
+            {**classifier, 'cache_hit': True, 'cache_source': 'published', 'statute_source_switch_reuse': True})
+
+
+CARRY_FIELDS = ('carried_forward', 'carried_at', 'last_verified_at', 'carry_expired', 'carry_expired_at', 'carried_forward_no_llm')
+
+
+def _past_carry_limit(verified, now):
+    """Is a verdict last verified at `verified` older than SA.CARRY_FORWARD_MAX_DAYS at `now`? Both are ISO strings."""
+    return (datetime.fromisoformat(now.replace('Z', '+00:00')) - datetime.fromisoformat(verified.replace('Z', '+00:00'))
+            ) > timedelta(days=SA.CARRY_FORWARD_MAX_DAYS)
+
+
+def _carry_check(published, now):
+    """What every carry needs: a published include under the current policy, last verified within the 30-day limit (D-162). Returns
+    its last real verification date; raises CarryExpired when only its age forbids the carry."""
+    if not published or published.get('disposition') != 'include' or published.get('policy') != POLICY:
+        raise ValueError('no published include under the current policy to carry forward')
+    verified = published['checked_at']
+    if _past_carry_limit(verified, now):
+        raise CarryExpired(f'last verified {verified}, past the {SA.CARRY_FORWARD_MAX_DAYS}-day carry-forward limit')
+    return verified
+
+
+def carry_classifier_invalid(key, published, categories, now):
+    """A fresh classifier answer for an ADMITTED bill was refused (InvalidScoringCategory): keep the published include rather than
+    hold or fail the refresh, under the same 30-day limit as a source-outage carry. The verdict is re-validated against its own
+    bound evidence and the current registry, so registry drift in the published verdict is still an error."""
+    verified = _carry_check(published, now)
+    return {**validate_decision(published, key, bound_decision_texts(published), categories),
+            'carried_forward': 'classifier_invalid_output', 'carried_at': now, 'last_verified_at': verified}
 
 
 def carry_source_unavailable(key, published, texts, categories, now):
     """Sentinel source-outage rule (2026-10-11, decided by Claude under Paul's delegation): keep an ADMITTED bill's
     published include while the House Code service is down, if its official bill text is unchanged and its last real
     verification is at most SA.CARRY_FORWARD_MAX_DAYS old. checked_at stays the original verification date, never a
-    forged one. Raises ValueError when the verdict cannot be carried; the caller fails the refresh as before."""
-    if not published or published.get('disposition') != 'include' or published.get('policy') != POLICY:
-        raise ValueError('no published include under the current policy to carry forward')
-    verified = published['checked_at']
-    age = datetime.fromisoformat(now.replace('Z', '+00:00')) - datetime.fromisoformat(verified.replace('Z', '+00:00'))
-    if age > timedelta(days=SA.CARRY_FORWARD_MAX_DAYS):
-        raise ValueError(f'last verified {verified}, past the {SA.CARRY_FORWARD_MAX_DAYS}-day carry-forward limit')
+    forged one. Raises ValueError when the verdict cannot be carried and the caller fails the refresh as before, except
+    CarryExpired (age alone): the caller drops that bill and defers it (D-260)."""
+    verified = _carry_check(published, now)
     historical = bound_decision_texts(published)  # re-hashes every cached evidence file
     bill_text = lambda documents: {u: t for u, t in documents.items()
                                    if u.startswith('https://www.govinfo.gov/content/pkg/BILLS-')}
@@ -351,7 +610,7 @@ def validate_decision(value, key, texts, categories):
     seen = set()
     for row in value.get('categories') or []:
         if row.get('category') not in categories or row['category'] in seen:
-            raise ValueError('unknown or duplicate scoring category')
+            raise InvalidScoringCategory(row.get('category'), row.get('category') in seen)
         seen.add(row['category'])
         if type(row.get('direction')) is not int or row['direction'] not in (-1,0,1):
             raise ValueError('missing explicit category direction')
@@ -457,26 +716,54 @@ def collect(key, directory, stamp):
         raise ValueError('statutory context exceeds envelope; no partial classification')
     for title,section in sorted(references):
         statute_url='https://uscode.house.gov/view.xhtml?req='+urllib.parse.quote(f'(title:{title} section:{section} edition:prelim)')
-        request=urllib.request.Request(statute_url,headers={'User-Agent':'Melange official-evidence research/1.0'})
-        try:
-            body = _http_bytes(request, timeout=60, source=statute_url,
-                               max_bytes=2000000, expected_host='uscode.house.gov')
-            texts[statute_url]=statute_text(body,title,section)
-        except (SourceUnavailable, urllib.error.HTTPError) as exc:
-            if isinstance(exc, urllib.error.HTTPError) and exc.code < 500 and exc.code != 429:  # 429 = throttled, an outage like a 5xx
-                raise
-            raise SourceUnavailable(f'official statute service unavailable for {title} USC {section}: {exc}',
-                                    snapshot=snapshot, texts=dict(texts)) from exc
+        house_reason=None; provenance={}
+        if _STATUTE_RUN['house_down'] is not None:
+            # A site-wide House outage routes the rest of the run to GovInfo: one evidence source, no flood of requests to a down site.
+            house_reason=f"House Code skipped after an earlier House Code outage this run ({_STATUTE_RUN['house_down']})"
+        else:
+            request=urllib.request.Request(statute_url,headers={'User-Agent':'Melange official-evidence research/1.0'})
+            try:
+                body = _http_bytes(request, timeout=60, source=statute_url,
+                                   max_bytes=2000000, expected_host='uscode.house.gov')
+                texts[statute_url]=statute_text(body,title,section)
+                _STATUTE_RUN['counts']['house_code']+=1
+            except (SourceUnavailable, http.client.HTTPException, OSError) as exc:
+                # OSError covers a timeout, a refused or reset connection and a URLError once _retry_read has given up; none of
+                # them says anything about the bill. A real client error (400, 401, 405, a plain 404) still raises.
+                if isinstance(exc, urllib.error.HTTPError) and not _house_status_unavailable(exc):
+                    raise
+                house_reason=str(exc) or type(exc).__name__
+                # Only a site-wide signal trips the run-level breaker: the maintenance page, the temporary-format page (a 200
+                # or the 404/410 it rides on), a throttle (429), or a transient failure that survived its retries (timeout,
+                # URLError, RemoteDisconnected). A single section's 5xx, 403 or 408 falls back to GovInfo for that section
+                # only, and the next section asks House again. Sources switching when House recovers mid-run, or between
+                # runs, is the accepted one-off churn: a bill's evidence moves once and is re-verified once.
+                if not (isinstance(exc, urllib.error.HTTPError) and (exc.code >= 500 or exc.code in (403, 408))):
+                    _STATUTE_RUN['house_down']=f'{title} USC {section}: {house_reason}'
+        if house_reason is not None:
+            try:
+                statute_url,body,text,provenance=govinfo_statute(title,section)
+            except SourceUnavailable as fallback:
+                raise SourceUnavailable(f'official statute service unavailable for {title} USC {section}: {house_reason}; '
+                                        f'GovInfo USCODE fallback: {fallback}',
+                                        snapshot=snapshot, texts=dict(texts)) from fallback
+            texts[statute_url]=text
+            # A constant, never the reason: the record is bound to a generation by equality and deduplicated by file hash, so a
+            # per-run, per-position text would make two records for the same bytes differ and SA.load would refuse the
+            # generation. The reasons live in statute_house_skipped_after and source_unavailable_reasons.
+            provenance={**provenance,'house_unavailable':True}
+            _STATUTE_RUN['counts']['govinfo_uscode']+=1
         sh=hashlib.sha256(body).hexdigest(); file=directory/(sh+'.html')
         if not file.exists(): file.write_bytes(body)
         sources.append({'url':statute_url,'path':str(file.resolve()),'sha256':sh,
-                        'kind':'statute','title':title,'section':section})
+                        'kind':'statute','title':title,'section':section,**provenance})
     if sum(map(len,texts.values())) > 400000:
         raise ValueError('complete evidence exceeds model envelope; not silently clipped')
     return snapshot,texts,sources
 
 
 def main(argv=None):
+    _STATUTE_RUN.update(house_down=None,integrity_failures=0,counts={'house_code':0,'govinfo_uscode':0})
     p=argparse.ArgumentParser()
     p.add_argument('--root',type=Path,default=ROOT)
     p.add_argument('--limit',type=int,default=32)
@@ -520,7 +807,10 @@ def main(argv=None):
     # An admitted bill stays in the tracked repository, which never drops a bill, so the discovery pool above
     # never offers it again once a hold takes it out of bills. Return every held, catalogued key: it rejoins the
     # oldest-first hold-retry quota below and can be named with --keys, like every other hold.
-    pool |= {k for k in previous.get('bill_catalog',{}) if cached_decisions.get(k,{}).get('disposition')=='hold'}
+    # A bill whose carried verdict expired (D-260) is dropped from bills the same way, so it returns the same way: as a cached
+    # include it sorts first among the candidates until a real verification replaces the flagged verdict.
+    pool |= {k for k in previous.get('bill_catalog',{}) if cached_decisions.get(k,{}).get('disposition')=='hold'
+             or cached_decisions.get(k,{}).get('carry_expired')}
     excluded={k for k,r in supplemental.items() if r.get('integration_state')=='excluded_false_positive'}
     pool-=excluded
     requested=set(args.keys.split(',')) if args.keys else pool
@@ -533,7 +823,14 @@ def main(argv=None):
     # Cost (2026-10-15): a new measure whose official source was down last run was deferred untouched; behind every
     # other unseen key it goes, so a lingering outage does not keep taking selection slots. Order only, not eligibility.
     prior_unavailable=set(previous.get('source_unavailable_deferred_keys') or [])
-    candidates=sorted(requested-active,key=lambda k:(
+    # A fresh "classifier unavailable" hold is parked (out of the retry quota AND the fall-through) until HOLD_PARK_DAYS old;
+    # it stays in pool, so deferred_keys still counts it. Naming it with --keys is the manual clear and is never parked.
+    now=datetime.fromisoformat(stamp)
+    parked=set() if args.keys else {k for k in requested-active if _parked_hold(cached_decisions.get(k,{}),now)}
+    parked_hold_keys={k:{'checked_at':cached_decisions[k]['checked_at'],
+                         'unparks_at':(_hold_checked_at(cached_decisions[k])+timedelta(days=HOLD_PARK_DAYS)).isoformat()}
+                      for k in sorted(parked)}
+    candidates=sorted(requested-active-parked,key=lambda k:(
         cached_decisions.get(k,{}).get('disposition')!='include',
         k in cached_decisions,
         k in prior_unavailable,
@@ -555,9 +852,23 @@ def main(argv=None):
     run.mkdir(parents=True,exist_ok=False)
     decisions=dict(cached_decisions); bills=dict(previous.get('bills',{})); sources=[]; errors={}
     catalog=dict(previous.get('bill_catalog',previous.get('bills',{})))
-    no_llm_deferred=[]; source_unavailable_deferred=[]
+    no_llm_deferred=[]; source_unavailable_deferred=[]; classifier_deferred={}; source_unavailable_reasons={}; carry_expired={}
+    classifier_invalid_output={}; statute_source_switch_reused=0
+    previous_deferral_counts=previous.get('classifier_deferral_counts') or {}; deferral_counts={}
     aborted_reason=None; not_attempted=0; classifier_calls=0
+
+    def drop_expired_carry(key,published,reason,kind='source_unavailable'):
+        # D-260: past the 30-day limit the verdict is no longer served, but one expired bill must not fail the refresh and
+        # freeze every other measure. Keep the verdict on record, flagged; leave bills (and with it the memberships);
+        # bill_catalog still names it, so consumers drop its desk rows. It is retried like a deferral.
+        decisions[key]={**published,'carry_expired':kind,'carry_expired_at':stamp}
+        bills.pop(key,None)
+        source_unavailable_deferred.append(key); source_unavailable_reasons[key]=reason
+        carry_expired[key]={'last_verified_at':published['checked_at'],'dropped_at':stamp,'reason':reason}
+        print(key,'deferred: carried verdict past the 30-day limit dropped (D-260):',reason,flush=True)
+
     for key in selected:
+        fresh_call=False   # True once this key has gone to the classifier: only a fresh answer can be "refused" (InvalidScoringCategory)
         try:
             # Paul 2026-10-01 ("Hold before fetch"): a published include that already fails the direction rule is held
             # before collect(), with no fetch and no model call, so an official-site outage cannot block the hold. The
@@ -566,26 +877,45 @@ def main(argv=None):
             _require_single_direction(previous.get('decisions',{}).get(key) or {})
             snapshot,texts,evidence=collect(key,root/'data/legislation/sentinel_evidence',stamp)
             fingerprint=evidence_fingerprint(texts,model=args.model,transport=args.transport)
-            reused=reusable_decision(key,texts,categories,
-                published=previous.get('decisions',{}).get(key),
-                checkpoint=checkpoint.get('decisions',{}).get(key),
-                model=args.model,transport=args.transport)
+            # An admitted bill whose evidence moved only between statute sources keeps its PUBLISHED verdict, checked before the
+            # checkpoint can offer a fresh one (the 2026-10-20 checkpoint holds six fresh holds on GovInfo's older text).
+            switch_declined=[]
+            reused=(statute_source_switch_reuse(key,previous.get('decisions',{}).get(key),texts,evidence,categories,
+                                                model=args.model,transport=args.transport,declined=switch_declined)
+                    if key in previous['bills'] else None)
+            switch_reused=reused is not None
+            if reused is None:
+                reused=reusable_decision(key,texts,categories,
+                    published=previous.get('decisions',{}).get(key),
+                    checkpoint=checkpoint.get('decisions',{}).get(key),
+                    model=args.model,transport=args.transport)
             decision=meta=None; carried_forward=False
             if reused is not None:
                 decision,meta=reused
             elif not args.no_llm:
-                classifier_calls+=1  # counted on attempt: a call that then fails validation or errors was still billed
+                classifier_calls+=1; fresh_call=True  # counted on attempt: a call that then fails validation or errors was still billed
+                if switch_declined:
+                    print(key,'statute source switch reuse declined, classifying:',switch_declined[0],flush=True)
                 decision,meta=classify(key,texts,categories,model=args.model,key_path=root/'fec/anthropic_key.txt',transport=args.transport)
             else:
                 published=previous.get('decisions',{}).get(key)
-                if published:
+                # A verdict dropped at the 30-day limit (D-260) is not carried back into the scored set: it waits for a real check.
+                if published and not published.get('carry_expired'):
                     # A carried verdict skips validate_decision, so check the direction rule here too.
                     _require_single_direction(published)
-                    # The evidence moved but no model call is permitted. Keep the
-                    # published verdict AND its original fingerprint, so the next
-                    # classifying run still sees changed evidence and re-decides
-                    # instead of treating this key as settled.
-                    decision={**published,'carried_forward_no_llm':True}; carried_forward=True
+                    if published.get('carried_forward') in SA.CARRIED_FORWARD and _past_carry_limit(published['checked_at'],stamp):
+                        # The source answered, but --no-llm cannot re-verify the moved evidence, and the 30-day limit binds a
+                        # carry (source outage or refused classifier answer) however it is kept (D-260): it leaves the scored set
+                        # exactly as on the outage path.
+                        drop_expired_carry(key,published,f"--no-llm cannot re-verify moved evidence; last verified {published['checked_at']}, "
+                                                         f"past the {SA.CARRY_FORWARD_MAX_DAYS}-day carry-forward limit",
+                                           published['carried_forward'])
+                    else:
+                        # The evidence moved but no model call is permitted. Keep the
+                        # published verdict AND its original fingerprint, so the next
+                        # classifying run still sees changed evidence and re-decides
+                        # instead of treating this key as settled.
+                        decision={**published,'carried_forward_no_llm':True}; carried_forward=True
                 else:
                     # Nothing to carry and no permission to ask for a verdict. The
                     # key stays unprocessed and unsealed: no hold is written and no
@@ -597,6 +927,10 @@ def main(argv=None):
                 if not carried_forward:
                     # A re-verified decision is no longer a source-outage carry.
                     decision={**{k:v for k,v in decision.items() if k not in CARRY_FIELDS},'checked_at':stamp,'evidence_fingerprint':fingerprint,
+                              # What this verdict was classified on: set when it is freshly classified, carried unchanged through a
+                              # source-switch re-seal and a cache hit (a hit on a verdict that predates the map derives it from the
+                              # evidence, which equals the evidence it was classified on).
+                              'classified_statute':decision.get('classified_statute') or statute_signature(evidence,texts),
                               'fingerprint_schema':FINGERPRINT_SCHEMA,
                               'fingerprint_parameters':{'policy':POLICY,'model':args.model,'transport':args.transport},
                               'evidence':evidence,'classifier':meta}
@@ -606,7 +940,10 @@ def main(argv=None):
                     bills[key]=snapshot
                     catalog[key]=snapshot
                 else: bills.pop(key,None)
-                if carried_forward:
+                if switch_reused:
+                    statute_source_switch_reused+=1
+                    print(key,decision['disposition'],'statute_source_switch_reuse',flush=True)
+                elif carried_forward:
                     print(key,decision['disposition'],'carried_forward_no_llm',flush=True)
                 else:
                     print(key,decision['disposition'],flush=True)
@@ -633,22 +970,64 @@ def main(argv=None):
                                 'checked_at':stamp,'evidence':[]}
                 bills.pop(key,None)
                 print(key,'hold:',decisions[key]['rationale'],flush=True)
+            elif fresh_call and isinstance(exc,InvalidScoringCategory):
+                # 119:hr:10082 (2026-10-20): the classifier named a category outside the registry, or one twice. The model, not
+                # the bill, is at fault, so it is never a publication-blocking error. A new key is held for retry; an admitted
+                # one keeps its published include under the 30-day carry limit (D-162), and past it takes the CarryExpired drop.
+                classifier_invalid_output[key]=str(exc)
+                if key not in previous['bills']:
+                    decisions[key]={'canonical_key':key,'disposition':'hold','confidence':'low',
+                                    'rationale':f'classifier output refused: {exc}',
+                                    'categories':[],'authority':'automated_classifier_validation_gate',
+                                    'checked_at':stamp,'evidence':[]}
+                    bills.pop(key,None)
+                    print(key,'hold:',decisions[key]['rationale'],flush=True)
+                else:
+                    try:
+                        decisions[key]=carry_classifier_invalid(key,previous.get('decisions',{}).get(key),categories,stamp)
+                        snapshot['areas']=[r['category'] for r in decisions[key]['categories']]
+                        bills[key]=catalog[key]=snapshot
+                        print(key,'include carried_forward: classifier_invalid_output:',exc,flush=True)
+                    except CarryExpired:
+                        drop_expired_carry(key,previous['decisions'][key],reason,'classifier_invalid_output')
+                    except (ValueError, OSError) as refusal:
+                        errors[key]=f'{reason}; not carried forward: {type(refusal).__name__}: {refusal}'
+                        print(key,errors[key],flush=True)
             elif isinstance(exc,SourceUnavailable):
                 # Sentinel source-outage rule (2026-10-11): an outage is not evidence about the bill. A new measure is
                 # deferred untouched (never admitted, never held); an admitted one keeps its published include only
                 # under carry_source_unavailable's conditions, else the refresh fails as before.
                 if key not in previous['bills']:
-                    source_unavailable_deferred.append(key)
+                    source_unavailable_deferred.append(key); source_unavailable_reasons[key]=reason
                     print(key,'deferred:',reason,flush=True)
                 else:
                     try:
                         decisions[key]=carry_source_unavailable(key,previous.get('decisions',{}).get(key),exc.texts,categories,stamp)
                         exc.snapshot['areas']=[r['category'] for r in decisions[key]['categories']]
                         bills[key]=catalog[key]=exc.snapshot
+                        source_unavailable_reasons[key]=reason   # carried, not deferred: the receipt still says why the source failed
                         print(key,'include carried_forward: source_unavailable',flush=True)
+                    except CarryExpired:
+                        drop_expired_carry(key,previous['decisions'][key],reason)
                     except (ValueError, OSError) as refusal:
                         errors[key]=f'{reason}; not carried forward: {type(refusal).__name__}: {refusal}'
                         print(key,errors[key],flush=True)
+            elif key not in previous['bills'] and _classifier_unavailable(exc):
+                # Paul 2026-10-19 (R1): a classifier timeout or non-quota failure on a measure not yet admitted is a
+                # deferral, not a FAIL (119:hr:8295 failed the 2026-10-18 run). Same list and same untouched state as the
+                # source-outage deferral above, so the retry order demotes it; an admitted key keeps the error below.
+                # A key that defers HOLD_AFTER_DEFERRALS runs running (each retry is a billed call) is held instead.
+                classifier_deferred[key]=reason
+                deferral_counts[key]=previous_deferral_counts.get(key,0)+1
+                if deferral_counts[key]>=HOLD_AFTER_DEFERRALS:
+                    decisions[key]={'canonical_key':key,'disposition':'hold','confidence':'low',
+                                    'rationale':f'{CLASSIFIER_UNAVAILABLE_PREFIX} {deferral_counts[key]} runs: {reason}',
+                                    'categories':[],'authority':'automated_classifier_validation_gate',
+                                    'checked_at':stamp,'evidence':[]}
+                    print(key,'hold:',decisions[key]['rationale'],flush=True)
+                else:
+                    source_unavailable_deferred.append(key); source_unavailable_reasons[key]=reason
+                    print(key,'deferred:',reason,flush=True)
             elif isinstance(exc,ValueError) and key not in previous['bills'] and (isinstance(exc,StatuteIdentityMismatch) or str(exc) in (
                 'amendment requires exact amendment evidence adapter','no complete official operative bill text yet',
                 'complete evidence exceeds model envelope; not silently clipped',
@@ -710,20 +1089,63 @@ def main(argv=None):
                 'title':bill['title'],'sponsor':bill['sponsor']['name'],'summary':desk_summary(bill['summary']),
                 'action':bill['latest_action']['text'],'ncos':bill['cosponsor_count'],'url':bill['url'],
                 'source':'official BILLSTATUS; automated evidence admission','verified_at':stamp})
+    # Systemic outage guard (2026-10-19 review of R1): a classifier broken for good would defer every new key and let the
+    # run PASS. Every call this run ended in a classifier deferral is that shape: any other outcome is a decision or a
+    # validation hold (the classifier answered) or an error (the run already fails). Slow bills are not an outage: two
+    # non-timeout failures (auth expired, model gone, overloaded) are systemic, and so are three deferrals of any mix (one
+    # "overloaded" plus two timeouts is an outage too: pre-merge review 2026-10-20). Two 480 s timeouts on huge bills, or one
+    # failure beside one timeout, stay deferrals.
+    timeouts=sum(r.startswith('TimeoutExpired') for r in classifier_deferred.values())
+    failures=len(classifier_deferred)-timeouts
+    systemic=classifier_calls==len(classifier_deferred) and (failures>=2 or len(classifier_deferred)>=3)
+    if systemic:
+        errors['CLASSIFIER_SYSTEMIC_FAILURE']=('%d classifier calls failed and none succeeded this run: %s'
+                                               %(len(classifier_deferred),next(iter(classifier_deferred.values()))))
+        print('Classifier systemic failure:',errors['CLASSIFIER_SYSTEMIC_FAILURE'],flush=True)
     status='FAIL' if errors else 'PASS'
     document={'schema':SA.SCHEMA,'status':status,'checked_at':stamp,'policy':POLICY,
         'bills':bills,'decisions':decisions,'memberships':memberships,
         'bill_catalog':catalog,
         'sources':list({r['path']:r for r in sources}.values()),'errors':errors,
-        # Keys a stop left unattempted are still backlog (a budget stop installs this generation).
-        'unresolved_members':unresolved,'deferred_keys':sorted(pool-set(selected[:len(selected)-not_attempted])),
+        # Keys a stop left unattempted are still backlog (a budget stop installs this generation), and so are attempted
+        # keys that stayed unsealed on an outage (source or classifier); the desk's bill_review_backlog counts this list.
+        'unresolved_members':unresolved,
+        'deferred_keys':sorted((pool-set(selected[:len(selected)-not_attempted]))|set(source_unavailable_deferred)),
         'processed':len(selected),'ratified_exclusions_retained':len(excluded),
         # Selected keys that a --no-llm pass could neither reuse nor carry forward.
         # They are unsealed work, not verdicts, and stay eligible for the next pass.
         'no_llm':bool(args.no_llm),'no_llm_deferred':len(no_llm_deferred),
         'no_llm_deferred_keys':sorted(no_llm_deferred),
-        # New measures whose statute service was down: not verdicts, eligible again next pass.
+        # New measures whose statute service was down: not verdicts, eligible again next pass. The name is older than its use: it
+        # also lists an admitted bill dropped at the 30-day carry limit (carry_expired), whether the carry was a source outage
+        # (source_unavailable) or a refused classifier answer (classifier_invalid_output), and a classifier deferral.
         'source_unavailable_deferred_keys':sorted(source_unavailable_deferred),
+        # Fresh "classifier unavailable" holds left out of this run's selection, each with its checked_at and the time it is retried
+        # again (checked_at + HOLD_PARK_DAYS). They stay in deferred_keys; an empty map on a --keys run.
+        'parked_hold_keys':parked_hold_keys,
+        # Why the source failed for each key above, and for each admitted bill carried forward on the outage (the statute service,
+        # or the classifier), so a run's receipt explains its backlog.
+        'source_unavailable_reasons':source_unavailable_reasons,
+        # D-259: how many cited sections each source served this run, and the first site-wide House Code signal that sent the rest
+        # of the run to GovInfo (None when none fired; a section-level 5xx/403/408 falls back alone, so read statute_sources too).
+        # A WAF block (403) shows up as GovInfo-served sections, not as a quiet fallback.
+        'statute_sources':dict(_STATUTE_RUN['counts']),'statute_house_skipped_after':_STATUTE_RUN['house_down'],
+        # Admitted bills whose evidence moved only between statute sources and kept their published verdict, unbilled (D-259).
+        'statute_source_switch_reused':statute_source_switch_reused,
+        # GovInfo documents refused as not what was asked for (reasons prefixed govinfo_integrity: in source_unavailable_reasons).
+        'statute_integrity_failures':_STATUTE_RUN['integrity_failures'],
+        # D-260: verdicts dropped this run at the 30-day carry limit, and every key still carrying that flag (the backlog).
+        'carry_expired':carry_expired,
+        'carry_expired_keys':sorted(k for k,d in decisions.items() if d.get('carry_expired')),
+        # Fresh classifier answers refused for a category outside the registry or named twice (a hold for a new key, a carry of the
+        # published verdict for an admitted one), with the reason. It means the model left its output schema.
+        'classifier_invalid_output':classifier_invalid_output,
+        # Subset of the list above deferred on a classifier timeout / non-quota failure (2026-10-19), with the reason.
+        'classifier_deferred':classifier_deferred,'classifier_systemic_failure':systemic,
+        # Consecutive runs a key ended in a classifier deferral. Any other outcome for an attempted key resets it, a key
+        # this run never reached keeps its count; HOLD_AFTER_DEFERRALS turns the deferral into a hold.
+        'classifier_deferral_counts':{**{k:n for k,n in previous_deferral_counts.items()
+                                         if k not in selected[:len(selected)-not_attempted]},**deferral_counts},
         # Set only when the loop stopped early. CLASSIFIER_QUOTA_EXHAUSTED (rate/spend limit) leaves the run FAIL and
         # never installed; CLASSIFIER_CALL_BUDGET (--max-classifier-calls) is a normal bounded run, PASS, installed.
         'aborted_reason':aborted_reason,'not_attempted':not_attempted,
@@ -731,7 +1153,7 @@ def main(argv=None):
     write_json(run/'generation.json',document)
     if status=='PASS' and not args.no_install:
         write_json(target,document)
-    print(json.dumps({'status':status,'admitted_bills':len(bills),'memberships':len(memberships),'errors':len(errors),'deferred':len(document['deferred_keys']),'run':str(run)}))
+    print(json.dumps({'status':status,'admitted_bills':len(bills),'memberships':len(memberships),'errors':len(errors),'deferred':len(document['deferred_keys']),'classifier_deferred':len(classifier_deferred),'parked':len(parked),'classifier_systemic_failure':systemic,'run':str(run)}))
     return 0 if status=='PASS' else 1
 
 

@@ -4,7 +4,8 @@ Docker is reached from this process (never from a container, D-239) through one 
 only from the TEMPLATES allowlist below: shell=False, a timeout per command, a minimal environment, captured output. The
 only strings that reach an argv are a service name checked against the configured set, a container id read from
 `docker ps`, an image reference read from `compose config`, a timestamp this module formats, and (Terrier only) an invite
-email that matches EMAIL plus a role name that maps to fixed flags. Terrier is one service (D-241).
+email that matches EMAIL plus a role name that maps to fixed flags. Terrier is one service (D-241). The one other program it
+starts is Docker Desktop itself (Docker.start_desktop): its exe from two fixed install folders, no shell, no arguments.
 
 Reading the services is two cheap calls, because `compose ps` is slow on a busy machine: `docker ps -a -q --no-trunc` with
 the project's compose label (the only filter the allowlist has) lists the container ids, and one `docker inspect` of them
@@ -47,6 +48,7 @@ VERSION_RETRY = 600   # seconds before a failed /version probe is tried again fo
 REFRESH_BUDGET = 10   # seconds one read of the service list may take in all: the page gives up on a request at 12 s
 CALL_CAP = {'ps': 6, 'inspect': 4, 'config': 10, 'image_inspect': 3}   # ps then inspect run one after the other (10 s); config beside them
 MIN_CALL = 0.5        # a docker call is not started with less time than this left
+INVITE_TIMEOUT = 30  # the invite command; with REFRESH_BUDGET and a 5 s tree kill it ends inside the 50 s the page waits for /apps/invite
 PROJECT_LABEL, SERVICE_LABEL, ONEOFF_LABEL = 'com.docker.compose.project', 'com.docker.compose.service', 'com.docker.compose.oneoff'
 LOCAL_HOSTS = ('', '0.0.0.0', '::', '127.0.0.1', '::1')   # a published port counts when this computer's loopback reaches it
 PINNED_NOTICE = 'The pinned images could not be read from the compose file, so updates cannot be detected.'
@@ -81,6 +83,7 @@ class NotSetUp(AppsError):
 
 class DockerUnavailable(AppsError):
     status, code = 503, 'docker_unavailable'
+    down = False   # True when the Docker daemon itself is not running (Docker Desktop is closed): the page then offers to start it
 
 
 class ActionFailed(AppsError):
@@ -241,6 +244,21 @@ def find_docker(which=shutil.which, environ=os.environ):
     return None
 
 
+DESKTOP_APP = (('LOCALAPPDATA', r'Programs\DockerDesktop\Docker Desktop.exe'),   # this user's install first,
+               ('ProgramFiles', r'Docker\Docker\Docker Desktop.exe'))            # then the machine-wide one
+DOCKER_SERVICE = 'docker-desktop'   # the name the activity log records for starting Docker Desktop
+
+
+def find_desktop_app(environ=os.environ):
+    """Absolute path of Docker Desktop's own exe in one of the two fixed install folders, or None. Nothing a request carries
+    reaches this."""
+    for variable, rest in DESKTOP_APP:
+        path = os.path.join(environ.get(variable) or '', rest)
+        if environ.get(variable) and os.path.isabs(path) and os.path.isfile(path):
+            return path
+    return None
+
+
 def kill_tree(child):
     """End a child and everything it started: compose and docker spawn helpers that keep the output pipes open."""
     try:
@@ -276,10 +294,10 @@ def run_process(argv, timeout=None, **kwargs):
 
 
 class Docker:
-    """The only place docker runs. `run` and `which` are injectable so tests never start a process."""
+    """The only place docker runs. `run`, `launch` and `which` are injectable so tests never start a process."""
 
-    def __init__(self, config, which=shutil.which, run=None, environ=None):
-        self.config, self._run, self.which = config, run or run_process, which
+    def __init__(self, config, which=shutil.which, run=None, environ=None, launch=None):
+        self.config, self._run, self.which, self.launch = config, run or run_process, which, launch or subprocess.Popen
         self.exe = find_docker(which)
         source = {k.lower(): (k, v) for k, v in (os.environ if environ is None else environ).items()}
         self.env = {source[n.lower()][0]: source[n.lower()][1] for n in ENV_KEEP if n.lower() in source}
@@ -300,6 +318,15 @@ class Docker:
         except (OSError, subprocess.SubprocessError):
             raise DockerUnavailable('Docker did not answer.') from None
         return Result(done.returncode, _text(done.stdout), _text(done.stderr))
+
+    def start_desktop(self):
+        """Start Docker Desktop: the exe find_desktop_app returns, with no shell and no arguments, detached from this process so it
+        keeps running when the dashboard ends. It inherits the dashboard's environment, as when it is opened from the Start menu."""
+        exe = find_desktop_app()
+        if not exe:
+            raise NotSetUp('Docker Desktop was not found on this computer.')
+        self.launch([exe], shell=False, cwd=os.path.dirname(exe), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=getattr(subprocess, 'DETACHED_PROCESS', 0) | getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
 
 
 # ---- redaction -----------------------------------------------------------------------------------------------------
@@ -572,6 +599,7 @@ class AppsAdmin:
         self.busy, self.last, self.cache, self.df_running = {}, {}, {}, False
         self.reading = None                   # the read of the service list that is running, if any (one at a time)
         self.good = None                      # the last list read without error: {'at', 'infos', 'notice'}
+        self.failed = None                    # the DockerUnavailable the latest finished read ended with, or None when it succeeded
         self.config_cache = None              # (watched paths, their stamps, {service: pinned image}) of the last good `compose config`
         self.logs_running = set()             # services whose logs are being read right now
 
@@ -583,6 +611,9 @@ class AppsAdmin:
         if path == '/apps/invite':
             shape(value, ('email', 'role'))
             return self.invite(value['email'], value['role'])
+        if path == '/apps/docker-start':
+            shape(value, ())
+            return self.start_docker()
         shape(value, ('service', 'action') if path == '/apps/action' else ('service',))
         service = self.service(value['service'])
         if path == '/apps/detail':
@@ -608,8 +639,10 @@ class AppsAdmin:
     @staticmethod
     def failure(result):
         daemon = re.search(r'daemon|pipe|connect', result.err, re.I)
-        return DockerUnavailable('Docker is not running. Start Docker Desktop, then check again.' if daemon
-                                 else 'Docker could not read the local services.')
+        error = DockerUnavailable('Docker is not running. Start Docker Desktop, then check again.' if daemon
+                                  else 'Docker could not read the local services.')
+        error.down = bool(daemon)
+        return error
 
     def inspect(self, ids, timeout=20):
         """`docker inspect` exits 1 when one container vanished since `ps` but still prints the others: use that list."""
@@ -670,7 +703,7 @@ class AppsAdmin:
         kept = self.kept()
         if kept:
             return kept, reason
-        raise DockerUnavailable(reason)
+        raise job.error if job.done.is_set() else DockerUnavailable(reason)   # the read's own error keeps its `down`
 
     def run_read(self, job):
         try:
@@ -680,6 +713,7 @@ class AppsAdmin:
         finally:
             with self.lock:
                 self.reading = None
+                self.failed = job.error if isinstance(job.error, DockerUnavailable) else None
             job.done.set()
 
     def read_services(self, deadline):
@@ -866,15 +900,19 @@ class AppsAdmin:
         """The Apps list. `stale` is true when it is the last good list (a read is running, or Docker timed out or failed): its
         checkedAt says when that was read and staleReason why a new read did not answer. Busy, last and activity are always current."""
         now = int(self.clock())
-        activity = [{**a, 'name': self.by_name[a['service']].display} for a in self.recent(8) if a['service'] in self.by_name]
+        names = {**{name: svc.display for name, svc in self.by_name.items()}, DOCKER_SERVICE: 'Docker Desktop'}
+        activity = [{**a, 'name': names[a['service']]} for a in self.recent(8) if a['service'] in names]
         try:
             good, reason = self.snapshot()
         except DockerUnavailable as error:
             # Docker cannot be read and no list was kept, but a running action is still ours: keep reporting busy/last so the page keeps polling.
             rows = [{**self.row(s, None), 'state': 'unknown'} for s in self.config.services]
-            return {'checkedAt': now, 'docker': {'ok': False, 'message': error.message}, 'notice': None, 'stale': False, 'services': rows, 'activity': activity}
+            return {'checkedAt': now, 'docker': {'ok': False, 'message': error.message, 'canStart': error.down and bool(find_desktop_app())}, 'notice': None, 'stale': False, 'services': rows, 'activity': activity}
         rows = [self.row(s, good['infos'][s.name]) for s in self.config.services]
-        view = {'checkedAt': good['at'], 'docker': {'ok': True, 'message': None}, 'notice': good['notice'], 'stale': bool(reason), 'services': rows, 'activity': activity}
+        failed = self.failed   # read once, as in act()
+        failed = failed if reason and failed and failed.down else None   # Docker went away under the list we kept: say so, and offer to start it
+        docker = {'ok': True, 'message': failed.message if failed else None, 'canStart': bool(failed and find_desktop_app())}
+        view = {'checkedAt': good['at'], 'docker': docker, 'notice': good['notice'], 'stale': bool(reason), 'services': rows, 'activity': activity}
         return {**view, 'staleReason': reason} if reason else view
 
     def detail(self, svc):
@@ -900,10 +938,16 @@ class AppsAdmin:
                 raise Busy('The logs are still being read.')
             self.logs_running.add(svc.name)
         try:
-            found = self.containers().get(svc.name)
-            if not found or not HEX_ID.fullmatch(str(found.get('Id', ''))):
+            kept = self.kept()   # the id the page's list showed: no `docker ps` here, which can outlast the 12 s the page waits
+            if kept:
+                found = kept['infos'].get(svc.name)
+                container = found and found['id']
+            else:
+                found = self.containers().get(svc.name)
+                container = found and found.get('Id')
+            if not container or not HEX_ID.fullmatch(str(container)):
                 raise NotSetUp('Not set up in Docker')
-            result = self.docker.run('logs', 20, merge=True, container=found['Id'])
+            result = self.docker.run('logs', 20, merge=True, container=container)
             if result.code != 0:
                 raise ActionFailed('Docker could not read the logs.')
             return {'service': svc.name, 'lines': parse_logs(result.out)}
@@ -917,7 +961,11 @@ class AppsAdmin:
             raise BadRequest('unknown action')
         if action == 'backup' and not svc.terrier:
             raise BadRequest('backups are not set up for this service')
-        if svc.name not in self.containers():
+        failed = self.failed   # read once: a read finishing on another thread may replace it between the test and the raise
+        if failed and failed.down:   # the latest read found the daemon not running: say so now, rather than accept an action that will fail
+            raise failed.with_traceback(None)
+        kept = self.kept()   # the list that offered the button: no docker read here, which can outlast the 12 s the page waits
+        if kept and kept['infos'].get(svc.name) is None:   # with no list yet the action runs and reports its own error
             raise NotSetUp('Not set up in Docker')
         with self.lock:
             if svc.name in self.busy:
@@ -929,6 +977,24 @@ class AppsAdmin:
             with self.lock:
                 self.busy.pop(svc.name, None)
             raise ActionFailed('The action could not start. Try again.') from None
+        return {'ok': True, 'accepted': True}
+
+    def start_docker(self):
+        """Start Docker Desktop. Nothing in the request chooses what runs; the page then polls until Docker answers, and the
+        containers (restart: unless-stopped) come back on their own."""
+        try:
+            self.docker.start_desktop()
+            outcome = 'succeeded'
+        except NotSetUp:
+            raise   # nothing was started, so nothing is recorded
+        except (OSError, subprocess.SubprocessError):
+            outcome = 'failed'
+        try:
+            self.audit.audit_app_action(self.config.actor, DOCKER_SERVICE, 'start', outcome)
+        except Exception:   # the launch already happened; the response says so whatever the log could do
+            pass
+        if outcome != 'succeeded':
+            raise ActionFailed('Docker Desktop could not be started.')
         return {'ok': True, 'accepted': True}
 
     def steps(self, svc, action):
@@ -993,7 +1059,7 @@ class AppsAdmin:
             self.busy[svc.name] = {'action': 'invite', 'since': int(self.clock())}
         origin, outcome, message, link = f'http://127.0.0.1:{port}', 'failed', 'Terrier did not return an invitation link.', None
         try:
-            result = self.docker.run('invite', 30, terrier=svc.name, email=email, role=role, origin=origin)
+            result = self.docker.run('invite', INVITE_TIMEOUT, terrier=svc.name, email=email, role=role, origin=origin)
             last = [l.strip() for l in result.out.splitlines() if l.strip()][-1:]
             if result.code != 0:
                 message = tail(result)

@@ -6,7 +6,7 @@ The legislation search registry is a declared collection expectation.  Six
 119th-Congress anchors were present in that registry but absent from both the
 role workbooks and the member-desk bundle.  This producer consumes pinned
 official GovInfo BillStatus XML, resolves every sponsor/cosponsor to the live
-533-member roster, and publishes:
+member roster, and publishes:
 
 * one beneficiary tag for each missing anchor;
 * an additive member-act membership sidecar; and
@@ -31,6 +31,7 @@ from pathlib import Path
 from members.member_identity import Resolver
 from moneyball_core import write_text_atomic
 from paths import ROOT as ROOT_TEXT
+import roster
 
 
 ROOT = Path(ROOT_TEXT)
@@ -186,8 +187,10 @@ def roster_resolver():
         if row.get('bioguide')
     }
     rank_names = set((read_json(RANKS).get('rank') or {}))
-    if set(names) != rank_names or len(names) != 533:
-        raise ValueError('BillStatus resolver is not bound to the 533-rank roster')
+    if set(names) != rank_names or len(names) != roster.count():
+        raise ValueError(
+            'BillStatus resolver is not bound to the %d-rank roster' % roster.count()
+        )
     return Resolver(names, by_bio), rank_names
 
 
@@ -373,7 +376,7 @@ def build():
             missing_before == expected_missing
         ),
         'all_55_registry_anchors_now_classified': not missing_after,
-        'all_official_member_links_resolve_to_533_roster': (
+        'all_official_member_links_resolve_to_roster': (
             all(row['member'] in rank_names for row in all_memberships)
         ),
         'all_six_anchor_membership_sets_nonempty': (

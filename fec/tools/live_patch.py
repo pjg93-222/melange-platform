@@ -693,6 +693,30 @@ def _refusal(reason, mismatches=()):
             'stderr': '', 'mismatches': list(mismatches)}
 
 
+def _numstat_paths(listing):
+    """Every path `git apply --numstat -z` reports (both sides of a rename), as str labels."""
+    parts = listing.split(b'\0')
+    paths = set()
+    i = 0
+    while i < len(parts):
+        record = parts[i]
+        fields = record.split(b'\t', 2)
+        i += 1
+        if len(fields) < 3:
+            if record:                          # fail closed: an unread path would dodge the scope check
+                raise ValueError('unparseable git apply --numstat record: %r' % record)
+            continue
+        if fields[2]:
+            paths.add(fields[2].decode('utf-8', 'replace'))
+        else:                                   # rename/copy: old and new path follow as own records
+            pair = parts[i:i + 2]
+            if len(pair) < 2 or not all(pair):
+                raise ValueError('truncated rename/copy record in git apply --numstat output')
+            paths.update(p.decode('utf-8', 'replace') for p in pair)
+            i += 2
+    return paths
+
+
 def apply_to(root, patch_path, manifest=None, timeout=120):
     """Apply a cut patch to `root`'s WORKING TREE, refusing anything that moved since the cut.
 
@@ -721,6 +745,17 @@ def apply_to(root, patch_path, manifest=None, timeout=120):
     if named != keyed:
         return _refusal('patch and manifest name different files',
                         sorted(named.symmetric_difference(keyed)))
+    rc, listing, err = _run_git(
+        ['-C', root] + GIT_BYTE_EXACT + ['apply', '--numstat', '-z', patch_path], timeout=timeout)
+    if rc != 0:
+        return _refusal('git could not list the files the patch touches: '
+                        + err.decode('utf-8', 'replace').strip())
+    try:
+        touched = _numstat_paths(listing)
+    except ValueError as exc:
+        return _refusal(str(exc))
+    if touched - keyed:
+        return _refusal('patch touches files outside the manifest', sorted(touched - keyed))
     labels = sorted(manifest)
     originals = {}
     stale = []

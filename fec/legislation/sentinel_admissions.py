@@ -20,11 +20,35 @@ RELATIVE = Path('data/legislation/sentinel_admissions.json')
 # Sentinel source-outage rule (2026-10-11): the longest an admitted verdict may be carried past its last real
 # verification while the House Code service is unavailable.
 CARRY_FORWARD_MAX_DAYS = 30
+# The two ways an admitted bill's published verdict is kept without a fresh verification, both bound by the limit above: its
+# source was down, or the classifier's fresh answer was refused (an unknown or repeated scoring category).
+CARRIED_FORWARD = ('source_unavailable', 'classifier_invalid_output')
 CLASSES = {'cu_primary', 'shared', 'bank_primary', 'crypto_primary', 'fintech', 'telecom_primary', 'offtopic', 'oppose'}
 
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def drop_expired_carries(document, now):
+    """D-260: a source-outage carry (D-162) is never served past CARRY_FORWARD_MAX_DAYS after its last real verification.
+
+    Returns `document` itself when nothing has expired; otherwise a shallow copy without those bills, their memberships and
+    their unresolved-member rows (so validate_membership_projection still sees a consistent document), with `carry_expired_keys`
+    naming them. bill_catalog and decisions are kept: membership_eligible() then answers False for the dropped bills and the
+    desk removes their managed rows. A generation is never refused for the age of a carry, and the stored file is never changed.
+    Every reader of the generation must call this, or they would score different vintages."""
+    limit = CARRY_FORWARD_MAX_DAYS * 86400
+    expired = {key for key in document['bills']
+               if (document['decisions'].get(key) or {}).get('carried_forward') in CARRIED_FORWARD
+               and (now - datetime.fromisoformat(document['decisions'][key]['checked_at'].replace('Z', '+00:00'))).total_seconds() > limit}
+    if not expired:
+        return document
+    return {**document,
+            'bills': {k: v for k, v in document['bills'].items() if k not in expired},
+            'memberships': [r for r in document['memberships'] if r['repository_key'] not in expired],
+            'unresolved_members': [r for r in document.get('unresolved_members', []) if r['key'] not in expired],
+            'carry_expired_keys': sorted(expired | set(document.get('carry_expired_keys') or []))}
 
 
 # D-122: the 2026-10-08 widening to 10 days was reverted to 8 after the 2026-10-11 refresh passed (audits/sentinel_admissions/20261011T182023Z; outages now carry forward under D-162).
@@ -39,9 +63,27 @@ def load(root, *, max_age_days=8):
     document = json.loads(path.read_text(encoding='utf-8'))
     if document.get('schema') != SCHEMA or document.get('status') != 'PASS':
         raise ValueError('sentinel admissions are not a schema-valid PASS generation')
+    # One clock for every check below. Two readers loading at the instant a carry crosses 30 days can still disagree by a
+    # moment (one serves it, one drops it); that mixed vintage is accepted, and gone on the next load.
+    now = datetime.now(timezone.utc)
     stamp = datetime.fromisoformat(document['checked_at'].replace('Z', '+00:00'))
-    age = (datetime.now(timezone.utc) - stamp).total_seconds()
+    age = (now - stamp).total_seconds()
     freshness = CT.age_status(age, max_age_days, 'sentinel admissions are outside their freshness window')
+    document = drop_expired_carries(document, now)
+    # The alert covers every bill withheld on an expired carry: those dropped just now and those the refresh already dropped
+    # (the stored carry_expired_keys backlog). It clears, label included, once none is left.
+    expired = sorted(document.get('carry_expired_keys') or [])
+    if expired:
+        freshness = CT.STALE_LABELLED
+        CT.note_freshness(root, 'sentinel_admissions_carry_expired', CT.STALE_LABELLED,
+                          checked_at=min([document['decisions'][k]['checked_at'] for k in expired if k in document['decisions']]
+                                         or [document['checked_at']]),
+                          window_days=CARRY_FORWARD_MAX_DAYS, producer='fec/legislation/sentinel_admissions.py')
+        print('  !! sentinel admissions: %d bill(s) past the %d-day source-outage carry limit are not served until re-verified '
+              '(D-260): %s' % (len(expired), CARRY_FORWARD_MAX_DAYS, ', '.join(expired)))
+    else:
+        CT.note_freshness(root, 'sentinel_admissions_carry_expired', CT.FRESH, checked_at=document['checked_at'],
+                          window_days=CARRY_FORWARD_MAX_DAYS, producer='fec/legislation/sentinel_admissions.py')
     for record in document['sources']:
         source = Path(to_host(record['path']))
         if not source.is_file() or digest(source) != record['sha256']:
@@ -52,13 +94,13 @@ def load(root, *, max_age_days=8):
         if bill['key'] != key or decision['canonical_key'] != key or decision['disposition'] != 'include' or decision.get('confidence') != 'high':
             raise ValueError('sentinel bill admission identity/disposition mismatch')
         checked = datetime.fromisoformat(decision['checked_at'].replace('Z', '+00:00'))
-        if decision.get('carried_forward') == 'source_unavailable':
-            # Sentinel source-outage rule (2026-10-11): checked_at stays the last real verification, which must be at
-            # most CARRY_FORWARD_MAX_DAYS old; the carry itself must be inside the normal window.
-            if not -300 <= (datetime.now(timezone.utc)-checked).total_seconds() <= CARRY_FORWARD_MAX_DAYS*86400:
-                raise ValueError('carried-forward bill admission is past its verification limit')
+        if decision.get('carried_forward') in CARRIED_FORWARD:
+            # Sentinel source-outage rule (2026-10-11): checked_at stays the last real verification. One past
+            # CARRY_FORWARD_MAX_DAYS was dropped above (D-260); a stamp from the future is a clock fault and still refuses.
+            if (now-checked).total_seconds() < -300:
+                raise ValueError('carried-forward bill admission is stamped in the future')
             checked = datetime.fromisoformat(decision['carried_at'].replace('Z', '+00:00'))
-        if CT.age_status((datetime.now(timezone.utc)-checked).total_seconds(), max_age_days,
+        if CT.age_status((now-checked).total_seconds(), max_age_days,
                          'individual bill admission is stale') == CT.STALE_LABELLED:
             freshness = CT.STALE_LABELLED
         if decision['beneficiary_class'] not in CLASSES or not decision['categories']:
@@ -69,7 +111,7 @@ def load(root, *, max_age_days=8):
             if not category.get('rationale') or not category.get('quote'):
                 raise ValueError('sentinel direction lacks substantive source provenance')
         from legislation.govinfo_discovery_fallback import _parse_bill_text
-        from legislation.refresh_sentinel_admissions import validate_decision, statute_text
+        from legislation.refresh_sentinel_admissions import validate_decision, statute_document_text
         import bill_rules as BR
         registry = json.loads((Path(root)/'source_data/legislation/acu_legislation_search_registry.json').read_text(encoding='utf-8'))
         categories = {BR.canonical_category(r['id']) for r in registry['categories']}
@@ -80,7 +122,7 @@ def load(root, *, max_age_days=8):
             if source not in document['sources'] or digest(to_host(source['path'])) != source['sha256']:
                 raise ValueError('decision evidence is not bound to the generation')
             raw=Path(to_host(source['path'])).read_bytes()
-            texts[source['url']] = (statute_text(raw,source['title'],source['section']) if source.get('kind')=='statute'
+            texts[source['url']] = (statute_document_text(raw,source) if source.get('kind')=='statute'
                                     else _parse_bill_text(raw,url=source['url'],canonical_key=key))
         validate_decision(decision,key,texts,categories)
         if sorted(bill['areas']) != sorted(c['category'] for c in decision['categories']):

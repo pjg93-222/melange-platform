@@ -22,7 +22,8 @@ APPS = frozenset({"melange", "terrier", "mentat"})
 PREFIX = "MelangeSystems.Desktop.Update"
 SCOPES = {'update': PREFIX, 'access-token': 'MelangeSystems.Desktop.Access.Token',
           'access-password': 'MelangeSystems.Desktop.Access.Password',
-          'access-request': 'MelangeSystems.Desktop.Access.Request'}
+          'access-request': 'MelangeSystems.Desktop.Access.Request',
+          'access-device': 'MelangeSystems.Desktop.Access.Device'}
 MAX_TOKEN_BYTES = 2048  # Below Windows CRED_MAX_CREDENTIAL_BLOB_SIZE (2560).
 MAX_REQUEST_BYTES = 8192
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")

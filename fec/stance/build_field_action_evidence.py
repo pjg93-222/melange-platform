@@ -9,7 +9,7 @@ from __future__ import annotations
 import ast
 from collections import Counter, defaultdict
 import csv
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
 import hashlib
 import io
@@ -20,6 +20,7 @@ import re
 
 from stance.rank_honors_policy import POLICY, CONVERSION_TOLERANCE, literal, number
 import bill_rules as BR
+from legislation import sentinel_admissions as SA
 from paths import to_host
 
 
@@ -127,10 +128,17 @@ def load_roster(snapshot):
     return dict(sorted(roster.items()))
 
 
-def _admissions(snapshot):
+def _admissions(snapshot, counts=None):
     doc = snapshot.json('data/legislation/sentinel_admissions.json')
     if doc.get('schema') != 'sentinel-admissions-v1' or doc.get('status') != 'PASS':
         raise ValueError('Invalid official admissions')
+    # D-260: the same 30-day drop sentinel_admissions.load() applies, so every reader scores one vintage of the generation.
+    doc = SA.drop_expired_carries(doc, datetime.now(timezone.utc))
+    if doc.get('carry_expired_keys'):
+        print('  !! field-action evidence: %d admitted bill(s) past the %d-day source-outage carry limit are not scored until '
+              're-verified (D-260): %s' % (len(doc['carry_expired_keys']), SA.CARRY_FORWARD_MAX_DAYS, ', '.join(doc['carry_expired_keys'])))
+        if counts is not None:
+            counts['admission_carry_expired'] = len(doc['carry_expired_keys'])
     for record in doc['sources']:
         _require_hash(snapshot, record['path'], record['sha256'])
     for key, bill in doc['bills'].items():
@@ -219,6 +227,7 @@ def legislative_actions(snapshot, roster, categories, admissions, counts, titles
     facts = {(r['repository_key'], r['bioguide']): r for r in movements['facts']}
     sums = defaultdict(Decimal)
     actions = []
+    announced = set()
     for row in doc['rows']:
         disposition = row['disposition']
         counts['legislative_disposition:' + disposition] += 1
@@ -253,7 +262,16 @@ def legislative_actions(snapshot, roster, categories, admissions, counts, titles
                 if row.get('direction_mechanism') != 'registry-exact' or registry.get(measure) != 0:
                     raise ValueError('Neutral registry evidence is not exact and explicit')
             else:
-                candidates = admissions['decisions'].get(measure, {}).get('categories', [])
+                if measure not in admissions['bills'] and measure in (admissions.get('carry_expired_keys') or ()):
+                    # SA.load withholds this bill on an expired carry (D-260) while the routing audit, built earlier, still names
+                    # it: a stale audit, not an inconsistency. Its neutral rows are excluded and counted, and the build goes on.
+                    counts['neutral_rows_dropped_carry'] += 1
+                    if measure not in announced:
+                        announced.add(measure)
+                        print('  !! field-action evidence: neutral official rows of %s excluded; the bill is withheld on an expired '
+                              'carry (D-260) and the routing audit is stale' % measure)
+                    continue
+                candidates = admissions['decisions'].get(measure, {}).get('categories', []) if measure in admissions['bills'] else []
                 if not any(BR.canonical_category(r['category']) == category and r['direction'] == 0 for r in candidates):
                     raise ValueError('Neutral official direction is not admitted')
             decay = Decimal('0.8') ** max(0, 119 - term)
@@ -506,10 +524,10 @@ def build_evidence(snapshot, as_of):
         raise ValueError('Analytic input omits required accepted action-source hashes')
     for path, digest in source_contract['inputs_sha256'].items():
         _require_hash(snapshot, path, digest)
-    admissions = _admissions(snapshot)
+    counts = Counter()
+    admissions = _admissions(snapshot, counts)
     if date.fromisoformat(admissions['checked_at'][:10]) > as_of:
         raise ValueError('As-of precedes accepted source snapshot; historical backtesting unsupported')
-    counts = Counter()
     titles = {}
     legislation = legislative_actions(snapshot, roster, categories, admissions, counts, titles)
     votes = vote_actions(snapshot, roster, categories, admissions, as_of, counts)

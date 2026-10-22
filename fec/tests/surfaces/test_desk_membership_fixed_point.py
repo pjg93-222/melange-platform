@@ -470,3 +470,26 @@ def test_sponsor_snapshot_must_match_the_receipt_bound_repository(published):
     next(iter(stale['bills'].values()))['sponsor']['bioguide'] = 'Z999999'
     with pytest.raises(RuntimeError, match='snapshot differs'):
         READ(root, repository_snapshot=stale)
+
+
+def test_desk_bill_count_comes_from_the_loaded_generation_not_the_raw_file():
+    # D-260: SA.load() drops an expired source-outage carry in memory. The desk's "automatically classified bills" figure must
+    # count that same loaded generation, or it would still count the bills the desk no longer scores.
+    assert "media_audit['bill_admissions_loaded']=len(_admissions['bills'])" in source
+    assert source.index('_admissions=SA.load(B)') < source.index("media_audit['bill_admissions_loaded']")
+    assert "'automatically_classified_bills':LOAD_AUDIT['bill_admissions_loaded']" in source
+    assert "len(_automatic_source.get('bills'" not in source
+
+
+def test_desk_surfaces_the_load_dropped_carries_in_the_integrity_block():
+    # D-260: the keys SA.load() withheld travel with the desk's other source_display counters.
+    needle = "media_audit['bill_admissions_carry_expired']=sorted(_admissions.get('carry_expired_keys') or [])"
+    assert needle in source and source.index('_admissions=SA.load(B)') < source.index(needle)
+
+
+def test_desk_review_backlog_counts_the_load_dropped_keys_not_already_deferred():
+    # A bill SA.load() withholds is review work even when the generation's deferred_keys does not list it; one that is in both
+    # lists counts once.
+    needle = ("'bill_review_backlog':len(set(_automatic_source.get('deferred_keys',[]))"
+              "|set(LOAD_AUDIT['bill_admissions_carry_expired'])),")
+    assert needle in source

@@ -10,12 +10,18 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
+
+FEC_BOOTSTRAP = Path(__file__).resolve().parents[1]
+if str(FEC_BOOTSTRAP) not in sys.path:
+    sys.path.insert(0, str(FEC_BOOTSTRAP))
 
 from openpyxl import load_workbook
 
 from engine import primacy_factors as PF
 import tier_util as TU
 import moneyball_core as MC
+import roster
 from paths import ROOT as ROOT_TEXT
 
 
@@ -121,10 +127,10 @@ def main():
         '%d bundle acts / %d tags' % (len(acts), len(tags)),
     )
     check(
-        checks, '533-member roster is shared by bundle, factors, and ranks',
-        len(bundle.get('members') or []) == 533
-        and len(committed.get('members') or {}) == 533
-        and len(ranks.get('rank') or {}) == 533,
+        checks, '%d-member roster is shared by bundle, factors, and ranks' % roster.count(),
+        len(bundle.get('members') or []) == roster.count()
+        and len(committed.get('members') or {}) == roster.count()
+        and len(ranks.get('rank') or {}) == roster.count(),
     )
     sidecar_keys = {
         '%s|%s' % (
@@ -590,6 +596,8 @@ def main():
         read_only=True,
         data_only=False,
     )
+    _raw_first = roster.first_row('Legislative Score - Raw')
+    _raw_last = roster.last_row('Legislative Score - Raw')
     try:
         raw = workbook['Legislative Score - Raw']
         rank_formula = str(
@@ -602,9 +610,9 @@ def main():
             'reach_header': (
                 raw['EO1'].value == 'CFPB Reach (-) - Sponsor'
             ),
-            'restrain_positive': '$CU$3:$CY$535' in rank_formula,
+            'restrain_positive': '$CU$%d:$CY$%d' % (_raw_first, _raw_last) in rank_formula,
             'reach_negative': (
-                '$EO$3:$ES$535' in rank_formula
+                '$EO$%d:$ES$%d' % (_raw_first, _raw_last) in rank_formula
                 and '*(-1)' in rank_formula
             ),
         }

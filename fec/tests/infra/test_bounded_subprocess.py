@@ -662,6 +662,73 @@ class BoundedRunLaunchHooks(TempTreeCase):
         self.assert_heartbeat_stopped(beat)
 
 
+# ------------------------------------------------------- [18] log_path: the child's output is kept
+
+class BoundedRunLog(TempTreeCase):
+    """run_bounded(log_path=...) directly.  The weekly step() path (timeout + exit 1) is test_15n."""
+
+    CHILD = "import sys\nprint('out line')\nsys.stderr.write('err line\\n')\nsys.exit(3)\n"
+
+    def test_18a_an_interrupt_still_raises_and_the_log_is_written(self):
+        marker = os.path.join(self.tmp, 'printed')
+        path = os.path.join(self.tmp, 'logs', 'interrupted.log')
+        child = ("import time\nprint('before the interrupt', flush=True)\n"
+                 "open(%r, 'w').close()\ntime.sleep(60)\n" % marker)
+
+        def on_start(process):
+            deadline = time.monotonic() + 30
+            while not os.path.exists(marker) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            BS.run_bounded(_py(child), timeout=60, on_start=on_start, log_path=path)
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        self.assertIn('# status: INTERRUPTED; process tree killed', text)
+        self.assertIn('before the interrupt', text)
+
+    def test_18b_an_unwritable_log_leaves_the_result_unchanged(self):
+        blocker = os.path.join(self.tmp, 'afile')
+        with open(blocker, 'w') as handle:
+            handle.write('x')
+        plain = BS.run_bounded(_py(self.CHILD), timeout=60)
+        blocked = BS.run_bounded(_py(self.CHILD), timeout=60, log_path=os.path.join(blocker, 'x.log'))
+        self.assertIsNone(blocked.log_path)
+        self.assertEqual((plain.returncode, plain.stdout, plain.stderr, plain.timed_out),
+                         (blocked.returncode, blocked.stdout, blocked.stderr, blocked.timed_out))
+
+    def test_18c_each_stream_keeps_its_tail_under_the_cap_and_says_so(self):
+        path = os.path.join(self.tmp, 'big.log')
+        filler = BS.LOG_KEEP_BYTES + 1024 * 1024
+        child = "import sys\nsys.stdout.write('HEAD' + '-MARK' + 'x' * %d + 'TAIL' + '-MARK')\n" % filler
+        result = BS.run_bounded(_py(child), timeout=60, log_path=path)
+        total = len('HEAD-MARK') + filler + len('TAIL-MARK')
+        self.assertEqual(path, result.log_path)
+        with open(path, 'rb') as handle:
+            data = handle.read()
+        self.assertIn(b'===== stdout (last %d of %d bytes) =====' % (BS.LOG_KEEP_BYTES, total), data)
+        self.assertIn(b'TAIL-MARK', data)
+        self.assertNotIn(b'HEAD-MARK', data)
+        self.assertLess(len(data), BS.LOG_KEEP_BYTES + 4096)
+        self.assertEqual(total, len(result.stdout), 'the in-memory result is never capped')
+
+    def test_18d_the_log_is_additive_the_result_is_identical_with_and_without_it(self):
+        path = os.path.join(self.tmp, 'logs', 'kept.log')
+        plain = BS.run_bounded(_py(self.CHILD), timeout=60)
+        logged = BS.run_bounded(_py(self.CHILD), timeout=60, log_path=path)
+        self.assertIsNone(plain.log_path)
+        self.assertEqual(path, logged.log_path)
+        self.assertEqual((plain.returncode, plain.stdout, plain.stderr, plain.timed_out),
+                         (logged.returncode, logged.stdout, logged.stderr, logged.timed_out))
+        self.assertEqual((3, 'out line\n', 'err line\n'), (plain.returncode, plain.stdout, plain.stderr))
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        for needle in ('# status: exit 3', 'out line', 'err line'):
+            self.assertIn(needle, text)
+        self.assertEqual(['kept.log'], os.listdir(os.path.join(self.tmp, 'logs')))
+
+
 # ------------------------------------------- [15] call site: the weekly refresh's own step()
 
 class _HardAbort(BaseException):
@@ -715,6 +782,7 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
             '_tolerated': [],
             '_soft_failures': [],
             '_producer_path': self.producer_path,
+            '_step_log': lambda name: None,    # no persisted log here; test_15n supplies a temp one
             '_chain_tail_is_audit_full': lambda: True,
             'log': self.logs.append,
             '_write_status': lambda **kwargs: self.status.append(kwargs),
@@ -991,6 +1059,44 @@ class WeeklyRefreshStepCallSite(TempTreeCase):
         self.assertEqual('refresh_press_stream.py', row.args[1].elts[0].value)
         self.assertEqual('_press_partial_excused', keywords['partial'].id)
         self.assertIs(True, keywords['hard'].value, 'the hook only ever acts on a hard step')
+
+    # ---- the per-step log: what 300 chars of stderr and a bare timeout note could not diagnose ----
+
+    def test_15n_a_failed_or_timed_out_step_keeps_its_full_output_and_logs_where(self):
+        # 2026-10-18: a soft timeout (nothing survived the kill) and an exit 1 whose R child's own error
+        # text sat above a long traceback (only stderr[-300:] survived) were both undiagnosable.
+        self.ns['_step_log'] = lambda name: os.path.join(self.tmp, 'logs', name.replace(' ', '_') + '.log')
+        self.write_script('r_stand_in.py', "import sys\nsys.stderr.write('R-OWN-ERROR-TEXT\\n')\nsys.exit(1)\n")
+        # exit 1; the failure text is in a GRANDCHILD that inherits the streams, as run_checked's Rscript does
+        self.producer = self.write_script(
+            'fake_producer.py',
+            "import os, subprocess, sys\nprint('stdout evidence')\n"
+            "subprocess.run([sys.executable, os.path.join(os.path.dirname(__file__), 'r_stand_in.py')])\n"
+            "sys.stderr.write('x' * 5000 + '\\nlast line\\n')\nsys.exit(1)\n")
+        path = os.path.join(self.tmp, 'logs', 'failing_step.log')
+        self.assertFalse(self.ns['step']('failing step', ['fake_producer.py'], timeout=60))
+        self.assertEqual(3, len(self.logs), self.logs)
+        self.assertEqual('   full output: ' + path, self.logs[2])
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        for needle in ('# status: exit 1', 'stdout evidence', 'R-OWN-ERROR-TEXT', 'last line'):
+            self.assertIn(needle, text)
+        # killed at the timeout: the child's UNFLUSHED print must survive too (PYTHONUNBUFFERED)
+        del self.logs[:]
+        self.producer = self.write_script(
+            'fake_producer.py',
+            "import sys, time\nprint('progress before the kill')\nsys.stderr.write('err before the kill\\n')\n"
+            "time.sleep(120)\n")
+        path = os.path.join(self.tmp, 'logs', 'frozen_step.log')
+        self.assertFalse(self.ns['step']('frozen step', ['fake_producer.py'], timeout=5))
+        self.assertEqual(3, len(self.logs), self.logs)
+        self.assertEqual(self.timeout_line('frozen step', 5, False), self.logs[0])
+        self.assertEqual('   full output: ' + path, self.logs[2])
+        with open(path, encoding='utf-8') as handle:
+            text = handle.read()
+        for needle in ('# status: TIMED OUT after 5 s', 'progress before the kill', 'err before the kill'):
+            self.assertIn(needle, text)
+        self.assertEqual([], self.aborts)
 
 
 # --------------------------------------------------- [16-17] the wiring and the untouched bounds

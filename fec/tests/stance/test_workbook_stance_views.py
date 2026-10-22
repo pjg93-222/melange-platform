@@ -10,6 +10,7 @@ import openpyxl
 FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 
+import roster  # noqa: E402
 from stance.workbook_stance_views import (  # noqa: E402
     GENERAL_STANCE_TIERS,
     stance_view_contract,
@@ -74,8 +75,22 @@ class WorkbookStanceViewsTests(unittest.TestCase):
             tuple(ws.cell(3, col).value for col in range(10, 21)),
         )
         self.assertEqual("=SUM(B18:B28)", ws["B29"].value)
-        self.assertIn("'Rank & Allocation'!$G$3:$G$535", ws["B18"].value)
+        self.assertIn("'Rank & Allocation'!" + roster.col_range("G"), ws["B18"].value)
+        self.assertIn("'Blended Model'!" + roster.col_range("S", "Blended Model"), ws["C18"].value)
         self.assertIn("$J$3:$T$3", ws["U4"].value)
+
+    def test_category_stance_legend_follows_roster_and_clears_stale_rows(self):
+        wb = self.workbook()
+        ws = wb.create_sheet("Category Stance")
+        legend = roster.last_row("Category Stance") + 2
+        stale = legend + 40          # an older, longer sheet: its leftover rows must be cleared
+        ws.cell(stale, 1).value = "stale"
+        cats = [f"Category {i}" for i in range(18)]
+        sync_category_stance_sheet(wb, {"cats": cats, "matrix": {"Ada": {}}}, ["Ada"], {"Ada": "Ally"})
+        self.assertIsNone(ws.cell(stale, 1).value)
+        self.assertTrue(ws.cell(legend, 1).value.startswith("Legend"))
+        self.assertEqual("Champion", ws.cell(legend + 1, 1).value)
+        self.assertTrue(ws.cell(legend + 2, 1).value.startswith("Source:"))
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 import os as _o,sys as _s;_s.path.insert(0,_o.path.dirname(_o.path.dirname(_o.path.abspath(__file__))));from paths import ROOT as MB_ROOT  # centralized root (arch review 2026-07-02)
 import moneyball_core as MBC
+import roster
 import json, sys, math, os, openpyxl
 sys.stdout.reconfigure(encoding='utf-8',errors='replace')
 WM,WP=0.6,0.4; CAP=50000
@@ -10,7 +11,7 @@ AL=json.load(open(MB_ROOT+r'\im_allocation.json'))
 flip=AL['flip']; coal=AL['coalition']
 wb=openpyxl.load_workbook(MB_ROOT+r'\Moneyball Main Version - Blended.xlsx',data_only=True)
 ra=wb['Rank & Allocation']
-stance={ra.cell(r,1).value:ra.cell(r,7).value for r in range(3,536) if ra.cell(r,1).value}
+stance={ra.cell(r,1).value:ra.cell(r,7).value for r in roster.rows('Rank & Allocation') if ra.cell(r,1).value}
 members=[m['member'] for m in C.values()]
 ind={n:(C[n]['banks'] or 0)+(C[n]['finserv'] or 0) for n in members}
 cu={n:(C[n]['cu'] or 0) for n in members}

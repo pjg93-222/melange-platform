@@ -160,6 +160,15 @@ def atomic_write(path, data, secret=False):
         temporary.unlink(missing_ok=True)
 
 
+def protect_directory(path):
+    """Owner and SYSTEM only, inherited entries removed (Windows); 0700 elsewhere. Files created inside inherit it."""
+    if os.name == "nt":
+        identity = subprocess.check_output(["whoami"], text=True).strip()
+        subprocess.run(["icacls", str(path), "/inheritance:r", "/grant:r", f"{identity}:(OI)(CI)F", "SYSTEM:(OI)(CI)F"], check=True, capture_output=True)
+    else:
+        os.chmod(path, 0o700)
+
+
 def file_hashes(path):
     sha256, sha512, count = hashlib.sha256(), hashlib.sha512(), 0
     with open(path, "rb") as stream:
@@ -253,11 +262,7 @@ class Store:
         if self.db.exists() or self.config_path.exists():
             raise Refused("publisher already initialized; existing keys will not be replaced")
         self.root.mkdir(parents=True, exist_ok=True)
-        if os.name == "nt":
-            identity = subprocess.check_output(["whoami"], text=True).strip()
-            subprocess.run(["icacls", str(self.root), "/inheritance:r", "/grant:r", f"{identity}:(OI)(CI)F", "SYSTEM:(OI)(CI)F"], check=True, capture_output=True)
-        else:
-            os.chmod(self.root, 0o700)
+        protect_directory(self.root)
         keys = {}
         for app in sorted(APPS):
             key = ed25519.Ed25519PrivateKey.generate()
@@ -548,7 +553,7 @@ class Store:
         return context
 
 
-def handler_for(store):
+def handler_for(store, require_invite=False, packs=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "DesktopUpdates/1"
         publisher_public_origin = store.public_origin
@@ -671,16 +676,18 @@ def handler_for(store):
                 self.response(500, {"error": "INTERNAL_ERROR"})
     from access_store import AccessStore
     from access_http import handler_for as access_handler_for
-    return access_handler_for(AccessStore(store), Handler)
+    return access_handler_for(AccessStore(store, require_invite=require_invite), Handler, packs)
 
 
 class BoundedServer(ThreadingHTTPServer):
-    """Bounded clients, including TLS handshakes; one stalled peer cannot block acceptance."""
+    """Bounded workers, including TLS handshakes. A connection that arrives while every worker is busy
+    waits up to SLOT_WAIT seconds for one instead of being dropped; later ones wait in the listen backlog."""
     daemon_threads = True
-    request_queue_size = 16
+    request_queue_size = 128
+    SLOT_WAIT = 15
 
     def __init__(self, address, handler, tls_context, *, public_origin=None):
-        self.slots = threading.BoundedSemaphore(16)
+        self.slots = threading.BoundedSemaphore(32)
         self.tls_context = tls_context
         self.public_origin = https_origin(public_origin, allow_public=True) if public_origin is not None else None
         if self.public_origin != getattr(handler, 'publisher_public_origin', None):
@@ -688,7 +695,7 @@ class BoundedServer(ThreadingHTTPServer):
         super().__init__(address, handler)
 
     def process_request(self, request, client_address):
-        if (not self.public_origin and not private_address(client_address[0])) or not self.slots.acquire(blocking=False):
+        if (not self.public_origin and not private_address(client_address[0])) or not self.slots.acquire(timeout=self.SLOT_WAIT):
             self.shutdown_request(request)
             return
         try:
@@ -708,6 +715,14 @@ class BoundedServer(ThreadingHTTPServer):
         finally:
             self.shutdown_request(wrapped or request)
             self.slots.release()
+
+
+def invite_env(environ=os.environ):
+    """MELANGE_ACCESS_REQUIRE_INVITE as a bool; unset or empty is off, and an unrecognised value is refused rather than guessed."""
+    raw = environ.get('MELANGE_ACCESS_REQUIRE_INVITE', '').strip().lower()
+    if raw in ('1', 'true', 'yes', 'on'): return True
+    if raw in ('', '0', 'false', 'no', 'off'): return False
+    raise Refused('MELANGE_ACCESS_REQUIRE_INVITE must be 1, true, yes, on, 0, false, no, off or unset; invite enforcement was not guessed')
 
 
 def open_dashboard_window(url):
@@ -736,6 +751,7 @@ def main(argv=None):
     parser.add_argument("--state", type=Path, default=default,
                         help="protected publisher state directory (default: %(default)s)")
     parser.add_argument('--public-origin', help='explicit HTTPS recipient origin; permits public clients only in this mode')
+    parser.add_argument('--packs', type=Path, help='district pack store for pack-publish and serve (default: %%LOCALAPPDATA%%\\MelangeDesktopAdmin\\packs)')
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init")
     sub.add_parser('access-init', help='initialize separate protected application-access signing/state')
@@ -755,6 +771,8 @@ def main(argv=None):
     serve = sub.add_parser("serve")
     serve.add_argument("--listen", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=38443)
+    serve.add_argument('--require-invite', action='store_true',
+                       help='refuse new access requests without an admin-issued invite code (also on when MELANGE_ACCESS_REQUIRE_INVITE is 1/true/yes/on)')
     sub.add_parser("devices")
     revoke = sub.add_parser("revoke")
     revoke.add_argument("--app", choices=sorted(APPS), required=True)
@@ -773,6 +791,15 @@ def main(argv=None):
         publish.add_argument("--" + field, required=True)
     publish.add_argument("--sequence", type=int, required=True)
     publish.add_argument("--recipient", action="append", required=True)
+    pack_build = sub.add_parser('pack-build', help="copy one district's allowlisted Terrier data and active summary bundle into a new private directory")
+    pack_build.add_argument('--district', choices=['co-05', 'ct-01', 'or-05'], required=True)
+    pack_build.add_argument('--data', type=Path, required=True, help="the district's Terrier data directory (its stores)")
+    pack_build.add_argument('--terrier-state', type=Path, help='Terrier state directory with accounts.sqlite3 and snapshots (default: --data)')
+    pack_build.add_argument('--out', type=Path, required=True, help='new directory outside OneDrive and every git worktree')
+    pack_publish = sub.add_parser('pack-publish', help='gzip a built district pack into the pack store and sign a revision if it changed')
+    pack_publish.add_argument('--district', choices=['co-05', 'ct-01', 'or-05'], required=True)
+    pack_publish.add_argument('--build', type=Path, required=True)
+    pack_publish.add_argument('--keep-build', action='store_true', help='keep the plaintext build directory (deleted after a successful publish by default)')
     trust = sub.add_parser("trust-publisher")
     trust.add_argument("--windows-subject")
     trust.add_argument("--mac-receipt-key")
@@ -827,15 +854,10 @@ def main(argv=None):
                     return True
                 instance.start(reopen_dashboard)
                 print('Local application approval dashboard opened. No approval keys are logged.', flush=True)
-                # Expired sessions must not leave a permanent listener.
-                lifetime = threading.Timer(8*3600+60, server.shutdown)
-                lifetime.daemon = True
-                lifetime.start()
                 try:
                     if not args.background: open_dashboard_window(url)
-                    server.serve_forever()
+                    server.serve_forever()   # ends itself admin_dashboard.LIFETIME after the newest open: expired sessions must not leave a permanent listener
                 finally:
-                    lifetime.cancel()
                     server.server_close()
             finally:
                 instance.close()
@@ -861,6 +883,18 @@ def main(argv=None):
         elif args.command == 'authorize-existing-release':
             store.authorize_existing_release(args.app, args.sequence, args.recipient)
             print('Named recipients authorized for the existing active release. No package was changed or installed.')
+        elif args.command == 'pack-build':
+            from district_packs import build
+            print(json.dumps({'district': args.district, 'files': build(args.district, args.data, args.out, args.terrier_state)}))
+        elif args.command == 'pack-publish':
+            from access_store import AccessStore
+            from district_packs import publish
+            try:
+                envelope = publish(AccessStore(store), args.district, args.build, keep_build=args.keep_build, packs=args.packs)
+            finally:
+                if args.build.exists():  # kept (--keep-build) or refused
+                    print(f'WARNING: plaintext voter data remains in {args.build.resolve()}; delete it once it is no longer needed.', file=sys.stderr)
+            print(json.dumps({'district': args.district, 'published': envelope is not None, 'buildKept': args.keep_build}))
         elif args.command == "trust-publisher":
             config = store.config()
             if not args.windows_subject and not args.mac_receipt_key:
@@ -884,8 +918,12 @@ def main(argv=None):
                 allowed_bind = False
             if not allowed_bind or not 1024 <= args.port <= 65535:
                 raise Refused("bind an explicit permitted IP on an unprivileged port; public IPs require --public-origin and wildcard binding is forbidden")
-            server = BoundedServer((args.listen, args.port), handler_for(store), store.tls_context(), public_origin=store.public_origin)
-            print(f"Authenticated update service: {request_origin(server)}", flush=True)
+            require_invite = invite_env() or args.require_invite  # Always parsed, so a junk value refuses even when the flag is given.
+            handler = handler_for(store, require_invite, args.packs)
+            if handler.packs_root is None:
+                print('WARNING: the district pack store is inside OneDrive or a git worktree; /v1/data/ answers 503.', file=sys.stderr)
+            server = BoundedServer((args.listen, args.port), handler, store.tls_context(), public_origin=store.public_origin)
+            print(f"Authenticated update service: {request_origin(server)}; invite codes {'required' if require_invite else 'not required'}", flush=True)
             try:
                 server.serve_forever()
             finally:

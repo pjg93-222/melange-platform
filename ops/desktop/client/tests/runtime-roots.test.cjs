@@ -26,6 +26,29 @@ test('Terrier districts isolate writable data and accounts while preserving othe
   assert.deepEqual(runtimeRoots('mentat',user,{dataDirectory:data}),{data,state:path.join(user,'state')});
 });
 
+test('the managed private store keeps district state beside it, outside the profile; every other layout is unchanged',t=>{
+  const {root,user}=fixture(t);
+  // Installed (.../terrier) and isolated (<profile>/packs) store roots.
+  for(const store of [path.join(root,'terrier'),path.join(user,'packs')]){
+    const stores=path.join(store,'stores');fs.mkdirSync(stores,{recursive:true});
+    const roots=prepareRuntimeRoots('terrier',user,{dataDirectory:stores,district:'or-05'});
+    assert.deepEqual(roots,{data:path.join(stores,'districts','or-05'),state:path.join(store,'state','districts','or-05'),district:'or-05'});
+    assert.ok(fs.statSync(roots.state).isDirectory());assert.ok(fs.statSync(roots.data).isDirectory());
+    assert.deepEqual(runtimeRoots('terrier',user,{dataDirectory:stores,district:'co-05'}).state,path.join(store,'state','districts','co-05'));
+  }
+  assert.equal(fs.existsSync(path.join(user,'state')),false,'nothing is created in the profile state folder');
+  // Earlier state in the profile is neither read nor refused nor touched; only the store's own state folder is checked.
+  const store=path.join(root,'terrier');fs.mkdirSync(path.join(user,'state'),{recursive:true});fs.writeFileSync(path.join(user,'state','users.sqlite3'),'earlier accounts');
+  prepareRuntimeRoots('terrier',user,{dataDirectory:path.join(store,'stores'),district:'co-05'});assert.equal(fs.readFileSync(path.join(user,'state','users.sqlite3'),'utf8'),'earlier accounts');
+  fs.writeFileSync(path.join(store,'state','stray.sqlite3'),'x');assert.throws(()=>prepareRuntimeRoots('terrier',user,{dataDirectory:path.join(store,'stores'),district:'co-05'}),/unscoped layout/);
+  // A data directory chosen by hand, even one named stores, keeps the profile state; so do the legacy owner and the other apps.
+  const own=path.join(root,'mine','stores');fs.mkdirSync(own,{recursive:true});
+  assert.equal(runtimeRoots('terrier',user,{dataDirectory:own,district:'co-05'}).state,path.join(user,'state','districts','co-05'));
+  const stores=path.join(store,'stores'),legacy={schemaVersion:1,district:'co-05',firstPasswordOwner:'admin',dataDirectory:stores};
+  assert.deepEqual(runtimeRoots('terrier',user,{dataDirectory:stores,district:'co-05',terrierLegacy:legacy}),{data:stores,state:stores,district:'co-05',legacyOwner:'admin'});
+  assert.deepEqual(runtimeRoots('melange',user,{dataDirectory:stores}),{data:stores,state:path.join(user,'state')});
+});
+
 test('unsupported and traversing districts never create data roots',t=>{
   const {user,data}=fixture(t);
   for(const district of ['../co-05','../../outside','CO-05','co-05/../../or-05','co-99',{}])assert.throws(()=>prepareRuntimeRoots('terrier',user,{dataDirectory:data,district}),/Unsupported/);

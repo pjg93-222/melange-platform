@@ -14,6 +14,7 @@ def ok(name,cond,detail=''):
     print(('  OK   ' if cond else 'FAIL  ')+name+(('  :: '+str(detail)) if (detail and not cond) else ''))
 
 import moneyball_core as MC
+import roster
 import bill_rules as BR
 import stance.stance_rules as SR
 import stance.media_rules as MR
@@ -57,6 +58,9 @@ ok('SGATE monotone down the full ladder',
    all(MC.SGATE[a]>=MC.SGATE[b] for a,b in zip(
        ('Highly Persuadable','Persuadable','Lean Persuadable','True Neutral','Lean Skeptic','Skeptic','Highly Skeptical'),
        ('Persuadable','Lean Persuadable','True Neutral','Lean Skeptic','Skeptic','Highly Skeptical','Opponent'))))
+ok('persuadable ladder TN < LP < P < HP, same order in SGATE and TORD (HP .65 ratified 2026-10-11, Paul-delegated RE-2)',
+   all(t[a]<t[b] for t in (MC.PERS,MC.SGATE,MC.TORD) for a,b in zip(
+       ('True Neutral','Lean Persuadable','Persuadable'),('Lean Persuadable','Persuadable','Highly Persuadable'))))
 ok('auto-repair SMART Acts excluded even when source title is ambiguous',
    BR.excluded_bill('H.R.3664',117,'SMART Act','') and
    BR.excluded_bill('H.R.1707',118,'SMART Act',''))
@@ -157,7 +161,7 @@ ok('identity resolver rejects an ambiguous surname instead of taking first roste
    _ir.resolve('Smith') is None and _ir.resolve('X. Smith') is None)
 print('[core: rosters + network]')
 mem=MC.members()
-ok('533 members',len(mem)==533,len(mem))
+ok('roster members (%d)'%roster.count(),len(mem)==roster.count(),len(mem))
 prt=MC.party()
 ok('party coverage (no ? beyond a handful)',sum(1 for m in mem if prt[m]=='?')<=5,sum(1 for m in mem if prt[m]=='?'))
 # PIN TO CU. load_network() reads NET_CONFIG per call, so unscoped these gates bind whatever the
@@ -694,7 +698,16 @@ _LANE_MODULES=('test_audio_calibrate','test_audio_identity','test_audio_linear_h
                'test_opposition_prior_scope','test_contested_bills',
                # Census follow-up 2026-10-11: reads the live workbook's Normalized sheet (all
                # values, no formula cache) and now prints the native verdict shape. ~4 s.
-               'test_legislative_alignment')
+               'test_legislative_alignment',
+               # 2026-10-19: the nine suites bda3e0c03 committed (left untracked in the main checkout) reached git
+               # unregistered, so the census above failed. Each ran green alone. test_press_source_extract skips its
+               # two saved-page cases when the gitignored outputs/press_recovery_20260920 responses are absent;
+               # test_original_workspace reads the live root pages and the staffer_live/approved build (green from LIVE).
+               'test_cohort_output_bindings','test_research_optimized_guards',
+               'test_institutions_reference_report','test_research_assertion_boundaries',
+               'test_research_io_regression','test_incremental_speech_manifest_safety',
+               'test_source_media_alignment_checkpoint_safety','test_press_source_extract',
+               'test_original_workspace')
 
 # Read the suites' five native verdict shapes here instead of editing 39 test files: fewer
 # edits, zero risk of changing a test's meaning, and the change is fully reversible in one file.
@@ -829,6 +842,7 @@ _LANE_PYTEST=(
     'test_discover_leadership_prerole_interviews', 'test_discovery_refresh_cycle',
     'test_draft_member_longform_reviews', 'test_e1_stance_imputation_harness', 'test_edge_startup',
     'test_effectiveness_integration', 'test_effectiveness_sources',
+    'test_field_action_admissions',
     'test_f2_stance_rationale_sidecars', 'test_filter_senate_payroll_employment_candidates',
     'test_govinfo_discovery_fallback', 'test_hearing_display_feed',
     'test_held_evidence_reconciliation', 'test_historical_evidence', 'test_industry_valence',
@@ -858,6 +872,9 @@ _LANE_PYTEST=(
     'test_relationship_uncertainty', 'test_responsiveness_layers', 'test_run_pipeline_tolerance',
     'test_screen_member_longform_identity_cues', 'test_select_member_longform_profile_sources',
     'test_sentinel_decision_stability', 'test_sentinel_network_retries', 'test_sentinel_qme_fixes',
+    'test_sentinel_govinfo_statute',
+    'test_sentinel_invalid_category_hold',
+    'test_sentinel_statute_source_switch',
     'test_sentinel_source_unavailable', 'test_sentinel_statute_identity',
     'test_snapshot_member_longform_ready_sources',
     'test_speech_channel', 'test_staffer_assertions', 'test_staffer_automatic_service',
@@ -1038,6 +1055,10 @@ _LANE_PYTEST=(
     # 2026-10-15 admissions spend controls (D-211): classifier quota stop and per-run call budget.
     'test_sentinel_classifier_quota',
     'test_sentinel_classifier_budget',
+    # 2026-10-19 pipeline-health Fix 3 (ruling R1): a classifier timeout on an unadmitted measure defers it, never FAILs the step.
+    'test_sentinel_classifier_deferral',
+    # 2026-10-19 pipeline-health Fix 2: a sidecar bound to neither repository is recorded as unhealable drift, not "verified".
+    'test_rollback_unhealable_drift',
     # 2026-10-15 self-healing P1 (D-216): tick runner failure classes, tiered degrade, freshness feed.
     'test_refresh_degrade',
     # 2026-10-15 self-healing P4 (D-213): stdlib watchdog over the freshness feed, lease, LIVE age and tick task; toast + alert log.
@@ -1047,6 +1068,8 @@ _LANE_PYTEST=(
     'test_press_feed_stage5',
     'test_press_refresh_scoring_filters',
     'test_press_stage5',
+    # 2026-10-19 weekly 10-18 HARD FAILURE: an unreadable (OneDrive online-only) Stage 5 weight file is a named refusal.
+    'test_press_stage5_unreadable_model',
     'test_press_haiku_rater',
     'test_press_stance_stack_refresh',
     # 2026-10-15 census follow-up: tracked suites no lane named (collector supervisor fixes, press recovery speed, repair_jsonl, prospective outcome contract).
@@ -1094,7 +1117,10 @@ _LANE_PYTEST=(
     # 2026-10-16 second-pass child timeout seam (G6b; FEC_SURFACES_REPAIR.md:119-134).
     'test_second_pass_child_timeout',
     # 2026-10-16 forecast ledger safe deferral (G9; CODEX_DEBUG_ASSIST.md:27-42). Synthetic tmp_path roots only.
-    'test_forecast_ledger_resolution')
+    'test_forecast_ledger_resolution',
+    # 2026-10-19 pipeline-health Fixes 4-5 (weekly 10-18): MS NOW newest-first walk with caught-up stop, log-intact guard and
+    # budget; Washington Journal failures carry the R error tail. Scripted WordPress API / fake Rscript, tmp_path only.
+    'test_msnow_walk','test_refresh_cspan_wj_errors','test_cspan_chromote_retry')
 
 # Node lane (2026-10-11, census follow-up to 7d57fb209): the git-tracked fec/tests/**/test_*.cjs
 # suites, run as `node <file>`. Most use node:test, the rest plain assert with a nonzero exit on
@@ -1186,10 +1212,33 @@ _suite_specs=tuple(_s for _s in (
 # Missing suites are reported in the same per-suite shape the loop below prints, so the run stays
 # readable and the verdict line keeps its format. Nothing is printed when nothing is missing, so a
 # complete tree's output is byte-identical to before.
-if _missing_suites:
-    print('[registered suites absent from this tree]')
-    for _t in _missing_suites:
-        ok('%s suite clean'%_t,False,'registered test suite not found')
+# 2026-10-19 (CodeRabbit, PR #12): the public export leaves six registered suites out by exact path
+# (MELANGE_RESEARCH_TESTS and MELANGE_LOCAL_ARTIFACT_TESTS in ops/release_lib/export.py). When one of those is
+# absent it is named as skipped and not counted; any other absent suite still fails. The names are read with
+# ast, never imported: fec does not import ops (compute_engine.py runs ops code as a child process instead).
+def _export_excluded(root):
+    import ast as _ast
+    try:
+        with open(os.path.join(root,'ops','release_lib','export.py'),encoding='utf-8') as _f:
+            _tree=_ast.parse(_f.read())
+        _paths=[_p for _n in _tree.body if isinstance(_n,_ast.Assign)
+                and any(getattr(_t,'id',None) in ('MELANGE_RESEARCH_TESTS','MELANGE_LOCAL_ARTIFACT_TESTS') for _t in _n.targets)
+                for _p in _ast.literal_eval(_n.value)]
+    except (OSError,SyntaxError,ValueError):
+        return set()   # no readable export list: nothing is excused
+    return {os.path.basename(_p)[:-3] if _p.endswith('.py') else os.path.basename(_p) for _p in _paths if _p.endswith(('.py','.cjs'))}  # an R fixture is no suite
+def _report_missing(missing,excluded):
+    skipped=[_t for _t in missing if _t in excluded]
+    if skipped:
+        print('[registered suites the public export leaves out by name (ops/release_lib/export.py): skipped]')
+        for _t in skipped:
+            print('  SKIP %s'%_t)
+    failed=[_t for _t in missing if _t not in excluded]
+    if failed:
+        print('[registered suites absent from this tree]')
+        for _t in failed:
+            ok('%s suite clean'%_t,False,'registered test suite not found')
+_report_missing(_missing_suites,_export_excluded(_mb_root) if _missing_suites else set())
 # No node on PATH is one named failure, never a silent skip of the whole lane.
 if not _node:
     ok('node lane ran',False,'node not on PATH; %d .cjs suites not run'%len(_LANE_NODE))

@@ -1,4 +1,4 @@
-"""Project Mentat's tidy industry workbooks onto the 533-member roster (read-only).
+"""Project Mentat's tidy industry workbooks onto the member roster (read-only).
 
 Decision record: audits/decisions_20261011/B_money_wiring.md (MW-1..MW-6, PM-A4).
 Plan: audits/mentat_money_wiring_20261006/MENTAT_TO_MELANGE_WIRING.md.

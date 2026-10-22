@@ -7,6 +7,7 @@ CU-direction = sign of its score). Fixes: (A) press normalization/mislabels, (B)
 disjoint Legislative-Score sheet). Writes corrected_signals.json {name:{press,leg,stance}}. Inspection mode prints
 distributions + key members; --write also writes the JSON."""
 import openpyxl, sys, io, json, collections, statistics
+import roster
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 WB = MB_ROOT+r'\Moneyball Main Version - Blended.xlsx'
 def fs(x):
@@ -27,7 +28,7 @@ def norm(c):
 wb = openpyxl.load_workbook(WB, read_only=True, data_only=True)
 ra = wb['Rank & Allocation']; L={r:ra.cell(r,12).value for r in range(3,10)}
 members={}; oldleg={}
-for r in range(3,536):
+for r in roster.rows('Rank & Allocation'):
     n=ra.cell(r,1).value
     if n: members[n]=ra.cell(r,7).value; oldleg[n]=ra.cell(r,4).value or 0
 ws=wb['Press Release Articles']; H={h:i for i,h in enumerate(next(ws.iter_rows(min_row=1,max_row=1,values_only=True)))}

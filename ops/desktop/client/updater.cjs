@@ -7,6 +7,9 @@ const semver=require('semver');
 const {verifyWindowsPackage}=require('./native-signature.cjs');
 const {jsonRequest,verifyEnvelope,applyKeyTransitions,downloadVerified,verifyPackageFile}=require('./trust.cjs');
 const VERIFY_RETRY_MS=6*60*60*1000;
+// Launch-time installs wait for the signature tool (up to 20 s). After this many 'no verdict' starts for the same
+// staged release, launch install is skipped and the update installs when the app closes instead.
+const MAX_LAUNCH_UNAVAILABLE=3;
 const envelopeHash=envelope=>crypto.createHash('sha256').update(Buffer.from(envelope.payload,'base64')).digest('hex');
 function verifiedFeed(manifest,filename){
   const nonce=crypto.randomBytes(32).toString('hex'),pkg=manifest.package;
@@ -77,15 +80,14 @@ class DesktopUpdater {
       if(m.version!==this.version)throw new Error('Recovery seed must exactly match the running version.');
       if(m.sequence===state.sequence&&state.manifestHash!==verified.manifestHash)throw new Error('Recovery seed conflicts with accepted release identity.');
       await this.nativeTrust();
-      await this.download(enrollment,enrollment.deviceToken,m,path.dirname(this.packagePath(m)));
-      await this.verifyNativeFile(this.packagePath(m),m);
+      // Only the signed manifest is recorded: the running version's own installer is not downloaded again.
+      // beginRecovery() fetches and fully verifies an installer when a rollback to it is actually requested.
       candidate={envelope,version:m.version,phase:'installed'};state=this.readState();
       const highWater=m.sequence>(state.sequence||0)?{sequence:m.sequence,manifestHash:verified.manifestHash}:{};
       this.writeState({...state,...highWater,acceptedVersion:state.acceptedVersion&&semver.gt(state.acceptedVersion,m.version)?state.acceptedVersion:m.version,installed:candidate});
     }
     const verified=verifyEnvelope(candidate.envelope,enrollment,this.identity(),{});
     if(verified.manifest.version!==this.version)throw new Error('Recovery baseline version mismatch.');
-    await this.verifyNativeFile(this.packagePath(verified.manifest),verified.manifest);
     return candidate;
   }
   verifyRecovery(enrollment,recovery){
@@ -95,6 +97,30 @@ class DesktopUpdater {
     const verified=verifyEnvelope(recovery.target.envelope,enrollment,{...this.identity(),version:recovery.target.version},{});
     if(verified.manifest.version!==recovery.target.version)throw new Error('Recovery version differs from authorization');
     return verified;
+  }
+  packageOf(item){const m=JSON.parse(Buffer.from(item.envelope.payload,'base64'));return {sequence:String(m.sequence),path:this.packagePath(m),manifest:m};}
+  // Rollback baselines: only the installed and the immediately previous version keep an installer (plus any
+  // in-flight pending or rollback target). Called once a new version is confirmed running.
+  pruneBaselines(state=this.readState()){
+    const live=state.recovery&&!['completed','failed'].includes(state.recovery.phase)?[state.recovery.target]:[];
+    const items=[state.installed,state.previous,state.pending,...live].filter(item=>item?.envelope);
+    const sequences=new Set(),versions=new Set([state.installed,state.previous].filter(Boolean).map(item=>item.version));
+    for(const item of items)try{sequences.add(this.packageOf(item).sequence);}catch{return;}
+    const sweep=(root,keep)=>{try{for(const name of fs.readdirSync(root))if(!keep.has(name))fs.rmSync(path.join(root,name),{recursive:true,force:true});}catch{}};
+    sweep(path.join(this.userData,'updates'),sequences);if(this.baselineRoot)sweep(this.baselineRoot,versions);
+  }
+  // The first installer's own copy (placed by installer.nsh) is COPIED to the rollback installer location, without any
+  // download. The baseline itself stays until the rollback has completed and the target is confirmed running.
+  // Returns the baseline source path, or null.
+  adoptBaseline(manifest){
+    if(!this.baselineRoot)return null;
+    const directory=path.join(this.baselineRoot,manifest.version),target=this.packagePath(manifest),part=target+'.part';
+    try{
+      const names=fs.readdirSync(directory).filter(name=>/\.exe$/i.test(name)).sort((a,b)=>(b===manifest.package.name)-(a===manifest.package.name));
+      if(!names.length)return null;
+      const source=path.join(directory,names[0]);fs.mkdirSync(path.dirname(target),{recursive:true,mode:0o700});
+      fs.copyFileSync(source,part);fs.renameSync(part,target);return source;
+    }catch{try{fs.rmSync(part,{force:true});}catch{}return null;}
   }
   async prepare(enrollment,pending,recovery=null){
     const verified=recovery?this.verifyRecovery(enrollment,recovery):verifyEnvelope(pending.envelope,enrollment,this.identity(),this.readState()),m=verified.manifest;
@@ -116,6 +142,9 @@ class DesktopUpdater {
     this.ready={...verified,nativeFiles:nativeFiles||[],recovery:Boolean(recovery)};
   }
   async preparePending(enrollment,pending){
+    // A staged installer that is no longer cached (for example the updater file root moved) is simply fetched
+    // again by the next check; it is not a failure of the signed release and starts no backoff.
+    if(!fs.existsSync(this.packageOf(pending).path)){this.writeState({...this.readState(),pending:null});throw new Error('The staged installer is no longer cached and will be fetched again.');}
     // Environment and current-version baseline refusals are not failures of this signed release.
     await this.nativeTrust();await this.ensureRecoveryBaseline(enrollment,false);
     try{await this.prepare(enrollment,pending);}
@@ -138,7 +167,12 @@ class DesktopUpdater {
     // A rollback whose retained installer no longer verifies is marked failed, so it can never
     // activate and no longer blocks normal update checks. The user may request it again.
     try{await this.prepare(enrollment,recovery.target,recovery);}
-    catch(error){this.ready=null;const latest=this.readState();this.writeState({...latest,recovery:{...latest.recovery,phase:'failed'}});await this.report(enrollment,'failed','RECOVERY_FAILED');throw error;}
+    catch(error){this.ready=null;
+      // The cached installer is deleted ONLY when its own bytes fail the size/hash check (re-checked here), so the next
+      // attempt fetches a fresh copy. An untrusted or refused signature, a native-updater or feed error, a trust
+      // configuration error, or "no verdict" (signature tool unavailable) keeps it: its bytes are not at fault.
+      if(error.code==='PACKAGE_INTEGRITY')try{const {path:file,manifest}=this.packageOf(recovery.target);await verifyPackageFile(file,manifest).catch(failure=>{if(failure.code==='PACKAGE_INTEGRITY')fs.rmSync(file,{recursive:true,force:true});});}catch{}
+      const latest=this.readState();this.writeState({...latest,recovery:{...latest.recovery,phase:'failed'}});await this.report(enrollment,'failed','RECOVERY_FAILED');throw error;}
   }
   async beginRecovery(){
     if(this.busy||this.osShutdown)throw new Error('Wait for the current update check to finish.');
@@ -148,8 +182,26 @@ class DesktopUpdater {
       const state=this.readState(),target=this.recoveryCandidate(state);
       const manifestHash=crypto.createHash('sha256').update(Buffer.from(target.envelope.payload,'base64')).digest('hex');
       const recovery={target,manifestHash,fromVersion:this.version,phase:'staged',requestedAt:new Date().toISOString()};
-      this.verifyRecovery(enrollment,recovery);this.ready=null;
-      this.writeState({...state,recovery});await this.prepareRecovery(enrollment,recovery);
+      const m=this.verifyRecovery(enrollment,recovery).manifest;this.ready=null;
+      // Local installer first, so a rollback needs no network: one retained from an earlier update, or a copy of the
+      // installer the first install kept. A copy failing the hash check is deleted (with its baseline source). Only a
+      // missing or deleted copy is fetched now (hash-checked on download); prepare() then runs the full hash and
+      // native-publisher checks.
+      const cached=this.packagePath(m);
+      // Only a size/hash mismatch (PACKAGE_INTEGRITY) condemns a copy; a transient read error (EBUSY/EPERM, antivirus) keeps it.
+      // Deleting retries a locked file (EBUSY/EPERM, e.g. an antivirus scan) for ~2.5 s without blocking, then gives up quietly.
+      let corrupt=false;
+      const drop=file=>fs.promises.rm(file,{recursive:true,force:true,maxRetries:4,retryDelay:250}).catch(()=>{});
+      const intact=async()=>{try{await verifyPackageFile(cached,m);return true;}catch(error){corrupt=error.code==='PACKAGE_INTEGRITY';if(corrupt)await drop(cached);return false;}};
+      let local=fs.existsSync(cached)&&await intact();
+      if(!local){const source=this.adoptBaseline(m);if(source){local=await intact();if(!local&&corrupt)await drop(source);}}
+      // A corrupt copy that is still locked cannot be replaced at this path, so a download could not land: stop before fetching.
+      if(!local&&corrupt&&fs.existsSync(cached))throw new Error('The saved installer for version '+target.version+' is in use by another program. Close it and try again.');
+      if(!local){await this.nativeTrust();await this.download(enrollment,enrollment.deviceToken,m,path.dirname(cached));}
+      // A requested rollback beats any other pending update, which must not resurface after it. The running
+      // version's own awaiting-startup record is kept.
+      const latest=this.readState();
+      this.writeState({...latest,recovery,...(latest.pending&&latest.pending.version!==this.version?{pending:null}:{})});await this.prepareRecovery(enrollment,recovery);
       this.onStatus('Previous authorized version '+target.version+' is verified. Close this app to restore its program files; local data stays in place.');
       return target.version;
     }finally{this.busy=false;}
@@ -161,6 +213,9 @@ class DesktopUpdater {
       if(recovery.target.version===this.version){
         if(this.applicationReady){
           this.writeState({...state,installed:recovery.target,pending:null,previous:null,recovery:{...recovery,phase:'completed'},suspendedVersions:[...new Set([...(state.suspendedVersions||[]),recovery.fromVersion])]});
+          this.pruneBaselines();
+          // The rolled-back-to version is confirmed running and its installer now lives with the retained ones.
+          if(this.baselineRoot)try{fs.rmSync(path.join(this.baselineRoot,recovery.target.version),{recursive:true,force:true});}catch{}
           await this.report(enrollment,'rolled-back');
         }
         return;
@@ -176,11 +231,21 @@ class DesktopUpdater {
     if(!pending)return;
     if(pending.version===this.version){
       if(pending.phase==='failed'){this.onStatus('This release failed local startup. Its data is retained; restore a previous authorized version or await a corrected release.');return;}
-      // A version string alone does not prove that its backend can start.
-      if(!this.applicationReady){this.onStatus('Updated app awaits a successful local startup.');return;}
+      // An installer found only at the pre-move cache path (legacyUserData) proves that this release was installed from the old
+      // updater file root, so the running version confirms it with no readiness wait (a background-only run never starts a
+      // backend). Otherwise a version string alone does not prove that its backend can start; a copy that is gone everywhere
+      // is not verified, but still waits for a successful local startup.
+      const {path:cached,manifest}=this.packageOf(pending),legacy=this.legacyUserData&&path.join(this.legacyUserData,'updates',String(manifest.sequence),manifest.package.name);
+      const installer=[cached,legacy].find(file=>file&&fs.existsSync(file));
+      if(!this.applicationReady&&installer!==legacy){this.onStatus('Updated app awaits a successful local startup.');return;}
       const verified=verifyEnvelope(pending.envelope,enrollment,this.identity(),state);
-      await this.verifyNativeFile(this.packagePath(verified.manifest),verified.manifest);
+      if(installer)await this.verifyNativeFile(installer,verified.manifest);
       this.writeState({...state,previous:state.installed||state.previous||null,installed:{...pending,phase:'installed'},pending:null,installedVersion:this.version});
+      // Only now, with pending cleared, keep the verified legacy copy at the current path too, so a later offline rollback to
+      // this release finds it; a pending release is therefore never at both paths. Every later use re-verifies the copy, and a
+      // failed copy only means that rollback downloads the installer.
+      if(installer===legacy){const part=cached+'.part';try{fs.mkdirSync(path.dirname(cached),{recursive:true,mode:0o700});fs.copyFileSync(legacy,part);fs.renameSync(part,cached);}catch{try{fs.rmSync(part,{force:true});}catch{}}}
+      this.pruneBaselines();
       await this.report(enrollment,'installed');return;
     }
     if(pending.phase==='activating'){
@@ -248,7 +313,40 @@ class DesktopUpdater {
     else return;
     const enrollment=this.loadEnrollment();if(enrollment)await this.report(enrollment,'failed','INSTALL_FAILED');
   }
-  async activateAfterClose(){
+  // A verified update left pending by an earlier session (OS shutdown, a close during a check) installs
+  // silently at the next start, before any window or backend exists, with every check of a normal close.
+  launchCandidate(){
+    try{
+      const state=this.readState(),pending=state.pending;
+      if(this.osShutdown||this.busy||!pending||!['staged','prepared'].includes(pending.phase)||pending.version===this.version)return null;
+      // A requested rollback always beats a pending update.
+      if(['staged','prepared','activating'].includes(state.recovery?.phase))return null;
+      const strikes=state.launchUnavailable;
+      if(strikes?.manifestHash===envelopeHash(pending.envelope)&&strikes.count>=MAX_LAUNCH_UNAVAILABLE)return null;
+      const enrollment=this.loadEnrollment();return enrollment?{pending,enrollment}:null;
+    }catch{return null;}
+  }
+  // Counts a launch-time failure against this staged manifest; at MAX_LAUNCH_UNAVAILABLE launchCandidate() stops offering it.
+  strikeLaunch(pending){
+    const latest=this.readState(),manifestHash=envelopeHash(pending.envelope),count=latest.launchUnavailable?.manifestHash===manifestHash?latest.launchUnavailable.count:0;
+    this.writeState({...latest,launchUnavailable:{manifestHash,count:count+1}});
+  }
+  // relaunch may be a function, read only after preparation (a launch requested while preparing counts).
+  // Every failure to reach the installer (preparation, nativeTrust, baseline, activation checks, signature tool without
+  // a verdict) is a strike; strikes reset only once quitAndInstall was actually dispatched.
+  async activateAtLaunch(relaunch){
+    const candidate=this.launchCandidate();if(!candidate)return false;
+    this.busy=true;
+    try{await this.preparePending(candidate.enrollment,candidate.pending);}
+    catch{this.ready=null;this.strikeLaunch(candidate.pending);return false;}
+    finally{this.busy=false;}
+    const dispatched=await this.activateAfterClose(relaunch);
+    if(dispatched){const latest=this.readState();if(latest.launchUnavailable)this.writeState({...latest,launchUnavailable:null});}
+    else if(this.activationFailure)this.strikeLaunch(candidate.pending);
+    return dispatched;
+  }
+  async activateAfterClose(relaunch=false){
+    this.activationFailure=null;
     if(this.osShutdown||this.busy||!this.ready)return false;
     try{
       const enrollment=this.loadEnrollment(),state=this.readState();
@@ -262,9 +360,20 @@ class DesktopUpdater {
       if(this.osShutdown)return false;
       const transaction={...(recovery||state.pending),phase:'activating',activatedAt:new Date().toISOString()};
       this.writeState(recovery?{...state,recovery:transaction}:{...state,pending:transaction});
-      this.autoUpdater.autoRunAppAfterInstall=false;
-      this.autoUpdater.quitAndInstall(true,false);return true;
-    }catch(error){this.onStatus('Update activation refused: '+error.message);return false;}
+      // Silent NSIS (/S): no update-caused prompt. electron-updater 6.8.9 resets quitAndInstallCalled only when
+      // install() fails synchronously (no installer path, doInstall threw). NsisUpdater.doInstall otherwise returns
+      // true right after an asynchronous spawn, and quitAndInstall then schedules app.quit() regardless. A spawn
+      // failure then surfaces later as the autoUpdater 'error' event, but only for errors other than EACCES/UNKNOWN
+      // (retried through elevate.exe, which can show a UAC prompt; rare for this per-user install) and ENOENT (opened
+      // with shell.openPath, i.e. the installer runs interactively without /S); neither emits 'error'. In the
+      // 'error' case the app exits once without installing, and nativeFailure() (or recover() at the next start)
+      // marks the transaction failed with INSTALL_FAILED.
+      const run=Boolean(typeof relaunch==='function'?relaunch():relaunch);
+      this.autoUpdater.autoRunAppAfterInstall=run;
+      this.autoUpdater.quitAndInstall(true,run);
+      if(this.autoUpdater.quitAndInstallCalled===false)throw new Error('The installer could not be started.');
+      return true;
+    }catch(error){this.activationFailure=error;this.onStatus('Update activation refused: '+error.message);return false;}
   }
   suspendInstallation(){this.osShutdown=true;this.autoUpdater.autoInstallOnAppQuit=false;}
   close(){this.feed?.close();this.feed=null;}

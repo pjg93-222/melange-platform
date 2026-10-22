@@ -88,7 +88,8 @@ def test_each_app_is_signed_for_its_own_repository_with_only_public_material(tmp
     for app in sorted(release.APPS):
         directory, index = output / app, indexes[app]
         assert index['tag'] == 'desktop-v1.0.0' and index['published'] is False and index['appId'] == app
-        assert len(list(directory.iterdir())) == 5
+        assert len(list(directory.iterdir())) == 6
+        assert (directory / release.TRUST_LAUNCHER.name).read_bytes() == release.TRUST_LAUNCHER.read_bytes()
         envelope = json.loads((directory / f'{app}-win32-x64.manifest.json').read_text())
         manifest = verify_envelope(envelope, store.config()['apps'][app]['publicKeys'], app=app, platform='win32', arch='x64')
         assert manifest['purpose'] == 'melange-desktop-github-release'
@@ -155,7 +156,7 @@ def test_repository_overrides_may_only_restate_the_fixed_map(tmp_path, prepared_
     assert indexes['terrier']['repository'] == 'pjg93-222/geo'
 
 
-@pytest.mark.parametrize('mutation', ['package', 'extra', 'index', 'checksum', 'manifest', 'payload', 'trust', 'foreign'])
+@pytest.mark.parametrize('mutation', ['package', 'extra', 'index', 'checksum', 'manifest', 'payload', 'trust', 'foreign', 'launcher', 'no-launcher'])
 def test_upload_verification_refuses_changed_or_extra_release_files(tmp_path, prepared_inputs, mutation):
     store, spec, _ = prepared_inputs
     output = tmp_path / 'public-assets'
@@ -182,6 +183,11 @@ def test_upload_verification_refuses_changed_or_extra_release_files(tmp_path, pr
         manifest_path.write_text(json.dumps(envelope))
     elif mutation == 'trust':
         (directory / 'melange-trust.json').write_text('{"transitions":[{}]}')
+    elif mutation == 'launcher':
+        launcher = directory / release.TRUST_LAUNCHER.name
+        launcher.write_bytes(launcher.read_bytes().replace(b'exit 2', b'exit 0'))
+    elif mutation == 'no-launcher':
+        (directory / release.TRUST_LAUNCHER.name).unlink()
     else:
         shutil.copyfile(output / 'mentat' / 'mentat-trust.json', directory / 'mentat-trust.json')
     with pytest.raises(Refused):
@@ -398,3 +404,17 @@ def test_unchanged_client_accepts_a_melange_only_release(tmp_path, prepared_inpu
     outcomes = json.loads(result.stdout)
     assert outcomes['own'] == 'accepted', outcomes
     assert outcomes['other-repository'] != 'accepted' and outcomes['other-app'] != 'accepted'
+
+
+def test_release_prepared_before_the_trust_launcher_still_verifies(tmp_path, prepared_inputs):
+    store, spec, _ = prepared_inputs
+    output = tmp_path / 'public-assets'
+    release.prepare(store, spec, output)
+    directory = output / 'melange'
+    (directory / release.TRUST_LAUNCHER.name).unlink()
+    index = json.loads((directory / 'release.json').read_text())
+    index['assets'] = release.app_assets('melange', index['version'], False)
+    (directory / 'release.json').write_bytes(canonical(index))
+    (directory / 'SHA256SUMS').write_text(''.join(file_hashes(directory / name)['sha256'] + '  ' + name + '\n'
+                                                  for name in sorted(index['assets'] + ['release.json'])), encoding='ascii')
+    assert release.verify_bundle(store, directory) == index

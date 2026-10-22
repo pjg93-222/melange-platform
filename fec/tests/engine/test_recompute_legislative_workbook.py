@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +14,7 @@ import unittest
 FEC = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(FEC))
 
+import roster  # noqa: E402
 from legislation import recompute_legislative_workbook as RW  # noqa: E402
 
 
@@ -120,7 +124,7 @@ def numeric_plan(
             category_mappings[category] = {
                 "sheet": "Sub Layer - Raw",
                 "range": (
-                    f"{slot['column']}4:{slot['column']}536"
+                    f"{slot['column']}4:{slot['column']}{roster.last_row('Sub Layer - Raw')}"
                 ),
                 "column": slot["column"],
                 "aggregation": slot["aggregation"],
@@ -143,9 +147,9 @@ def numeric_plan(
         "categories": list(RW.CATEGORIES),
         "legislative_efficiency_definition": efficiency,
         "efficiency_layout": {
-            "raw_range": "Sub Layer - Raw!AG4:AW536",
+            "raw_range": f"Sub Layer - Raw!AG4:AW{roster.last_row('Sub Layer - Raw')}",
             "normalized_range": (
-                "Sub Layer - Normalized!AG4:AW536"
+                f"Sub Layer - Normalized!AG4:AW{roster.last_row('Sub Layer - Raw')}"
             ),
             "physical_column_count": 17,
             "category_count": 18,
@@ -242,7 +246,7 @@ def complete_artifact_verification(
         "critical_inspection_expected_cells": expected_cells,
         "critical_inspection_actual_cells": expected_cells,
         "blended_inspection": {
-            "range": "A3:O535",
+            "range": f"A3:O{roster.last_row('Blended Model')}",
             "table_record_count": 1,
             "expected_rows": members,
             "expected_cols": 15,
@@ -515,6 +519,190 @@ class WorkbookRecomputeTests(unittest.TestCase):
                 "manual-evidence|recompute CU/CW",
             ):
                 RW.validate_accepted_receipt(root, ledger, accepted_path)
+
+
+HELPER = FEC / "recompute_legislative_workbook_artifact.cjs"
+FAKE_ARTIFACT_TOOL = FEC / "tests" / "fixtures" / "fake_artifact_tool.cjs"
+GEOMETRY_SHEETS = (
+    "Legislative Score - Raw",
+    "Legislative Score - Normalized",
+    "Sub Layer - Raw",
+    "Sub Layer - Normalized",
+    "Blended Model",
+)
+
+
+def geometry_for(count: int) -> dict[str, object]:
+    return {
+        "member_count": count,
+        "sheets": {
+            sheet: {
+                "first_row": roster.first_row(sheet),
+                "last_row": roster.first_row(sheet) + count - 1,
+            }
+            for sheet in GEOMETRY_SHEETS
+        },
+    }
+
+
+def rows_of(cell_range: str) -> int:
+    first, last = cell_range.split(":")
+    digits = lambda cell: int("".join(c for c in cell if c.isdigit()))  # noqa: E731
+    return digits(last) - digits(first) + 1
+
+
+@unittest.skipUnless(shutil.which("node"), "node is required to run the helper")
+class ArtifactHelperGeometryTests(unittest.TestCase):
+    """The helper takes its member count and rows from the plan its Python caller writes (the roster), never from literals."""
+
+    def run_helper(self, geometry: object):
+        plan = {
+            "schema": RW.PLAN_SCHEMA,
+            "status": "PASS",
+            "generation_id": "g" * 64,
+            "selected_role_weight_policy": "workbook_legacy_4_2_1",
+            "writes": [
+                {"sheet": "Legislative Score - Raw", "range": "C3:C3", "values": [[1]]}
+            ],
+        }
+        if geometry is not None:
+            plan["geometry"] = geometry
+        with tempfile.TemporaryDirectory() as raw:
+            tmp = Path(raw)
+            fake = tmp / "node_modules" / "@oai" / "artifact-tool"
+            fake.mkdir(parents=True)
+            shutil.copyfile(FAKE_ARTIFACT_TOOL, fake / "index.js")
+            helper = tmp / HELPER.name
+            shutil.copyfile(HELPER, helper)
+            workbook = tmp / "input.xlsx"
+            workbook.write_bytes(b"fake workbook")
+            plan_path = write_json(tmp / "plan.json", plan)
+            output, snapshot = tmp / "out.xlsx", tmp / "snapshot.json"
+            report, log = tmp / "report.json", tmp / "calls.log"
+            done = subprocess.run(
+                [
+                    "node", str(helper), str(workbook), str(plan_path),
+                    str(output), str(snapshot), str(report),
+                ],
+                cwd=tmp,
+                env={**os.environ, "FAKE_ARTIFACT_TOOL_LOG": str(log)},
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            load = lambda p: json.loads(p.read_text(encoding="utf-8")) if p.is_file() else None  # noqa: E731
+            calls = (
+                [json.loads(line) for line in log.read_text().splitlines()]
+                if log.is_file()
+                else []
+            )
+            return done, load(report), load(snapshot), calls
+
+    def test_ranges_follow_the_member_count_it_is_given(self) -> None:
+        for count in sorted({roster.count(), 533, 535}):
+            with self.subTest(count=count):
+                done, report, snapshot, calls = self.run_helper(geometry_for(count))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(report["status"], "PASS")
+                self.assertEqual(report["pillar_snapshot_expected_members"], count)
+                self.assertEqual(report["pillar_snapshot_members"], count)
+                self.assertEqual(len(snapshot["O"]), count)
+                self.assertEqual(
+                    report["blended_inspection"]["range"], f"A3:O{count + 2}"
+                )
+                checks = {(c["sheet"], c["range"]) for c in report["numeric_checks"]}
+                for sheet in ("Legislative Score - Raw", "Legislative Score - Normalized"):
+                    self.assertIn((sheet, f"C3:J{count + 2}"), checks)
+                    self.assertIn((sheet, f"EW3:FD{count + 2}"), checks)
+                for sheet in ("Sub Layer - Raw", "Sub Layer - Normalized"):
+                    self.assertIn((sheet, f"C4:C{count + 3}"), checks)
+                    self.assertIn((sheet, f"U4:U{count + 3}"), checks)
+                    self.assertIn((sheet, f"AG4:AW{count + 3}"), checks)
+                self.assertEqual(len(checks), 18 * 2 + 18 * 2 + 2)
+                for call in calls:
+                    if call["op"] == "inspect" and call["kind"] == "table":
+                        self.assertGreaterEqual(
+                            call["tableMaxRows"], rows_of(call["range"]), call
+                        )
+
+    def test_python_accepts_the_helper_report_for_its_own_geometry(self) -> None:
+        done, report, _, _ = self.run_helper(RW.helper_geometry())
+        self.assertEqual(done.returncode, 0, done.stderr)
+        summary = RW.validate_artifact_tool_verification(
+            report, generation_id="g" * 64
+        )
+        self.assertEqual(summary["pillar_snapshot_members"], roster.count())
+
+    def test_invoke_helper_hands_the_roster_geometry_to_the_helper(self) -> None:
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            fake = root / "fake_modules" / "@oai" / "artifact-tool"
+            fake.mkdir(parents=True)
+            shutil.copyfile(FAKE_ARTIFACT_TOOL, fake / "index.js")
+            workbook = root / "input.xlsx"
+            workbook.write_bytes(b"fake workbook")
+            plan = {
+                "schema": RW.PLAN_SCHEMA,
+                "status": "PASS",
+                "generation_id": "g" * 64,
+                "selected_role_weight_policy": "workbook_legacy_4_2_1",
+                "writes": [
+                    {"sheet": "Legislative Score - Raw", "range": "C3:C3", "values": [[1]]}
+                ],
+            }
+            result = RW.invoke_helper(
+                node=Path(shutil.which("node")),
+                modules=root / "fake_modules",
+                root=root,
+                accepted={"workbook_path": workbook, "generation_id": "g" * 64},
+                validated_plan=plan,
+                suffix="geometry",
+                render=False,
+            )
+            sent = json.loads(result["plan"].read_text(encoding="utf-8"))
+            self.assertEqual(sent["geometry"], RW.helper_geometry())
+            self.assertNotIn("geometry", plan)
+            self.assertEqual(
+                result["exact_count_verification"]["pillar_snapshot_members"],
+                roster.count(),
+            )
+
+    def test_helper_geometry_is_the_roster(self) -> None:
+        geometry = RW.helper_geometry()
+        self.assertEqual(geometry["member_count"], roster.count())
+        self.assertEqual(set(geometry["sheets"]), set(GEOMETRY_SHEETS))
+        for sheet, rows in geometry["sheets"].items():
+            self.assertEqual(rows["first_row"], roster.first_row(sheet))
+            self.assertEqual(rows["last_row"], roster.last_row(sheet))
+
+    def test_helper_refuses_missing_or_inconsistent_geometry(self) -> None:
+        good = geometry_for(535)
+        short = geometry_for(535)
+        short["sheets"]["Blended Model"]["last_row"] -= 1
+        no_sheet = geometry_for(535)
+        del no_sheet["sheets"]["Sub Layer - Normalized"]
+        cases = {
+            "missing": None,
+            "not an object": "535",
+            "zero members": {**good, "member_count": 0},
+            "string count": {**good, "member_count": "535"},
+            "last row off by one": short,
+            "sheet absent": no_sheet,
+        }
+        for label, geometry in cases.items():
+            with self.subTest(label):
+                done, report, snapshot, calls = self.run_helper(geometry)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertIn("roster geometry", done.stderr)
+                self.assertIsNone(report)
+                self.assertIsNone(snapshot)
+                self.assertEqual(calls, [])
+
+    def test_helper_source_has_no_member_count_literals(self) -> None:
+        import re
+
+        text = HELPER.read_text(encoding="utf-8")
+        self.assertEqual(re.findall(r"\b53\d\b", text), [])
 
 
 if __name__ == "__main__":

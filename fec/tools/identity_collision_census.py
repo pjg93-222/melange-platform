@@ -8,7 +8,7 @@ WHY THIS EXISTS. The production CU cosponsor graph was found to credit Senator R
 name; the Senator is absent from the 533 and the Representative is present, so the Senator's work
 lands on the son. All 9 of M001226's CU out-edges are affected.
 
-THE LOAD-BEARING POINT: a collision census run WITHIN the 533 roster returns ZERO and declares the
+THE LOAD-BEARING POINT: a collision census run WITHIN the roster returns ZERO and declares the
 graph clean. The dangerous pair is the one the roster CANNOT SEE - a departed or other-chamber
 member colliding with a sitting one. So this census deliberately joins the roster against the
 HISTORICAL member universe, not just against itself. The same class is a live risk at the 120th

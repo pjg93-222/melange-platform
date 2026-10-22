@@ -181,3 +181,33 @@ def test_later_retry_with_hard_cue_is_not_queued(tmp_path, monkeypatch):
     ])
     assert mod.main() == 0
     assert out.read_text(encoding="utf-8") == ""
+
+
+def test_overridden_member_with_no_cue_gets_no_row(tmp_path, monkeypatch):
+    files = [tmp_path / f"override-{index}.jsonl" for index in range(5)]
+    overrides = tmp_path / "overrides.jsonl"
+    roles = tmp_path / "roles.json"
+    out = tmp_path / "out.jsonl"
+    receipt = tmp_path / "receipt.json"
+    write_jsonl(files[0], [{"member": "Example Member", "status": "NO_FULL_NAME_CUE_FOUND"}])
+    write_jsonl(files[1], [])
+    write_jsonl(files[2], [{
+        "member": "Example Member", "video_id": "other", "url": "u9",
+        "title": "Example Member interview",
+    }])
+    write_jsonl(files[3], [{"member": "Example Member", "source_id": "one", "url": "u1"}])
+    write_jsonl(files[4], [])
+    write_jsonl(overrides, [{"member": "Example Member"}])
+    roles.write_text('{"members": {}}', encoding="utf-8")
+    monkeypatch.setattr("sys.argv", [
+        "prog", "--primary-cues", str(files[0]), "--retry-cues", str(files[1]),
+        "--discovery", str(files[2]), "--primary-acquisition", str(files[3]),
+        "--retry-acquisition", str(files[4]), "--roles", str(roles),
+        "--overrides", str(overrides), "--out", str(out), "--receipt", str(receipt),
+    ])
+    assert mod.main() == 0
+    assert out.read_text(encoding="utf-8") == ""
+    saved = json.loads(receipt.read_text(encoding="utf-8"))
+    assert saved["counts"]["deferred_to_reviewed_primary_override"] == 1
+    assert saved["counts"]["unresolved_after_primary_and_first_retry"] == 0
+    assert saved["inputs"]["overrides_sha256"]

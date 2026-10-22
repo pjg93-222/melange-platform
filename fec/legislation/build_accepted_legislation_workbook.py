@@ -32,6 +32,7 @@ import tempfile
 from typing import Any, Iterable, Sequence
 
 from paths import ROOT as MB_ROOT
+import roster
 try:
     from legislation_measure_key import measure_weight, measure_weight_policy
 except ImportError:  # pragma: no cover - package import path
@@ -198,8 +199,8 @@ def required_nonbill_numeric_policy(
     return {
         "cfpb_sign_on_letters": {
             "raw_ranges": [
-                "Legislative Score - Raw!CU3:CU535",
-                "Legislative Score - Raw!CW3:CW535",
+                f"Legislative Score - Raw!CU3:CU{roster.last_row('Legislative Score - Raw')}",
+                f"Legislative Score - Raw!CW3:CW{roster.last_row('Legislative Score - Raw')}",
             ],
             "action": "recompute_from_hash_bound_manual_bill_evidence",
             "manual_bill_evidence_sha256": sha,
@@ -211,15 +212,15 @@ def required_nonbill_numeric_policy(
         },
         "cfpb_dead_zero_siblings": {
             "raw_ranges": [
-                "Legislative Score - Raw!CV3:CV535",
-                "Legislative Score - Raw!CX3:CX535",
+                f"Legislative Score - Raw!CV3:CV{roster.last_row('Legislative Score - Raw')}",
+                f"Legislative Score - Raw!CX3:CX{roster.last_row('Legislative Score - Raw')}",
             ],
             "action": "materialize_explicit_zero",
         },
         "bill_derived_generic_success_percentages": {
             "raw_ranges": [
-                "Legislative Score - Raw!AV3:AV535",
-                "Legislative Score - Raw!DX3:DX535",
+                f"Legislative Score - Raw!AV3:AV{roster.last_row('Legislative Score - Raw')}",
+                f"Legislative Score - Raw!DX3:DX{roster.last_row('Legislative Score - Raw')}",
             ],
             "action": "recompute_from_current_accepted_bill_relationships",
             "stored_precision": "one_decimal_percentage_points",

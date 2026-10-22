@@ -3,7 +3,7 @@
 """Restore fifteen adjudicated association anchors to the primacy act universe.
 
 This display-only producer consumes pinned official GovInfo BillStatus XML,
-resolves sponsors and cosponsors against the live 533-member roster, and
+resolves sponsors and cosponsors against the live member roster, and
 publishes:
 
 * one beneficiary tag for each adjudicated association anchor;
@@ -31,6 +31,7 @@ from pathlib import Path
 
 from moneyball_core import write_text_atomic
 from paths import ROOT as ROOT_TEXT
+import roster
 
 
 ROOT = Path(ROOT_TEXT)
@@ -268,11 +269,12 @@ def roster_resolver():
     rank_names = set((read_json(RANKS).get('rank') or {}))
     if (
         set(names) != rank_names
-        or len(names) != 533
-        or len(bioguide_map) != 533
+        or len(names) != roster.count()
+        or len(bioguide_map) != roster.count()
     ):
         raise ValueError(
-            'BillStatus bioguide map is not bound to the 533-rank roster'
+            'BillStatus bioguide map is not bound to the %d-rank roster'
+            % roster.count()
         )
     return bioguide_map, rank_names
 
@@ -370,8 +372,8 @@ def build():
         )
         if not resolved_people:
             raise ValueError(
-                'bank anchor has no resolvable 533-roster links: %s|%s'
-                % key
+                'bank anchor has no resolvable %d-roster links: %s|%s'
+                % ((roster.count(),) + tuple(key))
             )
 
         sponsor_display = xml_text(official['sponsor'], 'fullName')
@@ -497,7 +499,7 @@ def build():
             missing_before == expected_missing
         ),
         'all_declared_anchors_now_classified': not missing_after,
-        'all_resolved_links_are_in_533_roster': all(
+        'all_resolved_links_are_in_roster': all(
             row['member'] in rank_names for row in all_memberships
         ),
         'all_declared_anchor_membership_sets_nonempty': (

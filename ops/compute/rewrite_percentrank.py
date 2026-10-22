@@ -40,7 +40,7 @@ sys.path.insert(0, str(HERE))
 import office_recalc as OR  # noqa: E402
 
 SCHEMA = "percentrank-form-a-rewrite-v1"
-EXPECTED = 3159                    # 'Blended Model': 533 each over D, G, E, F, O; 494 IFERROR(...) over H
+EXPECTED = 3159                    # 'Blended Model': 533 each over D, G, E, F, O; 494 IFERROR(...) over H. The census of the one-time D-174 migration at 533 members (frozen on purpose): the 494 is the members that have a centrality formula, so it is not a function of roster.count()
 DEFAULT_TAG = "PERCENTRANK-TRUNC"
 LOCK_NAME = ".pipeline_run.lock"
 LOCK_AT = 1 << 30

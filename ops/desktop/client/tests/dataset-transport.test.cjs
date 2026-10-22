@@ -19,6 +19,8 @@ print(json.dumps({'key':k.private_bytes(serialization.Encoding.PEM,serialization
   if(mode==='drip'){response.writeHead(200,{'Content-Type':'application/json','Content-Length':100});response.write('{');const timer=setInterval(()=>response.write(' '),20);response.on('close',()=>clearInterval(timer));return;}
   if(mode==='range'){response.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':4});response.end(Buffer.from([1,2,3,4]));return;}
   if(mode==='short-range'){response.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':3});response.end(Buffer.from([1,2,3]));return;}
+  if(mode==='throttle'){response.writeHead(429,{'Content-Length':0});response.end();return;}
+  if(mode==='cut'){response.writeHead(200,{'Content-Type':'application/json','Content-Length':100});response.write('{');setTimeout(()=>response.destroy(),20);return;}
   if(mode==='huge'){response.writeHead(200,{'Content-Type':'application/json','Content-Length':10*1024*1024});response.end('{}');return;}
   const text=mode==='duplicates'?' {"revisions":[],"revisions":[]} ':JSON.stringify({revisions:[],nextCursor:0,hasMore:false});response.writeHead(200,{'Content-Type':'application/json','Content-Length':Buffer.byteLength(text)});response.end(text);
  });
@@ -26,15 +28,20 @@ print(json.dumps({'key':k.private_bytes(serialization.Encoding.PEM,serialization
  const pair=crypto.generateKeyPairSync('ed25519'),raw=pair.publicKey.export({format:'der',type:'spki'}).subarray(-32),keyId=crypto.createHash('sha256').update(raw).digest('hex').slice(0,24),key=raw.toString('base64');
  const trust={schemaVersion:1,purpose:'melange-desktop-trust',serverId:crypto.randomUUID(),url:'https://127.0.0.1:'+server.address().port,tlsSpkiSha256:crypto.createHash('sha256').update(new crypto.X509Certificate(material.cert).publicKey.export({format:'der',type:'spki'})).digest('hex'),accessPublicKeys:{[keyId]:key},updatePublicKeysByApp:Object.fromEntries(['melange','mentat','terrier'].map(app=>[app,{[keyId]:key}]))},token=crypto.randomBytes(48).toString('base64url');
  const catalog='/v1/data/catalog?after=0&limit=25',range='/v1/data/objects/'+'a'.repeat(64)+'?offset=0&length=4&revisionId='+crypto.randomUUID();
- await assert.rejects(datasetRequest({...trust,tlsSpkiSha256:'b'.repeat(64)},catalog,{token}),/identity/);assert.equal(hits,0);
+ await assert.rejects(datasetRequest({...trust,tlsSpkiSha256:'b'.repeat(64)},catalog,{token}),error=>/identity/.test(error.message)&&error.reason==='identity');assert.equal(hits,0);
  assert.equal((await datasetRequest(trust,catalog,{token})).nextCursor,0);
  mode='range';assert.deepEqual(await datasetRequest(trust,range,{token}),Buffer.from([1,2,3,4]));
  mode='short-range';await assert.rejects(datasetRequest(trust,range,{token}),/framing/);
- mode='redirect';const before=hits;await assert.rejects(datasetRequest(trust,catalog,{token}),/refused/);assert.equal(hits,before+1);
- mode='duplicates';await assert.rejects(datasetRequest(trust,catalog,{token}),/Invalid dataset response/);
- mode='huge';await assert.rejects(datasetRequest(trust,catalog,{token}),/framing/);
- mode='drip';const start=Date.now();await assert.rejects(datasetRequest(trust,catalog,{token,deadlineMs:150}),/deadline/);assert.ok(Date.now()-start<1500);
- const control=new AbortController();const pending=datasetRequest(trust,catalog,{token,signal:control.signal});setTimeout(()=>control.abort(),30);await assert.rejects(pending,/canceled/);
+ mode='redirect';const before=hits;await assert.rejects(datasetRequest(trust,catalog,{token}),error=>/refused/.test(error.message)&&error.reason==='refused'&&error.statusCode===302);assert.equal(hits,before+1);
+  // Malformed answers carry no reason: they are never retried.
+ mode='duplicates';await assert.rejects(datasetRequest(trust,catalog,{token}),error=>/Invalid dataset response/.test(error.message)&&error.reason===undefined);
+ mode='huge';await assert.rejects(datasetRequest(trust,catalog,{token}),error=>/framing/.test(error.message)&&error.reason===undefined);
+ mode='throttle';await assert.rejects(datasetRequest(trust,catalog,{token}),error=>error.reason==='refused'&&error.statusCode===429);
+ mode='cut';await assert.rejects(datasetRequest(trust,catalog,{token}),error=>/interrupted/.test(error.message)&&error.reason==='unreachable');
+ const closed=await new Promise(resolve=>{const probe=require('node:net').createServer();probe.listen(0,'127.0.0.1',()=>{const {port}=probe.address();probe.close(()=>resolve(port));});});
+ await assert.rejects(datasetRequest({...trust,url:'https://127.0.0.1:'+closed},catalog,{token}),error=>/unavailable/.test(error.message)&&error.reason==='unreachable');
+ mode='drip';const start=Date.now();await assert.rejects(datasetRequest(trust,catalog,{token,deadlineMs:150}),error=>/deadline/.test(error.message)&&error.reason==='timeout');assert.ok(Date.now()-start<1500);
+ const control=new AbortController();const pending=datasetRequest(trust,catalog,{token,signal:control.signal});setTimeout(()=>control.abort(),30);await assert.rejects(pending,error=>/canceled/.test(error.message)&&error.reason===undefined);
  for(const value of ['/v1/data/catalog?after=0&limit=999','/v1/data/objects/../../secret','https://8.8.8.8/private','/v1/access/status','/v1/data/catalog?after=0&limit=1&appId=terrier'])assert.throws(()=>route(value,'GET'));
  await new Promise(resolve=>setTimeout(resolve,40));assert.equal(sockets.size,0);
 });

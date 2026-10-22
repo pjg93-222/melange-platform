@@ -6,6 +6,7 @@ fetch a stub, and every classifier answer a canned hold.
 """
 from __future__ import annotations
 
+from datetime import timedelta
 import hashlib
 import json
 import os
@@ -249,13 +250,14 @@ def test_without_a_budget_every_selected_key_is_classified(tmp_path, monkeypatch
     assert (generation['classifier_calls'], generation['max_classifier_calls'], generation['aborted_reason']) == (4, None, None)
 
 
-def test_a_call_that_fails_still_spends_the_budget_and_the_error_still_fails_the_run(tmp_path, monkeypatch):
+def test_a_call_that_fails_still_spends_the_budget_and_a_new_key_is_deferred_not_failed(tmp_path, monkeypatch):
     build(tmp_path, monkeypatch)
     calls, _ = fake_cli(monkeypatch, [cli(1, '', 'boom')])
     code, generation, checkpoint, installed = run_main(tmp_path, '--limit', '4', '--max-classifier-calls', '1')
-    assert calls == ['119:hr:14']                           # a billed attempt counts even though it errored
-    assert (code, generation['status'], installed) == (1, 'FAIL', False)   # FAIL because of the error, not the budget
-    assert list(checkpoint['errors']) == calls
+    assert calls == ['119:hr:14']                           # a billed attempt counts even though it failed
+    # R1 (Paul 2026-10-19): a non-quota failure on a key that is not yet admitted is a deferral, so the bounded run passes.
+    assert (code, generation['status'], installed) == (0, 'PASS', True)
+    assert checkpoint['errors'] == {} and generation['source_unavailable_deferred_keys'] == calls
     assert (generation['aborted_reason'], generation['not_attempted']) == ('CLASSIFIER_CALL_BUDGET', 3)
 
 
@@ -281,3 +283,129 @@ def test_a_non_positive_budget_is_refused(tmp_path, monkeypatch, bad):
     fake_cli(monkeypatch, [held])
     with pytest.raises(ValueError, match='--max-classifier-calls must be positive'):
         R.main(['--root', str(tmp_path), '--max-classifier-calls', bad])
+
+
+# ---- E4: a "classifier unavailable" hold is parked for a week, not re-billed in the retry pool -------------------------
+# A key that defers HOLD_AFTER_DEFERRALS runs running is held with rationale "classifier unavailable N runs: ...". That hold
+# is no verdict about the bill, and the oldest-hold retry quota would pick it first again and bill another call. It waits
+# until its checked_at is 7 days old (the run's clock); every other hold is retried as before; --keys still re-selects it.
+
+def _frozen_clock(monkeypatch):
+    """Pin the clock the run reads (R.datetime), so the 7-day boundary is tested at the exact instant, not around it."""
+    from datetime import datetime, timezone
+
+    class Frozen(datetime):
+        FIXED = datetime(2026, 10, 20, 12, 0, 0, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz=None):
+            return cls.FIXED if tz is not None else cls.FIXED.replace(tzinfo=None)
+
+    monkeypatch.setattr(R, 'datetime', Frozen)
+    return Frozen.FIXED
+
+
+def _ago(days):
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+
+
+def _unavailable_hold(key, checked_at):
+    return {**hold_record(key, checked_at), 'rationale': 'classifier unavailable 3 runs: TimeoutExpired: fixture'}
+
+
+def test_a_fresh_classifier_unavailable_hold_is_not_retried_but_stays_backlog(tmp_path, monkeypatch):
+    parked, ordinary, new = KEYS[0], KEYS[1], KEYS[2]
+    order = build(tmp_path, monkeypatch, keys=KEYS[:3], published={'decisions': {
+        parked: _unavailable_hold(parked, _ago(3)),          # the oldest hold: the retry quota would take it first
+        ordinary: hold_record(ordinary, _ago(1))}})
+    fake_cli(monkeypatch, [held])
+    code, generation, _, installed = run_main(tmp_path, '--limit', '8')
+    assert (code, installed) == (0, True)
+    assert parked not in order                                   # neither via the retry quota nor the fall-through
+    assert order == [ordinary, new]                              # the ordinary hold is still retried first
+    assert parked in generation['deferred_keys']                 # parked work is still backlog, not lost
+
+
+@pytest.mark.parametrize('label, make_checked_at, retried', [
+    ('exactly 7 days old is retried', lambda now: (now - timedelta(days=7)).isoformat(), True),
+    ('one microsecond short of 7 days stays parked', lambda now: (now - timedelta(days=7) + timedelta(microseconds=1)).isoformat(), False),
+    ('a day past the window is retried', lambda now: (now - timedelta(days=8)).isoformat(), True),
+    ('a naive timestamp 3 days old is read as UTC and parked', lambda now: (now - timedelta(days=3)).replace(tzinfo=None).isoformat(), False),
+    ('a naive timestamp 8 days old is read as UTC and retried', lambda now: (now - timedelta(days=8)).replace(tzinfo=None).isoformat(), True),
+    ('a garbage checked_at is not parked', lambda now: 'not-a-date', True),
+    ('an empty checked_at is not parked', lambda now: '', True),
+    ('a missing checked_at is not parked', lambda now: None, True),
+])
+def test_the_seven_day_park_boundary_at_a_pinned_clock(tmp_path, monkeypatch, label, make_checked_at, retried):
+    now = _frozen_clock(monkeypatch)
+    parked = KEYS[0]
+    hold = _unavailable_hold(parked, make_checked_at(now))
+    if hold['checked_at'] is None:
+        del hold['checked_at']
+    order = build(tmp_path, monkeypatch, keys=KEYS[:2], published={'decisions': {parked: hold}})
+    fake_cli(monkeypatch, [held])
+    run_main(tmp_path, '--limit', '8')
+    assert (parked in order) is retried, label
+    if retried:
+        assert order[0] == parked                                # the oldest hold leads the retry quota
+
+
+def test_other_holds_are_retried_whatever_their_age(tmp_path, monkeypatch):
+    fresh = KEYS[0]
+    order = build(tmp_path, monkeypatch, keys=KEYS[:2], published={'decisions': {fresh: hold_record(fresh, _ago(0.1))}})
+    fake_cli(monkeypatch, [held])
+    run_main(tmp_path, '--limit', '8')
+    assert order[0] == fresh
+
+
+def test_naming_a_parked_key_with_keys_still_reselects_it(tmp_path, monkeypatch):
+    parked = KEYS[0]
+    order = build(tmp_path, monkeypatch, keys=KEYS[:2], published={'decisions': {
+        parked: _unavailable_hold(parked, _ago(0.1))}})
+    calls, _ = fake_cli(monkeypatch, [held])
+    code, generation, _, _ = run_main(tmp_path, '--keys', parked)
+    assert code == 0 and order == [parked] and calls == [parked]
+    assert generation['decisions'][parked]['rationale'] == 'fixture hold'   # the manual run cleared the parked hold
+
+
+def test_the_generation_lists_each_parked_key_with_its_checked_at_and_unpark_time(tmp_path, monkeypatch, capsys):
+    now = _frozen_clock(monkeypatch)
+    parked, aged, ordinary = KEYS[0], KEYS[1], KEYS[2]
+    checked = (now - timedelta(days=3)).isoformat()
+    naive = (now - timedelta(days=2)).replace(tzinfo=None).isoformat()
+    build(tmp_path, monkeypatch, keys=KEYS[:4], published={'decisions': {
+        parked: _unavailable_hold(parked, checked),
+        KEYS[3]: _unavailable_hold(KEYS[3], naive),                       # a naive stamp is read as UTC and still listed
+        aged: _unavailable_hold(aged, (now - timedelta(days=9)).isoformat()),   # past the window: retried, so not listed
+        ordinary: hold_record(ordinary, (now - timedelta(days=1)).isoformat())}})   # not a classifier-unavailable hold
+    fake_cli(monkeypatch, [held])
+    code, generation, _, _ = run_main(tmp_path, '--limit', '8')
+    assert code == 0
+    assert generation['parked_hold_keys'] == {
+        parked: {'checked_at': checked, 'unparks_at': (now - timedelta(days=3) + timedelta(days=7)).isoformat()},
+        KEYS[3]: {'checked_at': naive, 'unparks_at': (now - timedelta(days=2) + timedelta(days=7)).isoformat()}}
+    summary = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert summary['parked'] == 2
+
+
+def test_a_keys_run_parks_nothing_and_says_so(tmp_path, monkeypatch, capsys):
+    now = _frozen_clock(monkeypatch)
+    parked = KEYS[0]
+    build(tmp_path, monkeypatch, keys=KEYS[:2], published={'decisions': {
+        parked: _unavailable_hold(parked, (now - timedelta(days=1)).isoformat())}})
+    fake_cli(monkeypatch, [held])
+    code, generation, _, _ = run_main(tmp_path, '--keys', parked)
+    assert code == 0 and generation['parked_hold_keys'] == {}
+    assert json.loads(capsys.readouterr().out.strip().splitlines()[-1])['parked'] == 0
+
+
+def test_the_parking_check_reads_the_same_prefix_constant_the_hold_is_written_with(monkeypatch):
+    from datetime import datetime, timezone
+    assert R.CLASSIFIER_UNAVAILABLE_PREFIX == 'classifier unavailable'
+    now = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    fresh = {'disposition': 'hold', 'checked_at': now.isoformat(), 'rationale': 'prefix-under-test 3 runs: x'}
+    assert R._parked_hold(fresh, now) is False                       # not this run's prefix yet
+    monkeypatch.setattr(R, 'CLASSIFIER_UNAVAILABLE_PREFIX', 'prefix-under-test')
+    assert R._parked_hold(fresh, now) is True
+    assert R._parked_hold({**fresh, 'rationale': 'classifier unavailable 3 runs: x'}, now) is False

@@ -55,7 +55,7 @@ const {chromium} = require(require.resolve('playwright', {paths:[modules]}));
     await page.goto(origin+'/');
     assert.equal(await page.locator('#tab-loading').getAttribute('aria-selected'),'true');
     assert.deepEqual(await page.locator('.workspace-tabs [role=tab]').evaluateAll(tabs=>tabs.map(tab=>tab.id)),
-      ['tab-loading','tab-collection','tab-graph','tab-chart-studio','tab-insights','tab-cross-reference','tab-evidence']);
+      ['tab-loading','tab-collection','tab-graph','tab-chart-studio','tab-insights','tab-cross-reference','tab-evidence','tab-public-data']);
     assert.equal(await page.locator('.workspace-tabs').getAttribute('aria-orientation'),'vertical');
     assert.equal(await page.evaluate(()=>{
       const navigation=document.querySelector('.app-navigation').getBoundingClientRect();
@@ -370,8 +370,8 @@ const {chromium} = require(require.resolve('playwright', {paths:[modules]}));
     assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
     await page.locator('#tab-graph').focus();
     await page.keyboard.press('End');
-    assert.equal(await page.locator('#tab-evidence').getAttribute('aria-selected'),'true');
-    const mobileTabBounds=await page.locator('#tab-evidence').evaluate(element=>{
+    assert.equal(await page.locator('#tab-public-data').getAttribute('aria-selected'),'true');
+    const mobileTabBounds=await page.locator('#tab-public-data').evaluate(element=>{
       const tab=element.getBoundingClientRect(),nav=element.closest('.workspace-tabs').getBoundingClientRect();
       return {tabLeft:tab.left,tabRight:tab.right,navLeft:nav.left,navRight:nav.right};
     });
@@ -503,13 +503,15 @@ const {chromium} = require(require.resolve('playwright', {paths:[modules]}));
     await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#tab-evidence').getAttribute('aria-selected'),'true');
     await page.keyboard.press('ArrowRight');
+    assert.equal(await page.locator('#tab-public-data').getAttribute('aria-selected'),'true');
+    await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#tab-loading').getAttribute('aria-selected'),'true');
     await page.keyboard.press('ArrowUp');
-    assert.equal(await page.locator('#tab-evidence').getAttribute('aria-selected'),'true');
+    assert.equal(await page.locator('#tab-public-data').getAttribute('aria-selected'),'true');
     await page.keyboard.press('ArrowDown');
     assert.equal(await page.locator('#tab-loading').getAttribute('aria-selected'),'true');
     await page.keyboard.press('End');
-    assert.equal(await page.locator('#tab-evidence').getAttribute('aria-selected'),'true');
+    assert.equal(await page.locator('#tab-public-data').getAttribute('aria-selected'),'true');
     await page.keyboard.press('Home');
     assert.equal(await page.locator('#tab-loading').getAttribute('aria-selected'),'true');
     assert.equal(await page.locator('.workspace-tabs [aria-selected=true]').count(),1);

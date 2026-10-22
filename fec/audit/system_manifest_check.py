@@ -348,9 +348,11 @@ def check_manifest(manifest_path, emit, notice=None, git_root=None, now=None, wa
     # absent and its stores SKIP, as on a fresh clone.
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from paths import to_host
-    for _entry in [e for part in (man.get('roots'), man.get('stores')) if isinstance(part, list) for e in part]:
-        if isinstance(_entry, dict) and isinstance(_entry.get('path'), str):
-            _entry['path'] = to_host(_entry['path'])
+    for _entry in [e for part in (man.get('roots'), man.get('stores'), man.get('absent_expected'))
+                   if isinstance(part, list) for e in part]:
+        for _key in ('path', 'base'):
+            if isinstance(_entry, dict) and isinstance(_entry.get(_key), str):
+                _entry[_key] = to_host(_entry[_key])
 
     ck('A0 system manifest declares schema %s' % SCHEMA, man.get('schema') == SCHEMA,
        'manifest: schema=%r / expected %r' % (man.get('schema'), SCHEMA))
@@ -783,13 +785,17 @@ def _check_sentinels(store, sid, gen_utc, ck, skip, git_dir=False, note=None):
             continue
         if row.get('content_stable') is False:
             continue        # existence only: the producer declared this store's bytes unstable
-        st = os.stat(full)
-        if st.st_size != row.get('bytes'):
-            bad.append('%s size: manifest=%s bytes / disk=%d bytes'
-                       % (rel, row.get('bytes'), st.st_size))
+        try:
+            st = os.stat(full)
+            if st.st_size != row.get('bytes'):
+                bad.append('%s size: manifest=%s bytes / disk=%d bytes'
+                           % (rel, row.get('bytes'), st.st_size))
+                continue
+            got = _sha256(full) if row.get('sha256') else None
+        except OSError as exc:
+            bad.append('%s unreadable: %s' % (rel, type(exc).__name__))
             continue
         if row.get('sha256'):
-            got = _sha256(full)
             if got != row['sha256']:
                 bad.append('%s sha256: manifest=%s / disk=%s'
                            % (rel, row['sha256'][:16] + '...', got[:16] + '...'))

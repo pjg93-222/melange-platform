@@ -8,6 +8,7 @@ Stance Tier column (G) with Excel calculation set to MANUAL so nothing downstrea
 the Blended Model (ranks/scores) stays byte-identical to the original; only col G changes."""
 import json, io, sys, shutil, glob, os, collections
 import win32com.client as win32
+import roster
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 B = MB_ROOT
 WB = B + r'\Moneyball Main Version - Blended.xlsx'
@@ -39,7 +40,7 @@ try:
     try: xl.Calculation = MANUAL
     except Exception: pass
     ws = wb.Worksheets('Rank & Allocation'); cnt = collections.Counter(); n = 0
-    for r in range(3, 536):
+    for r in roster.rows('Rank & Allocation'):
         nm = ws.Cells(r, 1).Value
         if not nm: continue
         s = agg(nm); ws.Cells(r, 7).Value = s; cnt[s] += 1; n += 1

@@ -10,6 +10,8 @@ import openpyxl
 
 ROOT=Path(__file__).resolve().parents[3]
 FEC=ROOT/'fec'
+sys.path.insert(0,str(FEC))
+import roster
 DATA_ROOT=Path(os.environ.get('MONEYBALL_ROOT',ROOT))
 WORKBOOK=Path(os.environ.get('MONEYBALL_WORKBOOK',DATA_ROOT/'outputs'/'workbook_repair'/'Moneyball Audit Workbook.xlsx'))
 
@@ -46,8 +48,9 @@ class WorkbookContracts(unittest.TestCase):
         raw=self.book['Legislative Raw']; normalized=self.book['Legislative Normalized']
         self.assertEqual('Credit Union Tax Status - Sponsor',raw.cell(1,153).value)
         self.assertEqual('Credit Union Tax Status - Original Co-Sponsor',raw.cell(1,155).value)
-        for col,row in ((3,3),(152,535),(153,3),(155,535),(160,535)):
-            values=[float(raw.cell(r,col).value or 0) for r in range(3,536)]
+        last=roster.last_row('Legislative Score - Raw')
+        for col,row in ((3,3),(152,last),(153,3),(155,last),(160,last)):
+            values=[float(raw.cell(r,col).value or 0) for r in roster.rows('Legislative Score - Raw')]
             value=values[row-3]; pos=max([0]+values); neg=abs(min([0]+values))
             expected=0 if value==0 else value/pos if value>0 and pos else value/neg if neg else 0
             self.assertAlmostEqual(expected,float(normalized.cell(row,col).value or 0),places=12)
@@ -56,7 +59,7 @@ class WorkbookContracts(unittest.TestCase):
     def test_category_stance_sheet_exactly_matches_live_matrix(self):
         ws=self.book['Category Stance']; cats=self.category['cats']; matrix=self.category['matrix']
         self.assertEqual(cats,[ws.cell(2,c).value for c in range(3,21)])
-        rows={ws.cell(r,1).value:[ws.cell(r,c).value for c in range(3,21)] for r in range(3,536)}
+        rows={ws.cell(r,1).value:[ws.cell(r,c).value for c in range(3,21)] for r in range(3,3+roster.count())}
         self.assertEqual(set(matrix),set(rows))
         for name in matrix:
             self.assertEqual([matrix[name].get(cat,'—') for cat in cats],rows[name],name)
@@ -66,7 +69,7 @@ class WorkbookContracts(unittest.TestCase):
         ws=self.book['Rank Authority']
         headers=[ws.cell(4,c).value for c in range(1,16)]
         self.assertEqual('Score',headers[1]); self.assertEqual('Rank',headers[2])
-        rows={ws.cell(r,1).value:(ws.cell(r,2).value,ws.cell(r,3).value) for r in range(5,538)}
+        rows={ws.cell(r,1).value:(ws.cell(r,2).value,ws.cell(r,3).value) for r in range(5,5+roster.count())}
         self.assertEqual(set(self.ranks['rank']),set(rows))
         for name in self.ranks['rank']:
             self.assertAlmostEqual(self.ranks['score'][name],rows[name][0],places=12)

@@ -77,6 +77,15 @@ class IncrementalSpeechManifestSafety(unittest.TestCase):
         self.assertEqual([row['member'] for row in rows], ['Fixture Beta'])
         self.assertIn('Fixture Beta', json.loads(self.coverage.read_text())['members'])
 
+    def test_failed_member_refresh_keeps_prior_rows_and_coverage(self):
+        self.prior()
+        self.assertEqual(self.invoke(['--member', 'Fixture Beta'], lambda *a: ('synthetic', [], 'HTTP 429')), 0)
+        rows = [json.loads(line) for line in self.candidates.read_text().splitlines()]
+        self.assertEqual([row['member'] for row in rows], ['Fixture Beta'])
+        entry = json.loads(self.coverage.read_text())['members']['Fixture Beta']
+        self.assertEqual((entry['search_status'], entry['qualifying_candidates']), ('SEARCHED', 1))
+        self.assertEqual(entry['last_refresh_error'], 'HTTP 429')
+
     def test_fresh_member_with_neither_prior_output_remains_supported(self):
         self.assertEqual(self.invoke(['--member', 'Fixture Alpha'], lambda *a: ('synthetic', [], None)), 0)
         self.assertEqual(self.candidates.read_bytes(), b'')

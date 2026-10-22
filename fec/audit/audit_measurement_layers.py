@@ -11,6 +11,7 @@ import unicodedata
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import bill_rules as BR
 import moneyball_core as MC
+import roster
 import tier_util as TU
 from engine import primacy_factors as PF
 from engine.live_legislative_pillar import measure, percentranks
@@ -213,11 +214,12 @@ def verify(root):
             ra=wb['Rank & Allocation'];bm=wb['Blended Model'];cs=wb['Category Stance'];cp=wb['Coalition Profiles']
             check([c.value for c in next(cs.iter_rows(min_row=1,max_row=1,min_col=3,max_col=20))]==labels['cats'],
                   'Workbook category order is stale','workbook')
-            book_labels={nfc(row[0]):row[1:20] for row in cs.iter_rows(min_row=2,max_row=534,values_only=True) if row[0]}
+            book_labels={nfc(row[0]):row[1:20] for row in cs.iter_rows(min_row=roster.first_row('Category Stance'),max_row=roster.last_row('Category Stance',root),values_only=True) if row[0]}
             check(set(book_labels)==normalized_names,'Workbook label roster mismatch','workbook')
-            bm_rows=list(bm.iter_rows(min_row=3,max_row=535,values_only=True))
-            for index,row in enumerate(ra.iter_rows(min_row=3,max_row=535,values_only=True)):
-                n=nfc(row[0]);r=index+3;values=bm_rows[index]
+            bm_rows=list(bm.iter_rows(min_row=roster.first_row('Blended Model'),max_row=roster.last_row('Blended Model',root),values_only=True))
+            ra_first=roster.first_row('Rank & Allocation')
+            for index,row in enumerate(ra.iter_rows(min_row=ra_first,max_row=roster.last_row('Rank & Allocation',root),values_only=True)):
+                n=nfc(row[0]);r=index+ra_first;values=bm_rows[index]
                 # Byte-for-byte the call stance/sync_stance_g.py:agg makes, so the
                 # workbook is checked against the one crown source and not a third
                 # rule: board seats first, then the capped analytic band.

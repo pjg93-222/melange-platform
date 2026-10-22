@@ -397,8 +397,9 @@ def feature_records(
     tokens: Sequence[str],
     spans: Sequence[tuple[float, float, float, int, int, int]],
     smile: opensmile.Smile,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], int]:
     records: list[dict[str, Any]] = []
+    failed = 0
     for segment_index, (start, end, score, first_word, last_word, turn_index) in enumerate(spans):
         if end - start < MIN_SEG:
             continue
@@ -413,6 +414,7 @@ def feature_records(
                 % (episode["guid"], segment_index, str(exc)[:100]),
                 flush=True,
             )
+            failed += 1
             continue
         span_words = [
             tokens[index]
@@ -453,7 +455,7 @@ def feature_records(
         )
         record["feature_sha256"] = sha256_json(record)
         records.append(record)
-    return records
+    return records, failed
 
 
 def process_episode(
@@ -514,9 +516,16 @@ def process_episode(
         return decode_minutes, len(whisper_segments), [], True
 
     spans = align_turns(episode["turns"], words, tokens)
-    records = feature_records(
+    records, feature_failures = feature_records(
         episode, audio, sample_rate, words, tokens, spans, smile
     )
+    if feature_failures:
+        # All-or-nothing per sid: write nothing so the resume check retries the episode.
+        print(
+            "FEATURE-INCOMPLETE %s failed_segments=%d" % (episode["guid"], feature_failures),
+            flush=True,
+        )
+        return decode_minutes, len(whisper_segments), [], True
     return decode_minutes, len(whisper_segments), records, False
 
 

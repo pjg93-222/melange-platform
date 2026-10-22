@@ -8,7 +8,7 @@ and routed to the shared media categories.  This is an INPUT-ONLY artifact — n
 into the pipeline, no network, no API, no spend.
 
 Bluesky is the CLEANEST channel for member resolution: the posts table already carries a bioguide,
-so there is NO name-resolution step.  We still resolve fail-closed against the 533-member roster:
+so there is NO name-resolution step.  We still resolve fail-closed against the member roster:
   * bioguide -> canonical member + chamber via congestion.json (drop if bioguide not in the roster)
   * text     -> category via media_rules.route_raw_categories(text, declared=[])  (drop if none)
 
@@ -69,7 +69,7 @@ for bioguide, created_at, repost_of, text in rows:
     if bioguide not in VERIFIED:                    # registry handle unverified/absent -> drop
         drop_unverified += 1
         continue
-    member = BIO2MEMBER.get(bioguide)               # fail-closed: drop if not in the 533-member roster
+    member = BIO2MEMBER.get(bioguide)               # fail-closed: drop if not in the member roster
     if not bioguide or not member:
         drop_noroster += 1
         continue

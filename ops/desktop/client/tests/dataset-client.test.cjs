@@ -82,3 +82,59 @@ test('latest district approval is rechecked inside an exclusive activation lease
   assert.equal((await client.activate(f.body.revisionId)).status,'active');assert.equal(writes,1);assert.equal(workStarted,0);assert.equal(held,false);startWork();assert.equal(workStarted,1);
  }finally{fs.rmSync(folder,{recursive:true});}
 });
+
+test('timeouts halve the range size down to 1 MiB and the next range uses it; the size never grows or leaves its bounds',async()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'dataset-chunk-fixture-'));try{
+  const f=fixture(Buffer.alloc(3*1024*1024+7,9)),journal=store(folder),lengths=[];
+  const request=async(_trust,route)=>{if(route.startsWith('/v1/data/catalog'))return {revisions:[f.sign(f.body)],nextCursor:1,hasMore:false};const url=new URL(route,'https://127.0.0.1'),offset=Number(url.searchParams.get('offset')),length=Number(url.searchParams.get('length'));lengths.push(length);return f.bytes.subarray(offset,offset+length);};
+  const make=options=>new DatasetClient({access:f.access,store:journal,profile:folder,registry:f.registry,request,minimumFreeBytes:0,...options});
+  const client=make({});assert.equal(client.chunkSize,CHUNK);assert.deepEqual([client.shrinkChunk(),client.shrinkChunk(),client.shrinkChunk(),client.shrinkChunk()],[CHUNK/2,CHUNK/4,CHUNK/4,CHUNK/4]);
+  await client.catalog();await client.download(f.body.revisionId);assert.deepEqual(lengths,[1024**2,1024**2,1024**2,7]);
+  assert.equal(make({chunkSize:1000}).shrinkChunk(),1000);for(const bad of [0,-1,CHUNK+1,1.5])assert.throws(()=>make({chunkSize:bad}),/transfer sizes/);assert.throws(()=>make({saveEvery:0}),/transfer sizes/);
+ }finally{fs.rmSync(folder,{recursive:true});}
+});
+test('the journal is saved every saveEvery bytes, and a crash after a batched save resumes from the saved offset',async()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'dataset-batch-fixture-'));try{
+  const f=fixture(crypto.randomBytes(10000)),file=path.join(folder,'fixture-journal.json');let writes=0,dead=false;
+  const journal={read:async()=>fs.existsSync(file)?JSON.parse(fs.readFileSync(file,'utf8')):null,write:async value=>{if(dead)throw new Error('process died');writes++;fs.writeFileSync(file,JSON.stringify(value));}};
+  let offsets=[],killAt=Infinity;const request=async(_trust,route)=>{if(route.startsWith('/v1/data/catalog'))return {revisions:[f.sign(f.body)],nextCursor:1,hasMore:false};const url=new URL(route,'https://127.0.0.1'),offset=Number(url.searchParams.get('offset')),length=Number(url.searchParams.get('length'));offsets.push(offset);if(offset>=killAt){dead=true;throw new Error('killed');}return f.bytes.subarray(offset,offset+length);};
+  const make=()=>new DatasetClient({access:f.access,store:journal,profile:folder,registry:f.registry,request,minimumFreeBytes:0,chunkSize:1000,saveEvery:3000});
+  // Ten ranges, but only the start, three batched saves, the verified object and the validating state are written.
+  let client=make();await client.catalog();let before=writes;await client.download(f.body.revisionId);assert.equal(writes-before,6);
+  // A fresh copy of the same dataset: killed after seven ranges, the journal still holds the last batched save (6000), not 7000.
+  fs.rmSync(folder,{recursive:true});fs.mkdirSync(folder);writes=0;offsets=[];killAt=7000;client=make();await client.catalog();
+  await assert.rejects(client.download(f.body.revisionId),/process died/);
+  const saved=JSON.parse(fs.readFileSync(file,'utf8')).revisions[f.body.revisionId].objects.fixture.offset;assert.equal(saved,6000);
+  const part=path.join(folder,'dataset-sync','objects',f.body.objects[0].sha256+'.part');assert.equal(fs.statSync(part).size,7000);
+  dead=false;killAt=Infinity;offsets=[];client=make();assert.equal((await client.status())[0].bytes,6000);await client.download(f.body.revisionId);
+  assert.equal(offsets[0],6000,'resumes from the saved offset');assert.equal(offsets.at(-1),9000);assert.equal((await client.status())[0].status,'validating');
+ }finally{fs.rmSync(folder,{recursive:true});}
+});
+test('forget drops one district journal rows, cursor and cached bytes, even after its approval ended, and leaves the others',async()=>{
+ const folder=fs.mkdtempSync(path.join(os.tmpdir(),'dataset-forget-fixture-'));try{
+  const f=fixture(),journal=store(folder);Object.assign(f.grant,{appId:'terrier',role:'local_administrator',districtIds:['co-05','or-05']});Object.assign(f.body,{appId:'terrier',kind:'terrier.record-changes.v1',districtId:'co-05'});f.adapter.appId='terrier';f.registry={'terrier.record-changes.v1':f.adapter};
+  const request=async(_trust,route)=>route.startsWith('/v1/data/catalog')?{revisions:[f.sign(f.body)],nextCursor:1,hasMore:false}:f.bytes;
+  const client=new DatasetClient({access:f.access,store:journal,profile:folder,registry:f.registry,request,acquireActivationLease:fixtureLease,minimumFreeBytes:0});
+  await client.catalog('co-05');await client.download(f.body.revisionId);assert.equal((await client.activate(f.body.revisionId)).status,'active');
+  const manifest=await client.file('manifests',f.body.revisionId+'.json'),object=await client.file('objects',f.body.objects[0].sha256+'.bin');assert.ok(fs.existsSync(manifest)&&fs.existsSync(object));
+  await client.forget('or-05');assert.equal(Object.keys((await journal.read()).revisions).length,1);assert.ok(fs.existsSync(manifest));
+  f.grant.districtIds=['or-05'];await assert.rejects(client.status('co-05'),/district.*approved/);
+  await client.forget('co-05');const after=await journal.read();assert.deepEqual([after.revisions,after.cursors,after.active],[{},{},{}]);assert.equal(fs.existsSync(manifest),false);assert.equal(fs.existsSync(object),false);
+  f.grant.districtIds=['co-05','or-05'];assert.deepEqual(await client.status('co-05'),[]);assert.equal((await client.catalog('co-05')).received,1,'a forgotten district is fetched again from the start');
+ }finally{fs.rmSync(folder,{recursive:true});}
+});
+test('the approval and token are read once per download, not per range, and again only after a 401/403; a second refusal surfaces refused',async()=>{
+ const run=async(refusals,statusCode=403)=>{const folder=fs.mkdtempSync(path.join(os.tmpdir(),'dataset-credential-fixture-'));try{
+  const f=fixture(Buffer.alloc(5000,5));let approvals=0,tokens=0,refuse=0;const used=[];
+  const access={...f.access,accepted:async()=>{approvals++;return f.access.accepted();},secrets:{read:async name=>{tokens++;return f.access.secrets.read(name);}}};
+  const request=async(_trust,route,options)=>{if(route.startsWith('/v1/data/catalog'))return {revisions:[f.sign(f.body)],nextCursor:1,hasMore:false};if(refuse>0){refuse--;throw Object.assign(new Error('refused'),{reason:'refused',statusCode});}used.push(options.token);const url=new URL(route,'https://127.0.0.1'),offset=Number(url.searchParams.get('offset')),length=Number(url.searchParams.get('length'));return f.bytes.subarray(offset,offset+length);};
+  const client=new DatasetClient({access,store:store(folder),profile:folder,registry:f.registry,request,minimumFreeBytes:0,chunkSize:1000});
+  await client.catalog();tokens=approvals=0;refuse=refusals;
+  const outcome=await client.download(f.body.revisionId).then(()=>null,error=>error);
+  return {tokens,approvals,used,outcome};
+ }finally{fs.rmSync(folder,{recursive:true});}};
+ let r=await run(0);assert.equal(r.outcome,null);assert.equal(r.used.length,5);assert.equal(r.tokens,1);assert.ok(r.approvals<=2);assert.equal(new Set(r.used).size,1);
+ for(const status of [403,401]){r=await run(1,status);assert.equal(r.outcome,null);assert.equal(r.used.length,5);assert.equal(r.tokens,2);assert.equal(new Set(r.used).size,1);}
+ r=await run(2);assert.equal(r.outcome.reason,'refused');assert.equal(r.tokens,2);
+ r=await run(1,500);assert.equal(r.outcome.statusCode,500);assert.equal(r.tokens,1);
+});

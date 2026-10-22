@@ -418,6 +418,70 @@ class CoverageReconciliationTests(unittest.TestCase):
                 "main_corpus_write_performed": False,
             },
         )
+    def _args(self, **override: str):
+        paths = {
+            "records": self.root / "records.ndjson",
+            "memberships": self.root / "memberships.ndjson",
+            "ledger": self.root / "ledger.ndjson",
+            "billstatus": self.root / "billstatus",
+            "full-text-receipts": self.root / "fulltext",
+            "govinfo-run": self.root / "govinfo",
+            "out": self.root / "out",
+        }
+        paths.update({k.replace("_", "-"): v for k, v in override.items()})
+        argv = []
+        for name, value in paths.items():
+            argv += [f"--{name}", str(value)]
+        return auditor.parse_args(argv)
+
+    def test_completed_counters_must_match_receipts_on_disk(self) -> None:
+        keys = DECLARED + ["117:hr:1"]
+        clean = self.scaffold(
+            records=keys,
+            edges=[(k, "q_a") for k in keys],
+            planned=[("117:hr:1", "job1")],
+            accepted=[("117:hr:1", "job1")],
+        )
+        self.assertEqual(clean["status"], "PASS_COVERAGE_RECONCILIATION")
+        completed = self.root / "govinfo" / "completed.json"
+        data = json.loads(completed.read_text(encoding="utf-8"))
+        data.update(dispatch_count=10, accepted_count=10, failure_count=0)
+        completed.write_text(json.dumps(data), encoding="utf-8")
+        receipt = auditor.audit(self._args())
+        self.assertEqual(receipt["status"], "COVERAGE_GAPS_PRESENT")
+
+    def test_missing_evidence_root_fails_closed(self) -> None:
+        self.scaffold(records=["117:hr:1"], edges=[("117:hr:1", "q_a")])
+        with self.assertRaises(auditor.ReconciliationError):
+            auditor.audit(
+                self._args(full_text_receipts=self.root / "does_not_exist")
+            )
+
+    def test_clean_run_without_a_failure_receipt_directory_passes(self) -> None:
+        # The collector creates receipts/failure lazily, so a zero-failure
+        # run legitimately has no such directory.
+        keys = DECLARED + ["117:hr:1"]
+        self.scaffold(
+            records=keys,
+            edges=[(k, "q_a") for k in keys],
+            planned=[("117:hr:1", "job1")],
+            accepted=[("117:hr:1", "job1")],
+        )
+        (self.root / "govinfo" / "receipts" / "failure").rmdir()
+        receipt = auditor.audit(self._args())
+        self.assertEqual(receipt["status"], "PASS_COVERAGE_RECONCILIATION")
+
+    def test_script_mode_entry_point_imports(self) -> None:
+        import subprocess
+        import sys
+
+        done = subprocess.run(
+            [sys.executable, auditor.__file__, "--help"],
+            capture_output=True,
+            text=True,
+            cwd=self.root,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
 
 
 if __name__ == "__main__":

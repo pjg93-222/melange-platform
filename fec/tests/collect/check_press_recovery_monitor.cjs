@@ -1,8 +1,9 @@
 // Live smoke test against the local read-only monitor; isolated browser profile.
-const {chromium}=require('C:/Users/pgoff/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+// PLAYWRIGHT_MODULE / CHROME_PATH override the defaults below on another machine.
+const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'C:/Users/pgoff/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
 const assert=require('node:assert/strict');const path=require('node:path');
 (async()=>{
- const browser=await chromium.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe'});
+ const browser=await chromium.launch({headless:true,executablePath:process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe'});
  const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.goto('http://127.0.0.1:8876');
  await page.waitForFunction(()=>document.querySelector('#processed').textContent!=='—');

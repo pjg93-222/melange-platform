@@ -7,6 +7,7 @@ Adds the Cap + fill-multiplier as labelled parameter cells and rewrites the Allo
 it stays live; re-run this if Score or N/Cap change (it re-solves lambda). COM + recalc. Backs up first."""
 import openpyxl, sys, shutil, os, datetime
 import win32com.client as win32
+import roster
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 B  = MB_ROOT
 WB = B + r'\Moneyball Main Version - Blended.xlsx'
@@ -17,7 +18,7 @@ N   = 250                # $AB$7 Fund top N           <-- edit here
 # ---- read top-N scores (col19=Score, col20=Rank) ----
 wv = openpyxl.load_workbook(WB, data_only=True); bm = wv['Blended Model']
 rows = []
-for r in range(3, 536):
+for r in roster.rows('Blended Model'):
     nm = bm.cell(r, 1).value; sc = bm.cell(r, 19).value; rk = bm.cell(r, 20).value
     if nm and isinstance(sc, (int, float)) and isinstance(rk, (int, float)):
         rows.append((rk, sc))
@@ -49,7 +50,7 @@ try:
     ws.Cells(7, 28).Value = N                                   # AB7  Fund top N
     ws.Cells(8, 27).Value = 'Cap ($)';        ws.Cells(8, 28).Value = CAP    # AA8 / AB8
     ws.Cells(14, 27).Value = 'Alloc fill mult'; ws.Cells(14, 28).Value = lam  # AA14 / AB14
-    ws.Range('U3:U535').Formula = '=IF(T3<=$AB$7,MIN($AB$8,S3*$AB$14),0)'
+    ws.Range(roster.col_range('U', 'Blended Model', absolute=False)).Formula = '=IF(T3<=$AB$7,MIN($AB$8,S3*$AB$14),0)'
     try:
         tw = wb.Worksheets('Topic Weights'); tw.Cells(5,3).Value = 0.3   # cosmetic: TOP-tier 'Press wt' was 0, inconsistent with its own detailed dials (0.3). Model uses hardcoded 0.70/0.35 (per_category_stance.py), NOT this sheet.
         print('Topic Weights C5 (TOP press wt) 0 -> 0.3 (cosmetic; sheet is reference-only)')
@@ -62,7 +63,7 @@ finally:
 
 # ---- verify from the saved workbook ----
 wv = openpyxl.load_workbook(WB, data_only=True); bm = wv['Blended Model']
-av = sorted([bm.cell(r, 21).value for r in range(3, 536)
+av = sorted([bm.cell(r, 21).value for r in roster.rows('Blended Model')
              if isinstance(bm.cell(r, 21).value, (int, float)) and bm.cell(r, 21).value > 0], reverse=True)
 print('VERIFY: funded=%d  total=$%.0f  max=$%.0f  min=$%.0f  at_cap=%d'
       % (len(av), sum(av), av[0], av[-1], sum(1 for a in av if a >= CAP - 0.5)))

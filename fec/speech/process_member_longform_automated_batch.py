@@ -25,6 +25,7 @@ from fec.speech import build_member_longform_review_queue as queue
 from audits.longform_collection_20260904 import audit_primary_transcript_quality as quality
 
 ROOT = Path(__file__).resolve().parents[2]
+STEP_TIMEOUT = None  # seconds per child module; set from --step-timeout in main
 
 
 def check_prepare(root):
@@ -100,7 +101,7 @@ def invoke(module, arguments, log):
         handle.write('\n' + dt.datetime.now(dt.timezone.utc).isoformat() + ' ' + module + '\n')
         handle.flush()
         subprocess.run([sys.executable, '-u', '-m', module, *map(str, arguments)],
-                       cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, check=True)
+                       cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, check=True, timeout=STEP_TIMEOUT)
 
 
 def source_pipeline(selected, job, model, threads):
@@ -147,7 +148,10 @@ def main():
     parser.add_argument('--converted-model', required=True, type=Path)
     parser.add_argument('--cpu-threads', default=2, type=int)
     parser.add_argument('--prepare-only', action='store_true')
+    parser.add_argument('--step-timeout', default=14400, type=float, help='seconds per child module; 0 = unlimited')
     args = parser.parse_args()
+    global STEP_TIMEOUT
+    STEP_TIMEOUT = args.step_timeout or None
     root = args.batch_root.resolve()
     frozen = check_prepare(root)
     roles = json.loads(frozen['roles'].read_text(encoding='utf-8'))['members']
@@ -173,7 +177,7 @@ def main():
                     item.update(job=str(job.resolve()), status='FROZEN_READY_FOR_AUTOMATED_PROCESSING')
                     if not args.prepare_only:
                         item.update(source_pipeline(selected, job, args.converted_model, max(1, args.cpu_threads)))
-        except (ValueError, OSError, KeyError, subprocess.CalledProcessError, SystemExit) as exc:
+        except (ValueError, OSError, KeyError, subprocess.CalledProcessError, subprocess.TimeoutExpired, SystemExit) as exc:
             item.update(status='PROCESSING_HOLD', reason=f'{type(exc).__name__}: {str(exc)[:1000]}')
         output.append(item)
         # Persist after each source; an interrupted or failed member cannot erase prior progress.

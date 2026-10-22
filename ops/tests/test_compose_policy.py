@@ -267,7 +267,11 @@ def test_cloud_init_payload_unpacks_to_the_right_places_and_modes():
 
 
 def test_cloud_init_fits_a_32k_user_data_limit():
-    assert len(CLOUD.encode()) < 32 * 1024, "too big for 32 KiB providers; trim comments or move content into the payload"
+    size = len(CLOUD.encode())
+    budget = 32 * 1024 - 512
+    assert size <= budget, (
+        f"cloud-init.yaml is {size} bytes, {size - budget} over the {budget}-byte budget (32 KiB provider cap "
+        "minus 512 bytes headroom for payload growth); trim comments or move content into the payload")
 
 
 def test_cloud_init_hardening_contract():

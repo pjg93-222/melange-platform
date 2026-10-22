@@ -106,7 +106,7 @@ def _crec_package_absent(package):
     print('  official package-summary confirms existing package: '+package)
     return False
 # ---------------- roster: SURNAME(+state) -> canonical member ----------------
-C={m['member']:m for m in json.load(open(os.path.join(B,'data','engine','congestion.json')))}
+C={m['member']:m for m in json.load(open(os.path.join(B,'data','engine','congestion.json'),encoding='utf-8'))}   # explicit: the roster refresh writes raw UTF-8, and the platform default (cp1252) turns 'Velázquez' into 'VelÃ¡zquez'
 state={}
 try:
     for r in csv.DictReader(open(os.path.join(MB_DRAFT,'cu_press_stance_tone.csv'),encoding='utf-8')):
@@ -114,6 +114,15 @@ try:
 except FileNotFoundError: pass
 SFIX={'jr','sr','ii','iii','iv'}
 def _fold(s): return ''.join(c for c in unicodedata.normalize('NFKD',s) if not unicodedata.combining(c))   # NFKD + drop combining marks: accented and plain spellings of a surname meet
+def _given_tokens(name):
+    """Folded upper-case given-name tokens of 'Surname, Given M.' (HSall bioname) or 'Given Surname' (roster name)."""
+    s=_fold(name)
+    if ',' in s: s=s.split(',',1)[1]
+    else: s=' '.join(s.split()[:-1])
+    return frozenset(t.upper() for t in re.findall(r"[A-Za-z][A-Za-z'\-]+",s))
+def _given_ok(qual,given):
+    """Every CREC given-name qualifier word names one of the member's given names ('AUSTIN' = Austin; 'CHRIS' ~ Christopher)."""
+    return all(any(w==g or (len(w)>=3 and len(g)>=3 and (g.startswith(w) or w.startswith(g))) for g in given) for w in qual)
 def surkeys(m):
     ts=[t for t in _fold(m).replace('.','').split() if t.lower().rstrip(',') not in SFIX]
     ks={ts[-1].upper()}
@@ -122,8 +131,10 @@ def surkeys(m):
     return {re.sub(r"[^A-Z\- ']",'',k) for k in ks}
 ROSTER=collections.defaultdict(list)   # (surname_key, chamber) -> [current-roster member]
 SERVICE=set()                          # (member, Congress, chamber), including prior chamber service
-HIST=collections.defaultdict(set)      # (surname_key, Congress, chamber) -> {(person id, state)} for EVERY HSall member, not just the roster
+HIST=collections.defaultdict(set)      # (surname_key, Congress, chamber) -> {(person id, state, given-name tokens, year died or 0)} for EVERY HSall member, not just the roster
+HSSUR={}                               # roster member -> surname as HSall spells it ('HERNANDEZ' for roster 'Pablo Hernandez Rivera'); CREC prints "Mr. HERNANDEZ."
 _bio2member={r.get('bioguide'):m for m,r in C.items() if r.get('bioguide')}
+_hs_state={}                           # roster member -> (latest Congress, state) from HSall
 try:
     for r in csv.DictReader(open(os.path.join(B,'votes','HSall_members.csv'),encoding='utf-8-sig')):
         member=_bio2member.get(r.get('bioguide_id')); chamber=(r.get('chamber') or '').lower()
@@ -133,15 +144,42 @@ try:
         sn=re.sub(r"[^A-Z\- ']",'',_fold(r.get('bioname') or '').split(',')[0].upper()).strip()   # same normalisation as resolve()
         pid=r.get('bioguide_id') or r.get('icpsr')
         if sn and pid:
-            for k in {sn,sn.split()[-1]}: HIST[(k,congress,chamber)].add((pid,(r.get('state_abbrev') or '').upper()))
-        if member: SERVICE.add((member,congress,chamber))
+            try: died=int(float(r.get('died') or 0))
+            except ValueError: died=0
+            for k in {sn,sn.split()[-1]}: HIST[(k,congress,chamber)].add((pid,(r.get('state_abbrev') or '').upper(),_given_tokens(r.get('bioname') or ''),died))
+        if member:
+            SERVICE.add((member,congress,chamber))
+            if sn: HSSUR[member]=sn
+            if r.get('state_abbrev') and congress>=_hs_state.get(member,(0,''))[0]: _hs_state[member]=(congress,r['state_abbrev'].strip())
 except FileNotFoundError:
     pass
+# The press-stance CSV above carries a state for only 383 of the 533 roster members.  A member with no state could never be
+# told apart from same-surname colleagues ("Mr. SMITH of New Jersey" fell to None among four Smiths), so 24 members had ZERO
+# stored turns (audit 2026-10-20).  HSall names a state for every roster member and agrees with the CSV wherever both speak.
+for _m,(_c,_s) in _hs_state.items(): state.setdefault(_m,_s)
+# Term dates by person (bioguide) from the roster artifact the roster refresh writes (fec/roster.py): [(chamber, start, end)],
+# ISO dates, for current AND departed members.  Same-surname seats change hands mid-Congress (Lindsey Graham d. 2026-07-11,
+# Darline Graham sworn 2026-07-14), so a floor date, not a Congress or a death year, decides who can be speaking.  A person
+# the artifact does not know keeps the Congress/death-year rules below; a missing artifact turns the date rule off.
+TERMS=collections.defaultdict(list)
+try:
+    _rj=json.load(open(os.path.join(B,'data','engine','roster.json'),encoding='utf-8'))
+    for _p in list(_rj.get('members') or [])+list(_rj.get('departed') or []):
+        for _t in _p.get('terms') or []: TERMS[_p['bioguide']].append(((_t.get('chamber') or '').lower(),str(_t['start'])[:10],str(_t['end'])[:10]))
+    for _p in _rj.get('members') or []:
+        if _p.get('member') in C and _p.get('state'): state.setdefault(_p['member'],_p['state'])   # a new arrival is in neither the CSV nor HSall yet
+except FileNotFoundError: pass
+def _served(pid,chambers,lo,hi=None):
+    """Did person pid hold a seat in one of these chambers on some day in [lo, hi] (hi defaults to lo)?  None = no term data."""
+    ts=[t for t in TERMS.get(pid,()) if t[0] in chambers]
+    if not ts: return None
+    return any(s<=(hi or lo) and lo<=e for _c,s,e in ts)
+def _congress_days(congress): return '%04d-01-03'%(1789+2*(congress-1)),'%04d-01-02'%(1789+2*congress)   # inclusive; Jan 3 belongs to the NEXT Congress
 for m in C:
     chambers={ch for member,_congress,ch in SERVICE if member==m}
     if not chambers: chambers={(C[m].get('chamber') or '').lower()}
     for ch in chambers:
-        for k in surkeys(m): ROSTER[(k,ch)].append(m)
+        for k in surkeys(m)|({HSSUR[m]} if m in HSSUR else set()): ROSTER[(k,ch)].append(m)
 # CREC says "of California"; the roster carries two-letter codes -> full-name map for disambiguation
 ST2AB={'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':'CA','colorado':'CO',
 'connecticut':'CT','delaware':'DE','florida':'FL','georgia':'GA','hawaii':'HI','idaho':'ID','illinois':'IL',
@@ -153,37 +191,64 @@ ST2AB={'alabama':'AL','alaska':'AK','arizona':'AZ','arkansas':'AR','california':
 'vermont':'VT','virginia':'VA','washington':'WA','west virginia':'WV','wisconsin':'WI','wyoming':'WY',
 'puerto rico':'PR','guam':'GU','american samoa':'AS','virgin islands':'VI','district of columbia':'DC',
 'northern mariana islands':'MP'}
-def resolve(sur,st,chamber,congress=None):
+def resolve(sur,st,chamber,congress=None,year=None,date=None):
+    """date = the ISO floor day (CREC only; a hearing print carries its publication date, so CHRG passes none)."""
+    date=str(date)[:10] if date else None
     sur=re.sub(r"[^A-Z\- ']",'',_fold(sur).upper()).strip()
+    sur=' '.join(w for w in sur.split() if len(w)>1)   # drop middle initials: "DANNY K. DAVIS" -> "DANNY DAVIS"
     ab=ST2AB.get((st or '').lower(),st)
     # A joint hearing can contain members from both chambers.  Resolve across the combined candidate
     # set and require uniqueness; never restore the legacy Senate-first guess.
     chambers=[chamber] if chamber in ('house','senate') else ['house','senate']
-    cand=[]
-    for ch in chambers:
-        for member in ROSTER.get((sur,ch),[]):
-            if congress and SERVICE and (member,congress,ch) not in SERVICE: continue
-            if member not in cand: cand.append(member)
+    def pool(key):
+        out=[]
+        for ch in chambers:
+            for member in ROSTER.get((key,ch),[]):
+                bio=C[member].get('bioguide')
+                if date and _served(bio,(ch,),date) is False: continue   # not seated in this chamber on this floor day
+                # HSall lags a mid-Congress arrival; the roster's term dates stand in for it
+                if congress and SERVICE and (member,congress,ch) not in SERVICE and not _served(bio,(ch,),*_congress_days(congress)): continue
+                if member not in out: out.append(member)
+        return out
+    cand=pool(sur); qual=None
+    if not cand and ' ' in sur:
+        # CREC prefixes a given name when state alone cannot separate two colleagues ("Mr. AUSTIN SCOTT of Georgia",
+        # "Mr. ROBERT GARCIA of California", "Mr. VICENTE GONZALEZ of Texas"): last word = surname, the rest must name the member
+        *qual,last=sur.split()
+        cand=[m for m in pool(last) if _given_ok(qual,_given_tokens(m))]
+        if not cand: qual=None
     who=None
     if ab:
         hit=[m for m in cand if state.get(m,'').upper()==str(ab).upper()]
         if len(hit)==1: who=hit[0]
         elif hit: cand=hit
+        elif any(state.get(m) for m in cand): return None   # the state tag names someone off the roster ("Mr. JONES of New York" is not Walter Jones of NC): drop, never guess
     if who is None and len(cand)==1: who=cand[0]
     # The roster alone cannot see a historical namesake (backfills): refuse when HSall shows >1 distinct
     # person with this surname in that Congress/chamber (after the state tag, if any).  Empty HIST never refuses.
+    # A given-name qualifier narrows that to the namesakes it fits, so "AUSTIN SCOTT of Georgia" is not refused for David Scott.
     if who and congress and HIST:
-        h={e for ch in chambers for e in HIST.get((sur,congress,ch),())}
+        h={e for ch in chambers for e in HIST.get((sur.split()[-1] if qual else sur,congress,ch),())}
+        if qual: h={e for e in h if _given_ok(qual,e[2])}
+        if year: h={e for e in h if not (e[3] and e[3]<year)}   # a namesake who died before this floor day cannot be the speaker (Raul Grijalva d.2025 vs Adelita in 2026); CREC dates are the speech date
+        if date: h={e for e in h if _served(e[0],chambers,date) is not False}   # nor one whose term had ended (or not begun) that day
         if ab: h={e for e in h if e[1]==str(ab).upper()}
         if len({e[0] for e in h})>1: return None
     return who
 # ---------------- speaker-turn parser ----------------
-TURN=re.compile(r'(?m)^ {0,6}(?:The )?(Mr|Mrs|Ms|Miss|Senator|Chairman|Chairwoman|Chair)\.?[ ]+'
+_TURN_HEAD=(r'(?m)^ {0,6}(?:The )?(Mr|Mrs|Ms|Miss|Senator|Chairman|Chairwoman|Chair)\.?[ ]+'
                 # Latin-1 letters (no multiplication/division signs) so "Mr. VELÁZQUEZ." and "Ms. BARRAGÁN." stay turns
-                r"([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+(?:[ \-][A-Za-zÀ-ÖØ-öø-ÿ'\-]+){0,2}?)"
-                # A transcript speaker label ends in a period.  Accepting a comma caused direct
-                # address ("Ms. Rainey, what do you think?") to become a false speaker turn.
-                r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?\. ')
+                # A middle initial ("Mr. DANNY K. DAVIS of Illinois.") belongs to the name: it is the only place a one-letter
+                # piece may sit, and only when a capitalised word follows it.  Later words need 2+ letters, so the lazy match
+                # cannot stop at "DANNY K" and strand "DAVIS" at the head of the speech.
+                r"([A-ZÀ-ÖØ-Þ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+(?:[ \-][A-Za-zÀ-ÖØ-öø-ÿ][A-Za-zÀ-ÖØ-öø-ÿ'\-]+|[ ][A-Z]\.(?=[ ][A-Z])){0,2}?)"
+                r'(?: of ([A-Z][a-z]+(?: [A-Z][a-z]+)?))?')
+# A transcript speaker label ends in a period.  Accepting a comma caused direct address ("Ms. Rainey, what do you think?") to become a
+# false speaker turn, so hearings (fetch_hearings_antag shares TURN) keep the period-only rule.
+TURN=re.compile(_TURN_HEAD+r'\. ')
+# CREC only: the Record prints some statements as "Mr. COONS, Madam President, I rise ..." and "Ms. GARCIA of Texas, Mr. Speaker, ...".  A comma
+# label is a speaker when the very next words address the chair -- a vote list ("Mrs. WATSON COLEMAN, Mr. RUSH, ...") never does.
+TURN_C=re.compile(_TURN_HEAD+r'(?:\. |, (?=(?:Mr\.|Mrs\.|Ms\.|Madam|Madame) (?:Speaker|President|Chair|Chairman|Chairwoman|Vice President)\b))')
 NONSPK={'SPEAKER','PRESIDENT','PRESIDING','CLERK','ACTING','VICE','CHAIR','CHAIRMAN','SECRETARY'}
 def upperish(s):
     letters=[c for c in s if c.isalpha()]
@@ -274,14 +339,15 @@ def parse_pages(texts,chamber_of,date,source,pkg,cur,congress=None):
             bounds=hearing_qa_bounds(txt)
             if not bounds: continue
             txt=txt[bounds[0]:bounds[1]]
-        ms=list(TURN.finditer(txt))
+        ms=list((TURN_C if source=='CREC' else TURN).finditer(txt))
         for i,mt in enumerate(ms):
             sur=mt.group(2)
             # CREC prints speakers in ALL CAPS; hearing prints use mixed case -> caps filter is CREC-only
             if source!='CHRG' and not upperish(sur): continue
             if sur.upper().split()[0] in NONSPK: continue
             if source=='CHRG' and _fold(sur).upper().split()[-1] in wit: continue
-            who=resolve(sur,mt.group(3),ch,congress or congress_for_date(date))
+            who=resolve(sur,mt.group(3),ch,congress or congress_for_date(date),int(date[:4]) if source=='CREC' else None,
+                        date if source=='CREC' else None)   # CHRG date = publication date, not the hearing's: no death-year or term-date exclusion there
             if not who: continue
             seg=txt[mt.end():ms[i+1].start() if i+1<len(ms) else min(len(txt),mt.end()+20000)]
             # presiding-officer/clerk interjections aren't the member's words — cut the segment there

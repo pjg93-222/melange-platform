@@ -996,6 +996,18 @@ def test_a_failed_side_fails_the_comparison_even_if_the_trees_match(world):
     assert "B side exited 1" in json.loads(ms.result_path(world.results, "anchors", "S1").read_text())["reasons"]
 
 
+def test_unreadable_run_output_is_a_failed_snapshot_not_a_refusal(world):
+    run_world(world)
+    (snap_root(world) / "A" / "out" / "giving-anchors" / "giving-anchors-v1.json").write_text("{cut short")   # a masked file
+    args = SimpleNamespace(job="anchors", snapshot="S1", scratch=None, results_dir=str(world.results), mentat_root=str(world.root), keep=False, python=None)
+    assert ms.cmd_compare(args, world.host, FakeCompare()) == 1
+    result = json.loads(ms.result_path(world.results, "anchors", "S1").read_text())
+    assert result["status"] == "fail" and any("not readable JSON" in r for r in result["reasons"])
+    assert "mask" not in result and "compare" not in result and not snap_root(world).exists()   # nothing judged; scratch cleaned as usual
+    assert ms.pending_snapshots(world.results) == {}
+    assert issubclass(ms.Unreadable, ms.Refused)   # money pointers still refuse: only unreadable output becomes a result
+
+
 def test_safe_rmtree_refuses_unmarked_or_foreign_folders(tmp_path):
     scratch = tmp_path / "scratch"
     inner = scratch / "S1" / "anchors"

@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 import openpyxl
 import moneyball_core as MBC
+import roster
 from moneyball_core import dump_atomic, write_text_atomic   # crash-safe generated artifacts
 from tier_util import legislative_press_tiers   # Legislative+Press tier (display-only; shared with the dashboard producer)
 import bill_rules as BR
@@ -941,16 +942,16 @@ _SPEECH_PROFILE_ACTIVE = (
     _SPEECH_PROFILE_DOC.get('schema') == 'member-narrative-evidence-v4' and
     _SPEECH_PROFILE_DOC.get('status') == 'ACTIVE_FAIL_CLOSED_INPUT' and
     _SPEECH_PROFILE_DOC.get('basis_sha256') == _BASIS_SHA and
-    (_SPEECH_PROFILE_DOC.get('counts') or {}).get('members') == 533 and
-    (_SPEECH_PROFILE_DOC.get('counts') or {}).get('speech_pass') == 533 and
-    len(_SPEECH_PROFILE_DOC.get('members') or {}) == 533 and
+    (_SPEECH_PROFILE_DOC.get('counts') or {}).get('members') == roster.count() and
+    (_SPEECH_PROFILE_DOC.get('counts') or {}).get('speech_pass') == roster.count() and
+    len(_SPEECH_PROFILE_DOC.get('members') or {}) == roster.count() and
     all(((row.get('speech_profile') or {}).get('status') == 'PASS')
         for row in (_SPEECH_PROFILE_DOC.get('members') or {}).values())
 )
 _SPEECH_PROFILES = (_SPEECH_PROFILE_DOC.get('members') or {}) if _SPEECH_PROFILE_ACTIVE else {}
 if _SPEECH_PROFILE_DOC and not _SPEECH_PROFILE_ACTIVE:
-    print('  !! member_narrative_evidence_v4.json failed its 533-member speech-profile contract; '
-          'universal speech summaries WITHHELD')
+    print('  !! member_narrative_evidence_v4.json failed its %d-member speech-profile contract; '
+          'universal speech summaries WITHHELD' % roster.count())
 _NARR_PRODUCERS = {
     ('member-narratives-v2-local', 'ACTIVE_LOCAL_ZERO_API'),
     ('member-narratives-v2-api', 'ACTIVE_API_GENERATED_USER_RATIFIED'),
@@ -959,7 +960,11 @@ _NARR_PRODUCERS = {
 
 
 def _district_briefs_for(member_names):
-    """Fail closed unless the ratified narrative corpus covers this exact roster."""
+    """Fail closed unless the ratified narrative corpus covers this exact roster.
+
+    The one tolerated drift is the roster refresh's own (roster.drift): arrivals the corpus predates are WITHHELD (no brief is
+    shown for them) and departed members it still carries are DROPPED.  Any other missing or extra member still raises.
+    """
     document = DISTRICT_BRIEFS
     if not isinstance(document, dict):
         raise RuntimeError('data/district/district_briefs_v1.json is missing or malformed')
@@ -970,17 +975,21 @@ def _district_briefs_for(member_names):
     briefs = document.get('briefs')
     if not isinstance(briefs, dict):
         raise RuntimeError('district brief artifact has no briefs object')
-    expected, actual = set(member_names), set(briefs)
-    if actual != expected:
+    withheld, dropped, bad_missing, bad_extra = roster.drift(member_names, briefs)
+    if bad_missing or bad_extra:
         raise RuntimeError(
             'district brief roster differs from the member desk: missing=%d extras=%d'
-            % (len(expected - actual), len(actual - expected)))
-    counts = document.get('counts') or {}
-    if (counts.get('roster') != len(expected)
-            or counts.get('accepted') != len(expected)
+            % (len(bad_missing), len(bad_extra)))
+    if withheld or dropped:
+        print('  !! district briefs: roster drift; %d WITHHELD (%s); %d DROPPED (%s)' % (
+            len(withheld), ', '.join(sorted(withheld)), len(dropped), ', '.join(sorted(dropped))))
+    counts = document.get('counts') or {}      # the corpus must account for itself; the desk's own roster is checked above
+    if (counts.get('roster') != len(briefs)
+            or counts.get('accepted') != len(briefs)
             or counts.get('missing') != 0):
         raise RuntimeError('district brief coverage counts are not complete')
-    for name in member_names:
+    kept = {name: briefs[name] for name in member_names if name not in withheld}
+    for name in kept:
         row = briefs[name]
         paragraphs = [row.get('p%d' % index) for index in range(1, 4)] \
             if isinstance(row, dict) else []
@@ -991,7 +1000,9 @@ def _district_briefs_for(member_names):
                 or not 200 <= row['words'] <= 250):
             raise RuntimeError('district brief is incomplete or invalid for %s' % name)
     meta = {key: value for key, value in document.items() if key != 'briefs'}
-    return briefs, meta
+    meta['coverage'] = {'roster': len(member_names), 'attached': len(kept),
+                        'withheld': sorted(withheld), 'dropped': sorted(dropped)}
+    return kept, meta
 _NARR_LABELLED = (_NARR_DOC.get('schema'), _NARR_DOC.get('status')) in _NARR_PRODUCERS
 _NARR_BASIS_OK = _NARR_DOC.get('basis_sha256') == _BASIS_SHA
 _NARR_API = _NARR_DOC.get('schema') == 'member-narratives-v2-api'
@@ -1008,13 +1019,13 @@ _NARR_REVIEWED = (not _NARR_API) or (
     _NARR_RECEIPT.get('status') == 'PASS' and
     _NARR_RECEIPT.get('basis_sha256') == _BASIS_SHA and
     _NARR_RECEIPT.get('evidence_sha256') == _SPEECH_PROFILE_SHA and
-    (_NARR_RECEIPT.get('counts') or {}).get('semantic_pass') == 533 and
+    (_NARR_RECEIPT.get('counts') or {}).get('semantic_pass') == roster.count() and
     _NARR_RECEIPT.get('active_artifact_sha256') == _NARR_SHA)
 _NARR_ACTIVE = (_NARR_LABELLED and _NARR_BASIS_OK and _NARR_REVIEWED
                 and not _NARR_DESCRIPTIVE_ERRORS)
 if _NARR_DOC and not _NARR_ACTIVE:
     # A present-but-rejected artifact must not look like an absent one: otherwise a stale basis
-    # or falsely labelled producer can make all 533 briefs disappear without a visible diagnostic.
+    # or falsely labelled producer can make every brief disappear without a visible diagnostic.
     if _NARR_LABELLED and not _NARR_BASIS_OK:
         print('  !! member_narratives_v2.json is STALE — basis_sha256=%s but the live '
               'data/members/profile_basis_v2.json hashes to %s; %d briefs WITHHELD' % (
@@ -1035,6 +1046,23 @@ if _NARR_DOC and not _NARR_ACTIVE:
 NARR = (_NARR_DOC.get('members') or {}) if _NARR_ACTIVE else {}
 # Voice-ES remains retired. Negative-affect expression is retained below as a literal public-text
 # measure and is never presented as holistic Neuroticism or as an independent composure measure.
+
+# ---- v3 member briefs (Paul 2026-10-20): replace the "Suggested approach" block ---------------
+# The receipt binds the briefs file.  Each brief also stores the packet_sha256 of the packet its writer
+# saw; the desk recomputes that hash per member from the current inputs.  A match shows the brief; a
+# mismatch still shows it, with a visible "Evidence updated" line, and queues the member in
+# data/members/member_briefs_v3_rewrite_queue.json.  One member's change never hides another's brief.
+import members.validate_member_briefs_v3 as BV3
+_BRIEF_V3_ERRORS, BRIEFS_V3, _BRIEF_V3_SUMMARY = BV3.load_publication(Path(B))
+if _BRIEF_V3_ERRORS and os.path.exists(os.path.join(B, 'data', 'members', 'member_briefs_v3.json')):
+    print('  !! member_briefs_v3.json REJECTED; v3 briefs WITHHELD: %s' % '; '.join(_BRIEF_V3_ERRORS[:4]))
+elif BRIEFS_V3:
+    print('  v3 briefs: %d shown, %d flagged for rewrite, %d departed' % (
+        len(BRIEFS_V3), len(_BRIEF_V3_SUMMARY['stale']), len(_BRIEF_V3_SUMMARY['departed'])))
+    for _flagged, _why in sorted(_BRIEF_V3_SUMMARY['reasons'].items())[:25]:   # Glassbox: say why, per member
+        print('    %s: %s' % (_flagged, _why))
+    if _BRIEF_V3_SUMMARY['basis_withheld']:
+        print('  v3 Basis lines withheld: %s' % _BRIEF_V3_SUMMARY['basis_withheld'])
 
 def _narrative_for_display(nar, descriptive=False, has_audio=False):
     """Keep descriptive profiles free of legacy meeting advice in every surface."""
@@ -1154,7 +1182,12 @@ def psy_for(name):
     if name in _ANT: ext['antag'] = 1
     if ext: out['ext'] = ext
     nar = NARR.get(name)
-    if nar and nar.get('ok'):
+    notice = BV3.departed_notice(name)
+    if notice:
+        out['departed_notice'] = notice     # a departed member shows no brief of either kind
+    elif name in BRIEFS_V3:
+        out['brief_v3'] = BRIEFS_V3[name]   # the v3 template replaces the v2 block for this member
+    elif nar and nar.get('ok'):
         # Body prose only. Provenance and the construct-separation rule are stated once by the
         # desk template rather than repeated in every member's three paragraphs.
         out['narrative'] = _narrative_for_display(
@@ -1212,7 +1245,7 @@ def nrm(s):  # NFC-normalize so accented names match across model_bio / workbook
 BIO_NFC = {nrm(k): v for k, v in BIO.items()}   # NFC(name) -> bioguide
 def bio_for(name):
     # ``model_bio.json`` is an older 492-member intermediary.  The current
-    # congestion roster already carries the authoritative bioguide for all 533
+    # congestion roster already carries the authoritative bioguide for every
     # desk members, so use it as a no-guess fallback before joining the richer
     # legislators.csv fields.  This is what restores Steve Scalise and the
     # other sitting members omitted from model_bio without fuzzy name matching.
@@ -2413,6 +2446,8 @@ def _read_press_and_bills(member_names, wb):
     _admissions=SA.load(B)
     _admission_replaced=SA.remove_managed_desk_rows(bills,_admissions)
     _admission_rows=SA.append_to_desk(bills,_admissions)
+    media_audit['bill_admissions_loaded']=len(_admissions['bills'])   # the loaded generation: SA.load() drops expired carries (D-260)
+    media_audit['bill_admissions_carry_expired']=sorted(_admissions.get('carry_expired_keys') or [])   # withheld on an expired carry (D-260)
     from legislation import official_membership_movements as OM
     _movement_removed=OM.apply_to_desk(bills,OM.load(B))+_admission_replaced
     media_audit['bill_withdrawn_rows_removed']=_movement_removed
@@ -2512,7 +2547,7 @@ def _read_press_and_bills(member_names, wb):
     #     Press sentiment is active at a deliberately diminished weight. ---
     wbm = {}
     bmsh = wb['Blended Model']
-    for r in bmsh.iter_rows(min_row=3, max_row=535, values_only=True):
+    for r in bmsh.iter_rows(min_row=roster.first_row('Blended Model'), max_row=roster.last_row('Blended Model'), values_only=True):
         nm = canon(r[0], None)
         if not nm: continue
         wbm[nm] = {'rank': r[19], 'score': r[18],                       # col20 Rank, col19 Score
@@ -2711,7 +2746,7 @@ def build_bundle():
     _tier, _trank, _tier_detail = legislative_press_tiers(
         member_names, with_detail=True
     )
-    preflight = DI.preflight(member_names, CS, SNA, ARCH)
+    preflight = DI.preflight(member_names, CS, SNA, ARCH, analytic_inputs_only=analytic_inputs_only)
     ARTS, BILLS, CMTS, WBM, LOAD_AUDIT, MTOT = load_press_and_bills(member_names)
     employer_rows = _gh_rows(EMPLOYERS)
     financial_rows = _gh_rows(FINANCIAL)
@@ -2887,7 +2922,7 @@ def build_bundle():
             'district_brief': {
                 key: district_briefs[name][key]
                 for key in ('p1', 'p2', 'p3', 'words', 'figures')
-            },                                                       # ratified district narrative
+            } if name in district_briefs else None,                  # ratified district narrative; None = WITHHELD (roster arrival)
             'community': community,                                # 2024 ACS structural context and controls
             'industry': industry,                                  # optional compact Phase-F LODES/NAICS metrics
             'demographic_potential': demographic_potential,        # cross-validated LQ + shift-share signal
@@ -3099,8 +3134,8 @@ def build_bundle():
         'source_updates': {
             'bills_checked_at':_automatic_source.get('checked_at'),
             'automatic_bill_status':_automatic_source.get('status','NOT_RUN'),
-            'automatically_classified_bills':len(_automatic_source.get('bills',{})),
-            'bill_review_backlog':len(_automatic_source.get('deferred_keys',[])),
+            'automatically_classified_bills':LOAD_AUDIT['bill_admissions_loaded'],
+            'bill_review_backlog':len(set(_automatic_source.get('deferred_keys',[]))|set(LOAD_AUDIT['bill_admissions_carry_expired'])),
             'bill_holds':sum(d.get('disposition')=='hold' for d in _automatic_source.get('decisions',{}).values()),
             'money_checked_at':_money_source.get('checked_at'),
             'money_cycle':_money_source.get('cycle'),
@@ -3205,7 +3240,7 @@ def build_bundle():
         'dadj': dadj_out,                       # DIRECTED sponsor -> cosponsor edges (recruitment basis)
         'cospon': cospon,                       # per-member cosponsor propensity + area split
         'selectivity': selectivity,             # signatures / OPPORTUNITIES per area (BILLSTATUS rosters)
-        'integrity': {'source_display': LOAD_AUDIT},
+        'integrity': {'source_display': LOAD_AUDIT, 'district_briefs': district_briefs_meta['coverage']},
         'freshness': {
             'generated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
             'sources': {rel:datetime.fromtimestamp(os.path.getmtime(os.path.join(B,rel))).astimezone().isoformat(timespec='seconds')
@@ -3223,6 +3258,11 @@ def build_bundle():
                         if os.path.exists(os.path.join(B,rel))},
         },
         'members': members,
+        # Members who left office stay findable as history (roster lane 2026-10-20): a search that names one shows
+        # "No longer serving (date)" instead of nothing.  Source: data/engine/roster.json 'departed' (fec/roster.py).
+        'departed': [{'name': d['member'], 'chamber': d.get('chamber'), 'state': d.get('state'), 'party': d.get('party'),
+                      'departed': d.get('departed_on'), 'notice': 'No longer serving (%s)' % (d.get('departed_on') or 'date unknown')}
+                     for d in roster.departed()],
     }
     # A legislation shadow run (run_legislation_dashboard_member_desk.py) pins the volatile freshness block.
     if os.environ.get('DESK_FRESHNESS_PIN'):

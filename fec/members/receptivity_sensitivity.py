@@ -9,7 +9,7 @@ sweep leaves the top-20/top-50 target sets ~unchanged is decision-robust (its ex
 have bought a wrong decision); a constant that churns the target set is flagged as the one to take
 to an outcome test first.
 Stage 1 replication gate: pressure_mult and seed_prob are recomputed from the artifact's own stored
-components under baseline constants and must match all 533 stored values exactly — proves the sweep
+components under baseline constants and must match all stored values exactly — proves the sweep
 formulas carry no drift before any variant is trusted.
 Prospective outcome test (pre-registered design, run when data exists): correlate seed_prob with
 NEW cosponsorships adopted next quarter (Chen/SNAM seeding claim), and pressure_mult with stance-tier
@@ -55,7 +55,7 @@ if bad_p or bad_s:
           % (len(bad_p), len(bad_s)))
     for m in (bad_p + bad_s)[:5]: print('   ', m, M[m]['pressure_mult'], round(pressure(m), 3))
     sys.exit(1)
-print('replication gate: 533/533 pressure_mult and seed_prob reproduced exactly — sweep formulas are drift-free\n')
+print('replication gate: %d/%d pressure_mult and seed_prob reproduced exactly — sweep formulas are drift-free\n' % (len(M), len(M)))
 
 # ---- decision surface: flip-model winnability under variant pressure_mult ----
 import moneyball_core as MC
@@ -123,7 +123,7 @@ for label, kw in [('coefs halved (.05/.03/.02)', dict(kc=0.05, kb=0.03, kv=0.02)
                   ('coefs x1.5 (.15/.09/.06)',   dict(kc=0.15, kb=0.09, kv=0.06))]:
     ds = [abs(seed(m, **kw) - M[m]['seed_prob']) for m in M]
     big = sum(1 for d in ds if d > 0.05)
-    print('  %-28s mean |dseed| %.3f | max %.3f | members moved >0.05: %d/533'
-          % (label, sum(ds) / len(ds), max(ds), big))
+    print('  %-28s mean |dseed| %.3f | max %.3f | members moved >0.05: %d/%d'
+          % (label, sum(ds) / len(ds), max(ds), big, len(ds)))
 print('\nInterpretation: ROBUST = the constant cannot have changed WHO gets targeted (top-20 stable');
 print('across its plausible range); SENSITIVE = this constant is the one to outcome-test first.')

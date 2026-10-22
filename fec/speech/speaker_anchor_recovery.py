@@ -217,8 +217,10 @@ def build_anchor_manifest(
             if not member or not path.is_file() or not _within(path, audio_root):
                 raise IdentityRefused("missing anchor or path outside the declared vault")
             duration, frames = wav_contract(path)
-            if duration < 4.0:
-                raise IdentityRefused("anchor is shorter than four seconds")
+            if duration < CALIBRATION_WINDOW_SEC * CALIBRATION_WINDOWS_PER_EVENT:
+                raise IdentityRefused(
+                    "anchor is shorter than the three calibration windows"
+                )
             digest = SMR.sha256_file(path) if hash_audio else None
             row = {
                 "schema": ANCHOR_SCHEMA,
@@ -1951,6 +1953,19 @@ def validate_candidate_provenance_binding(
     }
 
 
+def _bind_cache_to_model(cache_root: Path, model_sha: str) -> None:
+    """Cache keys omit the checkpoint; pin each cache root to one model manifest."""
+    marker = cache_root / "model_manifest.sha256"
+    if marker.is_file():
+        if marker.read_text(encoding="utf-8").strip() != model_sha:
+            raise IdentityRefused(
+                "embedding cache was built with a different model manifest; use a new cache root"
+            )
+        return
+    cache_root.mkdir(parents=True, exist_ok=True)
+    marker.write_text(model_sha, encoding="utf-8")
+
+
 def run_identify(args: argparse.Namespace) -> int:
     minimum_ratio = validate_locked_alignment_threshold(args.minimum_ratio)
     anchor_receipt = _load_receipt(Path(args.anchor_receipt), ANCHOR_RECEIPT_SCHEMA)
@@ -1972,6 +1987,9 @@ def run_identify(args: argparse.Namespace) -> int:
         or not math.isclose(float(args.window_sec), CALIBRATION_WINDOW_SEC, abs_tol=1e-12)
     ):
         raise IdentityRefused("identity runtime does not match the calibrated model/window contract")
+    _bind_cache_to_model(
+        Path(args.candidate_cache), str(anchor_receipt.get("model_manifest_sha256"))
+    )
     calibration = _load_receipt(Path(args.calibration), CALIBRATION_SCHEMA)
     if (
         calibration.get("status") != "PASS_ZERO_FALSE_ACCEPT_CALIBRATION"
@@ -2020,6 +2038,7 @@ def run_identify(args: argparse.Namespace) -> int:
     selected = {value.strip() for value in args.source.split(",") if value.strip()}
     if not selected and not args.include_remaining:
         selected = set(SOURCE_PRIORITY)
+    all_candidate_ids = {str(row.get("clip_id") or "") for row in candidates}
     candidates = [
         row for row in candidates
         if (not selected or str(row.get("source_family") or "") in selected)
@@ -2031,12 +2050,26 @@ def run_identify(args: argparse.Namespace) -> int:
     decisions = {
         str(row.get("clip_id") or ""): row
         for row in SMR.read_jsonl(Path(args.decision_manifest))
+        if str(row.get("clip_id") or "") in all_candidate_ids
     }
+    calibration_sha = SMR.sha256_file(Path(args.calibration))
     eligible_candidates: list[dict[str, Any]] = []
     for candidate in candidates:
         clip_id = str(candidate.get("clip_id") or "")
         prior = decisions.get(clip_id)
         if prior and not args.refresh:
+            try:
+                # Compact short-window UNRESOLVED rows are permanent and carry
+                # no comparison matrix; settle them before any hashing.
+                if (
+                    candidate.get("clip_sha256") == SMR._candidate_hash(candidate)
+                    and validate_merge_identity_decision(
+                        prior, candidate, calibration_sha
+                    ) == "compact_unresolved_short_window"
+                ):
+                    continue
+            except IdentityRefused:
+                pass
             prior_comparison = Path(str(prior.get("comparison_matrix") or ""))
             try:
                 current_provenance_binding = validate_candidate_provenance_binding(
@@ -2230,7 +2263,7 @@ def run_identify(args: argparse.Namespace) -> int:
             print(f"IDENTIFY {clip_id} status={decision['status']}", flush=True)
     finally:
         if executor is not None:
-            executor.shutdown(wait=True)
+            executor.shutdown(wait=True, cancel_futures=True)
     if not Path(args.decision_manifest).exists():
         SMR.write_jsonl_atomic(Path(args.decision_manifest), [])
     values = list(decisions.values())
@@ -2583,7 +2616,9 @@ def run_merge(args: argparse.Namespace) -> int:
         "exact_frame_cut_binding_required": True,
         "cumulative_chain_merge": True,
         "source_partitions_disjoint": not overlapping_sources,
-        "input_candidate_audio_frame_sets_disjoint": True,
+        "input_candidate_audio_frame_sets_disjoint": candidate_receipt[
+            "input_candidate_audio_frame_sets_disjoint"
+        ],
         "overlapping_source_families": sorted(overlapping_sources),
         "all_input_candidate_identity_receipts_verified": True,
         "excluded_same_member_overlap_candidates": excluded_overlap_candidates,
@@ -3300,6 +3335,11 @@ def run_embed(args: argparse.Namespace) -> int:
     receipt = _load_receipt(Path(args.anchor_receipt), ANCHOR_RECEIPT_SCHEMA)
     if receipt.get("manifest_sha256") != SMR.sha256_file(Path(args.anchor_manifest)):
         raise IdentityRefused("anchor manifest receipt hash mismatch")
+    model_manifest = Path(args.model_manifest)
+    if not model_manifest.is_file():
+        raise IdentityRefused("speaker model manifest is missing")
+    model_sha = SMR.sha256_file(model_manifest)
+    _bind_cache_to_model(Path(args.vault_root), model_sha)
     backend = _production_backend(args)
     result = build_embedding_vault(
         rows,
@@ -3312,11 +3352,8 @@ def run_embed(args: argparse.Namespace) -> int:
         backend_factory=lambda: _production_backend(args),
     )
     receipt.update(result)
-    model_manifest = Path(args.model_manifest)
-    if not model_manifest.is_file():
-        raise IdentityRefused("speaker model manifest is missing")
     receipt["model_manifest"] = str(model_manifest.resolve())
-    receipt["model_manifest_sha256"] = SMR.sha256_file(model_manifest)
+    receipt["model_manifest_sha256"] = model_sha
     receipt["primary_event_ids_unique"] = True
     receipt["primary_audio_hashes_unique"] = True
     receipt["generated_at"] = SMR.utc_now()

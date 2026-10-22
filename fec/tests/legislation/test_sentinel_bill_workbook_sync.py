@@ -788,3 +788,20 @@ def test_downstream_mask_requires_verified_scoring_eligible_membership():
         {"Record Type": "membership", "Review Status": "verified", "Scoring Eligible": False},
     ])
     assert list(mask(frame)) == [True, False, False, False]
+
+
+def test_ledger_labels_an_expired_carry_apart_from_an_automated_include(tmp_path, monkeypatch):
+    # D-260: a discovery candidate whose admission was dropped at the 30-day carry limit is not "an automated include" any more.
+    module = load_module()
+    repository_path = tmp_path / "repository.json"
+    repository_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(module, "REPOSITORY", repository_path)
+    discovery = [{"canonical_key": key, "display_number": "S.%d" % number, "congress": 119, "type": "s", "number": number,
+                  "candidate_status": "included_unreviewed_candidate"} for key, number in (("119:s:9", 9), ("119:s:10", 10))]
+    automated = {"decisions": {"119:s:9": {"disposition": "include", "carry_expired": "source_unavailable"},
+                               "119:s:10": {"disposition": "include"}}}
+    plan = module.build_plan({"bills": {}}, [], [], discovery=discovery, adjudications=[], automated_admissions=automated,
+                             input_path=tmp_path / "in.xlsx", output_path=tmp_path / "out.xlsx")
+    header = plan["ledger_rows"][0]
+    status = {row[header.index("Canonical Bill ID")]: row[header.index("Review Status")] for row in plan["ledger_rows"][1:]}
+    assert status == {"119:s:9": "automated_carry_expired_non_scoring", "119:s:10": "automated_include_non_scoring"}
