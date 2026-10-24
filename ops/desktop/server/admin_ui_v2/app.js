@@ -4,10 +4,11 @@
   const legacyViews=['requests','grants','activity','invites'], expanded=new Set(['terrier']), logOptions={count:500,follow:true,filter:''};
   const drafts=new Map(), apps={melange:'Melange',terrier:'Terrier',mentat:'Mentat'}, appOf={'melange-desk':'melange','mentat-console':'mentat',terrier:'terrier'};
   const byId=id=>document.getElementById(id);
-  let desktopLoading=false;
+  let desktopLoading=false, desktopTimer;
+  const noAnswer='Melange Admin is not answering. Trying again\u2026 If this keeps up, open Melange Admin again from its icon.';
   async function loadDesktopApps(){
     if(!bearer||desktopLoading)return;
-    desktopLoading=true;const token=bearer,notice=byId('desktop-status');
+    clearTimeout(desktopTimer);desktopLoading=true;const token=bearer,notice=byId('desktop-status');
     try{
       const data=await call('/desktop-apps',{});if(token!==bearer)return;
       const body=byId('desktop-apps-body');body.replaceChildren();
@@ -23,7 +24,12 @@
         });
       }
       notice.textContent='Installed desktop applications on this computer.';
-    }catch(error){if(token===bearer&&!lost(error))notice.textContent='Could not read installed apps. Choose Refresh apps to try again.';}
+    }catch(error){
+      if(token!==bearer)return;
+      if(error.unanswered){notice.textContent=noAnswer;desktopTimer=setTimeout(loadDesktopApps,10000);}   // its own retry: any later answer clears the shared one
+      else if(error.name==='AbortError'){notice.textContent='Could not read installed apps. It will try again by itself; choose Refresh apps to try sooner.';desktopTimer=setTimeout(loadDesktopApps,10000);}   // our own timeout: slow, not silent, so the same retry
+      else if(!lost(error))notice.textContent='Could not read installed apps. Choose Refresh apps to try again.';
+    }
     finally{desktopLoading=false;}
   }
   const status=(text,attention=false)=>{byId('status').textContent=text;byId('status').dataset.tone=attention?'attention':'neutral';};
@@ -39,7 +45,7 @@
     try{const response=await fetch(route,{method:'POST',credentials:'omit',cache:'no-store',signal:controller.signal,headers:{'Content-Type':'application/json',...(bearer?{'Authorization':'Bearer '+bearer,'X-Admin-CSRF':csrf}:{})},body:JSON.stringify(value)}).catch(error=>{if(error.name!=='AbortError'){error.unanswered=true;if(token===bearer)notAnswering();}throw error;});if(token===bearer)answering();if(!response.ok){const error=new Error('refused');error.status=response.status;error.body=await response.json().catch(()=>({}));throw error;}return await response.json();}finally{clearTimeout(timer);}
   }
   // Say so and look again every 10 s, in the view that is open, until the dashboard answers (any answer clears the line).
-  function notAnswering(){const line=byId('unanswered');line.textContent='Melange Admin is not answering. Trying again\u2026 If this keeps up, open Melange Admin again from its icon.';line.hidden=false;clearTimeout(unansweredTimer);unansweredTimer=setTimeout(()=>{if(bearer)poll();},10000);}
+  function notAnswering(){const line=byId('unanswered');line.textContent=noAnswer;line.hidden=false;clearTimeout(unansweredTimer);unansweredTimer=setTimeout(()=>{if(bearer)poll();},10000);}
   function answering(){byId('unanswered').hidden=true;clearTimeout(unansweredTimer);}
   // True when the failure is dealt with: a 401 ends the session; no answer is already on the page (the line above), so nothing else may blame Docker for it.
   const lost=error=>{if(error.status===401)showExpired(true);return error.status===401||Boolean(error.unanswered);};
@@ -140,10 +146,13 @@
     try{const data=await call('/apps',{});if(token!==bearer)return false;appsData=data;slow=false;}
     catch(error){
       if(token!==bearer)return false;
-      if(lost(error))return false;
+      if(lost(error)){if(error.unanswered){clearTimeout(appsTimer);appsTimer=setTimeout(poll,10000);}return false;}   // its own retry: any later answer clears the shared one
       if(appsData&&appsData.docker.ok&&!(error.body&&error.body.message)){slow=true;drawStale();keepPolling();return false;}   // keep the list that is showing
       if(!appsData)byId('apps-sub').textContent='Local services have not been checked yet.';
-      say(error.body&&error.body.message?error.body.message:'Could not read the services. Choose Check now to try again.',true);keepPolling();return false;
+      const timedOut=error.name==='AbortError';   // our own timeout: slow, not silent, so it looks again by itself
+      say(error.body&&error.body.message?error.body.message:'Could not read the services. '+(timedOut?'It will try again by itself; choose Check now to try sooner.':'Choose Check now to try again.'),true);keepPolling();
+      if(timedOut){clearTimeout(appsTimer);appsTimer=setTimeout(poll,10000);}
+      return false;
     }
     renderApps();keepPolling();
     return true;

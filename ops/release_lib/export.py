@@ -69,6 +69,10 @@ def allowed_name(path: str, export_cfg: dict | None = None) -> bool:
     # arbitrary installer scripts and inert workflow templates are not release inputs.
     if path == "ops/desktop/client/installer.nsh":
         return True
+    # extra_paths: whole export paths, matched exactly (case included), for a runtime file whose extension is not code and whose
+    # name is too generic to admit everywhere (mentat/app/templates/index.html.j2, the root template the console renders "/" from).
+    if path in export_cfg.get("extra_paths", ()):
+        return True
     low = posixpath.basename(path).lower()
     if low == ".gitattributes" or re.fullmatch(r"requirements.*\.txt", low):
         return True

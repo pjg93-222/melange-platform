@@ -36,6 +36,7 @@ SERVE_SETS = core.OPS / "serve_sets.json"
 CONFIRM_STEPS = ("git", "data", "manifest", "netlify", "undraft")           # the outward steps --confirm-outward can name
 IMAGE_STEPS = ("git", "geo", "repo")                                           # what `images --confirm-outward` can name
 AUTO_STEPS = ("git", "geo", "data", "manifest", "netlify", "undraft")         # what `auto --confirm-outward` can name
+GEO_TAGGER = ("terrier_tagger.name", "terrier_tagger.email")                  # who signs the Geo release tag (push_geo)
 CI_TIMEOUT = 45 * 60                                                          # one `gh run watch`; the run itself is bounded by GitHub
 REPO_DESCRIPTION = "Melange platform (source-only release exports)"
 CODE_ONLY = {"gates_evaluated": ["tag_collision", "security_gate"],
@@ -194,8 +195,14 @@ def step_export(ctx, st, rid):
 
 
 def remote_tag(repo_args, tag):
-    out = core.git_text("ls-remote", "origin", f"refs/tags/{tag}", **repo_args)
-    return out.split()[0] if out else None
+    """The commit origin's `tag` is on, or None. An annotated tag (Geo's are signed) is listed as its own object and again
+    peeled (`^{}`) to the commit: the peeled line wins. A lightweight tag (the platform's) has no `^{}` line and reads as before."""
+    ref = f"refs/tags/{tag}"
+    found = {}
+    for line in core.git_text("ls-remote", "origin", ref, ref + "^{}", **repo_args).splitlines():
+        oid, _, name = line.partition("\t")
+        found[name.strip()] = oid.strip()
+    return found.get(ref + "^{}") or found.get(ref)
 
 
 def push_platform(ctx, st, rid):
@@ -220,7 +227,12 @@ def push_geo(ctx, st, rid, ref):
     if local and local != head:
         raise ReleaseError("TAG_CONFLICT", f"Geo tag {tag} is on {local[:12]}, {ref} is {head[:12]}")
     if not local:
-        core.git("tag", tag, head, **geo)
+        # tag.gpgsign is on on the release laptop, which turned a plain `git tag` into a signed annotated tag with no message
+        # ("no tag message?"). Sign on purpose, with a message and the configured tagger: git takes the tagger from GIT_COMMITTER_*,
+        # given to this one call only, never written to any repo's config.
+        core.need(cfg, *GEO_TAGGER)
+        tagger = {"GIT_COMMITTER_NAME": cfg["terrier_tagger"]["name"], "GIT_COMMITTER_EMAIL": cfg["terrier_tagger"]["email"]}
+        core.git("tag", "-s", "-m", f"Release {tag}", tag, head, env=tagger, **geo)
     remote = remote_tag(geo, tag)
     if remote and remote != head:
         raise ReleaseError("TAG_CONFLICT", f"Geo origin already has {tag} on {remote[:12]}")
@@ -232,7 +244,7 @@ def push_geo(ctx, st, rid, ref):
 
 def step_push_git(ctx, st, rid):
     """Platform repo (tags with it) and Geo."""
-    ctx.outward("git", "git push", "platform_repo", "terrier_repo")
+    ctx.outward("git", "git push", "platform_repo", "terrier_repo", *GEO_TAGGER)
     push_platform(ctx, st, rid)
     push_geo(ctx, st, rid, ctx.cfg["terrier_ref"])
 
@@ -719,6 +731,8 @@ def step_images_push(ctx, st, rid):
     """`git` = platform main + tag; `geo` = Geo's image branch (same name there) + tag. Each needs its own confirmation."""
     if ctx.cfg.get("terrier_images_ref") == ctx.cfg["terrier_ref"]:                  # config error: stop before anything is pushed
         raise ReleaseError("GEO_REF", f"terrier_images_ref is the full release's branch ({ctx.cfg['terrier_ref']}); the image build has its own")
+    if not st.get("geo_reused"):
+        core.need(ctx.cfg, *GEO_TAGGER)                                            # the Geo tag's signer: also checked before any push
     ctx.outward("git", "git push", "platform_repo")
     push_platform(ctx, st, rid)
     if st.get("geo_reused"):                                                        # auto: Geo's branch has not moved, its images stand

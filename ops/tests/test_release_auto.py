@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest import mock
 
 from ops.tests.test_release_common import Base, g, read_log
-from ops.tests.test_release_images import ImagesEnv
+from ops.tests.test_release_images import ImagesEnv, peeled_refs
 from ops.tests.test_release_status import CONFIRM_ALL, FLAGS, KEYGEN, cred
 from ops.release_lib import auto, core, current, data, export, gates, manifest
 from ops import release
@@ -430,8 +430,7 @@ class AutoTests(Base):
         env.can_ci()
         self.assertEqual(env.auto(), 0, env.text)
         self.assertIn("terrier changed", env.text)
-        refs = g("for-each-ref", "--format=%(refname) %(objectname)", cwd=env.geo_remote).splitlines()
-        self.assertEqual(sorted(refs), sorted([f"refs/heads/deploy/terrier-hosted {hosted}", f"refs/tags/v{env.rid} {hosted}"]))
+        self.assertEqual(peeled_refs(env.geo_remote), sorted([f"refs/heads/deploy/terrier-hosted {hosted}", f"refs/tags/v{env.rid} {hosted}"]))
         self.assertEqual(env.manifest_of(env.rid)["systems"]["terrier"]["source"]["commit"], hosted)
         self.assertEqual(env.patches(), 2)
         self.assertEqual(env.auto_state()["propagated"]["terrier"], hosted)

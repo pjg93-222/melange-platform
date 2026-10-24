@@ -54,6 +54,10 @@ class RunEnv:
         self.allowed = tmp / "allowed_signers"
         self.allowed.write_text(f'release@melange namespaces="melange-release" {(tmp / "sign_key.pub").read_text().strip()}\n')
         fx.cfg["signing"].update(allowed_signers=str(self.allowed))
+        # Geo release tags are signed (`git tag -s`, ops/release.py push_geo): the fixture's Geo repo signs them with this
+        # throwaway key (repo-local config wins over the machine's global x509 setup), never with the machine's own signing.
+        for key, value in (("gpg.format", "ssh"), ("user.signingKey", str(tmp / "sign_key")), ("gpg.ssh.program", KEYGEN)):
+            g("config", key, value, cwd=fx.terrier)
         fx.cfg.update(domain="example.test")
         self.log, self.remote, self.gh = tmp / "shim.jsonl", tmp / "vps", tmp / "gh"
         self.remote.mkdir()
@@ -294,7 +298,9 @@ class RunTests(Base):
         state = json.loads((env.releases() / rid / "state.json").read_text())
         self.assertEqual(g("rev-parse", "refs/tags/v" + rid, cwd=platform), state["platform_commit"])
         self.assertEqual(g("rev-parse", "refs/heads/main", cwd=platform), state["platform_commit"])
-        self.assertEqual(g("rev-parse", "refs/tags/v" + rid, cwd=env.fx.tmp / "geo-remote.git"), env.fx.commits["terrier"])
+        geo_tag = "refs/tags/v" + rid                                     # Geo's tag is signed, so annotated: peel it
+        self.assertEqual(g("cat-file", "-t", geo_tag, cwd=env.fx.tmp / "geo-remote.git"), "tag")
+        self.assertEqual(g("rev-parse", geo_tag + "^{commit}", cwd=env.fx.tmp / "geo-remote.git"), env.fx.commits["terrier"])
         # inbox: contract order, manifest.json last, and what is there verifies
         order = [l for l in (env.remote / "order.log").read_text().split("\n") if l.startswith("rename")]
         self.assertEqual(order, ["rename snapshot_manifest.json", "rename manifest.json.sig", "rename manifest.json"])

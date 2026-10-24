@@ -498,8 +498,9 @@ const answers={'/session':{bearer:'B',csrf:'C'},
   '/apps/detail':{checkedAt:1800000000,notice:null,stale:false,service:row,accounts:{supported:false,listing:false,roles:[]},health:{status:'none',checkedAt:null},started:null,uptime:null,image:{update:false,pinnedByDigest:true,version:null,readyVersion:null},storage:[]},
   '/apps/logs':{service:row.service,lines:[]},'/apps/action':{ok:true,accepted:true},'/apps/docker-start':{ok:true,accepted:true}};
 let live=false;const calls=[],startupCalls=[],held=[];
-const realTimeout=setTimeout;let rechecks=0,rejected=false;const closes=[],pagehide=[];
-globalThis.setTimeout=(fn,ms,...rest)=>{if(live&&ms===10000&&rejected&&!rechecks){rechecks++;ms=0;}return realTimeout(fn,ms,...rest);};   // the first 10 s timer started right after a status-less rejection (the page's re-check) runs at once
+const realTimeout=setTimeout,realClear=clearTimeout,retries=new Map();let rechecks=0,rejected=false;const closes=[],pagehide=[];
+globalThis.setTimeout=(fn,ms,...rest)=>{if(live&&ms===10000&&rejected&&!rechecks){rechecks++;ms=0;}const handle=realTimeout(fn,ms,...rest);if(ms===10000)retries.set(handle,fn);return handle;};   // the first 10 s timer started right after a status-less rejection (the page's re-check) runs at once; the others are kept for {fire}
+globalThis.clearTimeout=handle=>{retries.delete(handle);realClear(handle);};
 globalThis.fetch=async (route,init)=>{
   const initial=!live,routes=(initial?scenario.startupRoutes:scenario.routes)||{};let spec=routes[route]||routes['*'];
   if(initial){startupCalls.push(route);if(scenario.hold===route)await new Promise(resolve=>held.push(resolve));}
@@ -524,9 +525,13 @@ const snap=()=>{const text=id=>ids.get(id).textContent,line=ids.get('apps-table'
     controls:{refreshDisabled:ids.get('refresh').disabled,endDisabled:ids.get('end-session').disabled,checkDisabled:ids.get('check-now').disabled}};};
 (async()=>{
   await wait(150);const startup=snap();if(scenario.endWhileLoading)await ids.get('end-session').listeners.click[0]();for(const resume of held)resume();await wait(50);live=true;const before=snap();
-  const target=['check-now','start-docker','desktop-refresh'].includes(scenario.click)?ids.get(scenario.click):find(ids.get('apps-body'),scenario.click)||find(ids.get('desktop-apps-body'),scenario.click);
-  if(!target)throw new Error('no control '+scenario.click+'; the page says: '+before.message);
-  await target.listeners.click[0]();await wait(150);
+  if(scenario.fire){const waiting=[...retries];retries.clear();for(const [handle,fn] of waiting){realClear(handle);fn();}}   // {fire}: the 10 s retries still waiting run now, with no click
+  else{
+    const target=['check-now','start-docker','desktop-refresh'].includes(scenario.click)?ids.get(scenario.click):find(ids.get('apps-body'),scenario.click)||find(ids.get('desktop-apps-body'),scenario.click);
+    if(!target)throw new Error('no control '+scenario.click+'; the page says: '+before.message);
+    await target.listeners.click[0]();
+  }
+  await wait(150);
   const seen=[...calls],shown=snap();
   if(scenario.pagehide){for(const fn of pagehide)fn();await wait(50);}   // the window closing
   process.stdout.write(JSON.stringify({...shown,startup,startupCalls,before,calls:seen,rechecks,closes}),()=>process.exit(0));
@@ -537,14 +542,16 @@ NODE = shutil.which('node')
 
 @unittest.skipUnless(NODE, 'node is required to run the page')
 class AdminPageTests(unittest.TestCase):
-    def page(self, click, routes=None, overview=None, pagehide=False, hold=None, startup_routes=None, end_while_loading=False):
+    def page(self, click, routes=None, overview=None, pagehide=False, hold=None, startup_routes=None, end_while_loading=False, fire=False):
         scenario = json.dumps({'click': click, 'routes': routes or {}, 'overview': overview or {}, 'pagehide': pagehide,
-                               'hold': hold, 'startupRoutes': startup_routes or {}, 'endWhileLoading': end_while_loading})
+                               'hold': hold, 'startupRoutes': startup_routes or {}, 'endWhileLoading': end_while_loading, 'fire': fire})
         done = subprocess.run([NODE, '-e', PAGE, str(STATIC/'app.js'), str(STATIC/'index.html'), scenario], capture_output=True, text=True, encoding='utf-8', timeout=60)
         self.assertEqual(done.returncode, 0, done.stderr)
         return json.loads(done.stdout)
 
     NOT_ANSWERING = 'Melange Admin is not answering. Trying again\u2026 If this keeps up, open Melange Admin again from its icon.'
+    SERVICES_TIMED_OUT = 'Could not read the services. It will try again by itself; choose Check now to try sooner.'
+    DESKTOP_TIMED_OUT = 'Could not read installed apps. It will try again by itself; choose Refresh apps to try sooner.'
 
     def test_desktop_apps_load_while_docker_status_is_pending(self):
         page = self.page('desktop-melange', hold='/apps')
@@ -573,7 +580,7 @@ class AdminPageTests(unittest.TestCase):
                     self.assertIn('Last checked', startup['subtitle'])               # Docker finished without the access store
 
     def test_first_services_failure_replaces_the_opening_session_message(self):
-        for response, message in (({'reject': 'AbortError'}, 'Could not read the services. Choose Check now to try again.'),
+        for response, message in (({'reject': 'AbortError'}, self.SERVICES_TIMED_OUT),
                                   ({'status': 503, 'body': {'error': 'docker_unavailable', 'message': 'Docker took too long to answer.'}},
                                    'Docker took too long to answer.')):
             with self.subTest(response=response):
@@ -626,6 +633,38 @@ class AdminPageTests(unittest.TestCase):
                 self.assertEqual((page['message'], page['stale'], page['rechecks']), ('', '', 1))
                 self.assertEqual(page['calls'][:2], [route, again])                                  # not asked twice in a row: the re-check is what answered
                 self.assertEqual(page['closes'], ['Bearer B'])
+
+    def test_desktop_apps_that_get_no_answer_say_so_and_load_again_on_their_own(self):
+        # /apps answers at startup, which clears the banner and its shared timer, so the desktop table needs a retry of its own
+        page = self.page(None, startup_routes={'/desktop-apps': {'reject': 'TypeError', 'times': 1}}, fire=True)
+        self.assertEqual((page['startup']['desktopRows'], page['startup']['desktopStatus']), (0, self.NOT_ANSWERING))
+        self.assertEqual((page['desktopRows'], page['desktopStatus'], page['calls']), (1, 'Installed desktop applications on this computer.', ['/desktop-apps']))
+        page = self.page(None, startup_routes={'/desktop-apps': {'status': 500, 'body': {}}}, fire=True)    # an answer that is an error keeps the Refresh apps prompt and does not retry
+        self.assertEqual((page['desktopRows'], page['desktopStatus'], page['calls']), (0, 'Could not read installed apps. Choose Refresh apps to try again.', []))
+
+    def test_desktop_apps_that_time_out_say_so_and_load_again_on_their_own(self):
+        # our own 12 s abort is a slow dashboard, not a silent one: no banner and no session change, but the same 10 s retry
+        page = self.page(None, startup_routes={'/desktop-apps': {'reject': 'AbortError', 'times': 1}}, fire=True)
+        startup = page['startup']
+        self.assertEqual((startup['desktopRows'], startup['desktopStatus'], startup['banner']['shown']), (0, self.DESKTOP_TIMED_OUT, False))
+        self.assertEqual((page['desktopRows'], page['desktopStatus'], page['calls'], page['rechecks']), (1, 'Installed desktop applications on this computer.', ['/desktop-apps'], 0))
+        self.assertEqual((page['expired'], page['shell']), (False, True))
+
+    def test_services_that_time_out_say_so_and_load_again_on_their_own(self):
+        page = self.page(None, startup_routes={'/apps': {'reject': 'AbortError', 'times': 1}}, fire=True)
+        startup = page['startup']
+        self.assertEqual((startup['serviceRows'], startup['subtitle'], startup['message'], startup['banner']['shown']),
+                         (0, 'Local services have not been checked yet.', self.SERVICES_TIMED_OUT, False))
+        self.assertEqual((page['serviceRows'], page['message'], page['calls'], page['rechecks']), (1, '', ['/apps'], 0))
+        self.assertEqual((page['expired'], page['shell']), (False, True))
+        page = self.page(None, startup_routes={'/apps': {'status': 500, 'body': {}}}, fire=True)    # an answer that is an error keeps the Check now prompt and does not retry
+        self.assertEqual((page['serviceRows'], page['message'], page['calls']), (0, 'Could not read the services. Choose Check now to try again.', []))
+
+    def test_services_that_got_no_answer_are_asked_for_again_when_another_request_answers_first(self):
+        # startup loads both together: /apps gets no answer, then /desktop-apps answers, and that answer clears the shared retry
+        page = self.page(None, hold='/desktop-apps', startup_routes={'/apps': {'reject': 'TypeError', 'times': 1}}, fire=True)
+        self.assertEqual((page['startup']['serviceRows'], page['before']['banner']['shown']), (0, False))
+        self.assertEqual((page['serviceRows'], page['calls']), (1, ['/apps']))
 
     def test_only_a_401_ends_the_session(self):
         for click, route in (('check-now', '/apps'), ('start-melange-desk', '/apps/action'), ('name-melange-desk', '/apps/detail')):

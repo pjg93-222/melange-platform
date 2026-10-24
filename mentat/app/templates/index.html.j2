@@ -1,0 +1,21 @@
+{#- The console page. This file composes; it never carries markup.
+
+    Every byte the browser receives lives in one of the partials below,
+    each a verbatim slice of what mentat/app/index.html has always been.
+    `-%}` strips the newline this file would otherwise insert between two
+    includes, so the render is the golden page exactly, to the last byte.
+    mentat/app/index.html stays in the repo as that golden render: it is
+    no longer served and no longer hand-edited. Edit a partial, then run
+    `python mentat/tools/render_console.py --write` to carry the edit into
+    it. `--check` is the guard that says when the two have drifted. -#}
+{% include "page_head.html" -%}
+{% include "page_shell.html" -%}
+{% include "view_loading.html" -%}
+{% include "view_collection.html" -%}
+{% include "view_cross_reference.html" -%}
+{% include "view_graph.html" -%}
+{% include "view_chart_studio.html" -%}
+{% include "view_insights.html" -%}
+{% include "view_evidence.html" -%}
+{% include "view_public_data.html" -%}
+{% include "page_tail.html" -%}

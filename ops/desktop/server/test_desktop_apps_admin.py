@@ -1,7 +1,9 @@
 import os
 from pathlib import Path
 import tempfile
+import types
 import unittest
+from unittest import mock
 
 from desktop_admin import Refused
 from desktop_apps_admin import DesktopApps, DesktopUnavailable
@@ -44,6 +46,30 @@ class DesktopAppsTests(unittest.TestCase):
         os.link(self.exe, self.root / 'another.exe')
         with self.assertRaises(DesktopUnavailable):
             self.apps.handle('/desktop-apps/open', {'appId': 'melange'})
+        self.assertEqual(self.calls, [])
+
+    @staticmethod
+    def reparse(*marked):
+        """Make these paths report the reparse-point attribute, as OneDrive placeholders and real junctions do."""
+        real = Path.lstat
+
+        def lstat(path, *args, **kwargs):
+            info = real(path, *args, **kwargs)
+            return types.SimpleNamespace(st_mode=info.st_mode, st_file_attributes=0x400) if path in marked else info
+        return mock.patch.object(Path, 'lstat', lstat)
+
+    def test_a_reparse_point_above_the_install_root_does_not_hide_the_app(self):
+        with self.reparse(*self.root.parents):      # a redirected Documents folder, or a OneDrive placeholder, somewhere above the root
+            row = self.apps.handle('/desktop-apps', {})['applications'][0]
+            self.assertEqual((row['installed'], row['path']), (True, str(self.exe)))
+            self.assertTrue(self.apps.handle('/desktop-apps/open', {'appId': 'melange'})['ok'])
+
+    def test_a_link_at_or_under_the_install_root_is_refused(self):
+        for name, marked in (('the root', self.root), ('the app folder', self.exe.parent), ('the executable', self.exe)):
+            with self.subTest(name), self.reparse(marked):
+                self.assertFalse(self.apps.handle('/desktop-apps', {})['applications'][0]['installed'])
+                with self.assertRaises(DesktopUnavailable):
+                    self.apps.handle('/desktop-apps/open', {'appId': 'melange'})
         self.assertEqual(self.calls, [])
 
     def test_launch_failure_is_reported_without_claiming_success(self):

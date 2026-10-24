@@ -55,11 +55,14 @@ class DesktopApps:
             raise ValueError('Unknown desktop application')
         name = APPS[app]
         path = self.root / name / (name + '.exe')
-        # Never follow a substituted shortcut, junction or symlink into another program.
+        # Never follow a substituted shortcut, junction or symlink into another program. Only the install tree is checked: above
+        # the root, a redirected Documents folder or a OneDrive placeholder also carries the reparse-point attribute.
         for item in (path, *path.parents):
             info = item.lstat()
             if stat.S_ISLNK(info.st_mode) or getattr(info, 'st_file_attributes', 0) & 0x400:
                 raise OSError('The desktop application path contains a link or junction')
+            if item == self.root:
+                break
         info = path.stat()
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
             raise OSError('The desktop application is not a regular installed file')

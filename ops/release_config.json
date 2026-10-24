@@ -11,6 +11,7 @@
   "terrier_ref": "main",
   "terrier_remote_url": "https://github.com/pjg93-222/Geo.git",
   "terrier_images_ref": "deploy/terrier-hosted",
+  "terrier_tagger": {"name": "Paul Goff", "email": "goff0070@umn.edu"},
   "images": {
     "melange": "ghcr.io/pjg93-222/melange-desk",
     "mentat": "ghcr.io/pjg93-222/mentat-console",
@@ -42,7 +43,8 @@
                     "compute-mentat.in", "compute-mentat.linux.txt", "r-package-repos.txt",
                     "compute-melange.in", "compute-melange.linux.txt", "melange-base.lock",
                     "parity_readset_local_extra.args", "required_inputs.txt", "terrier-loading-hq.mp4",
-                    "melange-systems-desktop-release.cer", "turn-on-updates.cmd"]
+                    "melange-systems-desktop-release.cer", "turn-on-updates.cmd"],
+    "extra_paths": ["mentat/app/templates/index.html.j2"]
   },
   "pocket": {"dir": null, "console_port": null, "datasets": []},
   "downloads": {"workbooks": []},

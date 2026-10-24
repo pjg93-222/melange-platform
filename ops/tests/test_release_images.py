@@ -20,6 +20,12 @@ BOTH = ["--confirm-outward", "git,geo"]
 ROOT = "pjg93-222/melange-platform"
 
 
+def peeled_refs(repo) -> list[str]:
+    """Sorted "<ref> <commit>" lines for every ref of `repo`; an annotated tag (Geo's are signed) reads as the commit it is on."""
+    fmt = "%(refname) %(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)"
+    return sorted(g("for-each-ref", f"--format={fmt}", cwd=repo).splitlines())
+
+
 class ImagesEnv(RunEnv):
     """RunEnv plus the Geo image branch (one commit ahead of claude/walk-list, which is checked out and must never be pushed)."""
 
@@ -118,12 +124,66 @@ class ImagesTests(Base):
         self.assertEqual(g("for-each-ref", "--format=%(refname)", cwd=env.geo_remote), "refs/tags/v" + RID)    # no branch went up
         self.assertEqual(env.gh_calls(), [])
 
+    def test_an_annotated_geo_remote_tag_on_another_commit_is_still_a_hard_stop(self):
+        env = ImagesEnv(self)
+        other = self.foreign_commit(env.geo_remote)
+        g("-c", "tag.gpgsign=false", "tag", "-a", "-m", "foreign", "v" + RID, other, cwd=env.geo_remote)
+        self.assertEqual(env.images(*BOTH), 1, env.text)
+        self.assertIn(f"TAG_CONFLICT: Geo origin already has v{RID} on {other[:12]}", env.text)    # the commit, not the tag object
+        self.assertEqual(g("for-each-ref", "--format=%(refname)", cwd=env.geo_remote), "refs/tags/v" + RID)    # no branch went up
+        self.assertEqual(env.gh_calls(), [])
+
+    def test_the_geo_tag_is_signed_annotated_and_carries_the_configured_tagger(self):
+        """tag.gpgsign is on on the release laptop, so a plain `git tag` became a signed annotated tag with no message ("no tag
+        message?") and no tagger. The tag is made signed on purpose; its tagger comes from config and goes to that one call."""
+        env = ImagesEnv(self)
+        env.cfg["terrier_tagger"] = {"name": "Release Tagger", "email": "tagger@example.invalid"}
+        env.can_gh(RID)
+        self.assertEqual(env.images(*BOTH), 0, env.text)
+        tag = "refs/tags/v" + RID
+        for repo in (env.fx.terrier, env.geo_remote):
+            self.assertEqual(g("cat-file", "-t", tag, cwd=repo), "tag", repo)
+            self.assertEqual(g("rev-parse", tag + "^{commit}", cwd=repo), env.geo_commit, repo)
+            body = g("cat-file", "-p", tag, cwd=repo)
+            self.assertIn("\ntagger Release Tagger <tagger@example.invalid> ", body)
+            self.assertIn(f"\n\nRelease v{RID}\n", body)
+            self.assertIn("-----BEGIN SSH SIGNATURE-----", body)
+        signers = env.fx.tmp / "geo_allowed_signers"
+        signers.write_text(f"tagger@example.invalid {(env.fx.tmp / 'sign_key.pub').read_text().strip()}\n")
+        g("-c", f"gpg.ssh.allowedSignersFile={signers}", "tag", "-v", "v" + RID, cwd=env.fx.terrier)    # exit 0: a good signature
+        for key in ("user.name", "user.email"):                                        # the identity never landed in a config
+            self.assertEqual(subprocess.run(["git", "config", "--local", "--get", key], cwd=env.fx.terrier).returncode, 1, key)
+
+    def test_a_rerun_against_the_annotated_geo_tag_already_on_origin_pushes_nothing(self):
+        """`ls-remote origin refs/tags/<t>` lists an annotated tag's own object id; compared with the branch tip, every rerun after a
+        signed Geo tag (v2026.10.22.2 was tagged by hand) stopped on TAG_CONFLICT. The peeled `^{}` line is the commit."""
+        env = ImagesEnv(self)
+        env.can_gh(RID)
+        tag = "v" + RID
+        g("-c", "tag.gpgsign=false", "tag", "-a", "-m", f"Release {tag}", tag, env.geo_commit, cwd=env.fx.terrier)
+        g("push", "-q", "origin", "deploy/terrier-hosted", tag, cwd=env.fx.terrier)
+        self.assertEqual(g("cat-file", "-t", "refs/tags/" + tag, cwd=env.geo_remote), "tag")
+        before = g("for-each-ref", "--format=%(refname) %(objectname)", cwd=env.geo_remote)
+        self.assertEqual(env.images(*BOTH), 0, env.text)
+        self.assertNotIn("TAG_CONFLICT", env.text)
+        self.assertEqual(g("for-each-ref", "--format=%(refname) %(objectname)", cwd=env.geo_remote), before)    # nothing pushed
+        self.assertEqual(env.state()["terrier_commit"], env.geo_commit)
+
+    def test_a_missing_geo_tagger_stops_before_anything_is_pushed(self):
+        env = ImagesEnv(self)
+        env.cfg.pop("terrier_tagger", None)
+        self.assertEqual(env.images(*BOTH), 4, env.text)
+        self.assertIn("NOT_CONFIGURED", env.text)
+        self.assertIn("terrier_tagger.name", env.text)
+        for remote in (env.platform_remote, env.geo_remote):
+            self.assertEqual(g("for-each-ref", cwd=remote), "")
+        self.assertEqual(g("tag", "-l", cwd=env.fx.terrier), "")
+
     def test_geo_gets_its_image_branch_never_the_walk_list(self):
         env = ImagesEnv(self)
         env.can_gh(RID)
         self.assertEqual(env.images(*BOTH), 0, env.text)
-        refs = g("for-each-ref", "--format=%(refname) %(objectname)", cwd=env.geo_remote).splitlines()
-        self.assertEqual(sorted(refs), sorted([f"refs/heads/deploy/terrier-hosted {env.geo_commit}", f"refs/tags/v{RID} {env.geo_commit}"]))
+        self.assertEqual(peeled_refs(env.geo_remote), sorted([f"refs/heads/deploy/terrier-hosted {env.geo_commit}", f"refs/tags/v{RID} {env.geo_commit}"]))
         self.assertEqual(env.state()["terrier_commit"], env.geo_commit)
         self.assertNotEqual(env.geo_commit, env.fx.commits["terrier"])
 
@@ -150,7 +210,7 @@ class ImagesTests(Base):
         self.assertIn("https://github.com/pjg93-222/Geo/actions/runs/1", env.text)
         commit = env.state()["platform_commit"]
         self.assertEqual(g("rev-parse", "refs/heads/main", "refs/tags/v" + RID, cwd=env.platform_remote).split(), [commit, commit])
-        self.assertEqual(g("rev-parse", "refs/heads/deploy/terrier-hosted", "refs/tags/v" + RID, cwd=env.geo_remote).split(), [env.geo_commit] * 2)
+        self.assertEqual(g("rev-parse", "refs/heads/deploy/terrier-hosted", f"refs/tags/v{RID}^{{commit}}", cwd=env.geo_remote).split(), [env.geo_commit] * 2)
         self.assertNotIn("refs/heads/claude/walk-list", g("for-each-ref", cwd=env.geo_remote))
         self.assertEqual(sorted(set(env.tools_called())), ["gh"])                         # no restic, sftp, cloudflared
         self.assertFalse([a for a in env.gh_calls() if "PATCH" in a])                      # nothing un-drafted
@@ -215,6 +275,29 @@ class ImagesTests(Base):
                     env.main(*argv)
                 self.assertEqual(raised.exception.code, 2)
         self.assertEqual(env.tools_called(), [])
+
+
+class RemoteTagTests(Base):
+    def test_a_lightweight_tag_reads_as_before_and_an_annotated_one_is_peeled_to_its_commit(self):
+        tmp = self.tmpdir()
+        origin, local = tmp / "origin.git", tmp / "local"
+        g("init", "-q", "--bare", str(origin), cwd=tmp)
+        g("init", "-q", "-b", "main", str(local), cwd=tmp)
+        commits = []
+        for message in ("one", "two"):
+            g("commit", "-q", "--allow-empty", "-m", message, cwd=local)
+            commits.append(g("rev-parse", "HEAD", cwd=local))
+        g("remote", "add", "origin", str(origin), cwd=local)
+        g("push", "-q", "origin", "main", cwd=local)
+        g("update-ref", "refs/tags/v1", commits[0], cwd=origin)                            # the platform's kind: lightweight
+        g("-c", "tag.gpgsign=false", "tag", "-a", "-m", "Release v2", "v2", commits[1], cwd=origin)   # Geo's kind: annotated
+        repo = {"cwd": str(local)}
+        listed = g("ls-remote", "origin", "refs/tags/v1", "refs/tags/v1^{}", cwd=local).splitlines()
+        self.assertEqual(listed, [f"{commits[0]}\trefs/tags/v1"])                          # a lightweight tag has no ^{} line
+        self.assertEqual(release.remote_tag(repo, "v1"), commits[0])
+        self.assertNotEqual(g("rev-parse", "refs/tags/v2", cwd=origin), commits[1])         # the tag object is not the commit
+        self.assertEqual(release.remote_tag(repo, "v2"), commits[1])
+        self.assertIsNone(release.remote_tag(repo, "v3"))
 
 
 class InitRemoteTests(Base):
