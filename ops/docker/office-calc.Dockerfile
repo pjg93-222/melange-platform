@@ -22,7 +22,11 @@ ARG BUILD_TIME=unknown
 # CVE-2026-76957, CVE-2026-77214, CVE-2026-93990). trixie-security fixed them at libcurl 8.14.1-2+deb13u7 (DSA-6558-1) and libexpat
 # 2.9.0-1~deb13u1 (DSA-6566-1); the 20261012 snapshot holds neither. The cure for a fixable finding is the fixed package, never an
 # exception. The upgrade step and the dpkg assertions below make the build fail if the snapshot ever stops holding them.
-ARG SNAPSHOT=20261017T000000Z
+# 20261017T000000Z -> 20261023T210712Z (D-181): the 2026.10.22.3 images gate failed this image on CVE-2026-111497 (HIGH, an out-of-bounds
+# write in the Brotli decoder) in libbrotli1 1.1.0-2+b7. trixie-security fixed it at brotli 1.1.0-2+deb13u1 (DSA-6582-1), whose amd64 build
+# snapshot.debian.org first saw at 20261023T210712Z. The LibreOffice pin resolves there unchanged; of the installed packages only libbrotli1
+# and tzdata (2026c -> 2026e) move.
+ARG SNAPSHOT=20261023T210712Z
 ARG LIBREOFFICE_VERSION=4:25.2.3-2+deb13u8
 LABEL org.opencontainers.image.title="office-calc" \
       org.opencontainers.image.description="LibreOffice headless recalculation of a workbook copy (view copy with injected cached values)" \
@@ -54,6 +58,7 @@ RUN set -eux; \
     dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libcurl4t64)" ge 8.14.1-2+deb13u7; \
     dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libcurl3t64-gnutls)" ge 8.14.1-2+deb13u7; \
     dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libexpat1)" ge 2.9.0-1~deb13u1; \
+    dpkg --compare-versions "$(dpkg-query -W -f='${Version}' libbrotli1)" ge 1.1.0-2+deb13u1; \
     /usr/bin/python3 -I -c "import uno"; \
     rm -rf /var/lib/apt/lists/* /var/cache/apt/*; \
     groupadd --gid 10001 app; \

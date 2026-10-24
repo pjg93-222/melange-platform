@@ -463,7 +463,8 @@ def test_dockerfile_is_pinned_to_the_lock_and_the_snapshot_and_runs_non_root():
     assert version and (int(version.group(1)), int(version.group(2))) >= OR.MIN_VERSION                 # LET and XLOOKUP
     assert re.search(r"^ARG SNAPSHOT=\d{8}T\d{6}Z$", text, re.M) and "snapshot.debian.org/archive/debian/${SNAPSHOT}/" in text
     assert re.search(r"^ARG SNAPSHOT=(\d{8}T\d{6}Z)$", text, re.M).group(1) >= "20261017T000000Z" and "apt-get upgrade -y" in text    # D-181
-    for pkg, floor in (("libcurl4t64", "8.14.1-2+deb13u7"), ("libcurl3t64-gnutls", "8.14.1-2+deb13u7"), ("libexpat1", "2.9.0-1~deb13u1")):
+    for pkg, floor in (("libcurl4t64", "8.14.1-2+deb13u7"), ("libcurl3t64-gnutls", "8.14.1-2+deb13u7"), ("libexpat1", "2.9.0-1~deb13u1"),
+                       ("libbrotli1", "1.1.0-2+deb13u1")):
         assert f"dpkg --compare-versions \"$(dpkg-query -W -f='${{Version}}' {pkg})\" ge {floor}" in text         # the fixed package is asserted
     assert "libreoffice-calc-nogui=${LIBREOFFICE_VERSION}" in text and "python3-uno=${LIBREOFFICE_VERSION}" in text
     assert 'test "$(dpkg-query -W -f=\'${Version}\' libreoffice-calc-nogui)" = "${LIBREOFFICE_VERSION}"' in text   # the pin is asserted

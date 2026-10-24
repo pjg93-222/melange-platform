@@ -92,7 +92,10 @@ ARG BUILD_TIME=unknown
 # chromium 155.0.8059.79-1~deb13u1 (DSA-6562-1), libcurl 8.14.1-2+deb13u7 (DSA-6558-1) and libexpat 2.9.0-1~deb13u1 (DSA-6566-1).
 # 20261017T000000Z -> 20261022T170820Z, the same bump as ops/docker/compute-mentat.Dockerfile (D-181): the 2026.10.22.1 images gate failed this
 # image on 120 fixable HIGH chromium findings in 155.0.8059.79-1~deb13u1; 20261022T170820Z is the first snapshot holding 156.0.8078.47-1~deb13u1.
-ARG DEBIAN_SNAPSHOT=20261022T170820Z
+# 20261022T170820Z -> 20261023T210712Z, the same bump as ops/docker/compute-mentat.Dockerfile (D-181): the 2026.10.22.3 images gate failed this
+# image on CVE-2026-111497 (HIGH) in libbrotli1 1.1.0-2+b7; 20261023T210712Z is the first snapshot holding brotli 1.1.0-2+deb13u1 (DSA-6582-1).
+# Chromium stays at 156.0.8078.47-1~deb13u1; of the installed packages only libbrotli1 and tzdata (2026c -> 2026e) move.
+ARG DEBIAN_SNAPSHOT=20261023T210712Z
 LABEL org.opencontainers.image.title="compute-collector" \
       org.opencontainers.image.description="Melange collectors: CPython 3.12.10, Node/Playwright, Chromium, claude CLI (no credentials)" \
       org.opencontainers.image.source="https://github.com/pjg93-222/melange-platform" \

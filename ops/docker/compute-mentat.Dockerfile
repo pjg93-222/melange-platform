@@ -32,7 +32,12 @@ FROM ${DEBIAN_BASE} AS base
 # 20261017T000000Z -> 20261022T170820Z, with CHROMIUM_VERSION below (D-181): the 2026.10.22.1 images gate failed this image on 120 fixable HIGH
 # chromium findings (CVE-2026-110913 onward) in 155.0.8059.79-1~deb13u1; trixie-security fixed them at 156.0.8078.47-1~deb13u1, whose amd64
 # build snapshot.debian.org first saw at 20261022T170820Z. Every package named below resolves at that snapshot (checked against its indexes).
-ARG DEBIAN_SNAPSHOT=20261022T170820Z
+# 20261022T170820Z -> 20261023T210712Z (D-181): the 2026.10.22.3 images gate failed this image on CVE-2026-111497 (HIGH, an out-of-bounds
+# write in the Brotli decoder) in libbrotli1 1.1.0-2+b7; trixie-security fixed it at brotli 1.1.0-2+deb13u1 (DSA-6582-1), whose amd64 build
+# snapshot.debian.org first saw at 20261023T210712Z. CHROMIUM_VERSION stays: 156.0.8078.47-1~deb13u1 is still the newest chromium there.
+# Every package named below resolves at that snapshot (checked against its indexes); of the installed packages only libbrotli1 and tzdata
+# (2026c -> 2026e) move.
+ARG DEBIAN_SNAPSHOT=20261023T210712Z
 RUN printf '%s\n' \
       'Types: deb' \
       "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}/" \

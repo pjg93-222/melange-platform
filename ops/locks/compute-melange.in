@@ -10,7 +10,9 @@ networkx==3.6.1
 numpy==2.4.6
 openpyxl==3.1.5
 pandas==3.0.3
-pypdf==6.19.0
+# 2026-10-24: 6.19.0 -> 6.21.2 with requirements.txt and the host python (D-181: GHSA-6c7f-9265-g8fw, GHSA-gmh7-3g9r-mjh5 and
+# GHSA-jr96-gvgh-j3r4, HIGH); the chain census never imports pypdf, so no parity run is affected
+pypdf==6.21.2
 pytest==9.1.1
 requests==2.34.2
 scikit-learn==1.9.0
